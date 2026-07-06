@@ -1,9 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+// main/preload are bundled as CommonJS (Electron's well-supported default), so
+// __dirname is natively available — no import.meta shim needed.
 
 // electron-vite injects the dev server URL in development.
 const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']

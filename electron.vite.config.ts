@@ -6,13 +6,14 @@ export default defineConfig({
   main: {
     build: {
       outDir: 'out/main',
-      lib: { entry: resolve(__dirname, 'electron/main.ts') }
+      // object entry => deterministic `index` output name (matches package.json "main")
+      lib: { entry: { index: resolve(__dirname, 'electron/main.ts') } }
     }
   },
   preload: {
     build: {
       outDir: 'out/preload',
-      lib: { entry: resolve(__dirname, 'electron/preload.ts') }
+      lib: { entry: { index: resolve(__dirname, 'electron/preload.ts') } }
     }
   },
   renderer: {
