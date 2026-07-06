@@ -1,8 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+import type { SystemSnapshot } from '@shared/types/system'
 import { ProjectRegistry } from './main/services/projects/registry'
 import { ProjectService } from './main/services/projects/ProjectService'
 import { registerProjectIpc } from './ipc/projects.ipc'
+import { SystemService } from './main/services/system/SystemService'
+import { registerSystemIpc } from './ipc/system.ipc'
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
 // __dirname is natively available — no import.meta shim needed.
@@ -11,6 +14,14 @@ import { registerProjectIpc } from './ipc/projects.ipc'
 const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 
 let mainWindow: BrowserWindow | null = null
+let systemService: SystemService | null = null
+
+/** Broadcast a push event to every live renderer. */
+function broadcast(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -38,6 +49,12 @@ function createWindow(): void {
     mainWindow?.webContents.send('window:maximized-changed', mainWindow.isMaximized())
   mainWindow.on('maximize', emitMaxState)
   mainWindow.on('unmaximize', emitMaxState)
+
+  // Pause telemetry sampling while the window is hidden/minimized (save energy).
+  mainWindow.on('minimize', () => systemService?.setPaused(true))
+  mainWindow.on('restore', () => systemService?.setPaused(false))
+  mainWindow.on('hide', () => systemService?.setPaused(true))
+  mainWindow.on('show', () => systemService?.setPaused(false))
 
   // Open external links in the OS browser, never in-app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -67,6 +84,9 @@ async function registerServices(): Promise<void> {
   const projectService = new ProjectService(new ProjectRegistry(dataDir))
   await projectService.init()
   registerProjectIpc(projectService)
+
+  systemService = new SystemService((snapshot: SystemSnapshot) => broadcast('system:tick', snapshot))
+  registerSystemIpc(systemService)
 }
 
 app.whenReady().then(async () => {
@@ -76,6 +96,8 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+app.on('before-quit', () => systemService?.dispose())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

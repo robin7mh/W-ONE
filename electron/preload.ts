@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type IpcChannel } from '@shared/ipc/contract'
+import { IPC_CHANNELS, IPC_EVENTS, type IpcChannel, type IpcEvent } from '@shared/ipc/contract'
 
 const channelAllowlist = new Set<string>(IPC_CHANNELS)
+const eventAllowlist = new Set<string>(IPC_EVENTS)
 
 /**
  * The single bridge between renderer and main. Window controls are exposed as
@@ -29,6 +30,16 @@ const api = {
       return Promise.reject(new Error(`Blocked IPC channel: ${channel}`))
     }
     return ipcRenderer.invoke(channel, payload)
+  },
+
+  /** Subscribe to a main→renderer push event. Returns an unsubscribe fn. */
+  on: (channel: IpcEvent, cb: (payload: unknown) => void): (() => void) => {
+    if (!eventAllowlist.has(channel)) {
+      throw new Error(`Blocked IPC event: ${channel}`)
+    }
+    const listener = (_: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
   }
 }
 
