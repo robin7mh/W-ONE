@@ -5,6 +5,7 @@ import { ModulePlaceholder } from './ModulePlaceholder'
 import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { MainCommandPanel } from '@/components/command/MainCommandPanel'
+import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
@@ -34,6 +35,12 @@ export function AppShell() {
   const isCore = active === 'core' || active === 'terminal'
   const activeItem = NAV_ITEMS.find((n) => n.id === active)!
 
+  const renderMain = () => {
+    if (active === 'projects') return <ProjectsView />
+    if (isCore) return <MainCommandPanel active={booted} />
+    return <ModulePlaceholder item={activeItem} />
+  }
+
   return (
     <div className="relative flex h-screen min-h-[560px] w-screen flex-col overflow-hidden">
       <GlowBackground />
@@ -53,11 +60,7 @@ export function AppShell() {
 
         <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
           <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
-            {isCore ? (
-              <MainCommandPanel active={booted} />
-            ) : (
-              <ModulePlaceholder item={activeItem} />
-            )}
+            {renderMain()}
           </motion.div>
 
           {/* Monitor rail — hidden on small widths to avoid crowding */}

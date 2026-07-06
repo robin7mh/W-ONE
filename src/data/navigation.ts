@@ -12,7 +12,7 @@ import type { NavItem } from '@/types'
 export const NAV_ITEMS: NavItem[] = [
   { id: 'core', label: 'Core', icon: LayoutDashboard, ready: true },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare, ready: true },
-  { id: 'projects', label: 'Projects', icon: FolderGit2, ready: false },
+  { id: 'projects', label: 'Projects', icon: FolderGit2, ready: true },
   { id: 'memory', label: 'Memory', icon: BrainCircuit, ready: false },
   { id: 'agents', label: 'Agents', icon: Bot, ready: false },
   { id: 'system', label: 'System', icon: Cpu, ready: false },

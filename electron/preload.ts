@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { IPC_CHANNELS, type IpcChannel } from '@shared/ipc/contract'
+
+const channelAllowlist = new Set<string>(IPC_CHANNELS)
 
 /**
- * The single bridge between renderer and main. All future privileged
- * integrations (real system metrics, node-pty shell, Obsidian vault fs access,
- * AI agent orchestration) should be exposed here as additional methods — the
- * renderer already accesses everything through the guarded `window.wone` object.
+ * The single bridge between renderer and main. Window controls are exposed as
+ * named methods; all typed domain IPC (projects, and later system/terminal/…)
+ * goes through the allowlisted `invoke` — the renderer never touches ipcRenderer
+ * directly, and only channels declared in the shared contract can be called.
  */
 const api = {
   minimize: () => ipcRenderer.send('window:minimize'),
@@ -18,7 +21,15 @@ const api = {
       ipcRenderer.removeListener('window:maximized-changed', listener)
     }
   },
-  platform: process.platform
+  platform: process.platform,
+
+  /** Typed domain IPC. Channel is validated against the shared allowlist. */
+  invoke: (channel: IpcChannel, payload?: unknown): Promise<unknown> => {
+    if (!channelAllowlist.has(channel)) {
+      return Promise.reject(new Error(`Blocked IPC channel: ${channel}`))
+    }
+    return ipcRenderer.invoke(channel, payload)
+  }
 }
 
 export type WoneApi = typeof api

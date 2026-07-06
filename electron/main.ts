@@ -1,5 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+import { ProjectRegistry } from './main/services/projects/registry'
+import { ProjectService } from './main/services/projects/ProjectService'
+import { registerProjectIpc } from './ipc/projects.ipc'
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
 // __dirname is natively available — no import.meta shim needed.
@@ -58,7 +61,16 @@ ipcMain.on('window:toggle-maximize', () => {
 ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 
-app.whenReady().then(() => {
+async function registerServices(): Promise<void> {
+  // userData/wone holds all local app data (registry now, DB/vault later).
+  const dataDir = join(app.getPath('userData'), 'wone')
+  const projectService = new ProjectService(new ProjectRegistry(dataDir))
+  await projectService.init()
+  registerProjectIpc(projectService)
+}
+
+app.whenReady().then(async () => {
+  await registerServices()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
