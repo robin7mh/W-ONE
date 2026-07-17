@@ -1,6 +1,6 @@
 # W-ONE Architecture
 
-**Status:** Authoritative steering document · **Created:** 2026-07-17
+**Status:** Authoritative steering document · **Created:** 2026-07-17 · **Revised:** 2026-07-17 (v1.1 — P2 split into A/B/C, search abstractions separated, event persistence classes, scoped permission grants, binding layering rules)
 **Supersedes:** [`docs/MASTERPLAN.md`](docs/MASTERPLAN.md) (kept as reference — its security doctrine and phase templates remain valid and are carried over here; see §12 for the reconciliation table).
 
 W-ONE evolves from a sci-fi command-center UI into a **modular, local-first personal intelligence system**: an AI assistant with long-term memory, a knowledge base, intelligent project workspaces, a permission-gated agent runtime, and live activity visibility — all running on the user's machine, on open formats.
@@ -65,19 +65,19 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 └──────────────────────────────────┬───────────────────────────────────────────────┘
 ┌──────────────────────────────────┴──────────────── MAIN PROCESS (W-ONE CORE) ───┐
 │  ProjectService   ContextService   SystemService          (existing)            │
-│  SettingsService  VaultService     MemoryStore/Service    (P2/P5)               │
+│  SettingsService (P2A)  VaultService (P2C)  Repos + MemoryService (P2B/P5)      │
 │  KnowledgeService (P4)             ContextEngine (P6)     AIProvider (P6)       │
 │  ToolRegistry + PolicyEngine (P7)  AgentRuntime (P8)      AutomationService(P11)│
 │                                                                                  │
 │  Cross-cutting spines:                                                           │
-│   • EventBus — every service emits WoneEvents → persisted → broadcast (P2)      │
-│   • Entity graph — EntityRef {kind,id} + typed links table (P2)                 │
+│   • EventBus — distributes all WoneEvents; persists per catalog class (P2A/P2B) │
+│   • Entity graph — EntityRef {kind,id} + typed links table (P2B)                │
 │   • Permission gate — deterministic policy in front of every tool call (P7)     │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
 ┌──────────────────────────────────┴───────────────────────── DATA LAYER ─────────┐
 │  Markdown vault (~/W-ONE/vault, Obsidian-compatible — SoT for knowledge)        │
 │  SQLite wone.db (memories, entities, links, events, indexes, FTS5)              │
-│  VectorIndex interface (FTS5 fallback now → sqlite-vec / pgvector / Qdrant)     │
+│  Search: TextSearchIndex (FTS5, P2B) · EmbeddingIndex (P13) · RetrievalService  │
 │  JSON (settings, project registry, context cache) · safeStorage (API keys)      │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
 ┌──────────────────────────────────┴──────────────────── INTEGRATIONS / TOOLS ────┐
@@ -88,9 +88,25 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 
 The three spines are what turn separate features into one system:
 
-- **EventBus** (§10): every meaningful action becomes a structured `WoneEvent` — persisted as the activity log, broadcast to the renderer, consumed by the Agent Activity UI and automations.
+- **EventBus** (§10): every meaningful action becomes a structured `WoneEvent` — distributed to all subscribers, persisted according to its catalog class (`activity`/`audit`), consumed by the Agent Activity UI and automations.
 - **Entity graph** (§4): every domain object is addressable as `EntityRef {kind, id}`; typed edges in a `links` table connect memories ↔ projects ↔ knowledge ↔ people ↔ decisions. This is how "open project W-ONE and know everything about it" works, and it *is* the knowledge graph's data layer.
 - **Permission gate** (§9): tools are the only way agents touch the system, and the policy engine fronts every tool call.
+
+### 2.1 Layering rules (binding)
+
+- **Services** implement business capabilities.
+- **Repositories** implement persistence — nothing else.
+- **IPC handlers** contain no business logic; they bind contract channels to service calls.
+- **Tools** orchestrate approved service calls; they never touch `fs`/`child_process` directly.
+- **Renderer stores** contain no domain logic; they hold view state and call typed IPC.
+
+The one permitted flow:
+
+```
+Renderer → IPC handler → domain/application service
+         → repository or capability service
+         → SQLite / filesystem / external API
+```
 
 ---
 
@@ -107,7 +123,7 @@ The three spines are what turn separate features into one system:
 | Automations | `features/automations` | AutomationService | P11 |
 | System | `features/system` | SystemService | done |
 | Terminal | `features/terminal` | TerminalService (node-pty) | optional PT |
-| Settings | `features/settings` | SettingsService | P2 onward |
+| Settings | `features/settings` | SettingsService | P2A onward |
 
 `ModuleId` (`src/types/index.ts`) and `NAV_ITEMS` (`src/data/navigation.ts`) grow one phase at a time — never in bulk. New views reuse `Panel`/`TechLabel`/`StatusDot` and the token palette exclusively; a new module must look like it was always there.
 
@@ -120,9 +136,10 @@ All shared types live in `src/shared/types/` and are **pure** — no Node, DOM, 
 ### 4.1 The universal relation currency
 
 ```ts
-type EntityKind =
-  | 'project' | 'memory' | 'knowledge' | 'person' | 'concept' | 'task'
-  | 'decision' | 'conversation' | 'agent' | 'tool' | 'file' | 'automation'
+// v1 — only kinds with real consumers today. Grows additively as each module
+// lands (task, decision, person, concept, conversation, agent, tool, file,
+// automation); the SQLite column stays TEXT, so additions are type-level only.
+type EntityKind = 'project' | 'memory' | 'knowledge'
 
 interface EntityRef { kind: EntityKind; id: string }
 
@@ -135,14 +152,23 @@ interface EntityLink { id: string; from: EntityRef; to: EntityRef; type: LinkTyp
 
 Every cross-entity relation in the system — memory→project, knowledge→person, decision→conversation — is an `EntityLink` row. The graph view (P12), project workspaces (P3), and backlinks (P4) are all queries over this one table.
 
+**Binding rule: the `links` table is the only persistent source of truth for relations.** Persistent domain models never carry redundant relation fields (no `relatedEntities` arrays, no `relatedProject` columns). Relations surface only in computed read models:
+
+```ts
+interface MemoryEntryWithRelations extends MemoryEntry {
+  relatedEntities: EntityRef[]   // computed from links
+  project?: EntityRef            // memory —belongs_to→ project
+}
+```
+
 ### 4.2 Canonical types and their storage home
 
 | Type | Source of truth | Indexed in |
 |---|---|---|
-| `MemoryEntry` | SQLite `memories` | `memories_fts` (FTS5) |
-| `KnowledgeNote` | Markdown file in vault | SQLite `knowledge_index` + `knowledge_fts` (rebuildable) |
+| `MemoryEntry` | SQLite `memories` (P2B) | `memories_fts` (FTS5, P2B) |
+| `KnowledgeNote` | Markdown file in vault | SQLite `knowledge_index` + `knowledge_fts` — rebuildable, created in **P4** with their first consumer |
 | `Project` | JSON `projects.json` (today) | mirrored into `entities` from P3 |
-| `WoneEvent` | SQLite `events` (append-only) | — |
+| `WoneEvent` | SQLite `events`, per persistence class (§10); audit rows immutable | — |
 | `AgentDefinition` / `ToolDescriptor` | code (built-ins) + SQLite (user-defined, later) | — |
 | `Automation` | SQLite | — |
 | `AppSettings` | JSON `settings.json` | — |
@@ -177,8 +203,6 @@ interface MemoryEntry {
   summary?: string             // AI-generated from P6
   tags: string[]
   source: MemorySource
-  relatedEntities: EntityRef[]
-  relatedProject?: string
   importance: number           // 0..1 — drives context ranking
   confidence: number           // 0..1 — how certain the fact is
   createdAt: string
@@ -186,6 +210,8 @@ interface MemoryEntry {
   lastAccessedAt?: string      // updated on retrieval
 }
 ```
+
+No relation fields in the persistent model — relations live exclusively in `links` (§4.1): `memory —belongs_to→ project`, `memory —related_to→ <entity>`, `memory —decided_in→ conversation`. Read models (`MemoryEntryWithRelations`) compute them at query time.
 
 ### 5.2 Memory pipeline
 
@@ -200,8 +226,9 @@ The pipeline **interface** exists from P5; its stages are deterministic at first
 
 ### 5.3 Retrieval
 
-1. **Now → P12:** SQLite FTS5 (bm25) over title/content/summary/tags, filtered by type/project/tags; `lastAccessedAt` updated on access; ranking blends bm25 with `importance` and recency.
-2. **P13:** embeddings behind the `VectorIndex` interface (§11.3) — hybrid lexical + semantic retrieval. Swapping FTS-fallback for sqlite-vec (or pgvector/Qdrant) changes a constructor call in `registerServices()`, nothing else.
+1. **From P2B:** lexical search via `TextSearchIndex` (SQLite FTS5, bm25) over title/content/summary/tags; type/tag filters on `memories`, project scope resolved through `links`; `lastAccessedAt` updated on access.
+2. **From P5/P6:** the `RetrievalService` (§11.3) is created with its first real consumer (MemoryService or Context Engine) and blends FTS score, `importance`, recency, project scope, and entity links into one ranking.
+3. **P13:** an `EmbeddingIndex` implementation adds semantic similarity; the `RetrievalService` combines lexical and vector results — its consumers never change.
 
 ---
 
@@ -220,14 +247,26 @@ user input
   → intent signal (question / command / agent task — cheap heuristics first, model later)
   → active project → deterministic ProjectContext (the existing ContextService output:
     tree, stack, deps, TODOs, README, git state)
-  → memory retrieval (top-K via §5.3, scored by relevance × importance × recency)
-  → knowledge retrieval (top-K notes via knowledge_fts)
+  → memory + knowledge retrieval via the RetrievalService (§11.3 — FTS,
+    importance, recency, project scope, entity links; embeddings from P13)
   → recent conversation window
   → assemble sections under a hard token budget, most-valuable-first, each section
     carrying entity IDs so answers can cite their sources
 ```
 
 `AssembledContext` is a structured object (ordered sections with provenance), serialized to the prompt at the last moment. The deterministic project context that already ships today is the structural feed — nothing built so far is thrown away.
+
+### 6.1 Provider abstraction
+
+The internal model for messages, tool calls, and streaming deltas is **provider-neutral**. `LLMProvider` is the only surface the Context Engine, assistant, and agent runtime know:
+
+```ts
+interface LLMProvider {
+  stream(req: LLMRequest): AsyncIterable<LLMDelta>   // internal, provider-neutral types
+}
+```
+
+Anthropic is the first provider; its adapter translates the internal format to and from the Anthropic API — including the tool-use wire format. Nothing outside the adapter imports a provider SDK.
 
 ---
 
@@ -262,7 +301,8 @@ Hard guarantees enforced by code:
 
 - `maxIterations` and `timeoutMs` per run; the loop cannot exceed either.
 - Cancellation via `AbortController` — the UI can stop any run instantly.
-- Every iteration emits events (`agent.iteration`, `tool.started`, …) — the run is fully observable and auditable after the fact.
+- Every step emits structured events (`agent.plan.created`, `agent.step.started`, `agent.step.completed`, `agent.status.updated`, `tool.started`, …) — the run is fully observable and auditable after the fact.
+- **No raw internal model reasoning is ever stored or displayed.** Status and plan events carry user-comprehensible descriptions of what the agent is doing and why an action is needed — never private chain-of-thought text.
 - Tool calls the agent is not allowlisted for are rejected before the policy engine is even consulted.
 - Errors terminate the run with a persisted `error`; there are no silent retries-forever.
 
@@ -279,7 +319,7 @@ Tools are the **only** way agents touch the system. Tools call existing services
 interface ToolDescriptor {
   name: string
   description: string
-  inputSchema: Record<string, unknown>   // JSON Schema — Anthropic tool-use compatible
+  inputSchema: Record<string, unknown>   // JSON Schema — provider-neutral
   permission: PermissionLevel
 }
 
@@ -296,7 +336,26 @@ Registry rules:
 - Code-defined registry in main; the renderer sees only descriptors.
 - `inputSchema` is validated before `execute` runs — malformed model output never reaches a tool body.
 - Planned categories: memory, knowledge, projects, filesystem, git, web search, browser, terminal, calendar. First tools (P7) are SAFE and read-only: search memory/knowledge, read project files, get project context.
-- The JSON-Schema shape maps 1:1 onto the Anthropic tool-use API — no translation layer.
+
+### 8.1 Command execution (binding)
+
+Non-interactive commands run through one capability service using `execFile` with structured arguments — never a shell string:
+
+```ts
+interface CommandRequest {
+  executable: string
+  args: string[]
+  cwd: string
+  env?: Record<string, string>
+}
+```
+
+- `shell: false` by default; arguments are an array — **no string concatenation from model or user input, ever**.
+- `cwd` is validated and confined (the `projects:openFile` realpath guard in `ProjectService` is the template).
+- Hard timeout and output-size limit per command; cancellation via `AbortSignal`.
+- `env` is an explicit allowlist — the full process environment (and its secrets) is never passed through.
+- Interactive processes are out of scope here; they require the optional PTY layer (phase PT).
+- The JSON-Schema shape is provider-neutral; each provider adapter (§6.1) translates it into its wire format (Anthropic first).
 
 ---
 
@@ -307,18 +366,18 @@ Three user-facing classes, mapped from the masterplan's four internal classes (R
 | Level | Meaning | Examples |
 |---|---|---|
 | `safe` | Auto-allowed, logged | read file in project scope, search memory/knowledge/web |
-| `confirm` | Requires explicit approval | write/create file, terminal command, git push |
-| `dangerous` | Blocked by default, approval with strong warning | delete files, `git push --force`, system settings |
+| `confirm` | Allow Once, or a **scoped** Always Allow | write/create file, terminal command, git push |
+| `dangerous` | Allow Once only, with strong warning — **never** Always Allow | delete files, `git push --force`, system settings |
 
 Decision flow — deterministic code, end to end:
 
 ```
 tool call → policy engine classifies (level + scope checks, blocklist)
-          → persisted grants lookup ("Always Allow" for this agent+tool)
+          → persisted grants lookup (scoped "Always Allow": agent + tool + scope)
           → if needed: ApprovalDialog in renderer
             (shows: which agent, which tool, exactly what will happen, why)
-            [ Allow Once ] [ Always Allow ] [ Deny ]
-          → decision persisted where "always" · audit event emitted either way
+            [ Allow Once ] [ Always Allow (scoped) ] [ Deny ]
+          → "always" decisions persisted as scoped grants · audit event either way
 ```
 
 Rules carried over verbatim from masterplan §D: blocklist for catastrophic commands regardless of approval, path confinement for all filesystem access (the `projects:openFile` guard is the template), prompt-injection defense (content from files/web is data, never instructions), append-only audit trail (the `events` table), and *the model can request, only code and the user can grant*.
@@ -334,7 +393,23 @@ interface PermissionRequest {
   reason: string      // why the agent wants it
   input: unknown
 }
+
+/** Persisted only for "Always Allow" — and always with a scope. */
+interface PermissionGrant {
+  id: string
+  agentId: string
+  toolName: string
+  scope: {
+    projectId?: string    // valid only inside this project
+    pathRoot?: string     // valid only under this directory
+    operation?: string    // valid only for this operation variant
+  }
+  createdAt: string
+  expiresAt?: string
+}
 ```
+
+Grant rules: `safe` is auto-allowed and logged. `confirm` supports Allow Once or a **scoped** Always Allow. `dangerous` supports Allow Once only — a persistent grant is never offered or stored. **A grant never widens automatically:** a request outside the stored scope re-prompts, and any scope expansion is an explicit new user decision.
 
 ---
 
@@ -354,13 +429,25 @@ interface WoneEvent<T = unknown> {
 }
 ```
 
-Event type families: `app.*`, `db.*`, `project.*`, `memory.*`, `knowledge.*`, `agent.*` (started/iteration/completed/failed/cancelled), `tool.*` (started/completed/failed/denied), `permission.*` (requested/granted/denied), `automation.*`.
+Event type families: `app.*`, `db.*`, `project.*`, `memory.*`, `knowledge.*`, `agent.*` (started / plan.created / step.started / step.completed / status.updated / completed / failed / cancelled), `tool.*` (started/completed/failed/denied), `permission.*` (requested/granted/denied), `automation.*`. There is deliberately no `agent.thinking` — raw model reasoning is never an event payload (§7).
 
-Flow: any service → `EventBus.emit()` → (a) in-main subscribers (automations later), (b) append-only insert into `events`, (c) broadcast on the single push channel `events:event`.
+Not every event is stored. Every event type is classified centrally in the **event catalog**:
+
+```ts
+type EventPersistence = 'ephemeral' | 'activity' | 'audit'
+```
+
+| Class | Persisted? | Examples |
+|---|---|---|
+| `ephemeral` | never — broadcast only | streaming deltas, scan/reindex progress |
+| `activity` | `events` table | agent plan/steps, memory/knowledge changes, project actions |
+| `audit` | `events` table, immutable | permission decisions, dangerous tool calls |
+
+Flow: any service → `EventBus.emit()` → (a) in-main subscribers (automations later), (b) persistence per catalog class (`activity`/`audit`; `ephemeral` is never written), (c) broadcast on the single push channel `events:event`. The event store is append-only and exposes **no update or delete methods for audit events**.
 
 Consumers:
 - **Agent Activity UI (P9):** renders curated event streams as a calm, technical timeline (the existing mock `CommandTimeline`/`EventLog` components are the visual template) — not raw logs.
-- **Audit:** the `events` table *is* the audit trail for §9.
+- **Audit:** the audit-classified rows in `events` *are* the audit trail for §9 — append-only, no update/delete API.
 - **Automations (P11):** event triggers subscribe on the bus.
 
 ---
@@ -383,22 +470,36 @@ Consumers:
 - **W-ONE is the primary system; Obsidian is optional.** External edits are legitimate: files win over the index, and the index is always rebuildable from the files.
 - Filenames: kebab-case slug of the title (ASCII-folded, Windows-reserved characters stripped, ≤ 80 chars, `-2` suffix on collision); daily notes `YYYY-MM-DD.md`.
 
-### 11.3 Vector search abstraction
+**Knowledge identity (binding):** a note's durable identity is `frontmatter.id` (UUID) — never the title, path, filename, or slug, all of which may change freely. Externally created Markdown files without an `id` are indexed as **unadopted**: readable and searchable, but not linkable as entities. Adoption is an explicit, controlled step that assigns a fresh UUID and writes it back into the frontmatter atomically, preserving the rest of the file byte-for-byte (the exact flow ships with P4). Identity is never derived from the path.
+
+### 11.3 Search & retrieval abstractions
+
+Lexical and vector search are deliberately **not** forced behind one low-level interface — they have different write paths, query shapes, and lifecycles. Three separate abstractions:
 
 ```ts
-interface VectorIndex {
-  readonly dimensions: number | null      // null = lexical fallback, no embeddings
-  upsert(docs: VectorDoc[]): Promise<void>
-  query(q: { namespace: string; text?: string; vector?: Float32Array; topK: number }): Promise<VectorHit[]>
+/** Lexical search — SQLite FTS5. First implementation in P2B (memories). */
+interface TextSearchIndex {
+  search(q: { namespace: string; text: string; topK: number }): Promise<SearchHit[]>
+}
+
+/** Vector search — arrives in P13 (sqlite-vec first; pgvector/Qdrant adaptable). */
+interface EmbeddingIndex {
+  upsert(docs: { id: string; namespace: string; vector: Float32Array }[]): Promise<void>
+  query(q: { namespace: string; vector: Float32Array; topK: number }): Promise<SearchHit[]>
   delete(namespace: string, ids: string[]): Promise<void>
+}
+
+/** Composition layer — created with its first real consumer (P5/P6). */
+interface RetrievalService {
+  retrieve(q: RetrievalQuery): Promise<RetrievalResult>
 }
 ```
 
-Implementations: `Fts5FallbackIndex` (P2 — maps namespaces to FTS5 tables, bm25 ranking) → `SqliteVecIndex` (P13 — sqlite-vec extension, local embeddings) → optional pgvector/Qdrant adapters. All constructed in `registerServices()`; consumers depend only on the interface.
+The `RetrievalService` is where ranking lives: it blends FTS scores, embeddings (from P13), `importance`, recency, project scope, and entity links. It does not exist until MemoryService or the Context Engine actually needs it — no speculative layer.
 
 ### 11.4 Migration policy
 
-`PRAGMA user_version`; migrations are TypeScript modules exporting SQL strings, forward-only, one transaction each, with a file backup of the DB before every migration. Anything whose source of truth is files (knowledge index, FTS) can always be dropped and rebuilt.
+`PRAGMA user_version`; migrations are TypeScript modules exporting SQL strings, forward-only, one transaction each, with a file backup of the DB before every migration (preceded by `wal_checkpoint(TRUNCATE)` so the backup is complete). Anything whose source of truth is files (knowledge index, FTS) can always be dropped and rebuilt.
 
 ---
 
@@ -427,10 +528,12 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | Phase | Scope | Definition of done |
 |---|---|---|
 | **P1 Architecture** | this document | ✅ this commit |
-| **P2 Core Data Models + Local Storage** | shared type vocabulary (entity/memory/knowledge/agent/tool/permission/events/automation/settings); SQLite via better-sqlite3 + migration runner + schema 001 (entities, links, memories + FTS, knowledge index + FTS, events); VaultService (frontmatter, wikilinks, slugs); `VectorIndex` + FTS fallback; SettingsService; `paths.ts`; EventBus; minimal IPC (`settings:get/update`, `vault:status`, `events:recent`, push `events:event`) | app boots unchanged; migration + dev self-check green; both typechecks green |
+| **P2A Core Foundation** | `paths.ts`; SettingsService; SQLite connection (better-sqlite3, WAL, pragmas); migration runner (`user_version`, pre-migration backup with WAL checkpoint); EventBus base (in-main pub/sub + injectable persistence sink — no-op until P2B); minimal shared core types (`entity` minimal, `events` + catalog, `settings`); dev-only DB health/self-check. **No new IPC channels, renderer untouched** | app boots unchanged; `wone.db` created (WAL, FK on, `user_version` 0); migration runner proven by scratch-DB self-check; settings roundtrip; both typechecks green |
+| **P2B Core Storage** | migration 001: `entities`, `links`, `events`, `memories` + `memories_fts` (+ sync triggers); repository layer (EntityRepo, LinkRepo, EventRepo, MemoryRepo — persistence only, no business logic); `TextSearchIndex` over `memories_fts`; event persistence sink active (catalog-driven; audit append-only, no update/delete); storage IPC **only where a real UI consumer exists** | memory insert → FTS match → delete roundtrip; link CRUD; events persisted per class; audit rows immutable |
+| **P2C Vault Foundation** | VaultService: markdown + YAML frontmatter, slugs, wikilink parsing, vault status, identity rules (§11.2); **no** KnowledgeService, **no** `knowledge_index`/`knowledge_fts` (→ P4) | note write/read roundtrip against a scratch root; vault opens cleanly in Obsidian |
 | **P3 Projects as Workspaces** | context UI lands (panel in project detail); projects mirrored into `entities`; project hub aggregating linked memories/knowledge/tasks as they arrive in later phases | opening a project shows its structural context |
-| **P4 Knowledge Base** | KnowledgeService (CRUD, wikilink/backlink index, FTS, chokidar watcher for external edits); Knowledge module UI (explorer, markdown viewer/editor, search, tags, backlinks); nav entry | notes round-trip W-ONE ↔ Obsidian; backlinks live |
-| **P5 Memory Core** | MemoryService + pipeline scaffold (deterministic stages); Memory module UI (browse, search, create, types); memory tools groundwork | "remember X" via UI persists a typed, linked, searchable memory |
+| **P4 Knowledge Base** | KnowledgeService (CRUD, wikilink/backlink index, chokidar watcher for external edits, adoption flow for unadopted notes); `knowledge_index` + `knowledge_fts` are created **here** with their first consumer (rebuildable from the vault); Knowledge module UI (explorer, markdown viewer/editor, search, tags, backlinks); nav entry | notes round-trip W-ONE ↔ Obsidian; backlinks live |
+| **P5 Memory Core** | MemoryService + pipeline scaffold (deterministic stages); `RetrievalService` is introduced here or in P6 with its first real consumer; Memory module UI (browse, search, create, types) | "remember X" via UI persists a typed, linked, searchable memory |
 | **P6 AI Foundation + Context Engine** | `LLMProvider` interface + Anthropic adapter (streaming, keys in safeStorage); `buildContext()`; assistant chat in the Command Center (text only, **no tools**); conversations persisted; memory pipeline stages become model-assisted | asking about the active project gets a context-aware streamed answer |
 | **P7 Tool Registry + Permission System** | registry + schema validation; policy engine + grants store; ApprovalDialog (Allow Once / Always / Deny); audit events; first SAFE read-only tools | assistant can search memory/knowledge and read project files, gated and audited |
 | **P8 Agent Runtime** | controlled loop (limits, timeout, cancellation); runs persisted; permission-gated tool calls; agent definitions (Personal/Coding/Research as data) | an agent completes a bounded multi-step task and is cancellable |
@@ -438,8 +541,8 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | **P10 Files** | Files module: scoped browsing/preview (markdown/text/JSON/code) via service + tools; file entities linkable to projects/knowledge | files are first-class, linkable entities |
 | **P11 Automations** | Automation model + UI; manual + event triggers via EventBus; simple scheduler (no heavy infra) | "every morning summarize open projects" is expressible and runs |
 | **P12 Knowledge Graph** | graph queries over `entities`/`links`; graph view (calm, HUD-styled) | graph renders real relations, click-through to entities |
-| **P13 Optimization** | sqlite-vec embeddings behind `VectorIndex`; hybrid retrieval; perf passes; packaging | semantic search beats FTS on real queries |
-| **PT Terminal** *(optional)* | node-pty + TerminalService; xterm goes live | any time after P2 |
+| **P13 Optimization** | `EmbeddingIndex` implementation (sqlite-vec); `RetrievalService` blends lexical + semantic; perf passes; packaging | semantic search beats FTS on real queries |
+| **PT Terminal** *(optional)* | node-pty + TerminalService; xterm goes live | any time after P2A |
 | **PV Voice** *(optional)* | SpeechProvider abstraction (STT/TTS) | after P6 |
 
-Each phase ships end-to-end (service + IPC + UI in W-ONE's design language), leaves the app bootable, and touches nothing outside its scope. The detailed P2 execution plan (types, schema DDL, file list, verification) is specified and approved; implementation starts on explicit release.
+Each phase ships end-to-end (service + IPC + UI in W-ONE's design language), leaves the app bootable, and touches nothing outside its scope. The detailed P2A execution plan (file list, definition of done, dependencies, risks) is specified; implementation starts on explicit release.
