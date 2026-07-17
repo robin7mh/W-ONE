@@ -1,5 +1,12 @@
 # W/-ONE — Masterplan: Von der UI zum persönlichen Command Center
 
+> ⚠️ **SUPERSEDED (2026-07-17):** Dieses Dokument wurde durch
+> [`/W-ONE_ARCHITECTURE.md`](../W-ONE_ARCHITECTURE.md) abgelöst — dort stehen die
+> maßgebliche Zielarchitektur und die aktuelle Phasenfolge (inkl. Mapping-Tabelle
+> alte → neue Phasen in §12.1). Der Masterplan bleibt als Referenz erhalten,
+> insbesondere für das Sicherheitsmodell (§D) und die detaillierten Phasen-Templates.
+> Stand bei Ablösung: Phasen 0–2 umgesetzt, Phase 4 (Project Context) Backend fertig.
+
 > **Status dieses Dokuments:** reiner Architektur- & Umsetzungsplan. **Kein Code, keine
 > Implementierung, kein UI-Redesign.** Der Plan ist so geschnitten, dass du ihn danach Phase für
 > Phase (und innerhalb jeder Phase Auftrag für Auftrag) mit Claude Code umsetzen kannst.
