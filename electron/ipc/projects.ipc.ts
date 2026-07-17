@@ -10,4 +10,5 @@ export function registerProjectIpc(service: ProjectService): void {
   handle('projects:refresh', ({ id }) => service.refresh(id))
   handle('projects:openInEditor', ({ id }) => service.openInEditor(id))
   handle('projects:openTerminal', ({ id }) => service.openTerminal(id))
+  handle('projects:openFile', ({ id, file, line }) => service.openFile(id, file, line))
 }

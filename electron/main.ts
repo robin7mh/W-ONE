@@ -1,11 +1,15 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import type { SystemSnapshot } from '@shared/types/system'
+import type { ContextProgress } from '@shared/types/context'
 import { ProjectRegistry } from './main/services/projects/registry'
 import { ProjectService } from './main/services/projects/ProjectService'
 import { registerProjectIpc } from './ipc/projects.ipc'
 import { SystemService } from './main/services/system/SystemService'
 import { registerSystemIpc } from './ipc/system.ipc'
+import { ContextStore } from './main/services/context/contextStore'
+import { ContextService } from './main/services/context/ContextService'
+import { registerContextIpc } from './ipc/context.ipc'
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
 // __dirname is natively available — no import.meta shim needed.
@@ -87,6 +91,13 @@ async function registerServices(): Promise<void> {
 
   systemService = new SystemService((snapshot: SystemSnapshot) => broadcast('system:tick', snapshot))
   registerSystemIpc(systemService)
+
+  const contextService = new ContextService({
+    store: new ContextStore(dataDir),
+    resolvePath: (id) => projectService.getProjectPath(id),
+    onProgress: (progress: ContextProgress) => broadcast('context:progress', progress)
+  })
+  registerContextIpc(contextService)
 }
 
 app.whenReady().then(async () => {

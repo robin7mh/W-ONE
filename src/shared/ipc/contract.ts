@@ -6,6 +6,7 @@
 
 import type { Project } from '@shared/types/project'
 import type { SystemSnapshot } from '@shared/types/system'
+import type { ProjectContext, ContextProgress } from '@shared/types/context'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -21,10 +22,14 @@ export interface IpcChannels {
   'projects:refresh': { request: { id: string }; response: Project }
   'projects:openInEditor': { request: { id: string }; response: void }
   'projects:openTerminal': { request: { id: string }; response: void }
+  'projects:openFile': { request: { id: string; file: string; line?: number }; response: void }
 
   'system:subscribe': { request: void; response: void }
   'system:unsubscribe': { request: void; response: void }
   'system:snapshot': { request: void; response: SystemSnapshot }
+
+  'context:get': { request: { projectId: string }; response: ProjectContext | null }
+  'context:reindex': { request: { projectId: string }; response: ProjectContext }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -38,17 +43,21 @@ export const IPC_CHANNELS: readonly IpcChannel[] = [
   'projects:refresh',
   'projects:openInEditor',
   'projects:openTerminal',
+  'projects:openFile',
   'system:subscribe',
   'system:unsubscribe',
-  'system:snapshot'
+  'system:snapshot',
+  'context:get',
+  'context:reindex'
 ]
 
 /** Main→renderer push events (channel → payload). */
 export interface IpcEvents {
   'system:tick': SystemSnapshot
+  'context:progress': ContextProgress
 }
 
 export type IpcEvent = keyof IpcEvents
 
 /** Runtime allowlist for event channels the preload may forward. */
-export const IPC_EVENTS: readonly IpcEvent[] = ['system:tick']
+export const IPC_EVENTS: readonly IpcEvent[] = ['system:tick', 'context:progress']

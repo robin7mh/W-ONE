@@ -2,7 +2,7 @@ import { dialog, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { realpath, stat } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Project } from '@shared/types/project'
 import { ProjectRegistry } from './registry'
@@ -25,6 +25,11 @@ export class ProjectService {
 
   list(): Project[] {
     return this.registry.all()
+  }
+
+  /** Absolute path for a project id, or undefined (used by ContextService). */
+  getProjectPath(id: string): string | undefined {
+    return this.registry.get(id)?.path
   }
 
   /** Native directory picker. Returns null if the user cancels. */
@@ -90,6 +95,27 @@ export class ProjectService {
       }
     }
     const err = await shell.openPath(path)
+    if (err) throw new Error(err)
+  }
+
+  /** Open a specific file (optionally at a line) in the editor. Path-confined. */
+  async openFile(id: string, file: string, line?: number): Promise<void> {
+    const project = this.requireProject(id)
+    const target = resolve(project.path, file)
+    // Confine: the resolved target must live inside the project root.
+    const rootReal = await realpath(project.path)
+    const targetReal = await realpath(target).catch(() => target)
+    if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
+      throw new Error('Refusing to open a file outside the project')
+    }
+    const arg = line && line > 0 ? `${target}:${line}` : target
+    try {
+      await exec('code', ['-g', arg], { windowsHide: true }) // -g = go to file:line
+      return
+    } catch {
+      // `code` not available — reveal the file instead
+    }
+    const err = await shell.openPath(target)
     if (err) throw new Error(err)
   }
 
