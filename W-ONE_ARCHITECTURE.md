@@ -44,7 +44,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Project context | ✅ Backend real (commit `871ba6d`): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache → `context:get`/`context:reindex` + progress event. **No UI yet** |
 | Command interface | 🎭 Display-only (`MainCommandPanel`) — the seam for the assistant (P6) |
 | Terminal | 🎭 xterm.js mounted, fake stream — real PTY is optional phase PT |
-| Bottom dashboard | 🎭 Mock agents/events/timeline — becomes real in P9 (Agent Activity) |
+| Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
 | Memory / Agents / Settings nav | 🎭 Placeholders |
 | LLM integration | ❌ None anywhere yet (by design — lands in P6) |
 
@@ -446,7 +446,7 @@ type EventPersistence = 'ephemeral' | 'activity' | 'audit'
 Flow: any service → `EventBus.emit()` → (a) in-main subscribers (automations later), (b) persistence per catalog class (`activity`/`audit`; `ephemeral` is never written), (c) broadcast on the single push channel `events:event`. The event store is append-only and exposes **no update or delete methods for audit events**.
 
 Consumers:
-- **Agent Activity UI (P9):** renders curated event streams as a calm, technical timeline (the existing mock `CommandTimeline`/`EventLog` components are the visual template) — not raw logs.
+- **Agent Activity UI (P9):** renders curated event streams as a calm, technical timeline (the removed mock `CommandTimeline`/`EventLog` components, recoverable from git at `47cddbf`, are the visual template) — not raw logs.
 - **Audit:** the audit-classified rows in `events` *are* the audit trail for §9 — append-only, no update/delete API.
 - **Automations (P11):** event triggers subscribe on the bus.
 
@@ -537,7 +537,7 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | **P6 AI Foundation + Context Engine** | `LLMProvider` interface + Anthropic adapter (streaming, keys in safeStorage); `buildContext()`; assistant chat in the Command Center (text only, **no tools**); conversations persisted; memory pipeline stages become model-assisted | asking about the active project gets a context-aware streamed answer |
 | **P7 Tool Registry + Permission System** | registry + schema validation; policy engine + grants store; ApprovalDialog (Allow Once / Always / Deny); audit events; first SAFE read-only tools | assistant can search memory/knowledge and read project files, gated and audited |
 | **P8 Agent Runtime** | controlled loop (limits, timeout, cancellation); runs persisted; permission-gated tool calls; agent definitions (Personal/Coding/Research as data) | an agent completes a bounded multi-step task and is cancellable |
-| **P9 Agent Activity** | Agents module UI: live run timeline from `events:event`, run history, cancel; dashboard mocks replaced | user watches an agent work step by step |
+| **P9 Agent Activity** | Agents module UI: live run timeline from `events:event`, run history, cancel; Command Deck filled with live activity | user watches an agent work step by step |
 | **P10 Files** | Files module: scoped browsing/preview (markdown/text/JSON/code) via service + tools; file entities linkable to projects/knowledge | files are first-class, linkable entities |
 | **P11 Automations** | Automation model + UI; manual + event triggers via EventBus; simple scheduler (no heavy infra) | "every morning summarize open projects" is expressible and runs |
 | **P12 Knowledge Graph** | graph queries over `entities`/`links`; graph view (calm, HUD-styled) | graph renders real relations, click-through to entities |

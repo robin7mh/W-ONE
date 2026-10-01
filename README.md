@@ -36,11 +36,11 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 | Region | Component | Notes |
 | --- | --- | --- |
 | Boot overlay | `BootSequence` | Typed boot log + progress, fades to reveal the shell (click to skip). |
-| Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle, custom window controls. Draggable region. |
+| Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
 | Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings. Sliding active indicator. Collapses to icon-only on narrow widths. Routing is visual-only. |
-| Center | `MainCommandPanel` → `TerminalPanel` | xterm.js terminal streaming a fake log + a styled command input (local echo, **executes nothing**). |
-| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines for CPU/RAM/Disk/Network/Battery, process preview. All mock. |
-| Bottom | `BottomDashboard` | **Replaces the eDEX on-screen keyboard** with an Agent / Workflow *Command Deck*: quick-action strip + Active Session, Current Objective, Command Timeline, System Events, Project Context, and Agent cards. |
+| Center | `MainCommandPanel` → `TerminalPanel` | xterm.js terminal showing the W-ONE banner + a styled command input (local echo, **executes nothing**). |
+| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines for CPU/RAM/Disk/Network/Battery, process preview. Live device telemetry; on macOS disk usage and processes match Finder / Activity Monitor. |
+| Bottom | `BottomDashboard` | Collapsible *Command Deck* (replaces the eDEX on-screen keyboard). Collapsed by default and empty for now — the demo cards were removed; real agent activity lands here in P9. |
 
 ### Design system (single source of truth)
 
@@ -68,7 +68,7 @@ electron/            main.ts (frameless window + IPC), preload.ts (window.wone b
 src/
   components/  shell · topbar · nav · command · monitor · dashboard · boot · ui
   hooks/       useClock · useMockMetrics · useTerminalStream · useBoot
-  data/        navigation · mockAgents · mockEvents · mockProcesses · quickActions · boot/terminal lines
+  data/        navigation · boot/terminal lines
   lib/         cn · format
   types/       shared UI types
 ```
@@ -82,10 +82,10 @@ All privileged capability flows through the single `window.wone` bridge
   in `electron/main.ts`, push samples over IPC, and replace the body of `useMockMetrics` with a
   read from `window.wone.sysinfo`. Component props are unchanged.
 - **Real terminal** — add `node-pty` in the main process, bridge its output to xterm via IPC, and
-  swap `STREAM_LINES` in `useTerminalStream` for the live stream. Wire the command input to write
+  write the live stream into the xterm instance owned by `useTerminalStream`. Wire the command input to write
   to the pty. *(This introduces real shell execution — add it deliberately.)*
 - **Obsidian memory** — read a vault via `fs` in the main process, expose it through `window.wone`,
   and build the Memory module surface (currently a placeholder).
-- **AI agents** — wire the `AgentStatusCard`s and the command input to an orchestration service
+- **AI agents** — wire the command input to an orchestration service
   (e.g. the Anthropic API called from the main process) and stream responses into
-  `MainCommandPanel`. The agent roster in `data/mockAgents.ts` is the placeholder to replace.
+  `MainCommandPanel`; agent activity fills the Command Deck.

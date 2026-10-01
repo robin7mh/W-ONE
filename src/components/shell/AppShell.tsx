@@ -37,7 +37,7 @@ export function AppShell() {
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
-    if (isCore) return <MainCommandPanel active={booted} />
+    if (isCore) return <MainCommandPanel />
     return <ModulePlaceholder item={activeItem} />
   }
 
@@ -73,9 +73,9 @@ export function AppShell() {
         </main>
       </div>
 
-      {/* Bottom command deck (keyboard replacement) */}
+      {/* Bottom command deck (collapsible) */}
       <motion.div {...panelIn(0.3)}>
-        <BottomDashboard uptime={uptime} />
+        <BottomDashboard />
       </motion.div>
     </div>
   )

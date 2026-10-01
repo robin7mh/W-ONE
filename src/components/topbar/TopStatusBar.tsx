@@ -6,6 +6,8 @@ import { WindowControls } from './WindowControls'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
+import { cn } from '@/lib/cn'
+import { isMac } from '@/lib/platform'
 
 /** Toggles the root data-theme between the two dark variants. */
 function useThemeToggle(): [boolean, () => void] {
@@ -22,7 +24,12 @@ export function TopStatusBar({ uptime }: { uptime: number }) {
   const [dim, toggleTheme] = useThemeToggle()
 
   return (
-    <header className="drag-region relative z-20 flex h-12 shrink-0 items-center gap-4 border-b border-hud/70 bg-surface/60 px-3 backdrop-blur-md">
+    <header
+      className={cn(
+        'drag-region relative z-20 flex h-12 shrink-0 items-center gap-4 border-b border-hud/70 bg-surface/60 px-3 backdrop-blur-md',
+        isMac && 'pl-[88px]' // clear the native traffic lights
+      )}
+    >
       {/* Logo / codename */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-7 w-7 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-xs font-bold text-cyan text-glow-cyan">
@@ -72,8 +79,12 @@ export function TopStatusBar({ uptime }: { uptime: number }) {
           {dim ? <Moon size={14} /> : <SunMedium size={14} />}
         </button>
 
-        <div className="mx-1 h-5 w-px bg-hud/60" />
-        <WindowControls />
+        {!isMac && (
+          <>
+            <div className="mx-1 h-5 w-px bg-hud/60" />
+            <WindowControls />
+          </>
+        )}
       </div>
     </header>
   )

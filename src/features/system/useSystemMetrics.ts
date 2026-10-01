@@ -18,6 +18,12 @@ const push = (prev: { value: number; history: number[] }, value: number) => ({
   history: [...prev.history.slice(1), value]
 })
 
+/** First real sample fills the whole history, so sparklines don't rise from a fake 0. */
+const fill = (_prev: { value: number; history: number[] }, value: number) => ({
+  value,
+  history: Array.from({ length: HISTORY }, () => value)
+})
+
 export interface SystemView {
   metrics: Metrics
   processes: ProcessRow[]
@@ -41,16 +47,19 @@ export function useSystemMetrics(): SystemView {
 
   useEffect(() => {
     let mounted = true
+    let primed = false
 
     const apply = (s: SystemSnapshot) => {
       if (!mounted) return
+      const step = primed ? push : fill
+      primed = true
       setLive(true)
       setMetrics((prev) => ({
-        cpu: push(prev.cpu, s.cpu.total),
-        ram: push(prev.ram, s.mem.usedPct),
-        disk: push(prev.disk, s.disk.usedPct),
-        network: push(prev.network, s.net.rxMbps + s.net.txMbps),
-        battery: push(prev.battery, s.battery.pct)
+        cpu: step(prev.cpu, s.cpu.total),
+        ram: step(prev.ram, s.mem.usedPct),
+        disk: step(prev.disk, s.disk.usedPct),
+        network: step(prev.network, s.net.rxMbps + s.net.txMbps),
+        battery: step(prev.battery, s.battery.pct)
       }))
       setProcesses(s.processes)
       setUptimeSec(s.uptimeSec)

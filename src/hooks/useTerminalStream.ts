@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { BANNER, STREAM_LINES } from '@/data/terminalLines'
+import { BANNER } from '@/data/terminalLines'
 
 /** Reads a CSS variable (space-separated RGB) as a hex color for xterm's theme. */
 function cssRgb(varName: string, fallback: string): string {
@@ -14,14 +14,10 @@ function cssRgb(varName: string, fallback: string): string {
 }
 
 /**
- * Owns an xterm instance in `containerRef`, prints a banner, then streams fake
- * log lines on an interval. Display-only — no shell is attached. To make it
- * real, pipe node-pty output here instead of STREAM_LINES (see README).
+ * Owns an xterm instance in `containerRef` and prints the banner. Display-only
+ * — no shell is attached. To make it real, pipe node-pty output here (see README).
  */
-export function useTerminalStream(
-  containerRef: React.RefObject<HTMLDivElement>,
-  { active }: { active: boolean }
-): void {
+export function useTerminalStream(containerRef: React.RefObject<HTMLDivElement>): void {
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
 
@@ -77,18 +73,4 @@ export function useTerminalStream(
       fitRef.current = null
     }
   }, [containerRef])
-
-  // Stream lines while active.
-  useEffect(() => {
-    if (!active) return
-    let i = 0
-    const id = window.setInterval(() => {
-      const term = termRef.current
-      if (!term) return
-      const line = STREAM_LINES[i % STREAM_LINES.length]()
-      term.writeln(line)
-      i += 1
-    }, 1700)
-    return () => window.clearInterval(id)
-  }, [active])
 }

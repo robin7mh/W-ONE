@@ -2,13 +2,12 @@ import { useRef } from 'react'
 import { useTerminalStream } from '@/hooks/useTerminalStream'
 
 /**
- * Hosts the xterm.js surface. Display-only: it prints a banner and streams fake
- * log lines. No shell is attached (no execution). `active` gates the stream so
- * it only runs once the app has booted.
+ * Hosts the xterm.js surface. Display-only: it prints a banner. No shell is
+ * attached (no execution).
  */
-export function TerminalPanel({ active }: { active: boolean }) {
+export function TerminalPanel() {
   const containerRef = useRef<HTMLDivElement>(null)
-  useTerminalStream(containerRef, { active })
+  useTerminalStream(containerRef)
 
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">

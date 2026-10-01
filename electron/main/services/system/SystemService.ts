@@ -1,11 +1,12 @@
 import type { ProcessInfo, SystemSnapshot } from '@shared/types/system'
-import { collect } from './collectors'
+import { collect, collectProcesses } from './collectors'
 
 /**
  * Samples system telemetry and pushes it to the renderer via an injected sender.
  * The interval only runs while there is at least one subscriber AND the window
  * is not paused (minimized/hidden) — so a backgrounded app costs nothing.
- * The expensive process scan runs on a slower cadence than the cheap metrics.
+ * The expensive process scan runs on a slower cadence than the cheap metrics,
+ * in the background, so it never delays a tick.
  */
 export class SystemService {
   private subscribers = 0
@@ -13,6 +14,7 @@ export class SystemService {
   private timer: NodeJS.Timeout | null = null
   private tickCount = 0
   private lastProcesses: ProcessInfo[] = []
+  private scanning = false
 
   constructor(
     private readonly send: (snapshot: SystemSnapshot) => void,
@@ -37,9 +39,8 @@ export class SystemService {
   }
 
   async snapshot(): Promise<SystemSnapshot> {
-    const snap = await collect(true, this.lastProcesses)
-    this.lastProcesses = snap.processes
-    return snap
+    void this.refreshProcesses()
+    return collect(this.lastProcesses)
   }
 
   dispose(): void {
@@ -60,13 +61,23 @@ export class SystemService {
 
   private async tick(): Promise<void> {
     this.tickCount += 1
-    const withProcesses = this.tickCount % this.processEveryNTicks === 1
+    if (this.tickCount % this.processEveryNTicks === 1) void this.refreshProcesses()
     try {
-      const snap = await collect(withProcesses, this.lastProcesses)
-      this.lastProcesses = snap.processes
-      this.send(snap)
+      this.send(await collect(this.lastProcesses))
     } catch {
       // Skip a bad sample rather than crash the sampler.
+    }
+  }
+
+  private async refreshProcesses(): Promise<void> {
+    if (this.scanning) return
+    this.scanning = true
+    try {
+      this.lastProcesses = await collectProcesses()
+    } catch {
+      // Keep the previous list on a failed scan.
+    } finally {
+      this.scanning = false
     }
   }
 }

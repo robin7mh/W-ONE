@@ -42,8 +42,11 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    frame: false, // frameless — custom window controls live in TopStatusBar
-    titleBarStyle: 'hidden',
+    // macOS keeps its native traffic lights, centered in the 48px top bar;
+    // elsewhere the window is frameless and TopStatusBar draws the controls.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 17 } }
+      : { frame: false }),
     backgroundColor: '#04060b',
     autoHideMenuBar: true,
     webPreferences: {
