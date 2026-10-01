@@ -96,12 +96,14 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
     let edge = ''
     let label = ''
     let labelStrong = ''
+    let glow = 1
     const readColors = () => {
       palette = GRAPH_COLORS.map((c) => cssRgb(`--graph-${c}`))
       muted = cssRgb('--text-muted')
       edge = cssRgb('--border-hud-strong')
       label = cssRgb('--text-secondary')
       labelStrong = cssRgb('--text-primary')
+      glow = Number.parseFloat(cssRgb('--glow')) || 0
     }
     readColors()
 
@@ -158,7 +160,7 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
           ctx.stroke()
         } else {
           ctx.shadowColor = `rgb(${c} / 0.7)`
-          ctx.shadowBlur = n === focus ? 18 : 6
+          ctx.shadowBlur = (n === focus ? 18 : 6) * glow
           ctx.fillStyle = `rgb(${c})`
           ctx.fill()
           ctx.shadowBlur = 0

@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn'
 
 const TONE: Record<string, string> = {
   accent: 'text-cyan text-glow-cyan',
-  ok: 'text-[rgb(96_220_150)]',
+  ok: 'text-green',
   dim: 'text-text-muted'
 }
 

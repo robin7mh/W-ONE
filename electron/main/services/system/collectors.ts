@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { userInfo } from 'node:os'
 import { promisify } from 'node:util'
 import si from 'systeminformation'
 import type { ProcessInfo, SystemSnapshot } from '@shared/types/system'
@@ -77,6 +78,24 @@ async function net(): Promise<SystemSnapshot['net']> {
 async function battery(): Promise<SystemSnapshot['battery']> {
   const b = await si.battery()
   return { pct: clampPct(b.percent ?? 0), charging: !!b.isCharging, hasBattery: !!b.hasBattery }
+}
+
+/** The OS account's display name (macOS full name, Linux GECOS), else the login. */
+export async function currentUser(): Promise<{ name: string; firstName: string }> {
+  const login = userInfo().username
+  let name = ''
+  try {
+    if (isMac) name = (await run('id', ['-F'], { timeout: 2000 })).stdout.trim()
+    else if (process.platform === 'linux') {
+      const { stdout } = await run('getent', ['passwd', login], { timeout: 2000 })
+      name = (stdout.split(':')[4] ?? '').split(',')[0].trim()
+    }
+  } catch {
+    /* fall back to the login name */
+  }
+  name ||= login
+  const first = name.split(/[\s._-]+/)[0] || name
+  return { name, firstName: first.charAt(0).toUpperCase() + first.slice(1) }
 }
 
 const TOP_N = 6

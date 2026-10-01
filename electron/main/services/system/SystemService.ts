@@ -1,5 +1,5 @@
 import type { ProcessInfo, SystemSnapshot } from '@shared/types/system'
-import { collect, collectProcesses } from './collectors'
+import { collect, collectProcesses, currentUser } from './collectors'
 
 /**
  * Samples system telemetry and pushes it to the renderer via an injected sender.
@@ -36,6 +36,11 @@ export class SystemService {
   setPaused(paused: boolean): void {
     this.paused = paused
     this.evaluate()
+  }
+
+  /** OS account display name, for the dashboard greeting. */
+  user(): Promise<{ name: string; firstName: string }> {
+    return currentUser()
   }
 
   async snapshot(): Promise<SystemSnapshot> {

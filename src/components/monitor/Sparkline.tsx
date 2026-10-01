@@ -49,7 +49,7 @@ export function Sparkline({
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
-        style={{ filter: `drop-shadow(0 0 3px rgb(${accent} / 0.7))` }}
+        style={{ filter: `drop-shadow(0 0 3px rgb(${accent} / calc(0.7 * var(--glow))))` }}
       />
       <circle cx={lastX} cy={lastY} r={1.8} fill={`rgb(${accent})`} vectorEffect="non-scaling-stroke" />
     </svg>

@@ -5,6 +5,7 @@ import { ModulePlaceholder } from './ModulePlaceholder'
 import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { MainCommandPanel } from '@/components/command/MainCommandPanel'
+import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { MemoryView } from '@/features/memory/components/MemoryView'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
@@ -33,13 +34,13 @@ export function AppShell() {
     return () => window.clearInterval(id)
   }, [booted])
 
-  const isCore = active === 'core' || active === 'terminal'
   const activeItem = NAV_ITEMS.find((n) => n.id === active)!
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
     if (active === 'memory') return <MemoryView />
-    if (isCore) return <MainCommandPanel />
+    if (active === 'core') return <Dashboard onNavigate={setActive} />
+    if (active === 'terminal') return <MainCommandPanel />
     return <ModulePlaceholder item={activeItem} />
   }
 
@@ -51,7 +52,7 @@ export function AppShell() {
 
       {/* Top bar */}
       <motion.div {...panelIn(0.05)}>
-        <TopStatusBar uptime={uptime} />
+        <TopStatusBar uptime={uptime} showClock={active !== 'core'} />
       </motion.div>
 
       {/* Body: nav · main · monitor */}

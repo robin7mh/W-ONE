@@ -27,11 +27,15 @@
   --accent-blue: 74 132 255; /* electric blue */
   --accent-purple: 158 122 255;
   --accent-amber: 245 191 96;
+  --accent-green: 96 220 150;
   --accent-danger: 255 96 112;
 
   --text-primary: 226 236 247;
   --text-secondary: 150 168 189;
   --text-muted: 96 112 133;
+
+  /* Strength of decorative glows (text-glow, HUD drop-shadows). */
+  --glow: 1;
 
   /* Memory graph palette — one hue per folder in colorful mode. */
   --graph-cyan: 56 214 232;
@@ -46,36 +50,42 @@
   color-scheme: dark;
 }
 
-/* Slightly lighter dark variant toggled via data-theme (variables only). */
-:root[data-theme='dim'] {
-  --bg-void: 10 14 22;
-  --bg-surface: 15 20 30;
-  --bg-panel: 20 27 40;
-  --bg-elevated: 26 35 50;
+/*
+ * Light theme (variables only). Accents are deepened so text and thin lines
+ * keep contrast on white; glows are switched off — they only read on dark.
+ */
+:root[data-theme='light'] {
+  --bg-void: 238 242 247;
+  --bg-surface: 246 248 251;
+  --bg-panel: 255 255 255;
+  --bg-elevated: 232 237 244;
 
-  --border-hud: 52 72 98;
-  --border-hud-strong: 80 112 150;
+  --border-hud: 208 216 228;
+  --border-hud-strong: 160 175 196;
 
-  --accent-cyan: 72 220 236;
-  --accent-blue: 96 148 255;
-  --accent-purple: 172 138 255;
-  --accent-amber: 248 200 112;
-  --accent-danger: 255 112 128;
+  --accent-cyan: 0 132 158;
+  --accent-blue: 37 99 235;
+  --accent-purple: 109 64 230;
+  --accent-amber: 180 115 0;
+  --accent-green: 22 150 72;
+  --accent-danger: 210 36 64;
 
-  --text-primary: 232 240 250;
-  --text-secondary: 168 184 204;
-  --text-muted: 112 130 150;
+  --text-primary: 17 24 39;
+  --text-secondary: 61 74 94;
+  --text-muted: 107 120 140;
 
-  --graph-cyan: 72 220 236;
-  --graph-blue: 96 148 255;
-  --graph-purple: 172 138 255;
-  --graph-pink: 240 128 208;
-  --graph-amber: 248 200 112;
-  --graph-green: 112 226 162;
-  --graph-orange: 255 158 100;
-  --graph-lime: 198 232 108;
+  --glow: 0;
 
-  color-scheme: dark;
+  --graph-cyan: 0 150 178;
+  --graph-blue: 37 99 235;
+  --graph-purple: 124 77 255;
+  --graph-pink: 214 51 150;
+  --graph-amber: 202 138 4;
+  --graph-green: 22 163 74;
+  --graph-orange: 234 88 12;
+  --graph-lime: 101 163 13;
+
+  color-scheme: light;
 }
 
 @layer base {
@@ -249,7 +259,7 @@
     -webkit-app-region: no-drag;
   }
   .text-glow-cyan {
-    text-shadow: 0 0 10px rgb(var(--accent-cyan) / 0.45);
+    text-shadow: 0 0 10px rgb(var(--accent-cyan) / calc(0.45 * var(--glow)));
   }
 }
 

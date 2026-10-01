@@ -36,6 +36,7 @@ export interface IpcChannels {
   'system:subscribe': { request: void; response: void }
   'system:unsubscribe': { request: void; response: void }
   'system:snapshot': { request: void; response: SystemSnapshot }
+  'system:user': { request: void; response: { name: string; firstName: string } }
 
   'context:get': { request: { projectId: string }; response: ProjectContext | null }
   'context:reindex': { request: { projectId: string }; response: ProjectContext }
@@ -68,6 +69,7 @@ export const IPC_CHANNELS: readonly IpcChannel[] = [
   'system:subscribe',
   'system:unsubscribe',
   'system:snapshot',
+  'system:user',
   'context:get',
   'context:reindex',
   'memory:status',

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { mkdir } from 'node:fs/promises'
 import type { SystemSnapshot } from '@shared/types/system'
@@ -51,7 +51,8 @@ function createWindow(): void {
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 17 } }
       : { frame: false }),
-    backgroundColor: '#04060b',
+    // Matches --bg-void of the theme the renderer will pick by default (OS appearance).
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#04060b' : '#eef2f7',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

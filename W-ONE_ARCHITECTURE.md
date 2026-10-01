@@ -42,7 +42,8 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Projects | ✅ Real. JSON registry, git/stack detection, open in editor/terminal, `projects:openFile` with path confinement |
 | System monitor | ✅ Real. 1.5 s telemetry stream, pauses when window hidden |
 | Project context | ✅ Backend real (commit `871ba6d`): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache → `context:get`/`context:reindex` + progress event. **No UI yet** |
-| Command interface | 🎭 Display-only (`MainCommandPanel`) — the seam for the assistant (P6) |
+| Core dashboard | ✅ Real. `features/dashboard`: greeting with the OS account name (`system:user`), HUD clock (seconds/minutes/day rings), tiles for projects (live git), brain (vault) and a system verdict |
+| Command interface | 🎭 Display-only (`MainCommandPanel`, Terminal tab) — a seam for the assistant (P6) |
 | Terminal | 🎭 xterm.js mounted, fake stream — real PTY is optional phase PT |
 | Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
@@ -115,7 +116,8 @@ Renderer → IPC handler → domain/application service
 
 | Nav module | Feature dir | Backing services | Real in |
 |---|---|---|---|
-| Home / Command Center (`core`) | `features/assistant` | ContextEngine, AIProvider, ConversationStore | P6 |
+| Home / Command Center (`core`) | `features/dashboard` — a personal HUD by user decision; the assistant surface (`features/assistant`) gets its own place in P6 | SystemService, ProjectService, VaultService (read-only) | done |
+| Editor *(planned)* | `features/editor` — Monaco in its own tab, project files; VS Code stays one click away | ProjectService (confined file read/write) | next |
 | Projects | `features/projects` (+ `context`) | ProjectService, ContextService | done / P3 |
 | ~~Knowledge~~ | merged into Memory (§12.3) | — | — |
 | Memory | `features/memory` | VaultService, MemoryIndex; MemoryService pipeline later | vault ✅ / pipeline P5 |

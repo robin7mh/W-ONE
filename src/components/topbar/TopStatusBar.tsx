@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Moon, SunMedium, Wifi, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
@@ -8,20 +7,10 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { isMac } from '@/lib/platform'
+import { useTheme } from '@/lib/theme'
 
-/** Toggles the root data-theme between the two dark variants. */
-function useThemeToggle(): [boolean, () => void] {
-  const [dim, setDim] = useState(false)
-  const toggle = () => {
-    const next = !dim
-    setDim(next)
-    document.documentElement.setAttribute('data-theme', next ? 'dim' : 'dark')
-  }
-  return [dim, toggle]
-}
-
-export function TopStatusBar({ uptime }: { uptime: number }) {
-  const [dim, toggleTheme] = useThemeToggle()
+export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
+  const [theme, toggleTheme] = useTheme()
 
   return (
     <header
@@ -51,7 +40,7 @@ export function TopStatusBar({ uptime }: { uptime: number }) {
 
       {/* Center: clock */}
       <div className="hidden flex-1 justify-center lg:flex">
-        <Clock />
+        {showClock && <Clock />}
       </div>
 
       {/* Right cluster */}
@@ -66,17 +55,18 @@ export function TopStatusBar({ uptime }: { uptime: number }) {
 
         {/* quick status glyphs */}
         <div className="hidden items-center gap-1 rounded-md border border-hud/60 bg-surface/50 px-2 py-1 md:flex">
-          <ShieldCheck size={14} className="text-[rgb(96_220_150)]" />
+          <ShieldCheck size={14} className="text-green" />
           <Wifi size={14} className="text-cyan" />
         </div>
 
         <button
           type="button"
-          aria-label="Toggle theme"
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
           onClick={toggleTheme}
           className="no-drag flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/50 text-text-muted transition-colors hover:border-cyan/50 hover:text-cyan"
         >
-          {dim ? <Moon size={14} /> : <SunMedium size={14} />}
+          {theme === 'dark' ? <SunMedium size={14} /> : <Moon size={14} />}
         </button>
 
         {!isMac && (

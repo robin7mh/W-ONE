@@ -19,6 +19,7 @@ export default {
         blue: 'rgb(var(--accent-blue) / <alpha-value>)',
         purple: 'rgb(var(--accent-purple) / <alpha-value>)',
         amber: 'rgb(var(--accent-amber) / <alpha-value>)',
+        green: 'rgb(var(--accent-green) / <alpha-value>)',
         danger: 'rgb(var(--accent-danger) / <alpha-value>)',
         'text-primary': 'rgb(var(--text-primary) / <alpha-value>)',
         'text-secondary': 'rgb(var(--text-secondary) / <alpha-value>)',
@@ -29,8 +30,8 @@ export default {
         mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
       },
       boxShadow: {
-        glow: '0 0 0 1px rgb(var(--accent-cyan) / 0.25), 0 0 18px -2px rgb(var(--accent-cyan) / 0.35)',
-        'glow-sm': '0 0 12px -2px rgb(var(--accent-cyan) / 0.30)',
+        glow: '0 0 0 1px rgb(var(--accent-cyan) / 0.25), 0 0 18px -2px rgb(var(--accent-cyan) / calc(0.35 * var(--glow)))',
+        'glow-sm': '0 0 12px -2px rgb(var(--accent-cyan) / calc(0.30 * var(--glow)))',
         panel: '0 1px 0 0 rgb(var(--border-hud) / 0.6), inset 0 1px 0 0 rgb(255 255 255 / 0.02)'
       },
       letterSpacing: {
@@ -41,10 +42,6 @@ export default {
           '0%, 100%': { opacity: '1', boxShadow: '0 0 0 0 rgb(var(--accent-cyan) / 0.55)' },
           '50%': { opacity: '0.55', boxShadow: '0 0 0 5px rgb(var(--accent-cyan) / 0)' }
         },
-        scan: {
-          '0%': { transform: 'translateY(-100%)' },
-          '100%': { transform: 'translateY(100%)' }
-        },
         flicker: {
           '0%, 100%': { opacity: '1' },
           '92%': { opacity: '1' },
@@ -54,7 +51,6 @@ export default {
       },
       animation: {
         'pulse-dot': 'pulseDot 2.2s ease-in-out infinite',
-        scan: 'scan 7s linear infinite',
         flicker: 'flicker 6s linear infinite'
       }
     }

@@ -1,6 +1,6 @@
 /**
- * Ambient backdrop: deep radial glow, a slowly drifting HUD grid, a faint
- * moving scanline and static noise. Pure CSS — cheap, and it sits behind
+ * Ambient backdrop: deep radial glow, a slowly drifting HUD grid and static
+ * noise. Pure CSS — cheap, and it sits behind
  * everything with pointer-events disabled. Motion is disabled automatically for
  * users who prefer reduced motion (see index.css).
  */
@@ -26,9 +26,6 @@ export function GlowBackground() {
 
       {/* horizon line */}
       <div className="absolute left-0 right-0 top-1/2 h-px bg-gradient-to-r from-transparent via-cyan/20 to-transparent" />
-
-      {/* moving scanline */}
-      <div className="absolute inset-x-0 top-0 h-24 animate-scan bg-gradient-to-b from-cyan/[0.05] to-transparent" />
 
       {/* fine noise */}
       <div

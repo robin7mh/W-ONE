@@ -1,16 +1,17 @@
 /**
- * Static banner written into xterm. ANSI color codes match the HUD palette.
- * Live output arrives once a node-pty bridge exists (see README).
+ * Static banner written into xterm. Uses the standard ANSI palette slots, which
+ * useTerminalStream maps to the theme tokens — so a theme switch recolors text
+ * that is already on screen. Live output arrives once a node-pty bridge exists.
  */
 const C = {
   reset: '\x1b[0m',
-  cyan: '\x1b[38;2;56;214;232m',
-  blue: '\x1b[38;2;74;132;255m',
-  purple: '\x1b[38;2;158;122;255m',
-  green: '\x1b[38;2;96;220;150m',
-  amber: '\x1b[38;2;245;191;96m',
-  dim: '\x1b[38;2;96;112;133m',
-  white: '\x1b[38;2;226;236;247m'
+  cyan: '\x1b[36m',
+  blue: '\x1b[34m',
+  purple: '\x1b[35m',
+  green: '\x1b[32m',
+  amber: '\x1b[33m',
+  dim: '\x1b[90m',
+  white: '\x1b[97m'
 }
 
 export const BANNER: string[] = [

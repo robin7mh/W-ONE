@@ -4,7 +4,7 @@ type Tone = 'cyan' | 'ok' | 'warn' | 'error' | 'muted'
 
 const TONE_CLASS: Record<Tone, string> = {
   cyan: 'bg-cyan',
-  ok: 'bg-[rgb(96_220_150)]',
+  ok: 'bg-green',
   warn: 'bg-amber',
   error: 'bg-danger',
   muted: 'bg-text-muted'

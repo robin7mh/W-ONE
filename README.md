@@ -38,7 +38,7 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 | Boot overlay | `BootSequence` | Typed boot log + progress, fades to reveal the shell (click to skip). |
 | Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
 | Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings. Sliding active indicator. Collapses to icon-only on narrow widths. Routing is visual-only. |
-| Center | `MainCommandPanel` → `TerminalPanel` | xterm.js terminal showing the W-ONE banner + a styled command input (local echo, **executes nothing**). |
+| Center | `Dashboard` (Core) · `MainCommandPanel` → `TerminalPanel` (Terminal) | Core: greeting, HUD clock and real tiles for projects, brain and system. Terminal: xterm.js with the W-ONE banner + a styled command input (local echo, **executes nothing**). |
 | Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines for CPU/RAM/Disk/Network/Battery, process preview. Live device telemetry; on macOS disk usage and processes match Finder / Activity Monitor. |
 | Bottom | `BottomDashboard` | Collapsible *Command Deck* (replaces the eDEX on-screen keyboard). Collapsed by default and empty for now — the demo cards were removed; real agent activity lands here in P9. |
 
@@ -46,7 +46,8 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 
 - **Colors** are CSS variables in `src/index.css`, exposed as Tailwind tokens in
   `tailwind.config.ts`. No hardcoded hex in components. The theme toggle swaps `data-theme`
-  between two dark variants — variables only, no component changes.
+  between dark and light (saved; first start follows the OS appearance) — variables only, no
+  component changes. Glows scale with the `--glow` token, so they switch off in light mode.
 - **One `Panel` primitive** (`src/components/ui/Panel.tsx`) gives every framed surface the same
   border/header treatment; `HudFrame` adds optional corner ticks. One shared glow token, used
   sparingly.

@@ -36,7 +36,7 @@ export function RadialGauge({
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${dash} ${c}`}
-          style={{ filter: `drop-shadow(0 0 4px rgb(${accent} / 0.6))`, transition: 'stroke-dasharray 0.6s ease' }}
+          style={{ filter: `drop-shadow(0 0 4px rgb(${accent} / calc(0.6 * var(--glow))))`, transition: 'stroke-dasharray 0.6s ease' }}
         />
       </svg>
       <div className="absolute flex flex-col items-center">

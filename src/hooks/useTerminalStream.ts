@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { BANNER } from '@/data/terminalLines'
 
@@ -13,9 +13,30 @@ function cssRgb(varName: string, fallback: string): string {
   return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`
 }
 
+/** xterm theme from the current tokens; ANSI slots map to the HUD accents. */
+function themeFromTokens(): ITheme {
+  const cyan = cssRgb('--accent-cyan', '#38d6e8')
+  return {
+    background: '#00000000',
+    foreground: cssRgb('--text-secondary', '#96a8bd'),
+    cursor: cyan,
+    cursorAccent: cssRgb('--bg-void', '#04060b'),
+    selectionBackground: `${cyan}40`,
+    cyan,
+    blue: cssRgb('--accent-blue', '#4a84ff'),
+    magenta: cssRgb('--accent-purple', '#9e7aff'),
+    green: cssRgb('--accent-green', '#60dc96'),
+    yellow: cssRgb('--accent-amber', '#f5bf60'),
+    red: cssRgb('--accent-danger', '#ff6070'),
+    brightBlack: cssRgb('--text-muted', '#607085'),
+    brightWhite: cssRgb('--text-primary', '#e2ecf7')
+  }
+}
+
 /**
  * Owns an xterm instance in `containerRef` and prints the banner. Display-only
  * — no shell is attached. To make it real, pipe node-pty output here (see README).
+ * Re-themes live when the app switches between dark and light.
  */
 export function useTerminalStream(containerRef: React.RefObject<HTMLDivElement>): void {
   const termRef = useRef<Terminal | null>(null)
@@ -35,13 +56,7 @@ export function useTerminalStream(containerRef: React.RefObject<HTMLDivElement>)
       lineHeight: 1.35,
       letterSpacing: 0.4,
       scrollback: 800,
-      theme: {
-        background: '#00000000',
-        foreground: cssRgb('--text-secondary', '#96a8bd'),
-        cursor: cssRgb('--accent-cyan', '#38d6e8'),
-        cursorAccent: '#04060b',
-        selectionBackground: 'rgba(56,214,232,0.25)'
-      }
+      theme: themeFromTokens()
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -66,8 +81,14 @@ export function useTerminalStream(containerRef: React.RefObject<HTMLDivElement>)
     })
     ro.observe(el)
 
+    const mo = new MutationObserver(() => {
+      term.options.theme = themeFromTokens()
+    })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+
     return () => {
       ro.disconnect()
+      mo.disconnect()
       term.dispose()
       termRef.current = null
       fitRef.current = null
