@@ -45,7 +45,8 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Command interface | 🎭 Display-only (`MainCommandPanel`) — the seam for the assistant (P6) |
 | Terminal | 🎭 xterm.js mounted, fake stream — real PTY is optional phase PT |
 | Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
-| Memory / Agents / Settings nav | 🎭 Placeholders |
+| Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
+| Agents / Settings nav | 🎭 Placeholders |
 | LLM integration | ❌ None anywhere yet (by design — lands in P6) |
 
 **Assessment: everything is kept.** The design system, IPC contract, service pattern, store pattern, and security baseline carry the target architecture without modification. Mock data in `src/data/` is deliberately isolated and gets replaced surgically, phase by phase.
@@ -116,8 +117,8 @@ Renderer → IPC handler → domain/application service
 |---|---|---|---|
 | Home / Command Center (`core`) | `features/assistant` | ContextEngine, AIProvider, ConversationStore | P6 |
 | Projects | `features/projects` (+ `context`) | ProjectService, ContextService | done / P3 |
-| Knowledge | `features/knowledge` | VaultService, KnowledgeService | P4 |
-| Memory | `features/memory` | MemoryService | P5 |
+| ~~Knowledge~~ | merged into Memory (§12.3) | — | — |
+| Memory | `features/memory` | VaultService, MemoryIndex; MemoryService pipeline later | vault ✅ / pipeline P5 |
 | Agents | `features/agents` | AgentRuntime, ToolRegistry, PolicyEngine | P7–P9 |
 | Files | `features/files` | FileService | P10 |
 | Automations | `features/automations` | AutomationService | P11 |
@@ -165,8 +166,7 @@ interface MemoryEntryWithRelations extends MemoryEntry {
 
 | Type | Source of truth | Indexed in |
 |---|---|---|
-| `MemoryEntry` | SQLite `memories` (P2B) | `memories_fts` (FTS5, P2B) |
-| `KnowledgeNote` | Markdown file in vault | SQLite `knowledge_index` + `knowledge_fts` — rebuildable, created in **P4** with their first consumer |
+| `MemoryEntry` / note | Markdown file in the vault — entry fields live in frontmatter (§12.3) | in-memory `MemoryIndex` today; SQLite `memories` + FTS5 later, as a rebuildable index |
 | `Project` | JSON `projects.json` (today) | mirrored into `entities` from P3 |
 | `WoneEvent` | SQLite `events`, per persistence class (§10); audit rows immutable | — |
 | `AgentDefinition` / `ToolDescriptor` | code (built-ins) + SQLite (user-defined, later) | — |
@@ -468,7 +468,7 @@ Consumers:
 - Default root `~/W-ONE/vault` — user-visible, so the folder can be opened in Obsidian, synced, and backed up. Path configurable (`settings.vaultRoot`). Created lazily on first write, never at boot.
 - Notes are plain Markdown with standard YAML frontmatter (`id`, `type`, `title`, `tags`, `created`, `updated`, `aliases?`, `project?`, `summary?`) and `[[wikilinks]]` in the body — a stock Obsidian vault.
 - **W-ONE is the primary system; Obsidian is optional.** External edits are legitimate: files win over the index, and the index is always rebuildable from the files.
-- Filenames: kebab-case slug of the title (ASCII-folded, Windows-reserved characters stripped, ≤ 80 chars, `-2` suffix on collision); daily notes `YYYY-MM-DD.md`.
+- Filenames = the note title, because Obsidian resolves `[[wikilinks]]` by filename (a slug would break every hand-written link). Only characters forbidden by Obsidian or the filesystem are stripped (`\ / : * ? " < > | # ^ [ ]`), ≤ 120 chars, ` 2` suffix on collision; daily notes `YYYY-MM-DD.md`. *(Changed from kebab-case slugs, 2026-10-01.)*
 
 **Knowledge identity (binding):** a note's durable identity is `frontmatter.id` (UUID) — never the title, path, filename, or slug, all of which may change freely. Externally created Markdown files without an `id` are indexed as **unadopted**: readable and searchable, but not linkable as entities. Adoption is an explicit, controlled step that assigns a fresh UUID and writes it back into the frontmatter atomically, preserving the rest of the file byte-for-byte (the exact flow ships with P4). Identity is never derived from the path.
 
@@ -546,3 +546,11 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | **PV Voice** *(optional)* | SpeechProvider abstraction (STT/TTS) | after P6 |
 
 Each phase ships end-to-end (service + IPC + UI in W-ONE's design language), leaves the app bootable, and touches nothing outside its scope. The detailed P2A execution plan (file list, definition of done, dependencies, risks) is specified; implementation starts on explicit release.
+
+### 12.3 Deviation (2026-10-01): Memory is the Obsidian vault
+
+User decision: the AI memory should *be* an Obsidian vault — notes, `[[wikilinks]]`, graph — not a SQLite store beside one. Knowledge and Memory are therefore one module, and the vault is the source of truth for both.
+
+- **Pulled forward and shipped:** P2C (`VaultService`: frontmatter, wikilinks, status, path confinement, atomic writes), the P4 core (backlinks, tags, search, external-edit watcher, read/edit UI) and a P12-lite graph (wikilink graph, colored by top-level folder or one accent; style persisted in `settings.graphStyle`).
+- **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — W-ONE writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
+- **Model mapping:** §5's `MemoryEntry` fields map onto frontmatter (`id`, `type`, `tags`, `created`, optional `importance`/`confidence`/`summary`). When P2B/P5 land, SQLite `memories` + FTS become a rebuildable index over the vault, and the memory pipeline writes notes. P6/P7 give the assistant read/write tools over this vault behind the permission gate.

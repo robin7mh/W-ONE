@@ -6,6 +6,7 @@ import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { MainCommandPanel } from '@/components/command/MainCommandPanel'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
+import { MemoryView } from '@/features/memory/components/MemoryView'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
@@ -37,6 +38,7 @@ export function AppShell() {
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
+    if (active === 'memory') return <MemoryView />
     if (isCore) return <MainCommandPanel />
     return <ModulePlaceholder item={activeItem} />
   }
@@ -63,13 +65,15 @@ export function AppShell() {
             {renderMain()}
           </motion.div>
 
-          {/* Monitor rail — hidden on small widths to avoid crowding */}
-          <motion.div
-            {...panelIn(0.24)}
-            className="hidden w-72 shrink-0 lg:flex 2xl:w-80"
-          >
-            <SystemMonitorPanel />
-          </motion.div>
+          {/* Monitor rail — hidden on small widths, and in Memory (graph needs the room) */}
+          {active !== 'memory' && (
+            <motion.div
+              {...panelIn(0.24)}
+              className="hidden w-72 shrink-0 lg:flex 2xl:w-80"
+            >
+              <SystemMonitorPanel />
+            </motion.div>
+          )}
         </main>
       </div>
 

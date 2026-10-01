@@ -57,9 +57,9 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 
 ### What is intentionally dummy this phase
 
-Nav routing (visual only); Projects/Memory/Agents/System/Settings render a `ModulePlaceholder`
-(only Core/Terminal are fully built); the terminal has no shell; all metrics, events, commands,
-processes and agents are mock; window controls work but do nothing beyond min/max/close.
+Agents/System/Settings render a `ModulePlaceholder` (Projects and Memory are real —
+Memory is an Obsidian-compatible vault with graph); the terminal has no shell and the command
+input executes nothing.
 
 ## Project structure
 
@@ -67,6 +67,7 @@ processes and agents are mock; window controls work but do nothing beyond min/ma
 electron/            main.ts (frameless window + IPC), preload.ts (window.wone bridge)
 src/
   components/  shell · topbar · nav · command · monitor · dashboard · boot · ui
+  features/    projects · memory (vault, graph, editor) · system · context
   hooks/       useClock · useMockMetrics · useTerminalStream · useBoot
   data/        navigation · boot/terminal lines
   lib/         cn · format

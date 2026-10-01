@@ -33,6 +33,16 @@
   --text-secondary: 150 168 189;
   --text-muted: 96 112 133;
 
+  /* Memory graph palette — one hue per folder in colorful mode. */
+  --graph-cyan: 56 214 232;
+  --graph-blue: 74 132 255;
+  --graph-purple: 158 122 255;
+  --graph-pink: 236 112 200;
+  --graph-amber: 245 191 96;
+  --graph-green: 96 220 150;
+  --graph-orange: 255 146 82;
+  --graph-lime: 190 228 92;
+
   color-scheme: dark;
 }
 
@@ -55,6 +65,15 @@
   --text-primary: 232 240 250;
   --text-secondary: 168 184 204;
   --text-muted: 112 130 150;
+
+  --graph-cyan: 72 220 236;
+  --graph-blue: 96 148 255;
+  --graph-purple: 172 138 255;
+  --graph-pink: 240 128 208;
+  --graph-amber: 248 200 112;
+  --graph-green: 112 226 162;
+  --graph-orange: 255 158 100;
+  --graph-lime: 198 232 108;
 
   color-scheme: dark;
 }
@@ -118,6 +137,99 @@
   .panel-flush {
     @apply relative rounded-lg border bg-panel/40;
     border-color: rgb(var(--border-hud) / 0.5);
+  }
+
+  /* Rendered markdown (Memory preview). */
+  .md-prose {
+    @apply font-sans text-[14px] leading-[1.7] text-text-secondary;
+    overflow-wrap: anywhere;
+  }
+  .md-prose > :first-child {
+    margin-top: 0;
+  }
+  .md-prose h1,
+  .md-prose h2,
+  .md-prose h3,
+  .md-prose h4 {
+    @apply font-semibold text-text-primary;
+    margin: 1.4em 0 0.5em;
+    line-height: 1.3;
+  }
+  .md-prose h1 {
+    @apply text-[22px];
+  }
+  .md-prose h2 {
+    @apply text-[18px];
+  }
+  .md-prose h3 {
+    @apply text-[15px];
+  }
+  .md-prose p,
+  .md-prose ul,
+  .md-prose ol,
+  .md-prose blockquote,
+  .md-prose pre,
+  .md-prose table {
+    margin: 0 0 0.9em;
+  }
+  .md-prose ul,
+  .md-prose ol {
+    padding-left: 1.4em;
+  }
+  .md-prose ul {
+    list-style: disc;
+  }
+  .md-prose ol {
+    list-style: decimal;
+  }
+  .md-prose li {
+    margin: 0.2em 0;
+  }
+  .md-prose li::marker {
+    color: rgb(var(--text-muted));
+  }
+  .md-prose strong {
+    @apply font-semibold text-text-primary;
+  }
+  .md-prose a {
+    @apply cursor-pointer text-cyan underline decoration-cyan/30 underline-offset-2 hover:decoration-cyan;
+  }
+  .md-prose a.wikilink {
+    @apply no-underline hover:underline;
+  }
+  .md-prose a.wikilink.unresolved {
+    @apply text-text-muted;
+  }
+  .md-prose .md-tag {
+    @apply rounded border border-hud/60 bg-elevated/50 px-1 py-px font-mono text-[11px] text-purple;
+  }
+  .md-prose code {
+    @apply rounded bg-elevated/70 px-1 py-px font-mono text-[12px] text-text-primary;
+  }
+  .md-prose pre {
+    @apply overflow-x-auto rounded-md border border-hud/50 bg-surface/60 p-3;
+  }
+  .md-prose pre code {
+    @apply bg-transparent p-0;
+  }
+  .md-prose blockquote {
+    @apply border-l-2 border-cyan/40 pl-3 text-text-muted;
+  }
+  .md-prose hr {
+    @apply my-5 border-hud/60;
+  }
+  .md-prose table {
+    @apply w-full border-collapse text-[13px];
+  }
+  .md-prose th,
+  .md-prose td {
+    @apply border border-hud/50 px-2 py-1 text-left;
+  }
+  .md-prose input[type='checkbox'] {
+    @apply mr-1.5 align-middle accent-cyan;
+  }
+  .md-prose img {
+    @apply max-w-full rounded;
   }
 
   /* Faint HUD grid used by the background. */

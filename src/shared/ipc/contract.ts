@@ -7,6 +7,15 @@
 import type { Project } from '@shared/types/project'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext, ContextProgress } from '@shared/types/context'
+import type {
+  GraphStyle,
+  MemoryChanged,
+  MemoryGraph,
+  Note,
+  NoteMeta,
+  SearchHit,
+  VaultStatus
+} from '@shared/types/memory'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -30,6 +39,18 @@ export interface IpcChannels {
 
   'context:get': { request: { projectId: string }; response: ProjectContext | null }
   'context:reindex': { request: { projectId: string }; response: ProjectContext }
+
+  'memory:status': { request: void; response: VaultStatus }
+  'memory:createVault': { request: void; response: VaultStatus }
+  'memory:pickVault': { request: void; response: VaultStatus | null }
+  'memory:list': { request: void; response: NoteMeta[] }
+  'memory:read': { request: { path: string }; response: Note }
+  'memory:write': { request: { path: string; raw: string }; response: NoteMeta }
+  'memory:create': { request: { title: string; folder?: string }; response: NoteMeta }
+  'memory:trash': { request: { path: string }; response: void }
+  'memory:graph': { request: void; response: MemoryGraph }
+  'memory:search': { request: { query: string }; response: SearchHit[] }
+  'memory:setGraphStyle': { request: GraphStyle; response: GraphStyle }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -48,16 +69,28 @@ export const IPC_CHANNELS: readonly IpcChannel[] = [
   'system:unsubscribe',
   'system:snapshot',
   'context:get',
-  'context:reindex'
+  'context:reindex',
+  'memory:status',
+  'memory:createVault',
+  'memory:pickVault',
+  'memory:list',
+  'memory:read',
+  'memory:write',
+  'memory:create',
+  'memory:trash',
+  'memory:graph',
+  'memory:search',
+  'memory:setGraphStyle'
 ]
 
 /** Main→renderer push events (channel → payload). */
 export interface IpcEvents {
   'system:tick': SystemSnapshot
   'context:progress': ContextProgress
+  'memory:changed': MemoryChanged
 }
 
 export type IpcEvent = keyof IpcEvents
 
 /** Runtime allowlist for event channels the preload may forward. */
-export const IPC_EVENTS: readonly IpcEvent[] = ['system:tick', 'context:progress']
+export const IPC_EVENTS: readonly IpcEvent[] = ['system:tick', 'context:progress', 'memory:changed']

@@ -11,6 +11,9 @@ import { registerSystemIpc } from './ipc/system.ipc'
 import { ContextStore } from './main/services/context/contextStore'
 import { ContextService } from './main/services/context/ContextService'
 import { registerContextIpc } from './ipc/context.ipc'
+import { VaultService } from './main/services/memory/VaultService'
+import { registerMemoryIpc } from './ipc/memory.ipc'
+import type { MemoryChanged } from '@shared/types/memory'
 import { wonePaths } from './main/lib/paths'
 import { SettingsService } from './main/services/settings/SettingsService'
 import { DbService } from './main/services/db/DbService'
@@ -26,6 +29,7 @@ const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 
 let mainWindow: BrowserWindow | null = null
 let systemService: SystemService | null = null
+let vaultService: VaultService | null = null
 let dbService: DbService | null = null
 
 /** Broadcast a push event to every live renderer. */
@@ -129,6 +133,14 @@ async function registerServices(): Promise<void> {
   })
   registerContextIpc(contextService)
 
+  // Memory = Obsidian-compatible markdown vault; created lazily, never at boot.
+  vaultService = new VaultService({
+    settings: settingsService,
+    defaultRoot: paths.defaultVaultRoot,
+    onChange: (change: MemoryChanged) => broadcast('memory:changed', change)
+  })
+  registerMemoryIpc(vaultService)
+
   eventBus.emit('app.started', { payload: { version: app.getVersion() } })
 
   if (!app.isPackaged && dbService) {
@@ -152,6 +164,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   systemService?.dispose()
+  vaultService?.dispose()
   dbService?.close()
   dbService = null
 })
