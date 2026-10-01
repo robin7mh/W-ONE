@@ -21,7 +21,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 
 | Layer | Choice |
 |---|---|
-| Shell | Electron 31, frameless window, `contextIsolation: true`, `nodeIntegration: false` |
+| Shell | Electron 37 (31.7.7's notarization is revoked by Apple — Gatekeeper trashes it on macOS 27), frameless window, `contextIsolation: true`, `nodeIntegration: false` |
 | Build | electron-vite 2 (CJS main/preload, Vite renderer), dual tsconfig (`typecheck:node` + `typecheck:web`) |
 | Renderer | React 18, TypeScript 5.5, Zustand (one store per feature), Framer Motion |
 | Design system | Tailwind driven by CSS custom properties (`src/index.css` + `tailwind.config.ts`); primitives `Panel`, `TechLabel`, `StatusDot`, `HudFrame`; Inter Variable + JetBrains Mono, bundled locally |
