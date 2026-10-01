@@ -54,8 +54,8 @@ function shellCommand(): { file: string; args: string[] } {
  */
 function shellEnv(): Record<string, string> {
   const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined) continue
+  // process.env values are always strings at runtime (assigning undefined stores 'undefined').
+  for (const [key, value] of Object.entries(process.env) as [string, string][]) {
     if (/^(ELECTRON_|VITE_|npm_)/i.test(key) || key === 'INIT_CWD' || key === 'NODE_ENV') continue
     env[key] = value
   }

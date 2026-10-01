@@ -18,9 +18,8 @@ import { registerTerminalIpc } from './ipc/terminal.ipc'
 import type { MemoryChanged } from '@shared/types/memory'
 import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { SettingsService } from './main/services/settings/SettingsService'
-import { DbService } from './main/services/db/DbService'
+import { DbService, createPool, databaseUrl } from './main/services/db/DbService'
 import { MIGRATIONS } from './main/services/db/migrations'
-import { runSelfCheck } from './main/services/db/selfCheck'
 import { EventBus, NoopEventSink } from './main/services/events/EventBus'
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
@@ -43,7 +42,7 @@ function broadcast(channel: string, payload: unknown): void {
 }
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
@@ -64,39 +63,41 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  mainWindow = win
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
-  // No shell outlives its window (on macOS the app itself keeps running).
-  mainWindow.on('closed', () => terminalService?.killAll())
+  win.on('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    // No shell outlives its window (on macOS the app itself keeps running).
+    terminalService?.killAll()
+    if (mainWindow === win) mainWindow = null
+  })
 
   // Emit maximize state changes so the renderer can swap the maximize/restore icon.
-  const emitMaxState = () =>
-    mainWindow?.webContents.send('window:maximized-changed', mainWindow.isMaximized())
-  mainWindow.on('maximize', emitMaxState)
-  mainWindow.on('unmaximize', emitMaxState)
+  const emitMaxState = () => win.webContents.send('window:maximized-changed', win.isMaximized())
+  win.on('maximize', emitMaxState)
+  win.on('unmaximize', emitMaxState)
 
   // macOS hides the traffic lights in fullscreen; the top bar drops their gap.
-  const emitFullScreen = () =>
-    mainWindow?.webContents.send('window:fullscreen-changed', mainWindow.isFullScreen())
-  mainWindow.on('enter-full-screen', emitFullScreen)
-  mainWindow.on('leave-full-screen', emitFullScreen)
+  const emitFullScreen = () => win.webContents.send('window:fullscreen-changed', win.isFullScreen())
+  win.on('enter-full-screen', emitFullScreen)
+  win.on('leave-full-screen', emitFullScreen)
 
   // Pause telemetry sampling while the window is hidden/minimized (save energy).
-  mainWindow.on('minimize', () => systemService?.setPaused(true))
-  mainWindow.on('restore', () => systemService?.setPaused(false))
-  mainWindow.on('hide', () => systemService?.setPaused(true))
-  mainWindow.on('show', () => systemService?.setPaused(false))
+  win.on('minimize', () => systemService?.setPaused(true))
+  win.on('restore', () => systemService?.setPaused(false))
+  win.on('hide', () => systemService?.setPaused(true))
+  win.on('show', () => systemService?.setPaused(false))
 
   // Open external links in the OS browser, never in-app.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   if (DEV_SERVER_URL) {
-    mainWindow.loadURL(DEV_SERVER_URL)
+    void win.loadURL(DEV_SERVER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -123,16 +124,10 @@ async function registerServices(): Promise<void> {
   const settingsService = new SettingsService(paths.settingsFile)
   await settingsService.init()
 
-  // A native-module/ABI mismatch must not white-screen the app: log an
-  // actionable message and boot without the DB (P2A has no DB consumers yet).
-  try {
-    dbService = new DbService({ file: paths.dbFile, backupsDir: paths.backupsDir })
-    const result = dbService.migrate(MIGRATIONS)
-    console.log(`[db] open — schema v${result.to}`)
-  } catch (err) {
-    dbService = null
-    console.error('[db] failed to open. Native module mismatch? Run: npm run rebuild\n', err)
-  }
+  // Postgres runs in Docker (docker-compose.yml). Connected in the background:
+  // a stopped container never delays the window, and nothing depends on the
+  // database yet (P2B), so W-ONE stays fully usable without it.
+  void connectDatabase()
 
   // Distributes all WoneEvents; persistence sink is a no-op until the events
   // table lands in P2B. No renderer push yet (no channel in the contract).
@@ -167,15 +162,21 @@ async function registerServices(): Promise<void> {
   registerTerminalIpc(terminalService)
 
   eventBus.emit('app.started', { payload: { version: app.getVersion() } })
+}
 
-  if (!app.isPackaged && dbService) {
-    const expectedVersion = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0)
-    try {
-      await runSelfCheck({ dataDir: paths.dataDir, db: dbService, expectedVersion })
-      console.log('[selfcheck] ok')
-    } catch (err) {
-      console.error('[selfcheck] FAILED\n', err)
-    }
+async function connectDatabase(): Promise<void> {
+  const url = databaseUrl()
+  const db = new DbService(createPool(url))
+  try {
+    await db.ping()
+    const result = await db.migrate(MIGRATIONS)
+    dbService = db
+    console.log(`[db] connected — schema v${result.to}`)
+  } catch (err) {
+    await db.close().catch(() => {})
+    console.warn(
+      `[db] Postgres not reachable at ${url.replace(/\/\/([^:@/]+):[^@/]*@/, '//$1:***@')} — start it with: npm run db:up\n  ${(err as Error).message}`
+    )
   }
 }
 
@@ -191,7 +192,7 @@ app.on('before-quit', () => {
   systemService?.dispose()
   vaultService?.dispose()
   terminalService?.killAll()
-  dbService?.close()
+  void dbService?.close().catch(() => {})
   dbService = null
 })
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, onEvent, IpcError } from '@shared/ipc/client'
+import { errorMessage, ipc, onEvent } from '@shared/ipc/client'
 import type { ProjectContext, ContextProgress } from '@shared/types/context'
 
 interface ContextEntry {
@@ -16,8 +16,6 @@ interface ContextState {
   reindex: (projectId: string) => Promise<void>
 }
 
-const message = (err: unknown) =>
-  err instanceof IpcError ? err.message : err instanceof Error ? err.message : String(err)
 
 export const useContextStore = create<ContextState>((set) => {
   const patch = (projectId: string, next: Partial<ContextEntry>) =>
@@ -34,7 +32,7 @@ export const useContextStore = create<ContextState>((set) => {
         const context = await ipc('context:get', { projectId })
         patch(projectId, { context, loading: false })
       } catch (err) {
-        patch(projectId, { loading: false, error: message(err) })
+        patch(projectId, { loading: false, error: errorMessage(err) })
       }
     },
 
@@ -47,7 +45,7 @@ export const useContextStore = create<ContextState>((set) => {
         const context = await ipc('context:reindex', { projectId })
         patch(projectId, { context, indexing: false, progress: undefined })
       } catch (err) {
-        patch(projectId, { indexing: false, error: message(err) })
+        patch(projectId, { indexing: false, error: errorMessage(err) })
       } finally {
         off()
       }

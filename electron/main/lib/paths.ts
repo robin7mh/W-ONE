@@ -7,12 +7,8 @@ import { app } from 'electron'
 export interface WonePaths {
   /** ~/W-ONE — the one user-visible home of everything W-ONE keeps. */
   homeDir: string
-  /** ~/W-ONE/data — registry, settings, DB, caches. */
+  /** ~/W-ONE/data — project registry, settings, caches (the database runs in Docker). */
   dataDir: string
-  /** SQLite database (structured data + rebuildable indexes). */
-  dbFile: string
-  /** Pre-migration DB backups. */
-  backupsDir: string
   /** Typed app settings (JSON, atomic writes). */
   settingsFile: string
   /** Default markdown vault root — user-visible so it stays Obsidian-openable. */
@@ -32,8 +28,6 @@ export function wonePaths(): WonePaths {
   return {
     homeDir,
     dataDir,
-    dbFile: join(dataDir, 'wone.db'),
-    backupsDir: join(dataDir, 'backups'),
     settingsFile: join(dataDir, 'settings.json'),
     defaultVaultRoot: join(homeDir, 'vault'),
     legacyDataDir: join(app.getPath('userData'), 'wone')

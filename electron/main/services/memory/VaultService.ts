@@ -135,7 +135,9 @@ export class VaultService {
     })
     if (res.canceled || res.filePaths.length === 0) return null
     const chosen = await realpath(res.filePaths[0])
-    const isDefault = resolve(chosen) === resolve(this.opts.defaultRoot)
+    // Compare resolved paths: the default may sit behind a symlink (/var → /private/var).
+    const defaultReal = await realpath(this.opts.defaultRoot).catch(() => resolve(this.opts.defaultRoot))
+    const isDefault = chosen === defaultReal
     await this.opts.settings.update({ vaultRoot: isDefault ? undefined : chosen })
     return this.switched()
   }
@@ -357,7 +359,7 @@ export class VaultService {
       .replace(/^\/+|\/+$/g, '')
     if (rel === '.' || rel === '') return ''
     if (
-      rel.split('/').some((s) => s === '..' || s === '' || ignoredSegment(s)) ||
+      rel.split('/').some((s) => s === '..' || ignoredSegment(s)) || // posix.normalize already collapsed '//'
       (process.platform === 'win32' && rel.includes(':'))
     ) {
       throw coded('bad-path', `Invalid folder: ${path}`)
@@ -461,7 +463,7 @@ export class VaultService {
     if (
       !rel ||
       !isNoteFile(rel) ||
-      segments.some((s) => s === '..' || s === '' || ignoredSegment(s)) ||
+      segments.some((s) => s === '..' || ignoredSegment(s)) || // posix.normalize already collapsed '//'
       (process.platform === 'win32' && rel.includes(':'))
     ) {
       throw coded('bad-path', `Invalid note path: ${path}`)
@@ -469,11 +471,14 @@ export class VaultService {
     return rel
   }
 
-  /** Absolute path for a normalized note path, guaranteed inside the vault. */
+  /**
+   * Absolute path for a normalized path, guaranteed inside the vault. Lexically
+   * that is already true (normalize/normalizeDir reject `..`, absolute paths and
+   * drive letters); the realpath check catches symlinked folders pointing out.
+   */
   private async confine(rel: NotePath, createParent = false): Promise<string> {
     const root = this.root()
     const abs = resolve(root, ...rel.split('/'))
-    if (!abs.startsWith(resolve(root) + sep)) throw coded('bad-path', 'Path escapes the vault')
     if (createParent) await mkdir(dirname(abs), { recursive: true })
     const [rootReal, parentReal] = await Promise.all([realpath(root), realpath(dirname(abs))]).catch(() => {
       throw coded('not-found', `Folder not found for ${rel}`)

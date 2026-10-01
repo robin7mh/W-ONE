@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, IpcError } from '@shared/ipc/client'
+import { errorMessage, ipc } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
 
 interface ProjectsState {
@@ -18,9 +18,6 @@ interface ProjectsState {
   select: (id: string) => void
 }
 
-function message(err: unknown): string {
-  return err instanceof IpcError ? err.message : err instanceof Error ? err.message : String(err)
-}
 
 export const useProjects = create<ProjectsState>((set) => ({
   projects: [],
@@ -36,7 +33,7 @@ export const useProjects = create<ProjectsState>((set) => ({
         selectedId: s.selectedId ?? projects[0]?.id
       }))
     } catch (err) {
-      set({ loading: false, error: message(err) })
+      set({ loading: false, error: errorMessage(err) })
     }
   },
 
@@ -51,7 +48,7 @@ export const useProjects = create<ProjectsState>((set) => ({
         return { projects: [...others, project], selectedId: project.id }
       })
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 
@@ -68,7 +65,7 @@ export const useProjects = create<ProjectsState>((set) => ({
         }
       })
     } catch (err) {
-      set({ busyId: undefined, error: message(err) })
+      set({ busyId: undefined, error: errorMessage(err) })
     }
   },
 
@@ -81,7 +78,7 @@ export const useProjects = create<ProjectsState>((set) => ({
         busyId: undefined
       }))
     } catch (err) {
-      set({ busyId: undefined, error: message(err) })
+      set({ busyId: undefined, error: errorMessage(err) })
     }
   },
 
@@ -90,7 +87,7 @@ export const useProjects = create<ProjectsState>((set) => ({
     try {
       await ipc('projects:openInEditor', { id })
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 
@@ -99,7 +96,7 @@ export const useProjects = create<ProjectsState>((set) => ({
     try {
       await ipc('projects:openTerminal', { id })
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 

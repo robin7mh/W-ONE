@@ -2,7 +2,7 @@
  * The dashboard speaks the system language (German or English) — it is the
  * personal surface. The rest of the UI keeps its English technical labels.
  */
-const locale = typeof navigator !== 'undefined' ? navigator.language : 'en'
+const locale = navigator.language
 export const isGerman = locale.toLowerCase().startsWith('de')
 export const dashLocale = isGerman ? 'de-DE' : locale
 

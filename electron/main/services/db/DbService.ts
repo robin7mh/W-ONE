@@ -1,13 +1,14 @@
-import Database from 'better-sqlite3'
-import { copyFileSync, mkdirSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { Pool, type PoolConfig } from 'pg'
 import type { Migration } from './migrations'
 
-export interface DbServiceOptions {
-  /** Absolute path of the SQLite file (parent dir must exist). */
-  file: string
-  /** Where pre-migration backups go (created on demand). */
-  backupsDir: string
+/** Minimal pool surface DbService needs — satisfied by `pg.Pool` and test doubles. */
+export interface DbPool {
+  query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
+  connect(): Promise<{
+    query(sql: string, params?: unknown[]): Promise<unknown>
+    release(): void
+  }>
+  end(): Promise<void>
 }
 
 export interface MigrateResult {
@@ -16,65 +17,73 @@ export interface MigrateResult {
   applied: string[]
 }
 
+/** Default matches docker-compose.yml (bound to 127.0.0.1 only). Override: WONE_DB_URL. */
+export const DEFAULT_DB_URL = 'postgres://wone:wone@127.0.0.1:54329/wone'
+
+export function databaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return env.WONE_DB_URL || DEFAULT_DB_URL
+}
+
+/** A real pg pool with short timeouts, so a missing database fails fast at boot. */
+export function createPool(url: string, extra: PoolConfig = {}): DbPool {
+  return new Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 3000, ...extra })
+}
+
 /**
- * Owns the SQLite connection (better-sqlite3, synchronous — ideal in the main
- * process) and the forward-only migration runner. Throws from the constructor
- * when the native module does not match the Electron ABI — callers catch and
- * surface "run npm run rebuild" instead of crashing the app.
+ * Owns the Postgres connection pool (Docker, see docker-compose.yml) and the
+ * forward-only migration runner. Each migration runs in one transaction —
+ * Postgres DDL is transactional, so a failing migration leaves no trace and
+ * no file backup is needed (`npm run db:backup` dumps the data on demand).
  */
 export class DbService {
-  readonly db: Database.Database
-  private readonly file: string
-  private readonly backupsDir: string
+  constructor(private readonly pool: DbPool) {}
 
-  constructor(opts: DbServiceOptions) {
-    this.file = opts.file
-    this.backupsDir = opts.backupsDir
-    this.db = new Database(this.file)
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('foreign_keys = ON')
-    this.db.pragma('synchronous = NORMAL')
+  /** Throws if the database is unreachable. */
+  async ping(): Promise<void> {
+    await this.pool.query('SELECT 1')
   }
 
-  get version(): number {
-    return this.db.pragma('user_version', { simple: true }) as number
+  /** Highest applied migration version (0 = none). */
+  async version(): Promise<number> {
+    await this.ensureLedger()
+    const { rows } = await this.pool.query('SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations')
+    return Number(rows[0]?.v ?? 0)
   }
 
-  /**
-   * Applies every migration newer than the current user_version, in order,
-   * one transaction each. Before the first pending migration the DB file is
-   * backed up (WAL checkpoint first, so the copy is complete). Re-running with
-   * no pending migrations is a no-op.
-   */
-  migrate(migrations: readonly Migration[]): MigrateResult {
-    const from = this.version
-    const pending = [...migrations]
-      .sort((a, b) => a.version - b.version)
-      .filter((m) => m.version > from)
-
-    if (pending.length === 0) return { from, to: from, applied: [] }
-
-    this.backup(from)
+  /** Applies every migration newer than the current version, in order. Idempotent. */
+  async migrate(migrations: readonly Migration[]): Promise<MigrateResult> {
+    const from = await this.version()
+    const pending = [...migrations].sort((a, b) => a.version - b.version).filter((m) => m.version > from)
     const applied: string[] = []
-    for (const migration of pending) {
-      this.db.transaction(() => {
-        this.db.exec(migration.up)
-        this.db.pragma(`user_version = ${migration.version}`)
-      })()
-      applied.push(`${migration.version}_${migration.name}`)
+    for (const m of pending) {
+      const client = await this.pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(m.up)
+        await client.query('INSERT INTO schema_migrations (version, name) VALUES ($1, $2)', [m.version, m.name])
+        await client.query('COMMIT')
+        applied.push(`${m.version}_${m.name}`)
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
     }
-    return { from, to: this.version, applied }
+    return { from, to: applied.length ? pending[pending.length - 1].version : from, applied }
   }
 
-  private backup(fromVersion: number): void {
-    this.db.pragma('wal_checkpoint(TRUNCATE)')
-    mkdirSync(this.backupsDir, { recursive: true })
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const target = join(this.backupsDir, `${basename(this.file)}.v${fromVersion}.${stamp}.bak`)
-    copyFileSync(this.file, target)
+  async close(): Promise<void> {
+    await this.pool.end()
   }
 
-  close(): void {
-    this.db.close()
+  private async ensureLedger(): Promise<void> {
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         version INTEGER PRIMARY KEY,
+         name TEXT NOT NULL,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+       )`
+    )
   }
 }
