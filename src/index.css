@@ -1,0 +1,162 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
+@import '@xterm/xterm/css/xterm.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * SINGLE SOURCE OF TRUTH for color.
+ * Values are space-separated RGB channels so Tailwind's `rgb(var(--x) / <alpha>)`
+ * can apply opacity. Change a token here and it propagates everywhere.
+ */
+:root,
+:root[data-theme='dark'] {
+  --bg-void: 4 6 11; /* #04060B near-black */
+  --bg-surface: 8 11 18;
+  --bg-panel: 12 17 26;
+  --bg-elevated: 17 24 36;
+
+  --border-hud: 42 60 84;
+  --border-hud-strong: 66 96 132;
+
+  --accent-cyan: 56 214 232; /* electric cyan */
+  --accent-blue: 74 132 255; /* electric blue */
+  --accent-purple: 158 122 255;
+  --accent-amber: 245 191 96;
+  --accent-danger: 255 96 112;
+
+  --text-primary: 226 236 247;
+  --text-secondary: 150 168 189;
+  --text-muted: 96 112 133;
+
+  color-scheme: dark;
+}
+
+/* Slightly lighter dark variant toggled via data-theme (variables only). */
+:root[data-theme='dim'] {
+  --bg-void: 10 14 22;
+  --bg-surface: 15 20 30;
+  --bg-panel: 20 27 40;
+  --bg-elevated: 26 35 50;
+
+  --border-hud: 52 72 98;
+  --border-hud-strong: 80 112 150;
+
+  --accent-cyan: 72 220 236;
+  --accent-blue: 96 148 255;
+  --accent-purple: 172 138 255;
+  --accent-amber: 248 200 112;
+  --accent-danger: 255 112 128;
+
+  --text-primary: 232 240 250;
+  --text-secondary: 168 184 204;
+  --text-muted: 112 130 150;
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-hud;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-void font-sans text-text-primary antialiased;
+    overflow: hidden; /* the shell owns all scrolling regions */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Thin, technical scrollbars. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full;
+    background: rgb(var(--border-hud-strong) / 0.5);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--accent-cyan) / 0.4);
+  }
+
+  ::selection {
+    background: rgb(var(--accent-cyan) / 0.25);
+    color: rgb(var(--text-primary));
+  }
+}
+
+@layer components {
+  /* Uppercase, tracked technical label — used across the UI. */
+  .tech-label {
+    @apply font-sans text-[10px] font-medium uppercase leading-none text-text-muted;
+    letter-spacing: var(--tw-tracking, 0.18em);
+    letter-spacing: 0.18em;
+  }
+
+  /* The one panel treatment. Reused everywhere to keep borders consistent. */
+  .panel {
+    @apply relative rounded-lg border bg-panel/70 backdrop-blur-sm;
+    border-color: rgb(var(--border-hud) / 0.7);
+  }
+
+  .panel-flush {
+    @apply relative rounded-lg border bg-panel/40;
+    border-color: rgb(var(--border-hud) / 0.5);
+  }
+
+  /* Faint HUD grid used by the background. */
+  .hud-grid {
+    background-image:
+      linear-gradient(rgb(var(--border-hud) / 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--border-hud) / 0.35) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+}
+
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  .text-glow-cyan {
+    text-shadow: 0 0 10px rgb(var(--accent-cyan) / 0.45);
+  }
+}
+
+/* Respect users who prefer reduced motion — kill decorative loops. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* xterm surface should blend with the panel, not paint its own black box. */
+.xterm,
+.xterm-viewport {
+  background-color: transparent !important;
+}
+.xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
