@@ -6,17 +6,18 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
-import { isMac } from '@/lib/platform'
+import { isMac, useFullScreen } from '@/lib/platform'
 import { useTheme } from '@/lib/theme'
 
 export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
   const [theme, toggleTheme] = useTheme()
+  const fullScreen = useFullScreen()
 
   return (
     <header
       className={cn(
         'drag-region relative z-20 flex h-12 shrink-0 items-center gap-4 border-b border-hud/70 bg-surface/60 px-3 backdrop-blur-md',
-        isMac && 'pl-[88px]' // clear the native traffic lights
+        isMac && !fullScreen && 'pl-[88px]' // clear the native traffic lights (hidden in fullscreen)
       )}
     >
       {/* Logo / codename */}

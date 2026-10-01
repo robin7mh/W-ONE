@@ -38,7 +38,7 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 | Boot overlay | `BootSequence` | Typed boot log + progress, fades to reveal the shell (click to skip). |
 | Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
 | Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings. Sliding active indicator. Collapses to icon-only on narrow widths. Routing is visual-only. |
-| Center | `Dashboard` (Core) · `MainCommandPanel` → `TerminalPanel` (Terminal) | Core: greeting, HUD clock and real tiles for projects, brain and system. Terminal: xterm.js with the W-ONE banner + a styled command input (local echo, **executes nothing**). |
+| Center | `Dashboard` (Core) · `TerminalView` (Terminal) | Core: greeting, HUD clock and real tiles for projects, brain and system. Terminal: real login shells (node-pty) in tabs or split layouts (side by side, stacked, 2×2), opened in Home or a project; sessions keep running while you use other modules. |
 | Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines for CPU/RAM/Disk/Network/Battery, process preview. Live device telemetry; on macOS disk usage and processes match Finder / Activity Monitor. |
 | Bottom | `BottomDashboard` | Collapsible *Command Deck* (replaces the eDEX on-screen keyboard). Collapsed by default and empty for now — the demo cards were removed; real agent activity lands here in P9. |
 
@@ -83,9 +83,6 @@ All privileged capability flows through the single `window.wone` bridge
 - **Real system metrics** — add [`systeminformation`](https://www.npmjs.com/package/systeminformation)
   in `electron/main.ts`, push samples over IPC, and replace the body of `useMockMetrics` with a
   read from `window.wone.sysinfo`. Component props are unchanged.
-- **Real terminal** — add `node-pty` in the main process, bridge its output to xterm via IPC, and
-  write the live stream into the xterm instance owned by `useTerminalStream`. Wire the command input to write
-  to the pty. *(This introduces real shell execution — add it deliberately.)*
 - **Obsidian memory** — read a vault via `fs` in the main process, expose it through `window.wone`,
   and build the Memory module surface (currently a placeholder).
 - **AI agents** — wire the command input to an orchestration service

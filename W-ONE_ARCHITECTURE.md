@@ -43,8 +43,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | System monitor | ✅ Real. 1.5 s telemetry stream, pauses when window hidden |
 | Project context | ✅ Backend real (commit `871ba6d`): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache → `context:get`/`context:reindex` + progress event. **No UI yet** |
 | Core dashboard | ✅ Real. `features/dashboard`: greeting with the OS account name (`system:user`), HUD clock (seconds/minutes/day rings), tiles for projects (live git), brain (vault) and a system verdict |
-| Command interface | 🎭 Display-only (`MainCommandPanel`, Terminal tab) — a seam for the assistant (P6) |
-| Terminal | 🎭 xterm.js mounted, fake stream — real PTY is optional phase PT |
+| Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
 | Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
 | Agents / Settings nav | 🎭 Placeholders |
@@ -125,7 +124,7 @@ Renderer → IPC handler → domain/application service
 | Files | `features/files` | FileService | P10 |
 | Automations | `features/automations` | AutomationService | P11 |
 | System | `features/system` | SystemService | done |
-| Terminal | `features/terminal` | TerminalService (node-pty) | optional PT |
+| Terminal | `features/terminal` | TerminalService (node-pty) | tabs + split layouts (side by side, stacked, 2×2) ✅ |
 | Settings | `features/settings` | SettingsService | P2A onward |
 
 `ModuleId` (`src/types/index.ts`) and `NAV_ITEMS` (`src/data/navigation.ts`) grow one phase at a time — never in bulk. New views reuse `Panel`/`TechLabel`/`StatusDot` and the token palette exclusively; a new module must look like it was always there.
@@ -458,11 +457,13 @@ Consumers:
 
 ### 11.1 What lives where
 
+Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. Don't put `~/W-ONE/data` in a live-sync folder (iCloud/Dropbox) — SQLite + WAL files don't sync safely.
+
 | Store | Location | Content | Rebuildable? |
 |---|---|---|---|
-| Markdown vault | `~/W-ONE/vault` (default; configurable via settings) | knowledge notes under `knowledge/{projects,people,concepts,research,daily}` | **is** the source of truth |
-| SQLite `wone.db` | `userData/wone/` | memories, entities, links, events, knowledge index, FTS5 tables; later: conversations, runs, grants | knowledge index: yes; rest: primary data |
-| JSON | `userData/wone/` | `settings.json`, `projects.json`, `context/<id>.json` | context cache: yes |
+| Markdown vault | `~/W-ONE/vault` (default; configurable via settings) | the memory notes, Obsidian-compatible (§12.3) | **is** the source of truth |
+| SQLite `wone.db` | `~/W-ONE/data/` | memories, entities, links, events, knowledge index, FTS5 tables; later: conversations, runs, grants | knowledge index: yes; rest: primary data |
+| JSON | `~/W-ONE/data/` | `settings.json`, `projects.json`, `context/<id>.json` | context cache: yes |
 | safeStorage | OS keychain | LLM API keys (P6) | — |
 
 ### 11.2 Vault & Obsidian compatibility
@@ -554,5 +555,6 @@ Each phase ships end-to-end (service + IPC + UI in W-ONE's design language), lea
 User decision: the AI memory should *be* an Obsidian vault — notes, `[[wikilinks]]`, graph — not a SQLite store beside one. Knowledge and Memory are therefore one module, and the vault is the source of truth for both.
 
 - **Pulled forward and shipped:** P2C (`VaultService`: frontmatter, wikilinks, status, path confinement, atomic writes), the P4 core (backlinks, tags, search, external-edit watcher, read/edit UI) and a P12-lite graph (wikilink graph, colored by top-level folder or one accent; style persisted in `settings.graphStyle`).
+- **Editing (2026-10-02):** the editor shows only the note text (`memory:writeBody` keeps the frontmatter byte-for-byte); the title is the filename and renames in place; connect/disconnect buttons write or remove `[[links]]` (new links go under `## Verbindungen`, disconnecting keeps inline mentions as plain text); notes and folders move by drag & drop. Renames and moves rewrite affected links in other notes (`linkEdit.ts`; planned before the move, while old names still resolve) — name-style links only change when the name does, path-style links follow the path.
 - **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — W-ONE writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
 - **Model mapping:** §5's `MemoryEntry` fields map onto frontmatter (`id`, `type`, `tags`, `created`, optional `importance`/`confidence`/`summary`). When P2B/P5 land, SQLite `memories` + FTS become a rebuildable index over the vault, and the memory pipeline writes notes. P6/P7 give the assistant read/write tools over this vault behind the permission gate.

@@ -1,49 +1,60 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, FileText, Plus, Search, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, FilePlus2, FileText, Folder, FolderPlus, Search, X } from 'lucide-react'
 import type { GraphStyle, NoteMeta, SearchHit } from '@shared/types/memory'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import type { Creating } from '../store'
 import { slotColor } from './GraphView'
 
 interface Props {
   notes: NoteMeta[]
+  folders: string[]
   hits: SearchHit[]
   query: string
   activePath?: string
   folderSlots: Map<string, number>
   style: GraphStyle
+  creating: Creating | null
   onSearch: (q: string) => void
   onOpen: (path: string) => void
-  onCreate: (folder: string) => void
+  onStartCreate: (kind: Creating['kind'], parent: string) => void
+  onCancelCreate: () => void
+  onSubmitCreate: (name: string) => void
+  onMoveNote: (path: string, folder: string) => void
+  onMoveFolder: (folder: string, into: string) => void
 }
 
+const NOTE_MIME = 'application/x-wone-note'
+const FOLDER_MIME = 'application/x-wone-folder'
 const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
-/** Vault sidebar: search, then notes grouped by folder (root first, like Obsidian). */
-export function NoteList({ notes, hits, query, activePath, folderSlots, style, onSearch, onOpen, onCreate }: Props) {
-  const [input, setInput] = useState(query)
+/**
+ * Vault sidebar: search, then notes grouped by folder (root first). Notes and
+ * folders can be dragged onto a folder — or onto the empty space below, which
+ * is the vault root. New notes/folders get their name in an inline input.
+ */
+export function NoteList(p: Props) {
+  const [input, setInput] = useState(p.query)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [dropTarget, setDropTarget] = useState<string | null>(null) // '' = root
 
+  const { onSearch } = p
   useEffect(() => {
     const id = window.setTimeout(() => onSearch(input), 150)
     return () => window.clearTimeout(id)
   }, [input, onSearch])
 
   const groups = useMemo(() => {
-    const map = new Map<string, NoteMeta[]>()
-    for (const n of notes) {
-      const dir = dirOf(n.path)
-      map.set(dir, [...(map.get(dir) ?? []), n])
-    }
+    const map = new Map<string, NoteMeta[]>([['', []]])
+    for (const f of p.folders) map.set(f, [])
+    for (const n of p.notes) map.set(dirOf(n.path), [...(map.get(dirOf(n.path)) ?? []), n])
     return [...map.entries()]
       .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
-      .map(([dir, items]) => [dir, items.sort((a, b) => a.title.localeCompare(b.title))] as const)
-  }, [notes])
+      .map(([dir, items]) => [dir, items.sort((x, y) => x.title.localeCompare(y.title))] as const)
+  }, [p.notes, p.folders])
 
   const dot = (folder: string) =>
-    style.mode === 'colorful'
-      ? slotColor(folderSlots.get(folder) ?? 0)
-      : `rgb(var(--graph-${style.color}))`
+    p.style.mode === 'colorful' ? slotColor(p.folderSlots.get(folder) ?? 0) : `rgb(var(--graph-${p.style.color}))`
 
   const toggle = (dir: string) =>
     setCollapsed((s) => {
@@ -53,10 +64,52 @@ export function NoteList({ notes, hits, query, activePath, folderSlots, style, o
       return next
     })
 
+  // --- drag & drop ---------------------------------------------------------
+  const dropProps = (folder: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      const types = e.dataTransfer.types
+      if (!types.includes(NOTE_MIME) && !types.includes(FOLDER_MIME)) return
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'move'
+      if (dropTarget !== folder) setDropTarget(folder)
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget((t) => (t === folder ? null : t))
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setDropTarget(null)
+      const note = e.dataTransfer.getData(NOTE_MIME)
+      const dir = e.dataTransfer.getData(FOLDER_MIME)
+      if (note && dirOf(note) !== folder) p.onMoveNote(note, folder)
+      if (dir && dir !== folder && !folder.startsWith(`${dir}/`) && dirOf(dir) !== folder) p.onMoveFolder(dir, folder)
+    }
+  })
+  const dragNote = (path: string) => (e: React.DragEvent) => {
+    e.dataTransfer.setData(NOTE_MIME, path)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const dragFolder = (dir: string) => (e: React.DragEvent) => {
+    e.dataTransfer.setData(FOLDER_MIME, dir)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const createRow = (parent: string) =>
+    p.creating && p.creating.parent === parent ? (
+      <CreateInput
+        kind={p.creating.kind}
+        indent={parent !== ''}
+        onSubmit={p.onSubmitCreate}
+        onCancel={p.onCancelCreate}
+      />
+    ) : null
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="p-2">
-        <label className="flex items-center gap-2 rounded-md border border-hud/60 bg-surface/50 px-2.5 py-1.5 focus-within:border-cyan/50">
+      <div className="flex items-center gap-1.5 p-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-hud/60 bg-surface/50 px-2.5 py-1.5 focus-within:border-cyan/50">
           <Search size={13} className="shrink-0 text-text-muted" />
           <input
             value={input}
@@ -71,20 +124,45 @@ export function NoteList({ notes, hits, query, activePath, folderSlots, style, o
             </button>
           )}
         </label>
+        <button
+          type="button"
+          title="New note"
+          aria-label="New note"
+          onClick={() => p.onStartCreate('note', '')}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
+        >
+          <FilePlus2 size={15} />
+        </button>
+        <button
+          type="button"
+          title="New folder"
+          aria-label="New folder"
+          onClick={() => p.onStartCreate('folder', '')}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
+        >
+          <FolderPlus size={15} />
+        </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {query.trim() ? (
+      {/* The whole scroll area is the vault-root drop zone; folders override it. */}
+      <div
+        {...dropProps('')}
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto px-2 pb-3 transition-colors',
+          dropTarget === '' && 'bg-cyan/[0.04] outline-dashed outline-1 -outline-offset-4 outline-cyan/40'
+        )}
+      >
+        {p.query.trim() ? (
           <div className="space-y-1">
-            <TechLabel className="block px-1.5 py-1 text-text-muted">{hits.length} results</TechLabel>
-            {hits.map((h) => (
+            <TechLabel className="block px-1.5 py-1 text-text-muted">{p.hits.length} results</TechLabel>
+            {p.hits.map((h) => (
               <button
                 key={h.path}
                 type="button"
-                onClick={() => onOpen(h.path)}
+                onClick={() => p.onOpen(h.path)}
                 className={cn(
                   'w-full rounded-md border px-2.5 py-2 text-left transition-colors',
-                  h.path === activePath ? 'border-cyan/40 bg-cyan/[0.06]' : 'border-transparent hover:bg-elevated/50'
+                  h.path === p.activePath ? 'border-cyan/40 bg-cyan/[0.06]' : 'border-transparent hover:bg-elevated/50'
                 )}
               >
                 <span className="block truncate font-sans text-[12.5px] font-medium text-text-primary">{h.title}</span>
@@ -97,9 +175,16 @@ export function NoteList({ notes, hits, query, activePath, folderSlots, style, o
             const top = dir.split('/')[0]
             const isCollapsed = collapsed.has(dir)
             return (
-              <div key={dir || '.'} className="mb-1">
+              <div key={dir || '.'} className="mb-1" {...(dir ? dropProps(dir) : {})}>
                 {dir && (
-                  <div className="group flex items-center gap-1.5 rounded px-1.5 py-1">
+                  <div
+                    draggable
+                    onDragStart={dragFolder(dir)}
+                    className={cn(
+                      'group flex items-center gap-1.5 rounded px-1.5 py-1 transition-colors',
+                      dropTarget === dir && 'bg-cyan/[0.08] ring-1 ring-cyan/40'
+                    )}
+                  >
                     <button type="button" onClick={() => toggle(dir)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                       <ChevronDown
                         size={12}
@@ -112,42 +197,90 @@ export function NoteList({ notes, hits, query, activePath, folderSlots, style, o
                     <button
                       type="button"
                       title={`New note in ${dir}`}
-                      onClick={() => onCreate(dir)}
+                      onClick={() => p.onStartCreate('note', dir)}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                     >
-                      <Plus size={13} className="text-text-muted hover:text-cyan" />
+                      <FilePlus2 size={13} className="text-text-muted hover:text-cyan" />
+                    </button>
+                    <button
+                      type="button"
+                      title={`New folder in ${dir}`}
+                      onClick={() => p.onStartCreate('folder', dir)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <FolderPlus size={13} className="text-text-muted hover:text-cyan" />
                     </button>
                   </div>
                 )}
+                {!isCollapsed && createRow(dir)}
                 {!isCollapsed &&
                   items.map((n) => (
                     <button
                       key={n.path}
                       type="button"
-                      onClick={() => onOpen(n.path)}
+                      draggable
+                      onDragStart={dragNote(n.path)}
+                      onClick={() => p.onOpen(n.path)}
                       className={cn(
                         'relative flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left transition-colors',
                         dir ? 'pl-7' : 'pl-2',
-                        n.path === activePath
+                        n.path === p.activePath
                           ? 'bg-cyan/[0.08] text-text-primary'
                           : 'text-text-secondary hover:bg-elevated/50 hover:text-text-primary'
                       )}
                     >
-                      {n.path === activePath && (
+                      {n.path === p.activePath && (
                         <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-cyan" />
                       )}
                       <FileText size={13} className="shrink-0 text-text-muted" />
                       <span className="min-w-0 flex-1 truncate font-sans text-[12.5px]">{n.title}</span>
-                      {n.linkCount > 0 && (
-                        <span className="font-mono text-[10px] text-text-muted">{n.linkCount}</span>
-                      )}
+                      {n.linkCount > 0 && <span className="font-mono text-[10px] text-text-muted">{n.linkCount}</span>}
                     </button>
                   ))}
+                {dir && !isCollapsed && items.length === 0 && !(p.creating?.parent === dir) && (
+                  <p className="py-1 pl-7 font-sans text-[11px] text-text-muted/70">Empty — drop notes here</p>
+                )}
               </div>
             )
           })
         )}
       </div>
+    </div>
+  )
+}
+
+/** Inline name input for a new note or folder; Enter creates, Esc/blur cancels. */
+function CreateInput({
+  kind,
+  indent,
+  onSubmit,
+  onCancel
+}: {
+  kind: Creating['kind']
+  indent: boolean
+  onSubmit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState('')
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => ref.current?.focus(), [])
+  const Icon = kind === 'note' ? FileText : Folder
+  return (
+    <div className={cn('flex items-center gap-2 rounded-md border border-cyan/40 bg-cyan/[0.05] py-1 pr-2', indent ? 'pl-7' : 'pl-2')}>
+      <Icon size={13} className="shrink-0 text-cyan" />
+      <input
+        ref={ref}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSubmit(value)
+          if (e.key === 'Escape') onCancel()
+        }}
+        onBlur={() => (value.trim() ? onSubmit(value) : onCancel())}
+        placeholder={kind === 'note' ? 'Note title…' : 'Folder name…'}
+        spellCheck={false}
+        className="min-w-0 flex-1 bg-transparent font-sans text-[12.5px] text-text-primary outline-none placeholder:text-text-muted/70"
+      />
     </div>
   )
 }

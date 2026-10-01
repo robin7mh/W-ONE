@@ -4,7 +4,7 @@ import { GlowBackground } from './GlowBackground'
 import { ModulePlaceholder } from './ModulePlaceholder'
 import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
-import { MainCommandPanel } from '@/components/command/MainCommandPanel'
+import { TerminalView } from '@/features/terminal/components/TerminalView'
 import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { MemoryView } from '@/features/memory/components/MemoryView'
@@ -34,13 +34,20 @@ export function AppShell() {
     return () => window.clearInterval(id)
   }, [booted])
 
+  // Terminal mounts on first visit and then stays mounted (hidden), so running
+  // shells and their screens survive switching modules.
+  const [terminalMounted, setTerminalMounted] = useState(false)
+  useEffect(() => {
+    if (active === 'terminal') setTerminalMounted(true)
+  }, [active])
+
   const activeItem = NAV_ITEMS.find((n) => n.id === active)!
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
     if (active === 'memory') return <MemoryView />
     if (active === 'core') return <Dashboard onNavigate={setActive} />
-    if (active === 'terminal') return <MainCommandPanel />
+    if (active === 'terminal') return null
     return <ModulePlaceholder item={activeItem} />
   }
 
@@ -64,6 +71,11 @@ export function AppShell() {
         <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
           <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
             {renderMain()}
+            {terminalMounted && (
+              <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+                <TerminalView />
+              </div>
+            )}
           </motion.div>
 
           {/* Monitor rail — hidden on small widths, and in Memory (graph needs the room) */}

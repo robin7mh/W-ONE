@@ -16,6 +16,7 @@ import type {
   SearchHit,
   VaultStatus
 } from '@shared/types/memory'
+import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -52,6 +53,22 @@ export interface IpcChannels {
   'memory:graph': { request: void; response: MemoryGraph }
   'memory:search': { request: { query: string }; response: SearchHit[] }
   'memory:setGraphStyle': { request: GraphStyle; response: GraphStyle }
+  'memory:reveal': { request: void; response: void }
+  'memory:folders': { request: void; response: string[] }
+  'memory:writeBody': { request: { path: string; body: string }; response: NoteMeta }
+  'memory:createFolder': { request: { parent: string; name: string }; response: string }
+  'memory:rename': { request: { path: string; title: string }; response: NoteMeta }
+  'memory:move': { request: { path: string; folder: string }; response: NoteMeta }
+  'memory:moveFolder': { request: { folder: string; into: string }; response: string }
+  'memory:link': { request: { from: string; to: string }; response: NoteMeta }
+  'memory:unlink': { request: { from: string; to: string }; response: NoteMeta }
+
+  'terminal:create': { request: { projectId?: string; cols?: number; rows?: number }; response: TerminalInfo }
+  'terminal:list': { request: void; response: TerminalInfo[] }
+  'terminal:attach': { request: { id: string }; response: TerminalAttach }
+  'terminal:write': { request: { id: string; data: string }; response: void }
+  'terminal:resize': { request: { id: string; cols: number; rows: number }; response: void }
+  'terminal:kill': { request: { id: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -82,7 +99,22 @@ export const IPC_CHANNELS: readonly IpcChannel[] = [
   'memory:trash',
   'memory:graph',
   'memory:search',
-  'memory:setGraphStyle'
+  'memory:setGraphStyle',
+  'memory:reveal',
+  'memory:folders',
+  'memory:writeBody',
+  'memory:createFolder',
+  'memory:rename',
+  'memory:move',
+  'memory:moveFolder',
+  'memory:link',
+  'memory:unlink',
+  'terminal:create',
+  'terminal:list',
+  'terminal:attach',
+  'terminal:write',
+  'terminal:resize',
+  'terminal:kill'
 ]
 
 /** Main→renderer push events (channel → payload). */
@@ -90,9 +122,17 @@ export interface IpcEvents {
   'system:tick': SystemSnapshot
   'context:progress': ContextProgress
   'memory:changed': MemoryChanged
+  'terminal:data': TerminalData
+  'terminal:exit': TerminalExit
 }
 
 export type IpcEvent = keyof IpcEvents
 
 /** Runtime allowlist for event channels the preload may forward. */
-export const IPC_EVENTS: readonly IpcEvent[] = ['system:tick', 'context:progress', 'memory:changed']
+export const IPC_EVENTS: readonly IpcEvent[] = [
+  'system:tick',
+  'context:progress',
+  'memory:changed',
+  'terminal:data',
+  'terminal:exit'
+]

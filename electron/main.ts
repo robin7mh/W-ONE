@@ -13,8 +13,10 @@ import { ContextService } from './main/services/context/ContextService'
 import { registerContextIpc } from './ipc/context.ipc'
 import { VaultService } from './main/services/memory/VaultService'
 import { registerMemoryIpc } from './ipc/memory.ipc'
+import { TerminalService } from './main/services/terminal/TerminalService'
+import { registerTerminalIpc } from './ipc/terminal.ipc'
 import type { MemoryChanged } from '@shared/types/memory'
-import { wonePaths } from './main/lib/paths'
+import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { SettingsService } from './main/services/settings/SettingsService'
 import { DbService } from './main/services/db/DbService'
 import { MIGRATIONS } from './main/services/db/migrations'
@@ -30,6 +32,7 @@ const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 let mainWindow: BrowserWindow | null = null
 let systemService: SystemService | null = null
 let vaultService: VaultService | null = null
+let terminalService: TerminalService | null = null
 let dbService: DbService | null = null
 
 /** Broadcast a push event to every live renderer. */
@@ -63,12 +66,20 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // No shell outlives its window (on macOS the app itself keeps running).
+  mainWindow.on('closed', () => terminalService?.killAll())
 
   // Emit maximize state changes so the renderer can swap the maximize/restore icon.
   const emitMaxState = () =>
     mainWindow?.webContents.send('window:maximized-changed', mainWindow.isMaximized())
   mainWindow.on('maximize', emitMaxState)
   mainWindow.on('unmaximize', emitMaxState)
+
+  // macOS hides the traffic lights in fullscreen; the top bar drops their gap.
+  const emitFullScreen = () =>
+    mainWindow?.webContents.send('window:fullscreen-changed', mainWindow.isFullScreen())
+  mainWindow.on('enter-full-screen', emitFullScreen)
+  mainWindow.on('leave-full-screen', emitFullScreen)
 
   // Pause telemetry sampling while the window is hidden/minimized (save energy).
   mainWindow.on('minimize', () => systemService?.setPaused(true))
@@ -97,10 +108,16 @@ ipcMain.on('window:toggle-maximize', () => {
 })
 ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
+ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
 
 async function registerServices(): Promise<void> {
-  // userData/wone holds all local app data — every location derives from paths.ts.
+  // ~/W-ONE/{data,vault} holds everything — every location derives from paths.ts.
   const paths = wonePaths()
+  try {
+    if (migrateLegacyData(paths)) console.log(`[data] copied ${paths.legacyDataDir} → ${paths.dataDir}`)
+  } catch (err) {
+    console.error('[data] migration from the old data folder failed — starting fresh\n', err)
+  }
   await mkdir(paths.dataDir, { recursive: true })
 
   const settingsService = new SettingsService(paths.settingsFile)
@@ -142,6 +159,13 @@ async function registerServices(): Promise<void> {
   })
   registerMemoryIpc(vaultService)
 
+  // Interactive shells for the user (phase PT) — not an agent tool (§8.1).
+  terminalService = new TerminalService({
+    emit: (channel: string, payload: unknown) => broadcast(channel, payload),
+    resolveProject: (id) => projectService.list().find((p) => p.id === id)
+  })
+  registerTerminalIpc(terminalService)
+
   eventBus.emit('app.started', { payload: { version: app.getVersion() } })
 
   if (!app.isPackaged && dbService) {
@@ -166,6 +190,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   systemService?.dispose()
   vaultService?.dispose()
+  terminalService?.killAll()
   dbService?.close()
   dbService = null
 })

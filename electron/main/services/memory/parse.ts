@@ -12,6 +12,11 @@ export interface ParsedNote {
   links: string[]
 }
 
+/** The raw frontmatter block (delimiters included), or '' — kept byte-for-byte on body edits. */
+export function frontmatterBlock(raw: string): string {
+  return FRONTMATTER.exec(raw)?.[0] ?? ''
+}
+
 export function splitFrontmatter(raw: string): { frontmatter: Record<string, unknown>; body: string } {
   const m = FRONTMATTER.exec(raw)
   if (!m) return { frontmatter: {}, body: raw }

@@ -17,7 +17,8 @@ import {
 } from '@shared/types/memory'
 import type { SettingsService } from '../settings/SettingsService'
 import { MemoryIndex } from './MemoryIndex'
-import { sanitizeTitle } from './parse'
+import { frontmatterBlock, sanitizeTitle } from './parse'
+import { appendLink, removeLinks, rewriteLinks } from './linkEdit'
 import { FOLDER_TYPES, frontmatter, starterNotes } from './starterVault'
 
 const MAX_NOTES = 20_000
@@ -49,6 +50,23 @@ async function scan(dir: string, limit = MAX_NOTES): Promise<string[]> {
       if (d.isDirectory()) stack.push(child) // symlinked dirs are skipped (no cycles)
       else if (d.isFile() && isNoteFile(d.name)) out.push(child)
       if (out.length >= limit) break
+    }
+  }
+  return out
+}
+
+/** All (non-ignored) folders under `dir`, as POSIX paths relative to it. */
+async function scanDirs(dir: string): Promise<string[]> {
+  const out: string[] = []
+  const stack = ['']
+  while (stack.length && out.length < MAX_NOTES) {
+    const rel = stack.pop()!
+    const entries = await readdir(join(dir, rel), { withFileTypes: true }).catch(() => [])
+    for (const d of entries) {
+      if (!d.isDirectory() || ignoredSegment(d.name)) continue
+      const child = rel ? `${rel}/${d.name}` : d.name
+      out.push(child)
+      stack.push(child)
     }
   }
   return out
@@ -174,7 +192,7 @@ export class VaultService {
       const rel = this.normalize(`${dir ? `${dir}/` : ''}${n === 1 ? base : `${base} ${n}`}.md`)
       if (this.index.has(rel)) continue
       const abs = await this.confine(rel, true)
-      const raw = frontmatter({ type: FOLDER_TYPES[top] }) + '\n'
+      const raw = frontmatter({ type: FOLDER_TYPES[top] }) // empty body: the editor starts blank
       try {
         await writeFile(abs, raw, { encoding: 'utf8', flag: 'wx' })
       } catch (err) {
@@ -217,6 +235,104 @@ export class VaultService {
     return this.graphStyle()
   }
 
+  /** Opens the vault folder in Finder / Explorer. */
+  async reveal(): Promise<void> {
+    const root = this.root()
+    if (!(await isDir(root))) throw coded('not-found', 'The vault folder does not exist yet')
+    const err = await shell.openPath(root)
+    if (err) throw coded('open-failed', err)
+  }
+
+  /** Every folder in the vault (empty ones too), vault-relative and sorted. */
+  async folders(): Promise<string[]> {
+    await this.ensureIndexed()
+    const root = this.root()
+    if (!(await isDir(root))) return []
+    return (await scanDirs(root)).sort((a, b) => a.localeCompare(b))
+  }
+
+  /** Replace a note's text; its frontmatter block is kept byte-for-byte. */
+  async writeBody(path: string, body: string): Promise<NoteMeta> {
+    await this.ensureIndexed()
+    if (typeof body !== 'string') throw coded('bad-input', 'Invalid note text')
+    const rel = this.normalize(path)
+    const raw = this.index.rawOf(rel) ?? (await readFile(await this.confine(rel), 'utf8'))
+    return this.write(rel, frontmatterBlock(raw) + body)
+  }
+
+  async createFolder(parent: string, name: string): Promise<string> {
+    await this.ensureIndexed()
+    const base = this.normalizeDir(parent)
+    const rel = this.normalizeDir(`${base ? `${base}/` : ''}${sanitizeTitle(name)}`)
+    await mkdir(this.root(), { recursive: true })
+    const abs = await this.confine(rel)
+    if (await stat(abs).catch(() => null)) throw coded('exists', `"${rel}" already exists`)
+    await mkdir(abs)
+    this.opts.onChange({})
+    return rel
+  }
+
+  /** Rename a note (its file). Links to it in other notes follow the new name. */
+  async rename(path: string, title: string): Promise<NoteMeta> {
+    await this.ensureIndexed()
+    const rel = this.requireNote(path)
+    const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+    const next = this.normalize(`${dir ? `${dir}/` : ''}${sanitizeTitle(title)}.md`)
+    if (next !== rel) await this.relocate([[rel, next]])
+    return this.index.get(next)!.meta
+  }
+
+  /** Move a note into another folder ('' = vault root). */
+  async move(path: string, folder: string): Promise<NoteMeta> {
+    await this.ensureIndexed()
+    const rel = this.requireNote(path)
+    const dir = this.normalizeDir(folder)
+    const next = this.normalize(`${dir ? `${dir}/` : ''}${rel.slice(rel.lastIndexOf('/') + 1)}`)
+    if (next !== rel) await this.relocate([[rel, next]])
+    return this.index.get(next)!.meta
+  }
+
+  /** Move a folder with everything in it into another folder ('' = vault root). */
+  async moveFolder(folder: string, into: string): Promise<string> {
+    await this.ensureIndexed()
+    const from = this.normalizeDir(folder)
+    const target = this.normalizeDir(into)
+    if (!from) throw coded('bad-path', 'The vault root cannot be moved')
+    if (target === from || target.startsWith(`${from}/`)) throw coded('bad-move', 'A folder cannot move into itself')
+    const to = this.normalizeDir(`${target ? `${target}/` : ''}${from.slice(from.lastIndexOf('/') + 1)}`)
+    if (to === from) return from
+    const moves = this.index
+      .list()
+      .filter((n) => n.path.startsWith(`${from}/`))
+      .map((n): [NotePath, NotePath] => [n.path, `${to}${n.path.slice(from.length)}`])
+    await this.relocate(moves, { from, to })
+    return to
+  }
+
+  /** Link `from` → `to`: adds "[[to]]" under "## Verbindungen" in `from`. */
+  async link(from: string, to: string): Promise<NoteMeta> {
+    await this.ensureIndexed()
+    const a = this.requireNote(from)
+    const b = this.requireNote(to)
+    if (a === b) throw coded('bad-link', 'A note cannot link to itself')
+    const e = this.index.get(a)!
+    if (Object.values(e.resolved).includes(b)) return e.meta
+    // By name when that is unambiguous (the Obsidian way), else by path.
+    const name = b.slice(b.lastIndexOf('/') + 1).replace(/\.md$/i, '')
+    const target = this.index.resolve(name) === b ? name : b.replace(/\.md$/i, '')
+    return this.write(a, appendLink(e.raw, target))
+  }
+
+  /** Remove every link in `from` that points to `to`; inline mentions stay as text. */
+  async unlink(from: string, to: string): Promise<NoteMeta> {
+    await this.ensureIndexed()
+    const a = this.requireNote(from)
+    const b = this.requireNote(to)
+    const raw = this.index.rawOf(a)!
+    const next = removeLinks(raw, (t) => this.index.resolve(t) === b)
+    return next === raw ? this.index.get(a)!.meta : this.write(a, next)
+  }
+
   dispose(): void {
     this.stopWatching()
     if (this.flushTimer) clearTimeout(this.flushTimer)
@@ -226,6 +342,70 @@ export class VaultService {
 
   private root(): string {
     return this.opts.settings.get().vaultRoot ?? this.opts.defaultRoot
+  }
+
+  private requireNote(path: string): NotePath {
+    const rel = this.normalize(path)
+    if (!this.index.has(rel)) throw coded('not-found', `Note not found: ${rel}`)
+    return rel
+  }
+
+  /** Vault-relative folder path; '' is the vault root. */
+  private normalizeDir(path: string): string {
+    const rel = posix
+      .normalize(String(path ?? '').replace(/\\/g, '/'))
+      .replace(/^\/+|\/+$/g, '')
+    if (rel === '.' || rel === '') return ''
+    if (
+      rel.split('/').some((s) => s === '..' || s === '' || ignoredSegment(s)) ||
+      (process.platform === 'win32' && rel.includes(':'))
+    ) {
+      throw coded('bad-path', `Invalid folder: ${path}`)
+    }
+    return rel
+  }
+
+  /**
+   * Rename/move notes (or one folder) on disk and keep links intact: rewrites
+   * are planned first, while the old names still resolve. Name-style links
+   * only change when the name does; path-style links follow the new path.
+   */
+  private async relocate(moves: [NotePath, NotePath][], dir?: { from: string; to: string }): Promise<void> {
+    const root = this.root()
+    const map = new Map(moves)
+    const [srcRel, dstRel] = dir ? [dir.from, dir.to] : moves[0]
+    const fromAbs = await this.confine(srcRel)
+    const toAbs = await this.confine(dstRel, true)
+    // A case-only rename ("notiz" → "Notiz") hits the same file on macOS/Windows.
+    const caseOnly = srcRel.toLowerCase() === dstRel.toLowerCase()
+    if (!caseOnly && (await stat(toAbs).catch(() => null))) {
+      throw coded('exists', `"${dstRel.replace(/\.md$/i, '')}" already exists`)
+    }
+
+    const rewrites = new Map<NotePath, string>()
+    for (const { path } of this.index.list()) {
+      const raw = this.index.rawOf(path)!
+      const next = rewriteLinks(raw, (target) => {
+        const hit = this.index.resolve(target)
+        const moved = hit ? map.get(hit) : undefined
+        if (!hit || !moved) return null
+        const movedNoExt = moved.replace(/\.md$/i, '')
+        if (target.includes('/') || /\.md$/i.test(target)) return movedNoExt
+        const oldName = hit.slice(hit.lastIndexOf('/') + 1).replace(/\.md$/i, '')
+        const newName = movedNoExt.slice(movedNoExt.lastIndexOf('/') + 1)
+        return oldName === newName ? null : newName
+      })
+      if (next !== raw) rewrites.set(map.get(path) ?? path, next)
+    }
+
+    await rename(fromAbs, toAbs)
+    for (const [from] of moves) this.index.remove(from)
+    for (const [, to] of moves) await this.load(root, to)
+    for (const [path, raw] of rewrites) {
+      await this.atomicWrite(await this.confine(path), raw)
+      this.index.upsert(path, raw, new Date())
+    }
+    this.opts.onChange({})
   }
 
   private graphStyle(): GraphStyle {

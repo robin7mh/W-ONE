@@ -12,18 +12,27 @@ import type {
 
 const AUTOSAVE_MS = 700
 
+/** Inline "new note / new folder" input in the sidebar. `parent` '' = vault root. */
+export interface Creating {
+  kind: 'note' | 'folder'
+  parent: string
+}
+
 interface MemoryState {
   status?: VaultStatus
   notes: NoteMeta[]
+  /** Every folder, empty ones included (the note list alone can't show those). */
+  folders: string[]
   graph?: MemoryGraph
   view: 'note' | 'graph'
   mode: 'edit' | 'preview'
 
   /** Open note as last loaded from disk. */
   note?: Note
-  /** Editor text; differs from note.raw while unsaved. */
+  /** Editor text (the note body — frontmatter is never shown or edited here). */
   draft: string
   saving: boolean
+  creating: Creating | null
 
   query: string
   hits: SearchHit[]
@@ -35,17 +44,27 @@ interface MemoryState {
   onChanged: (change: MemoryChanged) => Promise<void>
   createVault: () => Promise<void>
   pickVault: () => Promise<void>
+  reveal: () => Promise<void>
   open: (path: string, mode?: 'edit' | 'preview') => Promise<void>
   /** Follow a link by title: open the note, or create it (Obsidian behavior). */
   openOrCreate: (title: string) => Promise<void>
-  setDraft: (raw: string) => void
+  setDraft: (body: string) => void
   save: () => Promise<void>
-  createNote: (title?: string, folder?: string) => Promise<void>
+  startCreate: (kind: Creating['kind'], parent?: string) => void
+  cancelCreate: () => void
+  submitCreate: (name: string) => Promise<void>
+  createNote: (title: string, folder?: string) => Promise<void>
+  rename: (title: string) => Promise<void>
+  moveNote: (path: string, folder: string) => Promise<void>
+  moveFolder: (folder: string, into: string) => Promise<void>
+  link: (to: string) => Promise<void>
+  unlink: (from: string, to: string) => Promise<void>
   trash: (path: string) => Promise<void>
   setView: (view: 'note' | 'graph') => void
   setMode: (mode: 'edit' | 'preview') => void
   search: (query: string) => Promise<void>
   setGraphStyle: (style: GraphStyle) => Promise<void>
+  clearError: () => void
 }
 
 function message(err: unknown): string {
@@ -57,19 +76,34 @@ let searchSeq = 0
 
 export const useMemory = create<MemoryState>((set, get) => {
   const reloadIndex = async () => {
-    const [status, notes, graph] = await Promise.all([ipc('memory:status'), ipc('memory:list'), ipc('memory:graph')])
-    set({ status, notes, graph })
+    const [status, notes, graph, folders] = await Promise.all([
+      ipc('memory:status'),
+      ipc('memory:list'),
+      ipc('memory:graph'),
+      ipc('memory:folders')
+    ])
+    set({ status, notes, graph, folders })
     return { status, notes }
   }
 
   const fail = (err: unknown) => set({ error: message(err), loading: false, saving: false })
 
+  /** Re-read the open note (links/backlinks may have changed elsewhere). */
+  const refreshNote = async () => {
+    const { note } = get()
+    if (!note) return
+    const fresh = await ipc('memory:read', { path: note.path }).catch(() => undefined)
+    if (fresh) set((s) => ({ note: fresh, draft: s.draft === s.note?.body ? fresh.body : s.draft }))
+  }
+
   return {
     notes: [],
+    folders: [],
     view: 'graph',
     mode: 'preview',
     draft: '',
     saving: false,
+    creating: null,
     query: '',
     hits: [],
     loading: false,
@@ -93,23 +127,20 @@ export const useMemory = create<MemoryState>((set, get) => {
     onChanged: async (change) => {
       try {
         await reloadIndex()
-        const { note, draft, query } = get()
+        const { note, query } = get()
         if (query) void get().search(query)
         if (!note) return
-        if (change.paths && !change.paths.includes(note.path)) {
-          // Backlinks of the open note may still have changed — refresh quietly.
-          const fresh = await ipc('memory:read', { path: note.path }).catch(() => undefined)
-          if (fresh) set({ note: { ...fresh, raw: note.raw } })
-          return
-        }
-        const dirty = draft !== note.raw
         const fresh = await ipc('memory:read', { path: note.path }).catch(() => undefined)
+        // Our own rename/move may have opened the note under its new path meanwhile.
+        if (get().note?.path !== note.path) return
+        const dirty = get().draft !== get().note?.body
         if (!fresh) {
-          set({ note: undefined, draft: '' }) // deleted or moved outside W-ONE
+          // Gone: deleted, or renamed/moved outside this view's own actions.
+          if (!change.paths || change.paths.includes(note.path)) set({ note: undefined, draft: '' })
         } else if (!dirty) {
-          set({ note: fresh, draft: fresh.raw }) // external edit — follow the file
+          set({ note: fresh, draft: fresh.body }) // follow the file (external edit)
         } else {
-          set({ note: { ...fresh, raw: note.raw } }) // keep the user's unsaved text
+          set({ note: { ...fresh, body: note.body } }) // keep the user's unsaved text
         }
       } catch (err) {
         fail(err)
@@ -139,11 +170,19 @@ export const useMemory = create<MemoryState>((set, get) => {
       }
     },
 
+    reveal: async () => {
+      try {
+        await ipc('memory:reveal')
+      } catch (err) {
+        fail(err)
+      }
+    },
+
     open: async (path, mode) => {
       try {
         await get().save()
         const note = await ipc('memory:read', { path })
-        set({ note, draft: note.raw, view: 'note', mode: mode ?? get().mode, error: undefined })
+        set({ note, draft: note.body, view: 'note', mode: mode ?? get().mode, error: undefined })
       } catch (err) {
         fail(err)
       }
@@ -159,8 +198,8 @@ export const useMemory = create<MemoryState>((set, get) => {
       return get().createNote(title.slice(slash + 1), slash > 0 ? title.slice(0, slash) : '')
     },
 
-    setDraft: (raw) => {
-      set({ draft: raw })
+    setDraft: (body) => {
+      set({ draft: body })
       window.clearTimeout(saveTimer)
       saveTimer = window.setTimeout(() => void get().save(), AUTOSAVE_MS)
     },
@@ -168,24 +207,100 @@ export const useMemory = create<MemoryState>((set, get) => {
     save: async () => {
       window.clearTimeout(saveTimer)
       const { note, draft } = get()
-      if (!note || draft === note.raw) return
+      if (!note || draft === note.body) return
       set({ saving: true })
       try {
-        await ipc('memory:write', { path: note.path, raw: draft })
+        await ipc('memory:writeBody', { path: note.path, body: draft })
         const fresh = await ipc('memory:read', { path: note.path })
         // Keep typing that happened while the write was in flight.
-        set((s) => ({ note: fresh, draft: s.draft === draft ? fresh.raw : s.draft, saving: false }))
+        set((s) => ({ note: fresh, draft: s.draft === draft ? fresh.body : s.draft, saving: false }))
       } catch (err) {
         fail(err)
       }
     },
 
-    createNote: async (title = 'Untitled', folder = '') => {
+    startCreate: (kind, parent = '') => set({ creating: { kind, parent } }),
+    cancelCreate: () => set({ creating: null }),
+
+    submitCreate: async (name) => {
+      const creating = get().creating
+      set({ creating: null })
+      if (!creating || !name.trim()) return
+      if (creating.kind === 'note') return get().createNote(name.trim(), creating.parent)
+      try {
+        await ipc('memory:createFolder', { parent: creating.parent, name: name.trim() })
+        await reloadIndex()
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    createNote: async (title, folder = '') => {
       try {
         await get().save()
         const meta = await ipc('memory:create', { title, folder })
         await reloadIndex()
         await get().open(meta.path, 'edit')
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    rename: async (title) => {
+      const { note } = get()
+      if (!note || !title.trim() || title.trim() === note.title) return
+      try {
+        await get().save()
+        const meta = await ipc('memory:rename', { path: note.path, title: title.trim() })
+        await reloadIndex()
+        await get().open(meta.path, get().mode)
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    moveNote: async (path, folder) => {
+      try {
+        await get().save()
+        const meta = await ipc('memory:move', { path, folder })
+        await reloadIndex()
+        if (get().note?.path === path) await get().open(meta.path, get().mode)
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    moveFolder: async (folder, into) => {
+      try {
+        await get().save()
+        const to = await ipc('memory:moveFolder', { folder, into })
+        await reloadIndex()
+        const open = get().note?.path
+        if (open?.startsWith(`${folder}/`)) await get().open(`${to}${open.slice(folder.length)}`, get().mode)
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    link: async (to) => {
+      const { note } = get()
+      if (!note) return
+      try {
+        await get().save()
+        await ipc('memory:link', { from: note.path, to })
+        await reloadIndex()
+        await refreshNote()
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    unlink: async (from, to) => {
+      try {
+        await get().save()
+        await ipc('memory:unlink', { from, to })
+        await reloadIndex()
+        await refreshNote()
       } catch (err) {
         fail(err)
       }
@@ -235,7 +350,9 @@ export const useMemory = create<MemoryState>((set, get) => {
         if (prev) set({ status: prev })
         fail(err)
       }
-    }
+    },
+
+    clearError: () => set({ error: undefined })
   }
 })
 

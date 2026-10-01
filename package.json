@@ -16,12 +16,13 @@
     "web:dev": "vite --config vite.web.config.ts",
     "web:build": "vite build --config vite.web.config.ts",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "postinstall": "node scripts/fix-node-pty.cjs && electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.0.20",
     "@fontsource/jetbrains-mono": "^5.0.20",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.11.1",
     "d3-force": "^3.0.0",
@@ -30,6 +31,7 @@
     "ignore": "^5.3.2",
     "lucide-react": "^0.427.0",
     "marked": "^18.0.14",
+    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "systeminformation": "^5.33.15",

@@ -22,6 +22,14 @@ const api = {
       ipcRenderer.removeListener('window:maximized-changed', listener)
     }
   },
+  isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
+  onFullScreenChange: (cb: (isFull: boolean) => void): (() => void) => {
+    const listener = (_: unknown, isFull: boolean) => cb(isFull)
+    ipcRenderer.on('window:fullscreen-changed', listener)
+    return () => {
+      ipcRenderer.removeListener('window:fullscreen-changed', listener)
+    }
+  },
   platform: process.platform,
 
   /** Typed domain IPC. Channel is validated against the shared allowlist. */

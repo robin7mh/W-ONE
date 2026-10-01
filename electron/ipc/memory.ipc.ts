@@ -14,4 +14,13 @@ export function registerMemoryIpc(service: VaultService): void {
   handle('memory:graph', () => service.graph())
   handle('memory:search', ({ query }) => service.search(query))
   handle('memory:setGraphStyle', (style) => service.setGraphStyle(style))
+  handle('memory:reveal', () => service.reveal())
+  handle('memory:folders', () => service.folders())
+  handle('memory:writeBody', ({ path, body }) => service.writeBody(path, body))
+  handle('memory:createFolder', ({ parent, name }) => service.createFolder(parent, name))
+  handle('memory:rename', ({ path, title }) => service.rename(path, title))
+  handle('memory:move', ({ path, folder }) => service.move(path, folder))
+  handle('memory:moveFolder', ({ folder, into }) => service.moveFolder(folder, into))
+  handle('memory:link', ({ from, to }) => service.link(from, to))
+  handle('memory:unlink', ({ from, to }) => service.unlink(from, to))
 }

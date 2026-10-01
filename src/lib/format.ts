@@ -6,14 +6,15 @@ export function formatTime(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
-/** Format a Date as e.g. "MON 06 JUL 2026" (uppercase, technical). */
+// Day/month names follow the system language (German → "DO 01 OKT 2026").
+const LOCALE = typeof navigator !== 'undefined' ? navigator.language : 'en-US'
+const weekdayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' })
+const monthFmt = new Intl.DateTimeFormat(LOCALE, { month: 'short' })
+const noDot = (s: string) => s.replace(/\.$/, '')
+
+/** Format a Date as e.g. "THU 01 OCT 2026" / "DO 01 OKT 2026" (uppercase, technical). */
 export function formatDate(d: Date): string {
-  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-  const months = [
-    'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
-    'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'
-  ]
-  return `${days[d.getDay()]} ${pad2(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()}`
+  return `${noDot(weekdayFmt.format(d))} ${pad2(d.getDate())} ${noDot(monthFmt.format(d))} ${d.getFullYear()}`.toUpperCase()
 }
 
 /** Seconds → "HH:MM:SS" uptime string. */

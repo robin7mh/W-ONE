@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { AlertTriangle, BrainCircuit, FileText, FolderOpen, Network, Plus, Sparkles } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, BrainCircuit, FileText, FolderOpen, Network, Plus, Sparkles, X } from 'lucide-react'
 import { onEvent } from '@shared/ipc/client'
 import { DEFAULT_GRAPH_STYLE } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
@@ -51,7 +51,7 @@ export function MemoryView() {
       </div>
       <button
         type="button"
-        onClick={() => void m.createNote()}
+        onClick={() => m.startCreate('note', '')}
         className="flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/[0.06] px-2.5 py-1 font-sans text-[12px] font-medium text-cyan transition-colors hover:bg-cyan/[0.12]"
       >
         <Plus size={14} strokeWidth={2} />
@@ -65,7 +65,10 @@ export function MemoryView() {
       {m.error && (
         <div className="flex items-start gap-2 border-b border-danger/30 bg-danger/[0.06] px-3 py-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
-          <span className="font-mono text-[11px] text-text-secondary">{m.error}</span>
+          <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{m.error}</span>
+          <button type="button" aria-label="Dismiss" onClick={m.clearError} className="text-text-muted hover:text-text-primary">
+            <X size={12} />
+          </button>
         </div>
       )}
 
@@ -83,29 +86,51 @@ export function MemoryView() {
       ) : (
         <div className="flex min-h-0 flex-1">
           <aside className="flex w-64 shrink-0 flex-col border-r border-hud/50">
-            <button
-              type="button"
-              onClick={() => void m.pickVault()}
-              title={`${m.status.root}\nClick to open another vault`}
-              className="flex items-center gap-2 border-b border-hud/50 px-3 py-2 text-left transition-colors hover:bg-elevated/40"
-            >
+            <div className="flex items-center gap-2 border-b border-hud/50 px-3 py-2">
               <BrainCircuit size={14} className="shrink-0 text-cyan" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-sans text-[12.5px] font-semibold text-text-primary">{m.status.name}</span>
-                <span className="block font-mono text-[10px] text-text-muted">{m.status.noteCount} notes</span>
+              <span className="min-w-0 flex-1" title={m.status.root}>
+                <span className="block truncate font-sans text-[12.5px] font-semibold text-text-primary">
+                  {m.status.name} <span className="font-normal text-text-muted">· {m.status.noteCount} notes</span>
+                </span>
+                <span className="block truncate font-mono text-[10px] text-text-muted">
+                  {m.status.root.replace(/^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/i, '~')}
+                </span>
               </span>
-              <FolderOpen size={13} className="shrink-0 text-text-muted" />
-            </button>
+              <button
+                type="button"
+                onClick={() => void m.reveal()}
+                title="Show in Finder"
+                aria-label="Show vault in Finder"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
+              >
+                <FolderOpen size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void m.pickVault()}
+                title="Open another vault…"
+                aria-label="Open another vault"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
+              >
+                <ArrowLeftRight size={13} />
+              </button>
+            </div>
             <NoteList
               notes={m.notes}
+              folders={m.folders}
               hits={m.hits}
               query={m.query}
               activePath={m.note?.path}
               folderSlots={folderSlots}
               style={style}
+              creating={m.creating}
               onSearch={m.search}
               onOpen={(p) => void m.open(p)}
-              onCreate={(folder) => void m.createNote('Untitled', folder)}
+              onStartCreate={m.startCreate}
+              onCancelCreate={m.cancelCreate}
+              onSubmitCreate={(name) => void m.submitCreate(name)}
+              onMoveNote={(path, folder) => void m.moveNote(path, folder)}
+              onMoveFolder={(folder, into) => void m.moveFolder(folder, into)}
             />
           </aside>
 
@@ -122,14 +147,18 @@ export function MemoryView() {
             ) : m.note ? (
               <NoteEditor
                 note={m.note}
+                notes={m.notes}
                 draft={m.draft}
                 mode={m.mode}
                 saving={m.saving}
                 onDraft={m.setDraft}
                 onMode={m.setMode}
                 onSave={() => void m.save()}
+                onRename={(title) => void m.rename(title)}
                 onOpen={(p) => void m.open(p)}
                 onOpenOrCreate={(t) => void m.openOrCreate(t)}
+                onLink={(to) => void m.link(to)}
+                onUnlink={(from, to) => void m.unlink(from, to)}
                 onTrash={() => void m.trash(m.note!.path)}
               />
             ) : (
