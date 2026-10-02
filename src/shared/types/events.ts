@@ -5,7 +5,21 @@
 import type { EntityRef } from './entity'
 
 /** Grows additively as phases land (project.*, memory.*, agent.*, tool.*, …). */
-export type WoneEventType = 'app.started' | 'db.migrated'
+export type WoneEventType =
+  | 'app.started'
+  | 'db.migrated'
+  | 'agent.started'
+  | 'agent.status.updated'
+  | 'agent.completed'
+  | 'agent.failed'
+  | 'agent.cancelled'
+  | 'tool.started'
+  | 'tool.completed'
+  | 'tool.failed'
+  | 'tool.denied'
+  | 'permission.requested'
+  | 'permission.granted'
+  | 'permission.denied'
 
 /**
  * How an event is persisted. The bus distributes ALL events to subscribers;
@@ -20,7 +34,19 @@ export type EventPersistence = 'ephemeral' | 'activity' | 'audit'
  */
 export const EVENT_CATALOG: Record<WoneEventType, EventPersistence> = {
   'app.started': 'activity',
-  'db.migrated': 'activity'
+  'db.migrated': 'activity',
+  'agent.started': 'activity',
+  'agent.status.updated': 'ephemeral',
+  'agent.completed': 'activity',
+  'agent.failed': 'activity',
+  'agent.cancelled': 'activity',
+  'tool.started': 'activity',
+  'tool.completed': 'activity',
+  'tool.failed': 'activity',
+  'tool.denied': 'audit',
+  'permission.requested': 'audit',
+  'permission.granted': 'audit',
+  'permission.denied': 'audit'
 }
 
 export interface WoneEvent<T = unknown> {
@@ -32,6 +58,8 @@ export interface WoneEvent<T = unknown> {
   subject?: EntityRef
   /** Project scope, if any. */
   projectId?: string
+  /** Assistant conversation this event belongs to, if any. */
+  conversationId?: string
   /** JSON-serializable, type-specific detail. Never raw model reasoning. */
   payload: T
 }

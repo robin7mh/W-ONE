@@ -149,7 +149,19 @@ describe('data & shared constants', () => {
   it('contract allowlists, graph palette and event catalog', async () => {
     expect(IPC_CHANNELS).toContain('memory:link')
     expect(new Set(IPC_CHANNELS).size).toBe(IPC_CHANNELS.length)
-    expect(IPC_EVENTS).toEqual(['system:tick', 'context:progress', 'memory:changed', 'terminal:data', 'terminal:exit'])
+    expect(IPC_EVENTS).toEqual([
+      'system:tick',
+      'context:progress',
+      'memory:changed',
+      'terminal:data',
+      'terminal:exit',
+      'ai:delta',
+      'ai:message',
+      'ai:conversationsChanged',
+      'permission:request',
+      'permission:resolved',
+      'events:event'
+    ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
     expect(EVENT_CATALOG['app.started']).toBe('activity')

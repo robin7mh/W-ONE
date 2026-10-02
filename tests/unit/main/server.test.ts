@@ -24,6 +24,9 @@ describe('request schemas', () => {
   it('accepts null for void channels and explains failures with or without a path', () => {
     expect(parseRequest('projects:list', null)).toEqual({ ok: true, data: undefined })
     expect(parseRequest('fs:dirs', undefined)).toEqual({ ok: true, data: {} })
+    expect(parseRequest('ai:runs', undefined)).toEqual({ ok: true, data: {} })
+    expect(parseRequest('events:recent', null)).toEqual({ ok: true, data: {} })
+    expect(parseRequest('ai:send', { text: '   ' })).toMatchObject({ ok: false })
     expect(parseRequest('memory:read', 'x')).toEqual({ ok: false, message: 'Invalid request for memory:read — Invalid input: expected object, received string' })
     expect(parseRequest('memory:read', { path: '' })).toMatchObject({ ok: false, message: expect.stringContaining('path: ') })
     expect(parseRequest('memory:read', { path: 'a.md', extra: 1 })).toEqual({ ok: true, data: { path: 'a.md' } })

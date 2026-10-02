@@ -82,7 +82,7 @@ vi.mock('../../../electron/main/lib/paths', () => ({
   wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
   migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
 }))
-vi.mock('../../../electron/main/platform/electron', () => ({ electronPlatform: { kind: 'desktop' } }))
+vi.mock('../../../electron/main/platform/electron', () => ({ electronPlatform: { kind: 'desktop' }, electronCipher: () => ({ kind: 'cipher' }) }))
 vi.mock('../../../electron/ipc/registry', () => ({ bindIpc: h.bound }))
 vi.mock('../../../electron/main/core/createCore', () => ({
   createCore: vi.fn(async (opts: Record<string, unknown>) => {
@@ -142,7 +142,7 @@ afterEach(() => {
 describe('main process boot', () => {
   it('builds the desktop core, binds its router to IPC, starts the embedded server, then opens the window (dev, macOS, dark)', async () => {
     const win = await boot({ devUrl: 'http://localhost:5173' })
-    expect(h.coreOpts).toMatchObject({ mode: 'desktop', version: '0.1.0', platform: { kind: 'desktop' } })
+    expect(h.coreOpts).toMatchObject({ mode: 'desktop', version: '0.1.0', platform: { kind: 'desktop' }, cipher: { kind: 'cipher' } })
     expect(String(h.coreOpts!.webRoot)).toMatch(/renderer$/)
     expect(h.bound).toHaveBeenCalledWith(h.core.router)
     expect(h.core.server.start).toHaveBeenCalled()

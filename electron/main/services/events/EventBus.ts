@@ -8,9 +8,8 @@ import {
 import type { EntityRef } from '@shared/types/entity'
 
 /**
- * Where non-ephemeral events are stored. The SQLite-backed sink arrives in
- * P2B (events table, catalog-driven, audit rows append-only) — until then the
- * bus runs with the no-op sink below.
+ * Where non-ephemeral events are stored (EventLog: memory ring + Postgres
+ * `events` table, catalog-driven, audit rows append-only).
  */
 export interface EventSink {
   persist(event: WoneEvent, cls: Exclude<EventPersistence, 'ephemeral'>): void
@@ -24,6 +23,7 @@ export interface EmitInput<T> {
   actor?: WoneEvent['actor']
   subject?: EntityRef
   projectId?: string
+  conversationId?: string
   payload?: T
 }
 
@@ -53,6 +53,7 @@ export class EventBus {
       actor: input.actor ?? { kind: 'system' },
       subject: input.subject,
       projectId: input.projectId,
+      conversationId: input.conversationId,
       payload: (input.payload ?? {}) as T
     }
 

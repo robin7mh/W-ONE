@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { migrateLegacyData, wonePaths } from './main/lib/paths'
-import { electronPlatform } from './main/platform/electron'
+import { electronCipher, electronPlatform } from './main/platform/electron'
 import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
 
@@ -106,6 +106,7 @@ async function startCore(): Promise<void> {
     version: app.getVersion(),
     paths,
     platform: electronPlatform,
+    cipher: electronCipher(),
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
     webRoot: join(__dirname, '../renderer')
   })

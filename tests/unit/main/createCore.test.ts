@@ -66,7 +66,7 @@ describe('createCore', () => {
     await c.dbReady
     expect(await c.router.dispatch('app:info', undefined, { transport: 'ipc' })).toMatchObject({
       ok: true,
-      data: { mode: 'server', version: '1.2.3', remoteTerminal: false, db: { connected: true, schema: 0 } }
+      data: { mode: 'server', version: '1.2.3', remoteTerminal: false, db: { connected: true, schema: 1 } }
     })
     for (const [channel, req] of [
       ['projects:list', undefined],
@@ -86,6 +86,30 @@ describe('createCore', () => {
       error: { code: 'not-configurable' }
     })
     expect(await c.router.dispatch('server:revokeDevice', { id: 'x' }, { transport: 'ipc' })).toEqual({ ok: true })
+
+    // assistant, permissions and the event log are wired too
+    for (const [channel, req] of [
+      ['ai:status', undefined],
+      ['ai:configure', { effort: 'low' }],
+      ['ai:clearKey', undefined],
+      ['ai:agents', undefined],
+      ['ai:tools', undefined],
+      ['ai:conversations', undefined],
+      ['ai:runs', {}],
+      ['ai:cancel', { conversationId: 'none' }],
+      ['ai:deleteConversation', { id: 'none' }],
+      ['permission:pending', undefined],
+      ['permission:grants', undefined],
+      ['permission:revoke', { agentId: 'a', toolName: 't' }],
+      ['events:recent', {}]
+    ] as const) {
+      expect(await c.router.dispatch(channel, req, { transport: 'ipc' })).toMatchObject({ ok: true })
+    }
+    expect(await c.router.dispatch('ai:setKey', { key: 'short' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'bad-key' } })
+    expect(await c.router.dispatch('ai:conversation', { id: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    expect(await c.router.dispatch('permission:respond', { id: 'none', decision: 'once' }, { transport: 'remote', deviceId: 'd' })).toMatchObject({
+      error: { code: 'not-pending' }
+    })
     expect(await c.router.dispatch('terminal:list', undefined, { transport: 'remote' })).toMatchObject({
       error: { code: 'remote-terminal-disabled' }
     })
@@ -122,6 +146,67 @@ describe('createCore', () => {
     expect(status).toMatchObject({ ok: true, data: { config: { remoteTerminal: true } } })
     expect(c.info().remoteTerminal).toBe(true)
     expect(c.settings.get().server?.remoteTerminal).toBe(true)
+  })
+})
+
+describe('createCore — assistant end to end (scripted model)', () => {
+  it('runs an agent through the router: context, tools, permission round-trip, push events', async () => {
+    const saved = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-test-key'
+    h.pool = deadPool()
+    const steps = [
+      { blocks: [{ type: 'tool_call', id: 't1', name: 'memory_create_note', input: { title: 'Plan', body: 'b', reason: 'remember' } }], stopReason: 'tool_use' },
+      { blocks: [{ type: 'tool_call', id: 't2', name: 'shell_run', input: { command: 'ls', reason: 'look' } }], stopReason: 'tool_use' },
+      { blocks: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' }
+    ]
+    const seen: { system: string; context: string }[] = []
+    const provider = {
+      stream: async (req: { system: string; messages: { blocks: { text?: string }[] }[] }, onText: (t: string) => void) => {
+        seen.push({ system: req.system, context: String(req.messages[0].blocks[0].text) })
+        const step = steps.shift()!
+        if (step.stopReason === 'end_turn') onText('done')
+        return { message: { role: 'assistant', blocks: step.blocks }, stopReason: step.stopReason, model: 'm', usage: { inputTokens: 1, outputTokens: 1 }, serverTools: [] }
+      },
+      verify: async () => {}
+    }
+    try {
+      const c = await core({
+        serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false },
+        providerFactory: { create: () => provider as never }
+      })
+      await c.dbReady
+      await c.router.dispatch('memory:createVault', undefined, { transport: 'ipc' })
+      const pushed: string[] = []
+      let pending: string | undefined
+      c.hub.subscribe((channel, payload) => {
+        pushed.push(channel)
+        if (channel === 'permission:request') pending = (payload as { id: string }).id
+      })
+      const added = (await c.router.dispatch('projects:add', { path: process.env.WONE_HOME! }, { transport: 'ipc' })) as { data: { id: string } }
+      const sent = await c.router.dispatch(
+        'ai:send',
+        { text: 'Plan my week', agentId: 'coding', projectId: added.data.id },
+        { transport: 'remote', deviceId: 'phone' }
+      )
+      expect(sent).toMatchObject({ ok: true })
+      for (let i = 0; i < 100 && !pending; i += 1) await new Promise((r) => setTimeout(r, 5))
+      expect(await c.router.dispatch('permission:respond', { id: pending!, decision: 'once' }, { transport: 'remote', deviceId: 'phone' })).toEqual({ ok: true })
+      await c.assistant.idle()
+      const id = (sent as { data: { conversationId: string } }).data.conversationId
+      const conv = (await c.router.dispatch('ai:conversation', { id }, { transport: 'ipc' })) as { data: { messages: { parts: { status?: string; output?: string }[] }[] } }
+      const parts = conv.data.messages[1].parts
+      expect(parts[0]).toMatchObject({ status: 'done', output: 'Created Plan.md' })
+      expect(parts[1]).toMatchObject({ status: 'denied' }) // remote + shell switch off
+      expect(seen[0].context).toContain('Memory vault "W-ONE"')
+      expect(seen[0].context).toContain('Active project:')
+      expect(pushed).toEqual(expect.arrayContaining(['ai:delta', 'ai:message', 'permission:request', 'permission:resolved', 'events:event', 'ai:conversationsChanged']))
+      const recent = (await c.router.dispatch('events:recent', { conversationId: id }, { transport: 'ipc' })) as { data: { type: string }[] }
+      expect(recent.data.map((e) => e.type)).toEqual(expect.arrayContaining(['agent.started', 'permission.granted', 'tool.completed', 'tool.denied', 'agent.completed']))
+      expect((await c.router.dispatch('ai:runs', {}, { transport: 'ipc' })) as { data: unknown[] }).toMatchObject({ data: [{ status: 'completed' }] })
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = saved
+    }
   })
 })
 

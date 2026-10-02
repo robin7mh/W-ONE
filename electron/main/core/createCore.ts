@@ -22,8 +22,18 @@ import { FsService } from '../services/fs/FsService'
 import { AuthService } from '../services/auth/AuthService'
 import { DbService, createPool, databaseUrl } from '../services/db/DbService'
 import { MIGRATIONS } from '../services/db/migrations'
-import { EventBus, NoopEventSink } from '../services/events/EventBus'
+import { EventBus } from '../services/events/EventBus'
+import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
+import { SecretStore, type Cipher } from '../services/ai/SecretStore'
+import { AiService, type ProviderFactory } from '../services/ai/AiService'
+import { ConversationStore } from '../services/ai/ConversationStore'
+import { RunStore } from '../services/ai/RunStore'
+import { PermissionService } from '../services/ai/PermissionService'
+import { ContextBuilder } from '../services/ai/ContextBuilder'
+import { AssistantService } from '../services/ai/AssistantService'
+import { ToolRegistry } from '../services/ai/tools/registry'
+import { builtinTools } from '../services/ai/tools/builtin'
 
 export interface CoreOptions {
   mode: CoreMode
@@ -34,6 +44,10 @@ export interface CoreOptions {
   serverConfig?: ServerConfig
   /** Built web UI the network API serves at `/`. */
   webRoot?: string
+  /** Encrypts stored secrets (desktop: OS keychain via Electron safeStorage). */
+  cipher?: Cipher
+  /** Injected LLM provider factory (tests). */
+  providerFactory?: ProviderFactory
 }
 
 export interface Core {
@@ -46,6 +60,7 @@ export interface Core {
   vault: VaultService
   server: ServerController
   auth: AuthService
+  assistant: AssistantService
   /** Settles once the background database connection attempt is over. */
   dbReady: Promise<void>
   info(): AppInfo
@@ -69,9 +84,11 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   let db: DbService | null = null
   let dbSchema: number | undefined
 
-  // Distributes all WoneEvents; persistence sink is a no-op until the events
-  // table lands in P2B.
-  const events = new EventBus({ sink: new NoopEventSink() })
+  // Every WoneEvent: kept in the EventLog (memory ring + Postgres once
+  // connected) and pushed live to every client for the activity timeline.
+  const eventLog = new EventLog()
+  const events = new EventBus({ sink: eventLog, broadcast: (event) => hub.publish('events:event', event) })
+  const runs = new RunStore()
 
   const projects = new ProjectService(new ProjectRegistry(paths.dataDir), platform)
   await projects.init()
@@ -126,6 +143,33 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     db: { connected: !!db, schema: dbSchema }
   })
 
+  // The assistant: provider, context engine, tools behind the permission gate.
+  const ai = new AiService({ settings, secrets: new SecretStore(paths.secretsFile, opts.cipher), factory: opts.providerFactory })
+  const permissions = new PermissionService({
+    file: paths.grantsFile,
+    events,
+    onRequest: (req) => hub.publish('permission:request', req),
+    onResolved: (res) => hub.publish('permission:resolved', res)
+  })
+  const tools = new ToolRegistry(builtinTools({ vault, projects, context, system }))
+  const assistant = new AssistantService({
+    ai,
+    store: new ConversationStore(paths.dataDir),
+    runs,
+    tools,
+    permissions,
+    events,
+    context: new ContextBuilder({
+      user: () => system.user(),
+      projects: () => projects.list(),
+      projectContext: (id) => context.get(id),
+      vaultStatus: () => vault.status(),
+      search: (q) => vault.search(q)
+    }),
+    publish: (channel, payload) => hub.publish(channel, payload),
+    remoteShell: () => controller.remoteTerminal()
+  })
+
   registerProjectIpc(router, projects)
   registerSystemIpc(router, system)
   registerContextIpc(router, context)
@@ -138,6 +182,23 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('server:createPairingCode', () => controller.createPairingCode())
   router.register('server:devices', () => controller.devices())
   router.register('server:revokeDevice', ({ id }) => controller.revoke(id))
+  router.register('ai:status', () => ai.status())
+  router.register('ai:setKey', ({ key }) => ai.setKey(key))
+  router.register('ai:clearKey', () => ai.clearKey())
+  router.register('ai:configure', (patch) => ai.configure(patch))
+  router.register('ai:agents', () => assistant.agents())
+  router.register('ai:tools', () => tools.info())
+  router.register('ai:conversations', () => assistant.conversations())
+  router.register('ai:conversation', ({ id }) => assistant.conversation(id))
+  router.register('ai:send', (req, ctx) => assistant.send(req, ctx))
+  router.register('ai:cancel', ({ conversationId }) => assistant.cancel(conversationId))
+  router.register('ai:deleteConversation', ({ id }) => assistant.remove(id))
+  router.register('ai:runs', ({ limit }) => assistant.runs(limit))
+  router.register('permission:pending', () => permissions.list())
+  router.register('permission:respond', ({ id, decision }, ctx) => permissions.respond(id, decision, ctx.deviceId))
+  router.register('permission:grants', () => permissions.grants())
+  router.register('permission:revoke', ({ agentId, toolName }) => permissions.revoke(agentId, toolName))
+  router.register('events:recent', (q) => eventLog.recent(q))
 
   // Postgres runs in Docker (docker-compose.yml). Connected in the background:
   // a stopped container never delays startup — W-ONE stays usable without it.
@@ -149,6 +210,9 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       const result = await candidate.migrate(MIGRATIONS)
       db = candidate
       dbSchema = result.to
+      eventLog.attach(candidate)
+      runs.attach(candidate)
+      if (result.applied.length) events.emit('db.migrated', { payload: result })
       console.log(`[db] connected — schema v${result.to}`)
     } catch (err) {
       await candidate.close().catch(() => {})
@@ -170,9 +234,11 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     vault,
     server: controller,
     auth,
+    assistant,
     dbReady: connecting,
     info,
     async dispose() {
+      await assistant.dispose()
       system.dispose()
       vault.dispose()
       terminal.killAll()
@@ -180,6 +246,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await connecting
       const open = db
       db = null
+      eventLog.attach(null)
+      runs.attach(null)
       await open?.close().catch(() => {})
     }
   }

@@ -25,6 +25,22 @@ import type {
   ServerConfig,
   ServerStatus
 } from '@shared/types/server'
+import type {
+  AgentInfo,
+  AgentRun,
+  AiDelta,
+  AiMessageUpdate,
+  AiSettings,
+  AiStatus,
+  ApprovalDecision,
+  Conversation,
+  ConversationSummary,
+  PermissionGrant,
+  PermissionRequest,
+  SendRequest,
+  ToolInfo
+} from '@shared/types/ai'
+import type { WoneEvent } from '@shared/types/events'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -87,6 +103,26 @@ export interface IpcChannels {
   'server:createPairingCode': { request: void; response: PairingCode }
   'server:devices': { request: void; response: Device[] }
   'server:revokeDevice': { request: { id: string }; response: void }
+
+  'ai:status': { request: void; response: AiStatus }
+  'ai:setKey': { request: { key: string }; response: AiStatus }
+  'ai:clearKey': { request: void; response: AiStatus }
+  'ai:configure': { request: Partial<AiSettings>; response: AiStatus }
+  'ai:agents': { request: void; response: AgentInfo[] }
+  'ai:tools': { request: void; response: ToolInfo[] }
+  'ai:conversations': { request: void; response: ConversationSummary[] }
+  'ai:conversation': { request: { id: string }; response: Conversation }
+  'ai:send': { request: SendRequest; response: { conversationId: string; messageId: string } }
+  'ai:cancel': { request: { conversationId: string }; response: void }
+  'ai:deleteConversation': { request: { id: string }; response: void }
+  'ai:runs': { request: { limit?: number }; response: AgentRun[] }
+
+  'permission:pending': { request: void; response: PermissionRequest[] }
+  'permission:respond': { request: { id: string; decision: ApprovalDecision }; response: void }
+  'permission:grants': { request: void; response: PermissionGrant[] }
+  'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
+
+  'events:recent': { request: { limit?: number; conversationId?: string }; response: WoneEvent[] }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -149,7 +185,24 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'server:configure': 'desktop',
   'server:createPairingCode': 'any',
   'server:devices': 'any',
-  'server:revokeDevice': 'any'
+  'server:revokeDevice': 'any',
+  'ai:status': 'any',
+  'ai:setKey': 'any',
+  'ai:clearKey': 'any',
+  'ai:configure': 'any',
+  'ai:agents': 'any',
+  'ai:tools': 'any',
+  'ai:conversations': 'any',
+  'ai:conversation': 'any',
+  'ai:send': 'any',
+  'ai:cancel': 'any',
+  'ai:deleteConversation': 'any',
+  'ai:runs': 'any',
+  'permission:pending': 'any',
+  'permission:respond': 'any',
+  'permission:grants': 'any',
+  'permission:revoke': 'any',
+  'events:recent': 'any'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -162,6 +215,12 @@ export interface IpcEvents {
   'memory:changed': MemoryChanged
   'terminal:data': TerminalData
   'terminal:exit': TerminalExit
+  'ai:delta': AiDelta
+  'ai:message': AiMessageUpdate
+  'ai:conversationsChanged': { reason: 'created' | 'updated' | 'deleted'; id: string }
+  'permission:request': PermissionRequest
+  'permission:resolved': { id: string; decision: ApprovalDecision }
+  'events:event': WoneEvent
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -172,7 +231,13 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'context:progress',
   'memory:changed',
   'terminal:data',
-  'terminal:exit'
+  'terminal:exit',
+  'ai:delta',
+  'ai:message',
+  'ai:conversationsChanged',
+  'permission:request',
+  'permission:resolved',
+  'events:event'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

@@ -38,6 +38,11 @@ export function createPool(url: string, extra: PoolConfig = {}): DbPool {
 export class DbService {
   constructor(private readonly pool: DbPool) {}
 
+  /** Parameterized query (repositories build on this). */
+  async query(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]> {
+    return (await this.pool.query(sql, params)).rows
+  }
+
   /** Throws if the database is unreachable. */
   async ping(): Promise<void> {
     await this.pool.query('SELECT 1')

@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
+import { EFFORTS } from '@shared/types/ai'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -82,7 +83,38 @@ export const REQUEST_SCHEMAS: Schemas = {
   }),
   'server:createPairingCode': none,
   'server:devices': none,
-  'server:revokeDevice': z.object({ id })
+  'server:revokeDevice': z.object({ id }),
+
+  'ai:status': none,
+  'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
+  'ai:clearKey': none,
+  'ai:configure': z.object({ model: z.string().min(1).max(100).optional(), effort: z.enum(EFFORTS).optional() }),
+  'ai:agents': none,
+  'ai:tools': none,
+  'ai:conversations': none,
+  'ai:conversation': z.object({ id }),
+  'ai:send': z.object({
+    conversationId: id.optional(),
+    agentId: id.optional(),
+    projectId: id.optional(),
+    text: z.string().trim().min(1).max(100_000)
+  }),
+  'ai:cancel': z.object({ conversationId: id }),
+  'ai:deleteConversation': z.object({ id }),
+  'ai:runs': z
+    .object({ limit: z.number().int().min(1).max(200).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+
+  'permission:pending': none,
+  'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),
+  'permission:grants': none,
+  'permission:revoke': z.object({ agentId: id, toolName: id }),
+
+  'events:recent': z
+    .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })
+    .optional()
+    .transform((v) => v ?? {})
 }
 
 /**
