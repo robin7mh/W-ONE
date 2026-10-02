@@ -593,11 +593,15 @@ describe('memory store', () => {
     await m().link('Ich/A.md')
     await m().unlink('Willkommen.md', 'Ich/A.md')
     expect(v.calls).toEqual(['link:Willkommen.md->Ich/A.md', 'unlink:Willkommen.md->Ich/A.md'])
-    v.routes['memory:writeBody'] = (() => new Promise(() => {})) as never // keep the draft unsaved
-    m().setDraft('unsaved words')
-    void m().unlink('Ich/A.md', 'Willkommen.md') // a refresh while the editor is dirty
-    useMemory.setState({ saving: false })
+    const unlinkRoute = v.routes['memory:unlink']
+    v.routes['memory:unlink'] = ((p: never) => {
+      useMemory.setState({ draft: 'unsaved words' }) // typed while the unlink was in flight
+      return unlinkRoute(p)
+    }) as never
+    await m().unlink('Ich/A.md', 'Willkommen.md') // the refresh keeps the dirty draft
     expect(m().draft).toBe('unsaved words')
+    v.routes['memory:unlink'] = unlinkRoute
+    useMemory.setState({ draft: m().note!.body })
     v.routes['memory:read'] = (() => fail('gone')) as never
     await m().link('Ich/A.md') // refresh fails quietly
     v.routes['memory:read'] = (({ path }: { path: string }) => v.files.get(path)) as never

@@ -2,6 +2,7 @@
 #   npm run db:up       start (waits until healthy)
 #   npm run db:down     stop (data stays in the "wone-pgdata" volume)
 #   npm run db:backup   dump to ~/W-ONE/backups/
+#   npm run docker:web  also build + serve the web UI (profile "web", port 8080)
 # Bound to 127.0.0.1 only: nothing outside this machine can reach it.
 # Settings come from .env (see .env.example); the defaults match the app's.
 name: w-one
@@ -25,6 +26,20 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Web UI for a server deploy (static renderer behind nginx, see Dockerfile).
+  # Only with `--profile web`, so `npm run db:up` keeps starting just the DB.
+  web:
+    profiles: ['web']
+    build: .
+    image: ghcr.io/robin7mh/w-one-ui:local
+    container_name: w-one-web
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${WONE_WEB_PORT:-8080}:80'
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   wone-pgdata:

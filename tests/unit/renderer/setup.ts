@@ -2,6 +2,11 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
+declare global {
+  /** media query → matches, read by the matchMedia stub below (tests set entries). */
+  var matchMediaMatches: Record<string, boolean>
+}
+
 // --- what jsdom lacks ----------------------------------------------------------
 
 /** ResizeObserver: records instances so tests can trigger resize callbacks. */
@@ -34,7 +39,7 @@ window.matchMedia = ((query: string) => ({
 })) as typeof window.matchMedia
 
 /** Canvas 2D context: a recorder of calls (jsdom has no canvas). */
-HTMLCanvasElement.prototype.getContext = function getContext() {
+HTMLCanvasElement.prototype.getContext = function getContext(this: HTMLCanvasElement) {
   const calls: string[] = []
   const ctx = new Proxy(
     { calls, canvas: this },

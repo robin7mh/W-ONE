@@ -55,7 +55,9 @@ vi.mock('node:os', async (orig) => {
 })
 vi.mock('node:fs', async (orig) => {
   const actual = await orig<typeof import('node:fs')>()
-  return { ...actual, existsSync: (p: string) => !h.missing.has(p) && actual.existsSync(p) }
+  // The default shells "exist" on every runner (CI images ship without zsh).
+  const shells = new Set(['/bin/zsh', '/bin/bash'])
+  return { ...actual, existsSync: (p: string) => !h.missing.has(p) && (shells.has(p) || actual.existsSync(p)) }
 })
 
 import { TerminalService } from '../../../electron/main/services/terminal/TerminalService'

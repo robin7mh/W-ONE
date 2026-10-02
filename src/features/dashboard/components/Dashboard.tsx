@@ -208,7 +208,7 @@ function BrainTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
             {folders.map(([folder, count]) => (
               <span key={folder} className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: slotColor(slots.get(folder) ?? 0) }} />
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: slotColor(slots.get(folder)!) }} />
                 <span className="font-sans text-[12px] text-text-secondary">{folder}</span>
                 <span className="font-mono text-[10px] text-text-muted">{count}</span>
               </span>

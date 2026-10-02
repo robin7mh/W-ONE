@@ -4,32 +4,81 @@ A premium, dark, futuristic **desktop UI** — a Jarvis-style command center ins
 *principle* of sci-fi terminal UIs (terminal · system telemetry · HUD panels), **not** a clone of
 any existing tool.
 
-> **This is the UI-only phase.** No memory system, no AI agents, no Obsidian integration, no real
-> or dangerous system actions. Everything runs on mock data, but the architecture is built so real
-> data, a real shell, Obsidian memory and AI agents drop in cleanly later (see
-> [Future integration](#future-integration)).
+> Real today: system telemetry, projects (git/stack detection), an Obsidian-compatible memory
+> vault with graph, and real shells in the terminal. AI agents are next — see
+> [`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md).
 
 ## Stack
 
 Electron (frameless) · React 18 · TypeScript · Vite (via **electron-vite**) · Tailwind CSS ·
-Framer Motion · **xterm.js** (display-only) · custom SVG sparklines/gauges. Fonts (Inter,
-JetBrains Mono) are bundled locally — no external requests.
+Framer Motion · **xterm.js** + node-pty · PostgreSQL (Docker) · Vitest + Testing Library ·
+Playwright. Fonts (Inter, JetBrains Mono) are bundled locally — no external requests.
 
 ## Getting started
 
+Requirements: Node 22, Docker (Docker Desktop on macOS/Windows).
+
 ```bash
 npm install
-npm run dev        # launches the full frameless Electron app (HMR)
+npm run dev        # starts the database container, then the Electron app (HMR)
+```
+
+The database is PostgreSQL in Docker (`docker-compose.yml`, bound to `127.0.0.1:54329`).
+`npm run dev` starts it automatically; W-ONE still boots without it (nothing depends on it
+until P2B). Defaults work as-is — copy `.env.example` to `.env` to change them.
+
+```bash
+npm run db:up      # start the database (waits until healthy)
+npm run db:down    # stop it (data stays in the "wone-pgdata" volume)
+npm run db:psql    # SQL shell
+npm run db:backup  # pg_dump → ~/W-ONE/backups/
 ```
 
 Other scripts:
 
 ```bash
-npm run build      # type-checks + builds main / preload / renderer into out/
-npm run typecheck  # tsc for both the node (electron) and web (renderer) sides
-npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
-                   # handy for quick UI iteration; window controls no-op there
+npm run build      # builds main / preload / renderer into out/
+npm run typecheck  # tsc for node (electron), web (renderer) and the tests
+npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron)
+npm run docker:web # builds the web image (Dockerfile) and serves it on 127.0.0.1:8080
 ```
+
+## Tests
+
+```bash
+npm test                 # unit tests (Vitest) — main process in Node, renderer in jsdom
+npm run test:coverage    # same, with coverage; fails below 100 %
+open coverage/index.html # the coverage report
+npm run test:e2e         # build + database + Playwright against the real Electron app
+npm run test:all         # typecheck + coverage + e2e — what CI runs on a pull request
+```
+
+- **Unit** (`tests/unit/main`, `tests/unit/renderer`): every file in `electron/` and `src/` is
+  measured, and lines, branches, functions and statements must all stay at **100 %**.
+  Only type-only modules are excluded (`vitest.config.ts`).
+- **E2E** (`tests/e2e`): launches the built app with a throwaway `WONE_HOME` (your real
+  `~/W-ONE` is never touched) and checks boot + database connection, navigation, a real
+  shell in the terminal, writing a vault note to disk, adding a project and the theme toggle.
+  On Linux without a display run it under `xvfb-run -a`.
+
+## CI/CD (GitHub Actions)
+
+| Workflow | Runs on | Does |
+| --- | --- | --- |
+| `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E against Electron + the Docker database · Docker image build |
+| `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests** — builds the web image and pushes it to `ghcr.io/robin7mh/w-one-ui` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
+
+Release: `git tag v0.2.0 && git push origin v0.2.0`.
+
+To make the tests mandatory before merging, enable branch protection for `main`/`develop`
+(GitHub → Settings → Branches) and require the CI checks.
+
+### Later: website / monorepo
+
+When the W-ONE website arrives, the repo can become an npm-workspaces monorepo without
+changing the pipeline's shape: `apps/desktop` (this app), `apps/web` (the website),
+`packages/shared` (today's `src/shared`). Each app gets its own Dockerfile; CI and CD
+run per workspace.
 
 ## What's on screen
 
@@ -56,35 +105,31 @@ npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron) —
 - **Motion:** boot → staggered panel entrance → pulsing status dots → typing terminal → hover
   glows → sliding nav indicator. All subtle and disabled under `prefers-reduced-motion`.
 
-### What is intentionally dummy this phase
+### Not built yet
 
-Agents/System/Settings render a `ModulePlaceholder` (Projects and Memory are real —
-Memory is an Obsidian-compatible vault with graph); the terminal has no shell and the command
-input executes nothing.
+Agents/System/Settings render a `ModulePlaceholder`; Core, Terminal, Projects and Memory are real.
 
 ## Project structure
 
 ```
-electron/            main.ts (frameless window + IPC), preload.ts (window.wone bridge)
+electron/      main.ts (window + service wiring), preload.ts (window.wone bridge),
+               ipc/ (channel handlers), main/services/ (db, memory, projects, terminal, …)
 src/
-  components/  shell · topbar · nav · command · monitor · dashboard · boot · ui
-  features/    projects · memory (vault, graph, editor) · system · context
-  hooks/       useClock · useMockMetrics · useTerminalStream · useBoot
-  data/        navigation · boot/terminal lines
-  lib/         cn · format
-  types/       shared UI types
+  components/  shell · topbar · nav · monitor · dashboard · boot · ui
+  features/    dashboard · projects · memory (vault, graph, editor) · terminal · system · context
+  shared/      IPC contract + types shared by main, preload and renderer
+  hooks/ data/ lib/ types/
+tests/
+  unit/main      Vitest (node)  — services, IPC, main.ts
+  unit/renderer  Vitest (jsdom) — stores, hooks, every component
+  e2e            Playwright     — the built Electron app
+docker-compose.yml · Dockerfile · docker/   database + web image
+.github/workflows/                          ci.yml (PR tests) · cd.yml (image + release)
 ```
 
 ## Future integration
 
 All privileged capability flows through the single `window.wone` bridge
-(`electron/preload.ts`) — that is the seam to extend. Nothing below is built yet.
-
-- **Real system metrics** — add [`systeminformation`](https://www.npmjs.com/package/systeminformation)
-  in `electron/main.ts`, push samples over IPC, and replace the body of `useMockMetrics` with a
-  read from `window.wone.sysinfo`. Component props are unchanged.
-- **Obsidian memory** — read a vault via `fs` in the main process, expose it through `window.wone`,
-  and build the Memory module surface (currently a placeholder).
-- **AI agents** — wire the command input to an orchestration service
-  (e.g. the Anthropic API called from the main process) and stream responses into
-  `MainCommandPanel`; agent activity fills the Command Deck.
+(`electron/preload.ts`) — that is the seam to extend. Next up are AI agents (orchestration in the
+main process, activity in the Command Deck) — the phase plan is in
+[`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md).

@@ -125,7 +125,7 @@ export function TerminalView() {
           <XtermPane
             key={t.id}
             tab={t}
-            label={labels.get(t.id) ?? t.title}
+            label={labels.get(t.id)!}
             active={t.id === activeId}
             visible={split ? i < slots : t.id === activeId}
             box={split && i < slots ? slotBox(layout, i) : undefined}

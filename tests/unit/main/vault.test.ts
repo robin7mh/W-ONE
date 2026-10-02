@@ -158,10 +158,8 @@ describe('VaultService — notes', () => {
     expect((await v.create('Taken')).path).toBe('Taken 2.md') // EEXIST on disk
     await mkdir(join(root, 'Dir.md')) // a folder where the file would go → EEXIST → next name
     expect((await v.create('Dir')).path).toBe('Dir 2.md')
-    await mkdir(join(root, 'Locked'))
-    await chmod(join(root, 'Locked'), 0o555)
-    await expect(v.create('X', 'Locked')).rejects.toMatchObject({ code: 'EACCES' }) // other errors surface
-    await chmod(join(root, 'Locked'), 0o755)
+    // other errors surface (a name over 255 bytes — works as root too, unlike chmod)
+    await expect(v.create('€'.repeat(120))).rejects.toMatchObject({ code: 'ENAMETOOLONG' })
     expect((await v.create('Free')).type).toBeUndefined()
   })
 
