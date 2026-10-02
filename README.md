@@ -108,6 +108,10 @@ npm run test:all         # typecheck + coverage + e2e — what CI runs on a pull
 
 Release: `git tag v0.2.0 && git push origin v0.2.0`.
 
+`npm run build` and `npm run web:build` run Node with a 4 GB heap: bundling Monaco (the
+editor and its language workers) needs about 2.5 GB, and on GitHub's runners for private
+repos (7 GB RAM) and in Docker, Node picks only ~2 GB by default.
+
 To make the tests mandatory before merging, enable branch protection for `main`/`develop`
 (GitHub → Settings → Branches) and require the CI checks.
 
