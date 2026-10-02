@@ -132,13 +132,20 @@ export function AgentsView() {
             {active ? active.title : `New chat · ${agent?.name ?? 'Agent'}`}
           </span>
           {agent && <span className="hidden truncate font-mono text-[10px] text-text-muted lg:inline">{agent.description}</span>}
-          <button
-            type="button"
-            onClick={() => a.newChat()}
-            className="ml-auto flex items-center gap-1 rounded border border-hud/60 px-2 py-0.5 font-sans text-[11px] text-text-secondary hover:border-cyan/50 hover:text-cyan md:hidden"
+          {/* narrow screens (phone browser): the list lives in a select */}
+          <select
+            aria-label="Conversations"
+            value={a.activeId ?? ''}
+            onChange={(e) => (e.target.value ? void a.open(e.target.value) : a.newChat())}
+            className="ml-auto max-w-[45%] rounded border border-hud/60 bg-transparent px-1 py-0.5 font-sans text-[11px] text-text-secondary md:hidden"
           >
-            <Plus size={12} /> New
-          </button>
+            <option value="">+ New chat</option>
+            {a.conversations.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
         </div>
 
         {a.error && (

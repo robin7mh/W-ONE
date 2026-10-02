@@ -7,7 +7,7 @@ W-ONE evolves from a sci-fi command-center UI into a **modular, local-first pers
 
 Guiding doctrine (unchanged from the masterplan, restated because everything below depends on it):
 
-1. **All privileged operations live in the Electron main process.** The renderer never gets Node access.
+1. **All privileged operations live in the W-ONE core** — the Electron main process, or the same core running headless as a server (§12.4). Clients (desktop renderer, browser, mobile app) never get Node access.
 2. **Markdown is the source of truth for knowledge; the database (PostgreSQL in Docker since 2026-10-02, §11.5) is a rebuildable index plus structured data.** No ORM.
 3. **Local-first.** Cloud LLM APIs are called from main; data stays on disk in open formats.
 4. **Policy is code, never a model.** Permission decisions are made by a deterministic engine and the user — an LLM can request, never grant.
@@ -41,13 +41,14 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 |---|---|
 | Projects | ✅ Real. JSON registry, git/stack detection, open in editor/terminal, `projects:openFile` with path confinement |
 | System monitor | ✅ Real. 1.5 s telemetry stream, pauses when window hidden |
-| Project context | ✅ Backend real (commit `871ba6d`): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache → `context:get`/`context:reindex` + progress event. **No UI yet** |
+| Project context | ✅ Real (P3): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache; UI in the project detail (analyze/reindex, TODOs open in the editor); feeds the assistant's context engine |
 | Core dashboard | ✅ Real. `features/dashboard`: greeting with the OS account name (`system:user`), HUD clock (seconds/minutes/day rings), tiles for projects (live git), brain (vault) and a system verdict |
 | Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
-| Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
+| Bottom dashboard | ✅ Command Deck (P9): running agents (stop / jump in), waiting approvals, live activity outcomes |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
-| Agents / Settings nav | 🎭 Placeholders |
-| LLM integration | ❌ None anywhere yet (by design — lands in P6) |
+| Agents | ✅ P6–P9 (§12.4): Anthropic provider, context engine, tools behind the permission gate, controlled agent runtime, activity timeline |
+| Settings / System | ✅ AI key + model, remote access & devices (pairing, QR), permissions, vault, about · full telemetry view |
+| Network API | ✅ §12.4: the core as an HTTP + WebSocket service for the web UI and the mobile app (device pairing, bearer tokens) |
 
 **Assessment: everything is kept.** The design system, IPC contract, service pattern, store pattern, and security baseline carry the target architecture without modification. Mock data in `src/data/` is deliberately isolated and gets replaced surgically, phase by phase.
 
@@ -512,7 +513,7 @@ User decision: the database runs in Docker so the same setup carries over to a s
 - **Connection:** `pg` pool in the main process, URL from `WONE_DB_URL` (default matches the compose file, see `.env.example`). The app connects in the background and stays fully usable without the database — P2B is its first consumer.
 - **Migrations:** `DbService.migrate()` — forward-only, one transaction per migration (Postgres DDL is transactional, so a failed migration leaves no trace), ledger table `schema_migrations`. Backups on demand: `npm run db:backup` (`pg_dump` → `~/W-ONE/backups/`).
 - **Mapping of the plan below:** SQLite FTS5 → Postgres full-text search (`tsvector` + GIN, `ts_rank`); `sqlite-vec` (P13) → `pgvector`; `user_version` → `schema_migrations`. Where §4/§5/§12 still say SQLite, read Postgres.
-- **Server image:** `Dockerfile` builds the renderer as a static site behind nginx (`npm run docker:web`); CD publishes it to GHCR. The Electron app itself stays a desktop app.
+- **Server image:** `Dockerfile` builds the W-ONE core (API + web UI, §12.4); `npm run docker:up` starts it next to the database; CD publishes it to GHCR. The Electron app itself stays a desktop app (and can embed the same server).
 
 ---
 
@@ -568,3 +569,19 @@ User decision: the AI memory should *be* an Obsidian vault — notes, `[[wikilin
 - **Editing (2026-10-02):** the editor shows only the note text (`memory:writeBody` keeps the frontmatter byte-for-byte); the title is the filename and renames in place; connect/disconnect buttons write or remove `[[links]]` (new links go under `## Verbindungen`, disconnecting keeps inline mentions as plain text); notes and folders move by drag & drop. Renames and moves rewrite affected links in other notes (`linkEdit.ts`; planned before the move, while old names still resolve) — name-style links only change when the name does, path-style links follow the path.
 - **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — W-ONE writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
 - **Model mapping:** §5's `MemoryEntry` fields map onto frontmatter (`id`, `type`, `tags`, `created`, optional `importance`/`confidence`/`summary`). When P2B/P5 land, SQLite `memories` + FTS become a rebuildable index over the vault, and the memory pipeline writes notes. P6/P7 give the assistant read/write tools over this vault behind the permission gate.
+
+### 12.4 Deviation (2026-10-02): one core for desktop, web and mobile
+
+User decision: W-ONE gets a React Native app, and the Docker deploy must be a working web UI. The core therefore became host-independent and network-capable; P3 and P6–P9 shipped together on top of it.
+
+- **Core, not "main process":** every service runs behind `createCore()` (`electron/main/core/createCore.ts`) with an injected `Platform` (`electron` = native dialogs, Finder, OS trash; `headless` = none of those, deletes go to the vault's `.trash`). The Electron app and `server/main.ts` (standalone, `out/server/index.cjs`, Docker) build the same core.
+- **One Router:** `electron/ipc/router.ts` is the single dispatch point for desktop IPC and the network API. Per call: channel exists → caller may use it (`CHANNEL_ACCESS`: `any` / `desktop` = native UI or host apps / `terminal` = remote shells, opt-in) → Zod schema (`src/shared/ipc/schemas.ts`) → handler → `IpcResult`.
+- **Network API** (`electron/main/server/HttpServer.ts`, reference: [`docs/API.md`](docs/API.md)): `POST /api/rpc/<channel>`, `WS /api/events`, `POST /api/pair`, `GET /api/health`, plus the built web UI at `/`. Devices pair with one-time codes (10 min, rate-limited) and get bearer tokens; only SHA-256 hashes are stored. No cookies, no CORS. Desktop: opt-in in Settings, 127.0.0.1 unless LAN is switched on. Standalone: always on, configured by environment.
+- **Clients:** `src/shared/ipc/transport.ts` (bridge | HTTP + WebSocket, only `fetch`/`WebSocket` — the mobile app reuses it unchanged together with `contract.ts`, `schemas.ts` and `types/`).
+- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
+- **P6:** `LLMProvider` (provider-neutral, the model's own blocks replayed unchanged) + Anthropic adapter (streaming, `claude-opus-5-5` default, effort, adaptive thinking, cached system prompt, server-side refusal fallback). Key from `ANTHROPIC_API_KEY` or the secret store (OS keychain on desktop, 0600 file on a server), verified before saving, never returned. Context engine = time, user, active project, matching vault notes under a budget, sent as a `<context>` block in the user turn (cache-friendly).
+- **P7:** `ToolRegistry` (Zod → JSON Schema) with memory, project (confined to the project root), shell and system tools; `PermissionService` = read runs, write asks (Allow once / Always — persisted per agent + tool / Deny), execute always asks; remote devices only run commands with remote shells enabled; unanswered requests are denied after 10 minutes.
+- **P8:** `AssistantService` — controlled loop, per-agent iteration and time limits, cancellation, append-only transcript (dangling tool calls are closed as interrupted), structured `agent.*`/`tool.*`/`permission.*` events, no reasoning stored. Agents are data (`agents.ts`: Assistant, Coding, Research with web search/fetch, Chat).
+- **P9:** Agents module (chat, tool cards, inline approvals, run activity), floating approvals in every module, Command Deck.
+- **Conversations are JSON files** (`~/W-ONE/data/conversations/`), not Postgres rows: the assistant must work on a desktop without the database container. Runs and events go to Postgres when it is there.
+- **Still open:** P5 memory pipeline (model-assisted classification), P10 Files, P11 Automations, P12 graph over `entities`/`links`, P13 embeddings, packaging (electron-builder, signing, auto-update), the mobile app itself.
