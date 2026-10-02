@@ -7,7 +7,6 @@ import { Panel } from '@/components/ui/Panel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { GlowBackground } from '@/components/shell/GlowBackground'
-import { ModulePlaceholder } from '@/components/shell/ModulePlaceholder'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { WindowControls } from '@/components/topbar/WindowControls'
 import { StatusIndicator } from '@/components/topbar/StatusIndicator'
@@ -17,6 +16,7 @@ import { Sparkline } from '@/components/monitor/Sparkline'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
+import { useAssistant as staticAssistant } from '@/features/agents/store'
 import { HudClock } from '@/features/dashboard/components/HudClock'
 import { NAV_ITEMS } from '@/data/navigation'
 import { BOOT_LINES } from '@/data/bootLines'
@@ -63,18 +63,15 @@ describe('ui primitives', () => {
 })
 
 describe('shell pieces', () => {
-  it('GlowBackground and ModulePlaceholder', () => {
+  it('GlowBackground', () => {
     const { container } = render(<GlowBackground />)
     expect(container.querySelector('.hud-grid')).not.toBeNull()
-    render(<ModulePlaceholder item={NAV_ITEMS[4]} />)
-    expect(screen.getByText('Agents')).toBeInTheDocument()
-    expect(screen.getByText(/not yet wired/)).toBeInTheDocument()
   })
 
-  it('SideNavigation marks the active item, tags unready ones and selects', () => {
+  it('SideNavigation marks the active item and selects', () => {
     const onSelect = vi.fn()
     render(<SideNavigation active="terminal" onSelect={onSelect} />)
-    expect(screen.getAllByText('soon')).toHaveLength(NAV_ITEMS.filter((n) => !n.ready).length)
+    expect(screen.getAllByRole('button')).toHaveLength(NAV_ITEMS.length)
     expect(screen.getByTitle('Terminal').className).toContain('text-text-primary')
     expect(screen.getByTitle('Core').className).toContain('text-text-muted')
     fireEvent.click(screen.getByTitle('Memory'))
@@ -260,7 +257,8 @@ describe('BottomDashboard', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(btn)
     expect(btn).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText(/Nothing here yet/)).toBeInTheDocument()
+    expect(screen.getByText('No agent is running')).toBeInTheDocument()
+    expect(screen.getByText('No agent activity yet')).toBeInTheDocument()
     expect(localStorage.getItem('wone.commandDeck.open')).toBe('1')
     fireEvent.click(btn)
     expect(localStorage.getItem('wone.commandDeck.open')).toBe('0')
@@ -288,6 +286,38 @@ describe('BottomDashboard', () => {
   })
 })
 
+describe('BottomDashboard with live agents', () => {
+  it('shows running agents (open / stop), waiting approvals and the activity outcomes', async () => {
+    const useAssistant = staticAssistant
+    const stop = vi.fn(async () => {})
+    const ev = (id: string, type: string, payload: Record<string, unknown> = {}) => ({ id, type, ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload }) as never
+    useAssistant.setState({
+      conversations: [
+        { id: 'c1', title: 'Plan week', agentId: 'assistant', createdAt: '', updatedAt: '', running: true },
+        { id: 'c2', title: 'Idle', agentId: 'assistant', createdAt: '', updatedAt: '', running: false }
+      ],
+      running: { c1: true },
+      pending: [{ id: 'r1' } as never],
+      activity: [ev('e1', 'agent.status.updated', { text: 'Thinking' }), ev('e2', 'tool.completed', { summary: 'Read A' })],
+      stop
+    })
+    localStorage.setItem('wone.commandDeck.open', '1')
+    const onOpen = vi.fn()
+    render(<BottomDashboard onOpenConversation={onOpen} />)
+    expect(screen.getByText('1 running')).toBeInTheDocument()
+    expect(screen.getByText('1 waiting for approval')).toBeInTheDocument()
+    expect(screen.getByText('1 action(s) wait for your approval')).toBeInTheDocument()
+    expect(screen.queryByText('Idle')).toBeNull()
+    expect(screen.getByText('Done: Read A')).toBeInTheDocument()
+    expect(screen.queryByText('Thinking')).toBeNull()
+    fireEvent.click(screen.getByText('Plan week'))
+    expect(onOpen).toHaveBeenCalledWith('c1')
+    fireEvent.click(screen.getByLabelText('Stop Plan week'))
+    expect(stop).toHaveBeenCalledWith('c1')
+    useAssistant.setState({ conversations: [], running: {}, pending: [], activity: [] })
+  })
+})
+
 describe('AppShell', () => {
   it('boots, switches modules, keeps the terminal mounted and counts uptime', async () => {
     vi.doMock('@/features/terminal/components/TerminalView', () => ({ TerminalView: () => <div>TERMINAL</div> }))
@@ -299,8 +329,15 @@ describe('AppShell', () => {
     vi.doMock('@/features/projects/components/ProjectsView', () => ({ ProjectsView: () => <div>PROJECTS</div> }))
     vi.doMock('@/features/memory/components/MemoryView', () => ({ MemoryView: () => <div>MEMORY</div> }))
     vi.doMock('@/components/monitor/SystemMonitorPanel', () => ({ SystemMonitorPanel: () => <div>MONITOR</div> }))
+    vi.doMock('@/features/agents/components/AgentsView', () => ({ AgentsView: () => <div>AGENTS</div> }))
+    vi.doMock('@/features/settings/components/SettingsView', () => ({ SettingsView: () => <div>SETTINGS</div> }))
+    vi.doMock('@/features/system/components/SystemView', () => ({ SystemView: () => <div>SYSTEM</div> }))
     vi.resetModules()
     const { AppShell } = await import('@/components/shell/AppShell')
+    const { useAssistant } = await import('@/features/agents/store')
+    const connect = vi.fn(() => () => {})
+    const open = vi.fn(async () => {})
+    useAssistant.setState({ connect, open })
 
     vi.useFakeTimers()
     render(<AppShell />)
@@ -325,12 +362,59 @@ describe('AppShell', () => {
     expect(screen.getByText('TERMINAL').parentElement!.className).toBe('hidden')
 
     fireEvent.click(screen.getByTitle('Agents'))
-    expect(screen.getByText(/not yet wired/)).toBeInTheDocument()
+    expect(screen.getByText('AGENTS')).toBeInTheDocument()
+    expect(connect).toHaveBeenCalled()
+    fireEvent.click(screen.getByTitle('System'))
+    expect(screen.getByText('SYSTEM')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Settings'))
+    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
 
+    // approvals float above modules; the Command Deck jumps into a conversation
+    act(() =>
+      useAssistant.setState({
+        pending: [{ id: 'p1', conversationId: 'c1', agentName: 'Assistant', toolTitle: 'Create note', risk: 'write', summary: 'Create X', reason: '', allowAlways: true } as never],
+        conversations: [{ id: 'c1', title: 'Chat one', agentId: 'assistant', createdAt: '', updatedAt: '', running: true }],
+        running: { c1: true },
+        activeId: 'c1'
+      })
+    )
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /command deck/i }))
+    fireEvent.click(screen.getByText('Chat one'))
+    expect(open).toHaveBeenCalledWith('c1')
+    expect(screen.getByText('AGENTS')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).toBeNull() // the open chat shows it inline
+    act(() => useAssistant.setState({ pending: [], conversations: [], running: {}, activeId: undefined }))
+
+    vi.doUnmock('@/features/agents/components/AgentsView')
+    vi.doUnmock('@/features/settings/components/SettingsView')
+    vi.doUnmock('@/features/system/components/SystemView')
     vi.doUnmock('@/features/terminal/components/TerminalView')
     vi.doUnmock('@/features/dashboard/components/Dashboard')
     vi.doUnmock('@/features/projects/components/ProjectsView')
     vi.doUnmock('@/features/memory/components/MemoryView')
+    vi.doUnmock('@/components/monitor/SystemMonitorPanel')
+  })
+})
+
+describe('AppShell in a browser without remote shells', () => {
+  it('explains instead of opening a terminal', async () => {
+    vi.doMock('@/features/terminal/components/TerminalView', () => ({ TerminalView: () => <div>TERMINAL</div> }))
+    vi.doMock('@/features/dashboard/components/Dashboard', () => ({ Dashboard: () => <div>DASHBOARD</div> }))
+    vi.doMock('@/components/monitor/SystemMonitorPanel', () => ({ SystemMonitorPanel: () => <div>MONITOR</div> }))
+    vi.resetModules()
+    const { AppShell } = await import('@/components/shell/AppShell')
+    const { useSession } = await import('@/features/session/store')
+    const { useAssistant } = await import('@/features/agents/store')
+    useAssistant.setState({ connect: () => () => {} })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: false } } })
+    render(<AppShell />)
+    fireEvent.click(screen.getByTitle('Terminal'))
+    expect(screen.getByText('Remote shells are off')).toBeInTheDocument()
+    expect(screen.queryByText('TERMINAL')).toBeNull()
+    useSession.setState({ info: undefined })
+    vi.doUnmock('@/features/terminal/components/TerminalView')
+    vi.doUnmock('@/features/dashboard/components/Dashboard')
     vi.doUnmock('@/components/monitor/SystemMonitorPanel')
   })
 })

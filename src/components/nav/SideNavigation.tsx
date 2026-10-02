@@ -61,11 +61,6 @@ export function SideNavigation({
             />
             <span className="relative z-10 hidden flex-1 items-center justify-between xl:flex">
               <span className="font-sans text-[13px] font-medium">{item.label}</span>
-              {!item.ready && (
-                <span className="rounded border border-hud/60 px-1 py-px font-mono text-[9px] uppercase tracking-wider text-text-muted">
-                  soon
-                </span>
-              )}
             </span>
           </button>
         )

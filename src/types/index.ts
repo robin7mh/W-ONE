@@ -13,8 +13,6 @@ export interface NavItem {
   id: ModuleId
   label: string
   icon: LucideIcon
-  /** Modules that are not yet built get a subtle "soon" marker. */
-  ready: boolean
 }
 
 export interface ProcessRow {

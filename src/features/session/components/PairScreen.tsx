@@ -64,10 +64,18 @@ export function UnreachableScreen() {
   )
 }
 
+/** A code handed over in the URL (`#pair=XXXX-XXXX`, from the QR code), consumed once. */
+export function codeFromHash(): string {
+  const m = /[#&]pair=([^&]+)/.exec(location.hash)
+  if (!m) return ''
+  history.replaceState(null, '', location.pathname + location.search)
+  return formatCode(decodeURIComponent(m[1]))
+}
+
 /** First visit from a browser: redeem a one-time pairing code. */
 export function PairScreen() {
   const { error, pair } = useSession()
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(codeFromHash)
   const [name, setName] = useState(() => defaultDeviceName())
   const [busy, setBusy] = useState(false)
   const complete = code.replace('-', '').length === 8

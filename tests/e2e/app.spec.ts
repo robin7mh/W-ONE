@@ -9,18 +9,35 @@ test('boots into the Command Center and connects to the Docker database', async 
   await expect.poll(mainLog).toMatch(/\[db\] connected — schema v\d+/)
 })
 
-test('navigates every module; unfinished ones show their placeholder', async ({ page }) => {
+test('navigates every module', async ({ page }) => {
   const nav = (name: string) => page.getByRole('button', { name, exact: true }).or(page.getByTitle(name, { exact: true }))
   await nav('Projects').click()
   await expect(page.getByText('No projects yet')).toBeVisible()
   await nav('Memory').click()
   await expect(page.getByText('Create W-ONE vault')).toBeVisible()
-  for (const name of ['Agents', 'System', 'Settings']) {
-    await nav(name).click()
-    await expect(page.getByText('Module reserved · not yet wired')).toBeVisible()
-  }
+  await nav('Agents').click()
+  await expect(page.getByText('Connect the assistant')).toBeVisible() // no API key in the test home
+  await nav('System').click()
+  await expect(page.getByText('Top processes')).toBeVisible()
+  await nav('Settings').click()
+  await expect(page.getByText('Remote access · web & mobile')).toBeVisible()
   await nav('Core').click()
   await expect(page.getByLabel('Open Projects')).toBeVisible()
+})
+
+test('settings: the embedded API server starts on demand and answers', async ({ page }) => {
+  await page.getByTitle('Settings', { exact: true }).click()
+  await expect(page.getByText('API server off')).toBeVisible()
+  await page.getByLabel('Port').fill('7499')
+  await page.getByLabel('Port').blur()
+  await page.getByLabel('Run the API server').check()
+  await expect(page.getByText('API server running')).toBeVisible()
+  const res = await fetch('http://127.0.0.1:7499/api/health')
+  expect(await res.json()).toMatchObject({ ok: true, name: 'W-ONE', mode: 'desktop' })
+  await page.getByRole('button', { name: 'Pair a device' }).click()
+  await expect(page.getByLabel('Pairing QR code')).toBeVisible()
+  await page.getByLabel('Run the API server').uncheck()
+  await expect(page.getByText('API server off')).toBeVisible()
 })
 
 test('the terminal runs a real shell, keeps it across modules and splits panes', async ({ page }) => {

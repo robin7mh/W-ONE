@@ -16,6 +16,7 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
 import { useProjects } from '../store'
 import { isDesktop } from '@shared/ipc/client'
+import { ContextSection } from './ContextSection'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -164,6 +165,8 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
             </Row>
           ) : null}
         </section>
+
+        <ContextSection projectId={project.id} />
       </div>
 
       {/* actions */}

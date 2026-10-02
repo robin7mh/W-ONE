@@ -10,11 +10,11 @@ import {
 import type { NavItem } from '@/types'
 
 export const NAV_ITEMS: NavItem[] = [
-  { id: 'core', label: 'Core', icon: LayoutDashboard, ready: true },
-  { id: 'terminal', label: 'Terminal', icon: TerminalSquare, ready: true },
-  { id: 'projects', label: 'Projects', icon: FolderGit2, ready: true },
-  { id: 'memory', label: 'Memory', icon: BrainCircuit, ready: true },
-  { id: 'agents', label: 'Agents', icon: Bot, ready: false },
-  { id: 'system', label: 'System', icon: Cpu, ready: false },
-  { id: 'settings', label: 'Settings', icon: Settings2, ready: false }
+  { id: 'core', label: 'Core', icon: LayoutDashboard },
+  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'projects', label: 'Projects', icon: FolderGit2 },
+  { id: 'memory', label: 'Memory', icon: BrainCircuit },
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'system', label: 'System', icon: Cpu },
+  { id: 'settings', label: 'Settings', icon: Settings2 }
 ]

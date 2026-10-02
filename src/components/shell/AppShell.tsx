@@ -1,19 +1,42 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { TerminalSquare } from 'lucide-react'
 import { GlowBackground } from './GlowBackground'
-import { ModulePlaceholder } from './ModulePlaceholder'
+import { Panel } from '@/components/ui/Panel'
+import { isDesktop } from '@shared/ipc/client'
 import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { TerminalView } from '@/features/terminal/components/TerminalView'
 import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { MemoryView } from '@/features/memory/components/MemoryView'
+import { AgentsView } from '@/features/agents/components/AgentsView'
+import { ApprovalToasts } from '@/features/agents/components/ApprovalToasts'
+import { useAssistant } from '@/features/agents/store'
+import { SettingsView } from '@/features/settings/components/SettingsView'
+import { SystemView } from '@/features/system/components/SystemView'
+import { useSession } from '@/features/session/store'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
 import { useBoot } from '@/hooks/useBoot'
-import { NAV_ITEMS } from '@/data/navigation'
 import type { ModuleId } from '@/types'
+
+/** Browser without remote shells: explain instead of failing. */
+function RemoteShellsOff() {
+  return (
+    <Panel title="Terminal" corners className="min-h-0 flex-1" bodyClassName="flex items-center justify-center">
+      <div className="flex max-w-md flex-col items-center gap-3 p-6 text-center">
+        <TerminalSquare size={28} className="text-text-muted" />
+        <p className="font-sans text-[14px] font-semibold text-text-primary">Remote shells are off</p>
+        <p className="font-sans text-[13px] text-text-secondary">
+          This W-ONE core does not let paired devices open terminals. Turn it on in the desktop app under Settings → Remote access,
+          or start the server with <code className="font-mono text-cyan">WONE_REMOTE_TERMINAL=1</code>.
+        </p>
+      </div>
+    </Panel>
+  )
+}
 
 /** Framer stagger for the primary panels entering after boot. */
 const panelIn = (delay: number) => ({
@@ -41,15 +64,28 @@ export function AppShell() {
     if (active === 'terminal') setTerminalMounted(true)
   }, [active])
 
-  const activeItem = NAV_ITEMS.find((n) => n.id === active)!
+  // The assistant's push events (approvals, activity) matter in every module.
+  useEffect(() => useAssistant.getState().connect(), [])
+  const activeConversation = useAssistant((s) => s.activeId)
+  const info = useSession((s) => s.info)
+  const shellsOff = !isDesktop() && info?.remoteTerminal === false
+
+  const openConversation = (id: string) => {
+    setActive('agents')
+    void useAssistant.getState().open(id)
+  }
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
     if (active === 'memory') return <MemoryView />
-    if (active === 'core') return <Dashboard onNavigate={setActive} />
-    if (active === 'terminal') return null
-    return <ModulePlaceholder item={activeItem} />
+    if (active === 'agents') return <AgentsView />
+    if (active === 'system') return <SystemView />
+    if (active === 'settings') return <SettingsView />
+    if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
+    return <Dashboard onNavigate={setActive} />
   }
+  // Modules that need the width (or show telemetry themselves) hide the monitor rail.
+  const showRail = !['memory', 'agents', 'system', 'settings'].includes(active)
 
   return (
     <div className="relative flex h-screen min-h-[560px] w-screen flex-col overflow-hidden">
@@ -71,15 +107,15 @@ export function AppShell() {
         <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
           <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
             {renderMain()}
-            {terminalMounted && (
+            {terminalMounted && !shellsOff && (
               <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
                 <TerminalView />
               </div>
             )}
           </motion.div>
 
-          {/* Monitor rail — hidden on small widths, and in Memory (graph needs the room) */}
-          {active !== 'memory' && (
+          {/* Monitor rail — hidden on small widths and in wide modules */}
+          {showRail && (
             <motion.div
               {...panelIn(0.24)}
               className="hidden w-72 shrink-0 lg:flex 2xl:w-80"
@@ -92,8 +128,11 @@ export function AppShell() {
 
       {/* Bottom command deck (collapsible) */}
       <motion.div {...panelIn(0.3)}>
-        <BottomDashboard />
+        <BottomDashboard onOpenConversation={openConversation} />
       </motion.div>
+
+      {/* Approvals float above every module (the open chat shows its own inline). */}
+      {booted && <ApprovalToasts hideConversation={active === 'agents' ? activeConversation : undefined} />}
     </div>
   )
 }

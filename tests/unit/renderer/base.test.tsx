@@ -142,7 +142,6 @@ describe('hooks', () => {
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
     expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
-    expect(NAV_ITEMS.filter((n) => n.ready).map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
