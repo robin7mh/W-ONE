@@ -52,6 +52,8 @@ export default defineConfig({
       ],
       reporter: ['text-summary', 'text', 'html', 'lcov'],
       reportsDirectory: 'coverage',
+      // Write the report even when a test fails, so coverage/index.html is always there.
+      reportOnFailure: true,
       thresholds: { lines: 100, functions: 100, branches: 100, statements: 100 }
     }
   }

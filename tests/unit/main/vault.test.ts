@@ -10,7 +10,9 @@ const h = vi.hoisted(() => ({
   dialog: vi.fn(),
   openPath: vi.fn(async () => ''),
   watchers: [] as { root: string; cb: (event: string, filename: string | null) => void; emitter: EventEmitter & { close: () => void } }[],
-  watchThrows: false
+  watchThrows: false,
+  /** Next writeFile to a path ending in this fails with EIO (portable, works as root). */
+  failWrite: null as string | null
 }))
 vi.mock('electron', () => ({
   dialog: { showOpenDialog: h.dialog },
@@ -28,6 +30,20 @@ vi.mock('node:fs', async (orig) => ({
     return emitter
   }
 }))
+
+vi.mock('node:fs/promises', async (orig) => {
+  const actual = await orig<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    writeFile: (async (file: string, ...rest: unknown[]) => {
+      if (h.failWrite && String(file).endsWith(h.failWrite)) {
+        h.failWrite = null
+        throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+      }
+      return (actual.writeFile as (...a: unknown[]) => Promise<void>)(file, ...rest)
+    }) as typeof actual.writeFile
+  }
+})
 
 import { VaultService } from '../../../electron/main/services/memory/VaultService'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
@@ -158,8 +174,8 @@ describe('VaultService — notes', () => {
     expect((await v.create('Taken')).path).toBe('Taken 2.md') // EEXIST on disk
     await mkdir(join(root, 'Dir.md')) // a folder where the file would go → EEXIST → next name
     expect((await v.create('Dir')).path).toBe('Dir 2.md')
-    // other errors surface (a name over 255 bytes — works as root too, unlike chmod)
-    await expect(v.create('€'.repeat(120))).rejects.toMatchObject({ code: 'ENAMETOOLONG' })
+    h.failWrite = 'Broken.md' // other errors surface
+    await expect(v.create('Broken')).rejects.toMatchObject({ code: 'EIO' })
     expect((await v.create('Free')).type).toBeUndefined()
   })
 
