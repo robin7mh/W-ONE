@@ -462,6 +462,34 @@ describe('FolderPicker', () => {
     expect(onClose).toHaveBeenCalledTimes(2)
   })
 
+  it('ignores answers that arrive after a newer request', async () => {
+    const pending: Record<string, (v: unknown) => void> = {}
+    installRemote({
+      'fs:dirs': ({ path }: { path?: string }) =>
+        new Promise((resolve, reject) => {
+          pending[path ?? 'home'] = (v) => (v instanceof Error ? reject(v) : resolve(v))
+        })
+    })
+    render(<FolderPicker title="Pick" onPick={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: '/srv' } })
+    fireEvent.submit(screen.getByLabelText('Folder path').closest('form')!)
+    await act(async () => pending['/srv']({ path: '/srv', parent: '/', home: '/root', dirs: ['wanted'] }))
+    await act(async () => pending.home({ path: '/root', parent: '/', home: '/root', dirs: ['stale'] }))
+    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(screen.queryByText('stale')).toBeNull()
+    expect(screen.getByLabelText('Folder path')).toHaveValue('/srv')
+
+    // a stale failure is ignored as well
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: '/a' } })
+    fireEvent.submit(screen.getByLabelText('Folder path').closest('form')!)
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: '/b' } })
+    fireEvent.submit(screen.getByLabelText('Folder path').closest('form')!)
+    await act(async () => pending['/b']({ path: '/b', parent: '/', home: '/root', dirs: [] }))
+    await act(async () => pending['/a'](Object.assign(new Error('late failure'), { code: 'x' })))
+    expect(screen.queryByText('late failure')).toBeNull()
+    expect(screen.getByText('No sub-folders')).toBeInTheDocument()
+  })
+
   it('cannot confirm before a folder loaded', async () => {
     installRemote({ 'fs:dirs': () => new Promise(() => {}) })
     const onPick = vi.fn()

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Folder, Home, Loader2, X } from 'lucide-react'
 import { errorMessage, ipc } from '@shared/ipc/client'
 import type { DirListing } from '@shared/types/server'
@@ -23,18 +23,22 @@ export function FolderPicker({
   const [typed, setTyped] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
+  // Only the latest request may update the view (a slow earlier one must not win).
+  const latest = useRef(0)
 
   const open = async (path?: string) => {
+    const seq = ++latest.current
     setLoading(true)
     setError(undefined)
     try {
       const next = await ipc('fs:dirs', { path })
+      if (seq !== latest.current) return
       setListing(next)
       setTyped(next.path)
     } catch (err) {
-      setError(errorMessage(err))
+      if (seq === latest.current) setError(errorMessage(err))
     } finally {
-      setLoading(false)
+      if (seq === latest.current) setLoading(false)
     }
   }
 
