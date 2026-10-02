@@ -105,9 +105,10 @@ test('agents: streamed answer, a tool call behind an approval, the note lands in
   await paired.getByText('Create W-ONE vault').click()
   await expect(paired.getByText('Willkommen', { exact: true }).first()).toBeVisible()
 
-  await paired.getByTitle('Agents', { exact: true }).click()
-  await paired.getByLabel('Message').fill('Hallo W-ONE')
-  await paired.getByLabel('Message').press('Enter')
+  // ask from the Core dashboard — it opens the Agents module
+  await paired.getByTitle('Core', { exact: true }).click()
+  await paired.getByLabel('Ask W-ONE').fill('Hallo W-ONE')
+  await paired.getByLabel('Ask W-ONE').press('Enter')
   await expect(paired.getByRole('heading', { name: 'Hello from the assistant' })).toBeVisible()
   await expect(paired.getByText('I can see your W-ONE context.')).toBeVisible()
   await expect(paired.getByLabel('Send')).toBeVisible() // the run is over

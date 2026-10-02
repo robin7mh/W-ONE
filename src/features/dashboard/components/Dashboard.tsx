@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowUpRight, BrainCircuit, Cpu, FolderGit2, GitBranch } from 'lucide-react'
+import { ArrowUpRight, BrainCircuit, Cpu, FolderGit2, GitBranch, Send, Sparkles } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
 import type { NoteMeta } from '@shared/types/memory'
@@ -11,6 +11,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { useClock } from '@/hooks/useClock'
 import { useProjects } from '@/features/projects/store'
 import { useSystemMetrics } from '@/features/system/useSystemMetrics'
+import { useAssistant } from '@/features/agents/store'
 import { folderColors } from '@/features/memory/store'
 import { slotColor } from '@/features/memory/components/GraphView'
 import { greeting, isoWeek, longDate, t } from '../i18n'
@@ -58,6 +59,10 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
           <HudClock now={now} />
         </motion.div>
 
+        <motion.div {...rise(0.2)} className="w-full max-w-2xl">
+          <AskBar onNavigate={onNavigate} />
+        </motion.div>
+
         <motion.div {...rise(0.25)} className="grid w-full max-w-5xl grid-cols-1 gap-3 md:grid-cols-3">
           <ProjectsTile onNavigate={onNavigate} />
           <BrainTile onNavigate={onNavigate} />
@@ -65,6 +70,36 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
         </motion.div>
       </div>
     </Panel>
+  )
+}
+
+/** One line to the assistant: starts a new chat and opens the Agents module. */
+function AskBar({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
+  const [text, setText] = useState('')
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const question = text.trim()
+    if (!question) return
+    const a = useAssistant.getState()
+    a.newChat('assistant')
+    setText('')
+    onNavigate('agents')
+    void a.send(question)
+  }
+  return (
+    <form onSubmit={submit} className="flex items-center gap-2 rounded-lg border border-hud/70 bg-surface/60 px-3 py-2 backdrop-blur focus-within:border-cyan/50">
+      <Sparkles size={15} className="shrink-0 text-cyan" />
+      <input
+        aria-label="Ask W-ONE"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={t.ask}
+        className="min-w-0 flex-1 bg-transparent font-sans text-[14px] text-text-primary outline-none placeholder:text-text-muted"
+      />
+      <button type="submit" aria-label="Ask" disabled={!text.trim()} className="text-cyan disabled:opacity-30">
+        <Send size={15} />
+      </button>
+    </form>
   )
 }
 

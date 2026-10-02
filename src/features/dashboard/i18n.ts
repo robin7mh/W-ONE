@@ -32,7 +32,8 @@ const DE = {
   allGood: 'Alles im grünen Bereich',
   battery: 'Akku',
   charging: 'lädt',
-  loading: 'lädt …'
+  loading: 'lädt …',
+  ask: 'Frag W-ONE …'
 }
 
 type Dict = typeof DE
@@ -63,7 +64,8 @@ const EN: Dict = {
   allGood: 'All systems nominal',
   battery: 'Battery',
   charging: 'charging',
-  loading: 'loading…'
+  loading: 'loading…',
+  ask: 'Ask W-ONE…'
 }
 
 export const t: Dict = isGerman ? DE : EN
