@@ -17,6 +17,14 @@ import type {
   VaultStatus
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
+import type {
+  AppInfo,
+  Device,
+  DirListing,
+  PairingCode,
+  ServerConfig,
+  ServerStatus
+} from '@shared/types/server'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -69,53 +77,83 @@ export interface IpcChannels {
   'terminal:write': { request: { id: string; data: string }; response: void }
   'terminal:resize': { request: { id: string; cols: number; rows: number }; response: void }
   'terminal:kill': { request: { id: string }; response: void }
+
+  'app:info': { request: void; response: AppInfo }
+  'fs:dirs': { request: { path?: string }; response: DirListing }
+  'memory:setVault': { request: { path: string }; response: VaultStatus }
+
+  'server:status': { request: void; response: ServerStatus }
+  'server:configure': { request: Partial<ServerConfig>; response: ServerStatus }
+  'server:createPairingCode': { request: void; response: PairingCode }
+  'server:devices': { request: void; response: Device[] }
+  'server:revokeDevice': { request: { id: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
 
+/**
+ * Who may call a channel:
+ * - `any`      — every transport (desktop IPC and paired remote clients)
+ * - `desktop`  — only the desktop app's own window: native dialogs, opening
+ *                things on the host, and the server's own configuration
+ * - `terminal` — desktop, or remote clients when remote shells are enabled
+ */
+export type ChannelAccess = 'any' | 'desktop' | 'terminal'
+
+/** Every channel classified exactly once — a new channel without one is a type error. */
+export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
+  'projects:list': 'any',
+  'projects:pickFolder': 'desktop',
+  'projects:add': 'any',
+  'projects:remove': 'any',
+  'projects:refresh': 'any',
+  'projects:openInEditor': 'desktop',
+  'projects:openTerminal': 'desktop',
+  'projects:openFile': 'desktop',
+  'system:subscribe': 'any',
+  'system:unsubscribe': 'any',
+  'system:snapshot': 'any',
+  'system:user': 'any',
+  'context:get': 'any',
+  'context:reindex': 'any',
+  'memory:status': 'any',
+  'memory:createVault': 'any',
+  'memory:pickVault': 'desktop',
+  'memory:list': 'any',
+  'memory:read': 'any',
+  'memory:write': 'any',
+  'memory:create': 'any',
+  'memory:trash': 'any',
+  'memory:graph': 'any',
+  'memory:search': 'any',
+  'memory:setGraphStyle': 'any',
+  'memory:reveal': 'desktop',
+  'memory:folders': 'any',
+  'memory:writeBody': 'any',
+  'memory:createFolder': 'any',
+  'memory:rename': 'any',
+  'memory:move': 'any',
+  'memory:moveFolder': 'any',
+  'memory:link': 'any',
+  'memory:unlink': 'any',
+  'memory:setVault': 'any',
+  'terminal:create': 'terminal',
+  'terminal:list': 'terminal',
+  'terminal:attach': 'terminal',
+  'terminal:write': 'terminal',
+  'terminal:resize': 'terminal',
+  'terminal:kill': 'terminal',
+  'app:info': 'any',
+  'fs:dirs': 'any',
+  'server:status': 'any',
+  'server:configure': 'desktop',
+  'server:createPairingCode': 'any',
+  'server:devices': 'any',
+  'server:revokeDevice': 'any'
+}
+
 /** Runtime allowlist — the preload rejects any channel not in this set. */
-export const IPC_CHANNELS: readonly IpcChannel[] = [
-  'projects:list',
-  'projects:pickFolder',
-  'projects:add',
-  'projects:remove',
-  'projects:refresh',
-  'projects:openInEditor',
-  'projects:openTerminal',
-  'projects:openFile',
-  'system:subscribe',
-  'system:unsubscribe',
-  'system:snapshot',
-  'system:user',
-  'context:get',
-  'context:reindex',
-  'memory:status',
-  'memory:createVault',
-  'memory:pickVault',
-  'memory:list',
-  'memory:read',
-  'memory:write',
-  'memory:create',
-  'memory:trash',
-  'memory:graph',
-  'memory:search',
-  'memory:setGraphStyle',
-  'memory:reveal',
-  'memory:folders',
-  'memory:writeBody',
-  'memory:createFolder',
-  'memory:rename',
-  'memory:move',
-  'memory:moveFolder',
-  'memory:link',
-  'memory:unlink',
-  'terminal:create',
-  'terminal:list',
-  'terminal:attach',
-  'terminal:write',
-  'terminal:resize',
-  'terminal:kill'
-]
+export const IPC_CHANNELS = Object.keys(CHANNEL_ACCESS) as readonly IpcChannel[]
 
 /** Main→renderer push events (channel → payload). */
 export interface IpcEvents {
@@ -136,3 +174,6 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'terminal:data',
   'terminal:exit'
 ]
+
+/** Push events remote clients only receive when remote shells are enabled. */
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit']

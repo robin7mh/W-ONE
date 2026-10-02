@@ -1,4 +1,4 @@
-import { Moon, SunMedium, Wifi, ShieldCheck } from 'lucide-react'
+import { LogOut, Moon, SunMedium, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
 import { WindowControls } from './WindowControls'
@@ -8,10 +8,22 @@ import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { isMac, useFullScreen } from '@/lib/platform'
 import { useTheme } from '@/lib/theme'
+import { isDesktop } from '@shared/ipc/client'
+import { useSession } from '@/features/session/store'
 
 export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
   const [theme, toggleTheme] = useTheme()
   const fullScreen = useFullScreen()
+  const desktop = isDesktop()
+  const link = useSession((s) => s.link)
+  const info = useSession((s) => s.info)
+  const logout = useSession((s) => s.logout)
+  const linkView =
+    link === 'online'
+      ? ({ value: 'OK', tone: 'ok' } as const)
+      : link === 'connecting'
+        ? ({ value: 'SYNC', tone: 'warn' } as const)
+        : ({ value: 'DOWN', tone: 'error' } as const)
 
   return (
     <header
@@ -33,7 +45,7 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
         </div>
         <span className="ml-1 hidden items-center gap-1.5 rounded border border-hud/60 bg-surface/60 px-1.5 py-0.5 md:flex">
           <StatusDot tone="ok" />
-          <span className="font-mono text-[10px] text-text-secondary">v0.1.0</span>
+          <span className="font-mono text-[10px] text-text-secondary">v{info?.version ?? '0.1.0'}</span>
         </span>
       </div>
 
@@ -47,17 +59,21 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-2 lg:ml-0">
         <div className="hidden items-center gap-2 xl:flex">
-          <StatusIndicator label="Mode" value="LOCAL" tone="cyan" />
+          <StatusIndicator
+            label="Mode"
+            value={desktop ? 'LOCAL' : `REMOTE · ${info?.hostname ?? 'core'}`}
+            tone="cyan"
+          />
           <StatusIndicator label="Uptime" value={formatUptime(uptime)} tone="ok" pulse={false} />
         </div>
         <div className="hidden items-center gap-2 sm:flex">
-          <StatusIndicator label="Link" value="OK" tone="ok" />
+          <StatusIndicator label="Link" value={linkView.value} tone={linkView.tone} />
         </div>
 
         {/* quick status glyphs */}
         <div className="hidden items-center gap-1 rounded-md border border-hud/60 bg-surface/50 px-2 py-1 md:flex">
           <ShieldCheck size={14} className="text-green" />
-          <Wifi size={14} className="text-cyan" />
+          {link === 'offline' ? <WifiOff size={14} className="text-danger" /> : <Wifi size={14} className="text-cyan" />}
         </div>
 
         <button
@@ -70,7 +86,19 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
           {theme === 'dark' ? <SunMedium size={14} /> : <Moon size={14} />}
         </button>
 
-        {!isMac && (
+        {!desktop && (
+          <button
+            type="button"
+            aria-label="Disconnect this browser"
+            title="Disconnect this browser (unpair)"
+            onClick={() => void logout()}
+            className="no-drag flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/50 text-text-muted transition-colors hover:border-danger/50 hover:text-danger"
+          >
+            <LogOut size={14} />
+          </button>
+        )}
+
+        {desktop && !isMac && (
           <>
             <div className="mx-1 h-5 w-px bg-hud/60" />
             <WindowControls />

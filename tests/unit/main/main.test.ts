@@ -46,17 +46,24 @@ const h = vi.hoisted(() => ({
   quit: vi.fn(),
   openExternal: vi.fn(async () => {}),
   dark: true,
-  migrate: vi.fn((): boolean => false),
-  db: { ping: vi.fn(async () => {}), migrate: vi.fn(async () => ({ from: 0, to: 0, applied: [] })), close: vi.fn(async () => {}) },
-  services: {} as Record<string, { opts?: Record<string, unknown>; [k: string]: unknown }>,
-  registered: [] as string[]
+  migrate: vi.fn((_legacy?: string): boolean => false),
+  coreOpts: undefined as undefined | Record<string, unknown>,
+  hubListener: undefined as undefined | ((channel: string, payload: unknown) => void),
+  bound: vi.fn(),
+  core: {
+    system: { setPaused: vi.fn() },
+    terminal: { killAll: vi.fn() },
+    server: { start: vi.fn(async () => {}) },
+    dispose: vi.fn(async () => {}),
+    router: { id: 'router' }
+  }
 }))
-
 vi.mock('electron', () => ({
   app: {
     whenReady: () => new Promise<void>((r) => (h.ready = r)),
     on: (event: string, fn: (...a: unknown[]) => unknown) => h.appHandlers.set(event, fn),
     getVersion: () => '0.1.0',
+    getPath: () => '/userData',
     quit: h.quit
   },
   BrowserWindow: FakeWindow,
@@ -71,74 +78,26 @@ vi.mock('electron', () => ({
   },
   shell: { openExternal: h.openExternal }
 }))
-vi.mock('node:fs/promises', () => ({ mkdir: vi.fn(async () => {}) }))
-
-const service = (name: string, methods: Record<string, unknown> = {}) =>
-  class {
-    opts: Record<string, unknown> | undefined
-    constructor(...args: unknown[]) {
-      this.opts = args[0] as Record<string, unknown>
-      Object.assign(this, methods)
-      h.services[name] = this as never
-    }
-  }
 vi.mock('../../../electron/main/lib/paths', () => ({
-  wonePaths: () => ({
-    homeDir: '/h',
-    dataDir: '/h/data',
-    settingsFile: '/h/data/settings.json',
-    defaultVaultRoot: '/h/vault',
-    legacyDataDir: '/old/wone'
-  }),
-  migrateLegacyData: () => h.migrate()
+  wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
+  migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
 }))
-vi.mock('../../../electron/main/services/settings/SettingsService', () => ({
-  SettingsService: service('settings', { init: vi.fn(async () => {}) })
-}))
-vi.mock('../../../electron/main/services/projects/registry', () => ({ ProjectRegistry: service('registry') }))
-vi.mock('../../../electron/main/services/projects/ProjectService', () => ({
-  ProjectService: service('projects', {
-    init: vi.fn(async () => {}),
-    getProjectPath: (id: string) => `/p/${id}`,
-    list: () => [{ id: 'p1', name: 'demo', path: '/p/p1' }]
+vi.mock('../../../electron/main/platform/electron', () => ({ electronPlatform: { kind: 'desktop' } }))
+vi.mock('../../../electron/ipc/registry', () => ({ bindIpc: h.bound }))
+vi.mock('../../../electron/main/core/createCore', () => ({
+  createCore: vi.fn(async (opts: Record<string, unknown>) => {
+    h.coreOpts = opts
+    return {
+      ...h.core,
+      hub: {
+        subscribe: (fn: (channel: string, payload: unknown) => void) => {
+          h.hubListener = fn
+          return () => {}
+        }
+      }
+    }
   })
 }))
-vi.mock('../../../electron/main/services/system/SystemService', () => ({
-  SystemService: class {
-    send: (s: unknown) => void
-    setPaused = vi.fn()
-    dispose = vi.fn()
-    constructor(send: (s: unknown) => void) {
-      this.send = send
-      h.services.system = this as never
-    }
-  }
-}))
-vi.mock('../../../electron/main/services/context/contextStore', () => ({ ContextStore: service('contextStore') }))
-vi.mock('../../../electron/main/services/context/ContextService', () => ({ ContextService: service('context') }))
-vi.mock('../../../electron/main/services/memory/VaultService', () => ({ VaultService: service('vault', { dispose: vi.fn() }) }))
-vi.mock('../../../electron/main/services/terminal/TerminalService', () => ({
-  TerminalService: service('terminal', { killAll: vi.fn() })
-}))
-vi.mock('../../../electron/main/services/events/EventBus', () => ({
-  EventBus: service('events', { emit: vi.fn() }),
-  NoopEventSink: class {}
-}))
-vi.mock('../../../electron/main/services/db/DbService', () => ({
-  DbService: class {
-    ping = h.db.ping
-    migrate = h.db.migrate
-    close = h.db.close
-  },
-  createPool: vi.fn(() => ({})),
-  databaseUrl: () => 'postgres://wone:secret@127.0.0.1:54329/wone'
-}))
-vi.mock('../../../electron/main/services/db/migrations', () => ({ MIGRATIONS: [] }))
-vi.mock('../../../electron/ipc/projects.ipc', () => ({ registerProjectIpc: () => h.registered.push('projects') }))
-vi.mock('../../../electron/ipc/system.ipc', () => ({ registerSystemIpc: () => h.registered.push('system') }))
-vi.mock('../../../electron/ipc/context.ipc', () => ({ registerContextIpc: () => h.registered.push('context') }))
-vi.mock('../../../electron/ipc/memory.ipc', () => ({ registerMemoryIpc: () => h.registered.push('memory') }))
-vi.mock('../../../electron/ipc/terminal.ipc', () => ({ registerTerminalIpc: () => h.registered.push('terminal') }))
 
 const realPlatform = process.platform
 const flush = async () => {
@@ -164,13 +123,15 @@ beforeEach(() => {
   h.appHandlers.clear()
   h.ipcOn.clear()
   h.ipcHandle.clear()
-  h.registered.length = 0
-  h.services = {}
   h.dark = true
+  h.coreOpts = undefined
+  h.hubListener = undefined
+  h.bound.mockReset()
   h.migrate.mockReset().mockReturnValue(false)
-  h.db.ping.mockReset().mockResolvedValue(undefined)
-  h.db.migrate.mockReset().mockResolvedValue({ from: 0, to: 0, applied: [] })
-  h.db.close.mockReset().mockResolvedValue(undefined)
+  h.core.system.setPaused.mockReset()
+  h.core.terminal.killAll.mockReset()
+  h.core.server.start.mockReset().mockResolvedValue(undefined)
+  h.core.dispose.mockReset().mockResolvedValue(undefined)
   h.quit.mockReset()
 })
 afterEach(() => {
@@ -179,34 +140,30 @@ afterEach(() => {
 })
 
 describe('main process boot', () => {
-  it('wires every service and IPC module, connects the database, then opens the window (dev, macOS, dark)', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('builds the desktop core, binds its router to IPC, starts the embedded server, then opens the window (dev, macOS, dark)', async () => {
     const win = await boot({ devUrl: 'http://localhost:5173' })
-    expect(h.registered).toEqual(['projects', 'system', 'context', 'memory', 'terminal'])
+    expect(h.coreOpts).toMatchObject({ mode: 'desktop', version: '0.1.0', platform: { kind: 'desktop' } })
+    expect(String(h.coreOpts!.webRoot)).toMatch(/renderer$/)
+    expect(h.bound).toHaveBeenCalledWith(h.core.router)
+    expect(h.core.server.start).toHaveBeenCalled()
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
-    expect(log).toHaveBeenCalledWith('[db] connected — schema v0')
-    expect((h.services.events.emit as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('app.started', { payload: { version: '0.1.0' } })
   })
 
-  it('packaged on Linux in light mode: frameless window, file URL, DB unreachable is only a warning', async () => {
+  it('packaged on Linux in light mode: frameless window, file URL', async () => {
     h.dark = false
-    h.db.ping.mockRejectedValue(new Error('ECONNREFUSED'))
-    h.db.close.mockRejectedValue(new Error('already closed'))
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const win = await boot({ platform: 'linux' })
     expect(win.opts).toMatchObject({ frame: false, backgroundColor: '#eef2f7' })
     expect(win.loadFile).toHaveBeenCalledWith(expect.stringMatching(/renderer[\\/]index\.html$/))
-    expect(warn.mock.calls[0][0]).toContain('postgres://wone:***@127.0.0.1:54329/wone')
-    expect(warn.mock.calls[0][0]).toContain('ECONNREFUSED')
   })
 
   it('logs a successful legacy-data copy and survives a failing one', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     h.migrate.mockReturnValueOnce(true)
     await boot()
-    expect(log).toHaveBeenCalledWith('[data] copied /old/wone → /h/data')
+    expect(h.migrate).toHaveBeenCalledWith(expect.stringMatching(/userData[\\/]wone$/))
+    expect(log.mock.calls[0][0]).toMatch(/^\[data\] copied .*wone → \/h\/data$/)
 
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     h.migrate.mockImplementationOnce(() => {
@@ -219,9 +176,8 @@ describe('main process boot', () => {
 
 describe('window wiring', () => {
   it('forwards window state, pauses telemetry, routes links outside, cleans up on close', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
     const win = await boot()
-    const system = h.services.system as unknown as { setPaused: ReturnType<typeof vi.fn> }
+    const system = h.core.system
 
     win.emit('ready-to-show')
     expect(win.show).toHaveBeenCalled()
@@ -243,11 +199,10 @@ describe('window wiring', () => {
     expect(h.openExternal).toHaveBeenCalledWith('https://example.com')
 
     win.emit('closed')
-    expect(h.services.terminal.killAll).toHaveBeenCalled()
+    expect(h.core.terminal.killAll).toHaveBeenCalled()
   })
 
   it('window-control IPC acts on the current window, and is safe without one', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
     await boot({ ready: false })
     // before any window exists
     h.ipcOn.get('window:minimize')!()
@@ -287,53 +242,30 @@ describe('window wiring', () => {
   })
 })
 
-describe('service callbacks and broadcast', () => {
-  it('pushes events to every live window and resolves projects', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
+describe('core push events', () => {
+  it('forwards every hub event to each live window', async () => {
     const win = await boot()
     const dead = new FakeWindow({})
     dead.destroyed = true
-
-    ;(h.services.system as unknown as { send: (s: unknown) => void }).send({ cpu: 1 })
+    h.hubListener!('system:tick', { cpu: 1 })
     expect(win.webContents.send).toHaveBeenCalledWith('system:tick', { cpu: 1 })
     expect(dead.webContents.send).not.toHaveBeenCalled()
-
-    const ctx = h.services.context.opts as { resolvePath: (id: string) => string; onProgress: (p: unknown) => void }
-    expect(ctx.resolvePath('p1')).toBe('/p/p1')
-    ctx.onProgress({ done: true })
-    expect(win.webContents.send).toHaveBeenCalledWith('context:progress', { done: true })
-
-    ;(h.services.vault.opts as { onChange: (c: unknown) => void }).onChange({ paths: ['a.md'] })
-    expect(win.webContents.send).toHaveBeenCalledWith('memory:changed', { paths: ['a.md'] })
-
-    const term = h.services.terminal.opts as { emit: (c: string, p: unknown) => void; resolveProject: (id: string) => unknown }
-    term.emit('terminal:data', { id: 't' })
-    expect(win.webContents.send).toHaveBeenCalledWith('terminal:data', { id: 't' })
-    expect(term.resolveProject('p1')).toMatchObject({ name: 'demo' })
-    expect(term.resolveProject('nope')).toBeUndefined()
   })
 })
 
 describe('app lifecycle', () => {
-  it('disposes services and closes the database before quitting', async () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('disposes the core once before quitting', async () => {
     await boot()
     h.appHandlers.get('before-quit')!()
-    expect((h.services.system as unknown as { dispose: ReturnType<typeof vi.fn> }).dispose).toHaveBeenCalled()
-    expect(h.services.vault.dispose).toHaveBeenCalled()
-    expect(h.services.terminal.killAll).toHaveBeenCalled()
-    expect(h.db.close).toHaveBeenCalled()
-    h.db.close.mockRejectedValueOnce(new Error('x'))
-    h.appHandlers.get('before-quit')!() // second quit: db already released
-    expect(h.db.close).toHaveBeenCalledTimes(1)
+    expect(h.core.dispose).toHaveBeenCalledTimes(1)
+    h.appHandlers.get('before-quit')!() // second quit: core already released
+    expect(h.core.dispose).toHaveBeenCalledTimes(1)
   })
 
-  it('quit before anything started is harmless; a failing DB close is swallowed', async () => {
+  it('quit before anything started is harmless; a failing dispose is swallowed', async () => {
     await boot({ ready: false })
     expect(() => h.appHandlers.get('before-quit')!()).not.toThrow()
-
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-    h.db.close.mockRejectedValue(new Error('pool gone'))
+    h.core.dispose.mockRejectedValue(new Error('pool gone'))
     await boot()
     h.appHandlers.get('before-quit')!()
     await flush()

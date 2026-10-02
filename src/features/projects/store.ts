@@ -11,6 +11,8 @@ interface ProjectsState {
 
   load: () => Promise<void>
   addViaPicker: () => Promise<void>
+  /** Add a folder by absolute path (the web UI's folder browser). */
+  addPath: (path: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: (id: string) => Promise<void>
   openEditor: (id: string) => Promise<void>
@@ -19,7 +21,7 @@ interface ProjectsState {
 }
 
 
-export const useProjects = create<ProjectsState>((set) => ({
+export const useProjects = create<ProjectsState>((set, get) => ({
   projects: [],
   loading: false,
 
@@ -42,7 +44,16 @@ export const useProjects = create<ProjectsState>((set) => ({
     try {
       const picked = await ipc('projects:pickFolder')
       if (!picked) return
-      const project = await ipc('projects:add', { path: picked.path })
+      await get().addPath(picked.path)
+    } catch (err) {
+      set({ error: errorMessage(err) })
+    }
+  },
+
+  addPath: async (path) => {
+    set({ error: undefined })
+    try {
+      const project = await ipc('projects:add', { path })
       set((s) => {
         const others = s.projects.filter((p) => p.id !== project.id)
         return { projects: [...others, project], selectedId: project.id }

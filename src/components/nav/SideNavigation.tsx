@@ -3,6 +3,7 @@ import { NAV_ITEMS } from '@/data/navigation'
 import type { ModuleId } from '@/types'
 import { cn } from '@/lib/cn'
 import { TechLabel } from '@/components/ui/TechLabel'
+import { useSession } from '@/features/session/store'
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
@@ -16,6 +17,7 @@ export function SideNavigation({
   active: ModuleId
   onSelect: (id: ModuleId) => void
 }) {
+  const info = useSession((s) => s.info)
   return (
     <nav className="flex h-full w-14 shrink-0 flex-col items-stretch gap-1 border-r border-hud/70 bg-surface/40 px-2 py-3 backdrop-blur-sm xl:w-52">
       <TechLabel className="mb-2 hidden px-2 text-text-muted xl:block">Modules</TechLabel>
@@ -71,9 +73,13 @@ export function SideNavigation({
 
       <div className="mt-auto hidden px-2 xl:block">
         <div className="rounded-md border border-hud/50 bg-surface/40 p-2.5">
-          <TechLabel className="text-text-muted">Build</TechLabel>
-          <div className="mt-1 font-mono text-[11px] text-text-secondary">UI PREVIEW</div>
-          <div className="mt-0.5 font-mono text-[10px] text-text-muted">no backend linked</div>
+          <TechLabel className="text-text-muted">Core</TechLabel>
+          <div className="mt-1 font-mono text-[11px] text-text-secondary">
+            {info ? `${info.mode === 'desktop' ? 'DESKTOP' : 'SERVER'} · v${info.version}` : 'LINKING…'}
+          </div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+            {info ? `${info.hostname} · db ${info.db.connected ? 'online' : 'offline'}` : '—'}
+          </div>
         </div>
       </div>
     </nav>

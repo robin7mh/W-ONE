@@ -20,7 +20,10 @@
   "include": [
     "electron",
     "electron.vite.config.ts",
+    "server",
+    "vite.server.config.ts",
     "src/shared/ipc/contract.ts",
+    "src/shared/ipc/schemas.ts",
     "src/shared/types"
   ]
 }

@@ -15,6 +15,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
 import { useProjects } from '../store'
+import { isDesktop } from '@shared/ipc/client'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -167,8 +168,13 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
 
       {/* actions */}
       <div className="flex flex-wrap gap-2 border-t border-hud/50 px-4 py-3">
-        <ActionButton icon={Code2} label="VS Code" onClick={() => openEditor(project.id)} />
-        <ActionButton icon={TerminalSquare} label="Terminal" onClick={() => openTerminal(project.id)} />
+        {/* Opening apps on the host only makes sense in the desktop window. */}
+        {isDesktop() && (
+          <>
+            <ActionButton icon={Code2} label="VS Code" onClick={() => openEditor(project.id)} />
+            <ActionButton icon={TerminalSquare} label="Terminal" onClick={() => openTerminal(project.id)} />
+          </>
+        )}
         <ActionButton icon={RefreshCw} label={busy ? 'Refreshing…' : 'Refresh'} onClick={() => refresh(project.id)} disabled={busy} />
         <div className="flex-1" />
         <ActionButton icon={Trash2} label="Remove" onClick={() => remove(project.id)} disabled={busy} danger />

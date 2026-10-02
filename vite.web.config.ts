@@ -2,9 +2,9 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Standalone renderer config: runs the UI in a plain browser (no Electron).
-// Used for headless visual verification (Playwright screenshots). All
-// `window.wone.*` bridge calls in the app are guarded, so controls just no-op here.
+// The renderer as a web app (no Electron): built into out/web and served by
+// the W-ONE core (`npm run web`). In dev (`npm run web:dev`) Vite proxies the
+// API to a core running on :7420 (`npm run server:build && npm run server`).
 export default defineConfig({
   root: '.',
   base: './',
@@ -15,6 +15,11 @@ export default defineConfig({
     }
   },
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:7420', ws: true }
+    }
+  },
   build: {
     outDir: 'out/web'
   }

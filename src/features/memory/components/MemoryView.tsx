@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowLeftRight, BrainCircuit, FileText, FolderOpen, Network, Plus, Sparkles, X } from 'lucide-react'
-import { onEvent } from '@shared/ipc/client'
+import { isDesktop, onEvent } from '@shared/ipc/client'
 import { DEFAULT_GRAPH_STYLE } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
@@ -9,6 +9,7 @@ import { GraphView } from './GraphView'
 import { GraphStyleControl } from './GraphStyleControl'
 import { NoteList } from './NoteList'
 import { NoteEditor } from './NoteEditor'
+import { FolderPicker } from '@/components/ui/FolderPicker'
 
 /**
  * The Memory module: an Obsidian-compatible vault with a note list, a
@@ -19,6 +20,10 @@ export function MemoryView() {
   const m = useMemory()
   const style = m.status?.graphStyle ?? DEFAULT_GRAPH_STYLE
   const folderSlots = useMemo(() => folderColors(m.notes), [m.notes])
+  const [browsing, setBrowsing] = useState(false)
+  const desktop = isDesktop()
+  // Desktop: native dialog. Browser: browse folders on the core's machine.
+  const pick = () => (desktop ? void m.pickVault() : setBrowsing(true))
 
   useEffect(() => {
     void useMemory.getState().init()
@@ -81,7 +86,7 @@ export function MemoryView() {
           missing={m.status.isDefault ? undefined : m.status.root}
           defaultRoot={m.status.defaultRoot}
           onCreate={() => void m.createVault()}
-          onPick={() => void m.pickVault()}
+          onPick={pick}
         />
       ) : (
         <div className="flex min-h-0 flex-1">
@@ -96,18 +101,20 @@ export function MemoryView() {
                   {m.status.root.replace(/^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/i, '~')}
                 </span>
               </span>
+              {desktop && (
+                <button
+                  type="button"
+                  onClick={() => void m.reveal()}
+                  title="Show in Finder"
+                  aria-label="Show vault in Finder"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
+                >
+                  <FolderOpen size={14} />
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => void m.reveal()}
-                title="Show in Finder"
-                aria-label="Show vault in Finder"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
-              >
-                <FolderOpen size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => void m.pickVault()}
+                onClick={pick}
                 title="Open another vault…"
                 aria-label="Open another vault"
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
@@ -168,6 +175,17 @@ export function MemoryView() {
             )}
           </div>
         </div>
+      )}
+      {browsing && (
+        <FolderPicker
+          title="Choose a vault folder"
+          confirmLabel="Use as vault"
+          onClose={() => setBrowsing(false)}
+          onPick={(path) => {
+            setBrowsing(false)
+            void m.setVault(path)
+          }}
+        />
       )}
     </Panel>
   )

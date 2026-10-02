@@ -44,6 +44,8 @@ interface MemoryState {
   onChanged: (change: MemoryChanged) => Promise<void>
   createVault: () => Promise<void>
   pickVault: () => Promise<void>
+  /** Use an existing folder as the vault (the web UI's folder browser). */
+  setVault: (path: string) => Promise<void>
   reveal: () => Promise<void>
   open: (path: string, mode?: 'edit' | 'preview') => Promise<void>
   /** Follow a link by title: open the note, or create it (Obsidian behavior). */
@@ -161,6 +163,17 @@ export const useMemory = create<MemoryState>((set, get) => {
         await get().save()
         const status = await ipc('memory:pickVault')
         if (!status) return
+        set({ note: undefined, draft: '', query: '', hits: [] })
+        await get().init()
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    setVault: async (path) => {
+      try {
+        await get().save()
+        await ipc('memory:setVault', { path })
         set({ note: undefined, draft: '', query: '', hits: [] })
         await get().init()
       } catch (err) {

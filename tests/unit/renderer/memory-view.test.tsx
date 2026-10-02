@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { installBridge } from './bridge'
+import { installBridge, installRemote } from './bridge'
 import type { Note, VaultStatus } from '@shared/types/memory'
 
 // Children are covered by their own tests — here they only expose their props.
@@ -45,7 +45,7 @@ const note = { path: 'A.md', title: 'A', body: '' } as Note
 function spyActions() {
   const names = [
     'init', 'onChanged', 'save', 'setGraphStyle', 'setView', 'startCreate', 'clearError', 'createVault', 'pickVault',
-    'reveal', 'search', 'open', 'cancelCreate', 'submitCreate', 'moveNote', 'moveFolder', 'openOrCreate', 'setDraft',
+    'reveal', 'setVault', 'search', 'open', 'cancelCreate', 'submitCreate', 'moveNote', 'moveFolder', 'openOrCreate', 'setDraft',
     'setMode', 'rename', 'link', 'unlink', 'trash'
   ] as const
   const spies = Object.fromEntries(names.map((n) => [n, vi.fn(async () => {})])) as Record<(typeof names)[number], ReturnType<typeof vi.fn>>
@@ -71,7 +71,25 @@ describe('MemoryView', () => {
     expect(a.save).toHaveBeenCalled()
   })
 
+  it('in a browser: no Finder button, the vault is chosen with the folder browser', async () => {
+    installRemote({ 'fs:dirs': () => ({ path: '/srv/notes', parent: '/srv', home: '/root', dirs: [] }) })
+    const a = spyActions()
+    useMemory.setState({ status: status() })
+    render(<MemoryView />)
+    expect(screen.queryByLabelText('Show vault in Finder')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Open another vault'))
+    expect(a.pickVault).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByText('Use as vault'))
+    expect(a.setVault).toHaveBeenCalledWith('/srv/notes')
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Open another vault'))
+    fireEvent.click(await screen.findByLabelText('Close'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('vault setup: create, pick, and a missing custom vault', () => {
+    installBridge()
     const a = spyActions()
     useMemory.setState({ status: status({ exists: false }) })
     const { rerender } = render(<MemoryView />)
@@ -88,6 +106,7 @@ describe('MemoryView', () => {
   })
 
   it('graph view: style control, view switch, new note, vault actions, error banner', () => {
+    installBridge()
     const a = spyActions()
     useMemory.setState({ status: status(), view: 'graph', graph: { nodes: [], edges: [] }, notes: [], error: 'boom' })
     render(<MemoryView />)

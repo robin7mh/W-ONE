@@ -1,14 +1,20 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { FolderPlus, FolderGit2, AlertTriangle } from 'lucide-react'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { useProjects, useSelectedProject } from '../store'
 import { ProjectListItem } from './ProjectList'
 import { ProjectDetailPanel } from './ProjectDetailPanel'
+import { FolderPicker } from '@/components/ui/FolderPicker'
+import { isDesktop } from '@shared/ipc/client'
 
 export function ProjectsView() {
-  const { projects, selectedId, loading, error, load, addViaPicker, select } = useProjects()
+  const { projects, selectedId, loading, error, load, addViaPicker, addPath, select } = useProjects()
   const selected = useSelectedProject()
+  const [browsing, setBrowsing] = useState(false)
+
+  // Desktop: native dialog. Browser: browse folders on the core's machine.
+  const add = () => (isDesktop() ? void addViaPicker() : setBrowsing(true))
 
   useEffect(() => {
     void load()
@@ -25,7 +31,7 @@ export function ProjectsView() {
           <TechLabel className="text-text-muted">{projects.length} registered</TechLabel>
           <button
             type="button"
-            onClick={() => void addViaPicker()}
+            onClick={add}
             className="flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/[0.06] px-2.5 py-1 font-sans text-[12px] font-medium text-cyan transition-colors hover:bg-cyan/[0.12]"
           >
             <FolderPlus size={14} strokeWidth={2} />
@@ -75,6 +81,17 @@ export function ProjectsView() {
           </div>
         )}
       </div>
+      {browsing && (
+        <FolderPicker
+          title="Add project folder"
+          confirmLabel="Add project"
+          onClose={() => setBrowsing(false)}
+          onPick={(path) => {
+            setBrowsing(false)
+            void addPath(path)
+          }}
+        />
+      )}
     </Panel>
   )
 }

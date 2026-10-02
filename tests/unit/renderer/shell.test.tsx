@@ -81,6 +81,21 @@ describe('shell pieces', () => {
     expect(onSelect).toHaveBeenCalledWith('memory')
   })
 
+  it('SideNavigation shows which core it is linked to', async () => {
+    const { useSession } = await import('@/features/session/store')
+    useSession.setState({ info: undefined })
+    render(<SideNavigation active="core" onSelect={vi.fn()} />)
+    expect(screen.getByText('LINKING…')).toBeInTheDocument()
+    const info = { mode: 'desktop' as const, version: '1.0.0', platform: 'darwin', hostname: 'mac', remoteTerminal: false, db: { connected: true } }
+    act(() => useSession.setState({ info }))
+    expect(screen.getByText('DESKTOP · v1.0.0')).toBeInTheDocument()
+    expect(screen.getByText('mac · db online')).toBeInTheDocument()
+    act(() => useSession.setState({ info: { ...info, mode: 'server', db: { connected: false } } }))
+    expect(screen.getByText('SERVER · v1.0.0')).toBeInTheDocument()
+    expect(screen.getByText('mac · db offline')).toBeInTheDocument()
+    act(() => useSession.setState({ info: undefined }))
+  })
+
   it('WindowControls drive the bridge and follow the maximized state', async () => {
     const bridge = installBridge({}, 'win32')
     render(<WindowControls />)
@@ -130,7 +145,7 @@ describe('TopStatusBar', () => {
   })
 
   it('elsewhere shows window controls; hides the clock on request; toggles the theme', async () => {
-    const TopStatusBar = await load()
+    const TopStatusBar = await load('linux')
     const { container } = render(<TopStatusBar uptime={0} showClock={false} />)
     expect(container.querySelector('header')!.className).not.toContain('pl-[88px]')
     expect(screen.getByLabelText('Close')).toBeInTheDocument()
@@ -138,6 +153,28 @@ describe('TopStatusBar', () => {
     expect(document.documentElement.dataset.theme).toBe('light')
     fireEvent.click(screen.getByLabelText('Switch to dark mode'))
     expect(document.documentElement.dataset.theme).toBe('dark')
+  })
+})
+
+describe('TopStatusBar in a browser', () => {
+  it('shows the remote core, the live link state and a disconnect button', async () => {
+    vi.resetModules()
+    const { TopStatusBar } = await import('@/components/topbar/TopStatusBar')
+    const { useSession } = await import('@/features/session/store')
+    const logout = vi.fn(async () => {})
+    useSession.setState({ link: 'online', info: { mode: 'server', version: '2.0.0', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: true } }, logout })
+    render(<TopStatusBar uptime={0} />)
+    expect(screen.queryByLabelText('Close')).toBeNull()
+    expect(screen.getByText('REMOTE · nas')).toBeInTheDocument()
+    expect(screen.getByText('v2.0.0')).toBeInTheDocument()
+    expect(screen.getByText('OK')).toBeInTheDocument()
+    act(() => useSession.setState({ link: 'connecting', info: undefined }))
+    expect(screen.getByText('SYNC')).toBeInTheDocument()
+    expect(screen.getByText('REMOTE · core')).toBeInTheDocument()
+    act(() => useSession.setState({ link: 'offline' }))
+    expect(screen.getByText('DOWN')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Disconnect this browser'))
+    expect(logout).toHaveBeenCalled()
   })
 })
 

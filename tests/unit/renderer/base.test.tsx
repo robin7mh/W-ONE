@@ -251,12 +251,13 @@ describe('entry points', () => {
     vi.doUnmock('@/App')
   })
 
-  it('App renders the shell', async () => {
+  it('App renders the shell behind the session gate', async () => {
+    installBridge({ 'app:info': () => ({ mode: 'desktop' }) })
     vi.doMock('@/components/shell/AppShell', () => ({ AppShell: () => <div>shell</div> }))
     vi.resetModules()
     const { default: App } = await import('@/App')
     render(<App />)
-    expect(screen.getByText('shell')).toBeInTheDocument()
+    expect(await screen.findByText('shell')).toBeInTheDocument()
     vi.doUnmock('@/components/shell/AppShell')
   })
 })
