@@ -95,9 +95,23 @@ export class AssistantService {
 
   /** Starts a run in the background; progress arrives as push events. */
   async send(req: SendRequest, ctx: CallContext): Promise<{ conversationId: string; messageId: string }> {
-    if (req.conversationId && this.active.has(req.conversationId)) {
-      throw aiError('busy', 'The assistant is still answering in this conversation')
+    // Reserve an existing conversation before the first await, so two quick
+    // sends cannot both start a run on the same transcript.
+    const entry: ActiveRun = { controller: new AbortController(), done: Promise.resolve() }
+    const reserved = req.conversationId
+    if (reserved) {
+      if (this.active.has(reserved)) throw aiError('busy', 'The assistant is still answering in this conversation')
+      this.active.set(reserved, entry)
     }
+    try {
+      return await this.start(req, ctx, entry)
+    } catch (err) {
+      if (reserved) this.active.delete(reserved)
+      throw err
+    }
+  }
+
+  private async start(req: SendRequest, ctx: CallContext, entry: ActiveRun): Promise<{ conversationId: string; messageId: string }> {
     const provider = await this.deps.ai.provider()
     const settings = this.deps.ai.settings()
     const now = new Date().toISOString()
@@ -144,8 +158,7 @@ export class AssistantService {
       inputTokens: 0,
       outputTokens: 0
     }
-    const controller = new AbortController()
-    const entry: ActiveRun = { controller, done: Promise.resolve() }
+    const controller = entry.controller
     this.active.set(conv.id, entry)
     this.deps.publish('ai:conversationsChanged', { reason: req.conversationId ? 'updated' : 'created', id: conv.id })
     this.deps.publish('ai:message', { conversationId: conv.id, message: user, running: true })

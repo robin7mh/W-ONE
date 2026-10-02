@@ -236,7 +236,7 @@ describe('HttpServer — API', () => {
   })
 
   it('pairs over HTTP and rate-limits failed attempts per address', async () => {
-    const { base, auth } = await startHttp()
+    const { base, auth, http } = await startHttp()
     const { code } = await auth.createPairingCode()
     const ok = await fetch(`${base}/api/pair`, { method: 'POST', body: JSON.stringify({ code, name: 'Browser' }) })
     expect(await ok.json()).toMatchObject({ ok: true, data: { device: { name: 'Browser' } } })
@@ -247,6 +247,13 @@ describe('HttpServer — API', () => {
     }
     const limited = await fetch(`${base}/api/pair`, { method: 'POST', body: '{}' })
     expect(limited.status).toBe(429)
+
+    // the heartbeat forgets attempts once they left the window
+    const internals = http as unknown as { sweep(): void; pairFailures: Map<string, number[]> }
+    internals.pairFailures.set('10.0.0.9', [Date.now() - 11 * 60_000])
+    internals.sweep()
+    expect(internals.pairFailures.has('10.0.0.9')).toBe(false)
+    expect(internals.pairFailures.size).toBe(1) // the recent ones stay
   })
 })
 

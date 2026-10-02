@@ -285,6 +285,11 @@ export class HttpServer {
   }
 
   private sweep(): void {
+    // Forget failed pairing attempts that left the rate-limit window.
+    const now = Date.now()
+    for (const [ip, times] of this.pairFailures) {
+      if (times.every((t) => now - t >= PAIR_WINDOW_MS)) this.pairFailures.delete(ip)
+    }
     for (const client of [...this.clients]) {
       if (!client.alive) {
         client.ws.terminate()

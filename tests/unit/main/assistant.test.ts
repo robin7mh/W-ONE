@@ -216,7 +216,22 @@ describe('AssistantService — conversation basics', () => {
     expect(after[2].blocks[0]).toEqual({ type: 'text', text: '<context>p9</context>' })
     expect((await h.svc.conversation(conversationId)).projectId).toBe('p9')
     await expect(h.svc.send({ conversationId: 'nope', text: 'x' }, ipc)).rejects.toMatchObject({ code: 'not-found' })
+    await expect(h.svc.send({ conversationId: 'nope', text: 'x' }, ipc)).rejects.toMatchObject({ code: 'not-found' }) // reservation released
     await expect(h.svc.conversation('nope')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('two quick sends to one conversation: the second is refused before any work starts', async () => {
+    const h = await harness({ script: [say('first'), say('second')] })
+    const { conversationId } = await h.svc.send({ text: 'one' }, ipc)
+    await h.svc.idle()
+    const [a, b] = await Promise.allSettled([
+      h.svc.send({ conversationId, text: 'two' }, ipc),
+      h.svc.send({ conversationId, text: 'three' }, ipc)
+    ])
+    expect(a.status).toBe('fulfilled')
+    expect(b).toMatchObject({ status: 'rejected', reason: { code: 'busy' } })
+    await h.svc.idle()
+    expect((await h.transcript(conversationId)).filter((m) => m.role === 'user')).toHaveLength(2)
   })
 
   it('without a key nothing is created', async () => {
