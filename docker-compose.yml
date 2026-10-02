@@ -1,0 +1,46 @@
+# W-ONE database — Postgres in Docker.
+#   npm run db:up       start (waits until healthy)
+#   npm run db:down     stop (data stays in the "wone-pgdata" volume)
+#   npm run db:backup   dump to ~/W-ONE/backups/
+#   npm run docker:web  also build + serve the web UI (profile "web", port 8080)
+# Bound to 127.0.0.1 only: nothing outside this machine can reach it.
+# Settings come from .env (see .env.example); the defaults match the app's.
+name: w-one
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: w-one-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${WONE_DB_USER:-wone}
+      POSTGRES_PASSWORD: ${WONE_DB_PASSWORD:-wone}
+      POSTGRES_DB: ${WONE_DB_NAME:-wone}
+    ports:
+      - '127.0.0.1:${WONE_DB_PORT:-54329}:5432'
+    volumes:
+      # Postgres 18 images keep their data under /var/lib/postgresql/<major>/.
+      - wone-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Web UI for a server deploy (static renderer behind nginx, see Dockerfile).
+  # Only with `--profile web`, so `npm run db:up` keeps starting just the DB.
+  web:
+    profiles: ['web']
+    build: .
+    image: ghcr.io/robin7mh/w-one-ui:local
+    container_name: w-one-web
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${WONE_WEB_PORT:-8080}:80'
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  wone-pgdata:
+    name: wone-pgdata

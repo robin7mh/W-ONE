@@ -135,7 +135,7 @@ async function macProcesses(): Promise<ProcessInfo[]> {
   const names = new Map<string, string>()
   for (const line of psOut.split('\n')) {
     const m = /^\s*(\d+)\s+(.+)$/.exec(line)
-    if (m) names.set(m[1], m[2].split('/').pop() ?? m[2])
+    if (m) names.set(m[1], m[2].slice(m[2].lastIndexOf('/') + 1)) // basename of the binary path
   }
 
   return rows.map(([pid, cpuPct, memRaw, topName]) => ({

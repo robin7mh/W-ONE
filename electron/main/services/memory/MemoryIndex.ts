@@ -60,7 +60,9 @@ export class MemoryIndex {
     let removed = this.entries.delete(path)
     const prefix = path.endsWith('/') ? path : `${path}/`
     for (const key of [...this.entries.keys()]) {
-      if (key.startsWith(prefix)) removed = this.entries.delete(key) || removed
+      if (!key.startsWith(prefix)) continue
+      this.entries.delete(key)
+      removed = true
     }
     if (removed) this.derived = undefined
     return removed
@@ -104,8 +106,8 @@ export class MemoryIndex {
     }
 
     const edges = new Map<string, { source: string; target: string }>()
+    // Never a self-edge: outgoing excludes the note itself and ghost ids differ.
     const addEdge = (a: string, b: string) => {
-      if (a === b) return
       const key = a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`
       if (edges.has(key)) return
       edges.set(key, { source: a, target: b })
@@ -114,7 +116,7 @@ export class MemoryIndex {
     }
 
     for (const e of this.entries.values()) {
-      for (const target of outgoing.get(e.path) ?? []) addEdge(e.path, target)
+      for (const target of outgoing.get(e.path)!) addEdge(e.path, target)
       for (const raw of e.links) {
         if (this.resolve(raw)) continue
         const key = linkKey(raw)
@@ -150,7 +152,7 @@ export class MemoryIndex {
 
   private meta(e: Entry): NoteMeta {
     const { outgoing, incoming } = this.compute()
-    const linked = new Set([...(outgoing.get(e.path) ?? []), ...(incoming.get(e.path) ?? [])])
+    const linked = new Set([...(outgoing.get(e.path)!), ...(incoming.get(e.path) ?? [])])
     linked.delete(e.path)
     const type = typeof e.frontmatter.type === 'string' ? e.frontmatter.type : undefined
     return {

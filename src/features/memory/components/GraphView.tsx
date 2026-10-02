@@ -76,6 +76,8 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
       neighbors.get(e.target)!.add(e.source)
     }
 
+    // Checked before forceSimulation(), which assigns every missing position.
+    const fresh = nodes.some((n) => n.x === undefined)
     const sim: Simulation<SimNode, SimLink> = forceSimulation(nodes)
       .force('link', forceLink<SimNode, SimLink>(links).id((d) => d.id).distance(85).strength(0.5))
       .force('charge', forceManyBody().strength(-170))
@@ -84,7 +86,6 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
       .force('collide', forceCollide<SimNode>((d) => d.r + 6))
       .stop()
 
-    const fresh = nodes.some((n) => n.x === undefined)
     sim.alpha(fresh ? 1 : 0.15)
     if (fresh) sim.tick(reducedMotion() ? 300 : 120) // open already laid out
 
@@ -116,8 +117,8 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
 
     const doFit = () => {
       if (!nodes.length || !width) return
-      const xs = nodes.map((n) => n.x ?? 0)
-      const ys = nodes.map((n) => n.y ?? 0)
+      const xs = nodes.map((n) => n.x!)
+      const ys = nodes.map((n) => n.y!)
       const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
       const k = Math.min(width / (maxX - minX + 160), height / (maxY - minY + 160), 2.2)
       camera.current = { k, x: -((minX + maxX) / 2) * k, y: -((minY + maxY) / 2) * k }

@@ -9,3 +9,7 @@ dist-electron/
 .env.*
 !.env.example
 scratchpad/
+coverage/
+test-results/
+playwright-report/
+release/

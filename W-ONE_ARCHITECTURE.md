@@ -8,7 +8,7 @@ W-ONE evolves from a sci-fi command-center UI into a **modular, local-first pers
 Guiding doctrine (unchanged from the masterplan, restated because everything below depends on it):
 
 1. **All privileged operations live in the Electron main process.** The renderer never gets Node access.
-2. **Markdown is the source of truth for knowledge; SQLite is a rebuildable index plus structured data.** No ORM.
+2. **Markdown is the source of truth for knowledge; the database (PostgreSQL in Docker since 2026-10-02, §11.5) is a rebuildable index plus structured data.** No ORM.
 3. **Local-first.** Cloud LLM APIs are called from main; data stays on disk in open formats.
 4. **Policy is code, never a model.** Permission decisions are made by a deterministic engine and the user — an LLM can request, never grant.
 5. **No speculative architecture.** Interfaces are introduced when the first real consumer lands; schemas grow by additive migration.
@@ -457,12 +457,12 @@ Consumers:
 
 ### 11.1 What lives where
 
-Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. Don't put `~/W-ONE/data` in a live-sync folder (iCloud/Dropbox) — SQLite + WAL files don't sync safely.
+Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. The database is not in this folder — it runs in Docker (§11.5).
 
 | Store | Location | Content | Rebuildable? |
 |---|---|---|---|
 | Markdown vault | `~/W-ONE/vault` (default; configurable via settings) | the memory notes, Obsidian-compatible (§12.3) | **is** the source of truth |
-| SQLite `wone.db` | `~/W-ONE/data/` | memories, entities, links, events, knowledge index, FTS5 tables; later: conversations, runs, grants | knowledge index: yes; rest: primary data |
+| PostgreSQL `wone` | Docker volume `wone-pgdata` (§11.5) | memories, entities, links, events, knowledge index, full-text tables; later: conversations, runs, grants | knowledge index: yes; rest: primary data |
 | JSON | `~/W-ONE/data/` | `settings.json`, `projects.json`, `context/<id>.json` | context cache: yes |
 | safeStorage | OS keychain | LLM API keys (P6) | — |
 
@@ -502,7 +502,17 @@ The `RetrievalService` is where ranking lives: it blends FTS scores, embeddings 
 
 ### 11.4 Migration policy
 
-`PRAGMA user_version`; migrations are TypeScript modules exporting SQL strings, forward-only, one transaction each, with a file backup of the DB before every migration (preceded by `wal_checkpoint(TRUNCATE)` so the backup is complete). Anything whose source of truth is files (knowledge index, FTS) can always be dropped and rebuilt.
+Ledger table `schema_migrations`; migrations are TypeScript modules exporting SQL strings, forward-only, one transaction each (transactional DDL — a failed migration rolls back completely; `npm run db:backup` dumps the data on demand, §11.5). Anything whose source of truth is files (knowledge index, FTS) can always be dropped and rebuilt.
+
+### 11.5 Database: PostgreSQL in Docker (changed 2026-10-02)
+
+User decision: the database runs in Docker so the same setup carries over to a server deploy later. It replaces the embedded SQLite file (better-sqlite3) from P2A, which had no consumers yet, so no data had to move.
+
+- **Where:** `docker-compose.yml` → service `db` (`postgres:18-alpine`, container `w-one-db`, volume `wone-pgdata`), bound to `127.0.0.1:54329` only. `npm run dev` starts it (`predev`); `npm run db:up|down|logs|psql|backup`.
+- **Connection:** `pg` pool in the main process, URL from `WONE_DB_URL` (default matches the compose file, see `.env.example`). The app connects in the background and stays fully usable without the database — P2B is its first consumer.
+- **Migrations:** `DbService.migrate()` — forward-only, one transaction per migration (Postgres DDL is transactional, so a failed migration leaves no trace), ledger table `schema_migrations`. Backups on demand: `npm run db:backup` (`pg_dump` → `~/W-ONE/backups/`).
+- **Mapping of the plan below:** SQLite FTS5 → Postgres full-text search (`tsvector` + GIN, `ts_rank`); `sqlite-vec` (P13) → `pgvector`; `user_version` → `schema_migrations`. Where §4/§5/§12 still say SQLite, read Postgres.
+- **Server image:** `Dockerfile` builds the renderer as a static site behind nginx (`npm run docker:web`); CD publishes it to GHCR. The Electron app itself stays a desktop app.
 
 ---
 

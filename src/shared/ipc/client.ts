@@ -12,6 +12,11 @@ export class IpcError extends Error {
   }
 }
 
+/** Human-readable message for anything thrown (IpcError is an Error too). */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 type Req<K extends IpcChannel> = IpcChannels[K]['request']
 type Res<K extends IpcChannel> = IpcChannels[K]['response']
 

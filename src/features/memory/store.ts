@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, IpcError } from '@shared/ipc/client'
+import { errorMessage, ipc } from '@shared/ipc/client'
 import type {
   GraphStyle,
   MemoryChanged,
@@ -67,9 +67,6 @@ interface MemoryState {
   clearError: () => void
 }
 
-function message(err: unknown): string {
-  return err instanceof IpcError ? err.message : err instanceof Error ? err.message : String(err)
-}
 
 let saveTimer: number | undefined
 let searchSeq = 0
@@ -86,14 +83,15 @@ export const useMemory = create<MemoryState>((set, get) => {
     return { status, notes }
   }
 
-  const fail = (err: unknown) => set({ error: message(err), loading: false, saving: false })
+  const fail = (err: unknown) => set({ error: errorMessage(err), loading: false, saving: false })
 
   /** Re-read the open note (links/backlinks may have changed elsewhere). */
   const refreshNote = async () => {
     const { note } = get()
     if (!note) return
     const fresh = await ipc('memory:read', { path: note.path }).catch(() => undefined)
-    if (fresh) set((s) => ({ note: fresh, draft: s.draft === s.note?.body ? fresh.body : s.draft }))
+    // Unsaved text in the editor wins over the refreshed body.
+    if (fresh) set((s) => ({ note: fresh, draft: s.draft === note.body ? fresh.body : s.draft }))
   }
 
   return {

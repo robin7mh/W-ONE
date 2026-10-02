@@ -7,7 +7,7 @@ export function formatTime(d: Date): string {
 }
 
 // Day/month names follow the system language (German → "DO 01 OKT 2026").
-const LOCALE = typeof navigator !== 'undefined' ? navigator.language : 'en-US'
+const LOCALE = navigator.language
 const weekdayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' })
 const monthFmt = new Intl.DateTimeFormat(LOCALE, { month: 'short' })
 const noDot = (s: string) => s.replace(/\.$/, '')

@@ -2,7 +2,7 @@
 export interface BootLine {
   t: number
   text: string
-  tone?: 'dim' | 'accent' | 'ok'
+  tone: 'dim' | 'accent' | 'ok'
 }
 
 export const BOOT_LINES: BootLine[] = [

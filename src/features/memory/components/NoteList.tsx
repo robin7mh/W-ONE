@@ -48,9 +48,11 @@ export function NoteList(p: Props) {
     const map = new Map<string, NoteMeta[]>([['', []]])
     for (const f of p.folders) map.set(f, [])
     for (const n of p.notes) map.set(dirOf(n.path), [...(map.get(dirOf(n.path)) ?? []), n])
-    return [...map.entries()]
-      .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
-      .map(([dir, items]) => [dir, items.sort((x, y) => x.title.localeCompare(y.title))] as const)
+    // The root ('') was inserted first, so it stays on top; folders sort by name.
+    const [root, ...folders] = [...map.entries()]
+    return [root, ...folders.sort(([a], [b]) => a.localeCompare(b))].map(
+      ([dir, items]) => [dir, items.sort((x, y) => x.title.localeCompare(y.title))] as const
+    )
   }, [p.notes, p.folders])
 
   const dot = (folder: string) =>

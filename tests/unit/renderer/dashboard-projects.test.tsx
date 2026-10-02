@@ -1,0 +1,295 @@
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fail, installBridge, settle } from './bridge'
+import type { Project } from '@shared/types/project'
+import type { NoteMeta } from '@shared/types/memory'
+import type { SystemSnapshot } from '@shared/types/system'
+
+import { Dashboard } from '@/features/dashboard/components/Dashboard'
+import { ProjectsView } from '@/features/projects/components/ProjectsView'
+import { ProjectDetailPanel } from '@/features/projects/components/ProjectDetailPanel'
+import { useProjects } from '@/features/projects/store'
+import { t } from '@/features/dashboard/i18n'
+
+const initialProjects = useProjects.getState()
+beforeEach(() => useProjects.setState(initialProjects, true))
+
+const proj = (id: string, over: Partial<Project> = {}): Project => ({
+  id,
+  name: `Project ${id}`,
+  path: `/p/${id}`,
+  addedAt: '',
+  lastSeenAt: '',
+  ...over
+})
+const pending = () => new Promise<never>(() => {})
+const note = (path: string, folder: string): NoteMeta =>
+  ({ path, title: path, folder, tags: [], linkCount: 0, modifiedAt: '' }) as unknown as NoteMeta
+const snap = (cpu: number, ram: number, disk: number, battery: SystemSnapshot['battery']): SystemSnapshot => ({
+  cpu: { total: cpu, cores: [] },
+  mem: { usedPct: ram, usedGb: 1, totalGb: 2 },
+  disk: { usedPct: disk, mount: '/' },
+  net: { rxMbps: 0, txMbps: 0 },
+  battery,
+  uptimeSec: 1,
+  processes: [],
+  ts: 1
+})
+
+describe('Dashboard', () => {
+  it('shows loading tiles and a nameless greeting without a bridge', async () => {
+    render(<Dashboard onNavigate={vi.fn()} />)
+    await act(settle)
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toContain(',')
+    // projects + brain fall back to their empty states, system stays loading
+    expect(screen.getByText(new RegExp(t.noProjects))).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(t.noVault))).toBeInTheDocument()
+    expect(screen.getByText(t.loading)).toBeInTheDocument()
+  })
+
+  it('renders live projects, the brain and a system verdict; navigates', async () => {
+    const list = [
+      proj('a', { git: { isRepo: true, branch: 'main', dirty: true } }),
+      proj('b', { git: { isRepo: true, dirty: false } }),
+      proj('c'),
+      proj('d')
+    ]
+    installBridge({
+      'system:user': () => ({ firstName: 'Robin' }),
+      'projects:list': () => list,
+      'projects:refresh': ({ id }: { id: string }) => (id === 'b' ? fail('x') : list.find((p) => p.id === id)),
+      'memory:status': () => ({ exists: true }),
+      'memory:list': () => [note('A/1.md', 'A'), note('A/2.md', 'A'), note('B/1.md', 'B'), note('root.md', '')],
+      'memory:graph': () => ({ nodes: [], edges: [{}, {}] }),
+      'system:snapshot': () => snap(90, 95, 95, { pct: 10, charging: false, hasBattery: true })
+    })
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+
+    expect(screen.getByText(', Robin')).toBeInTheDocument()
+    expect(screen.getByText(`1 ${t.changed}`)).toBeInTheDocument()
+    expect(screen.getByText('main')).toBeInTheDocument()
+    expect(screen.queryByText('Project d')).toBeNull() // only three listed
+    fireEvent.click(screen.getByText('Project a'))
+    expect(useProjects.getState().selectedId).toBe('a')
+    expect(onNavigate).toHaveBeenLastCalledWith('projects')
+    fireEvent.click(screen.getByLabelText(`Open ${t.projects}`))
+    expect(onNavigate).toHaveBeenCalledTimes(2)
+
+    expect(screen.getByText(`${t.notes} · 2 ${t.links}`)).toBeInTheDocument()
+    expect(screen.getByText('A')).toBeInTheDocument()
+    fireEvent.click(screen.getByText(`${t.openGraph} →`))
+    fireEvent.click(screen.getByLabelText(`Open ${t.brain}`))
+    expect(onNavigate).toHaveBeenLastCalledWith('memory')
+
+    expect(screen.getByText(t.cpuHigh)).toBeInTheDocument()
+    expect(screen.getByText([t.ramHigh, t.diskHigh, t.batteryLow].join(' · '))).toBeInTheDocument()
+    expect(screen.getByText(t.battery)).toBeInTheDocument()
+  })
+
+  it('all clean, all good, charging; empty-state buttons navigate', async () => {
+    installBridge({
+      'system:user': () => fail('no user'),
+      'projects:list': () => [proj('a', { git: { isRepo: true, dirty: false } })],
+      'projects:refresh': ({ id }: { id: string }) => proj(id, { git: { isRepo: true, dirty: false } }),
+      'memory:status': () => ({ exists: false }),
+      'memory:list': () => [],
+      'memory:graph': () => ({ nodes: [], edges: [] }),
+      'system:snapshot': () => snap(10, 10, 10, { pct: 10, charging: true, hasBattery: true })
+    })
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+    expect(screen.getByText(t.allClean)).toBeInTheDocument()
+    expect(screen.getByText(t.allGood)).toBeInTheDocument()
+    expect(screen.getByText(`${t.battery} ⚡`)).toBeInTheDocument()
+    fireEvent.click(screen.getByText(new RegExp(t.noVault)))
+    expect(onNavigate).toHaveBeenCalledWith('memory')
+  })
+
+  it('no battery; empty project list button; ignores results after unmount', async () => {
+    let resolveList: (v: Project[]) => void = () => {}
+    let resolveRefresh: (v: Project) => void = () => {}
+    let rejectBrain: (e: Error) => void = () => {}
+    installBridge({
+      'projects:list': () => new Promise((r) => (resolveList = r)),
+      'projects:refresh': () => new Promise((r) => (resolveRefresh = r)),
+      'memory:status': () => new Promise((_r, j) => (rejectBrain = j)),
+      'system:snapshot': () => snap(10, 10, 10, { pct: 0, charging: false, hasBattery: false })
+    })
+    const first = render(<Dashboard onNavigate={vi.fn()} />)
+    await act(settle)
+    expect(screen.queryByText(t.battery)).toBeNull()
+    await act(async () => resolveList([proj('a')]))
+    first.unmount()
+    resolveRefresh(proj('a'))
+    rejectBrain(new Error('late'))
+    await settle()
+
+    // list resolves only after unmount
+    installBridge({ 'projects:list': () => new Promise((r) => (resolveList = r)), 'memory:status': pending, 'system:snapshot': pending })
+    const second = render(<Dashboard onNavigate={vi.fn()} />)
+    second.unmount()
+    resolveList([proj('z')])
+    await settle()
+
+    // list fails after unmount
+    let rejectList: (e: Error) => void = () => {}
+    installBridge({ 'projects:list': () => new Promise((_r, j) => (rejectList = j)), 'memory:status': pending, 'system:snapshot': pending })
+    const third = render(<Dashboard onNavigate={vi.fn()} />)
+    third.unmount()
+    rejectList(new Error('late'))
+    await settle()
+
+    // brain resolves after unmount
+    let resolveStatus: (v: unknown) => void = () => {}
+    installBridge({
+      'projects:list': () => new Promise(() => {}),
+      'memory:status': () => new Promise((r) => (resolveStatus = r)),
+      'memory:list': () => [],
+      'memory:graph': () => ({ nodes: [], edges: [] }),
+      'system:snapshot': pending
+    })
+    const fourth = render(<Dashboard onNavigate={vi.fn()} />)
+    fourth.unmount()
+    resolveStatus({ exists: true })
+    await settle()
+
+    const onNavigate = vi.fn()
+    installBridge({ 'projects:list': () => [], 'memory:status': pending, 'system:snapshot': pending })
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+    fireEvent.click(screen.getByText(new RegExp(t.addProject)))
+    expect(onNavigate).toHaveBeenCalledWith('projects')
+  })
+})
+
+describe('ProjectsView', () => {
+  it('loading, empty, error and the selected detail', async () => {
+    let resolve: (v: Project[]) => void = () => {}
+    installBridge({ 'projects:list': () => new Promise((r) => (resolve = r)) })
+    render(<ProjectsView />)
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    await act(async () => resolve([]))
+    expect(screen.getByText('No projects yet')).toBeInTheDocument()
+    expect(screen.getByText('Select a project')).toBeInTheDocument()
+
+    act(() => useProjects.setState({ error: 'boom' }))
+    expect(screen.getByText('boom')).toBeInTheDocument()
+  })
+
+  it('lists projects (repo / no repo / frameworks), selects, adds', async () => {
+    const list = [
+      proj('a', { git: { isRepo: true, branch: 'dev', dirty: true }, stack: { languages: [], frameworks: ['React', 'Vite', 'X'], hasReadme: false } }),
+      proj('b', { git: { isRepo: true } }),
+      proj('c')
+    ]
+    const bridge = installBridge({ 'projects:list': () => list, 'projects:pickFolder': () => null })
+    render(<ProjectsView />)
+    await act(settle)
+    expect(screen.getByText('3 registered')).toBeInTheDocument()
+    expect(screen.getByText('•dirty')).toBeInTheDocument()
+    expect(screen.getByText('detached')).toBeInTheDocument()
+    expect(screen.getByText('no repo')).toBeInTheDocument()
+    expect(screen.getAllByText('Vite')).toHaveLength(2) // list item + detail
+    expect(screen.getAllByText('X')).toHaveLength(1) // list shows two frameworks, detail all
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Project a')
+
+    fireEvent.click(screen.getByText('Project c'))
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Project c')
+
+    fireEvent.click(screen.getByText('Add project'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:pickFolder', undefined)
+  })
+})
+
+describe('ProjectDetailPanel', () => {
+  it('a full repo: upstream, last commit, stack, scripts; actions call the store', async () => {
+    const bridge = installBridge({
+      'projects:refresh': () => new Promise(() => {}),
+      'projects:openInEditor': () => undefined,
+      'projects:openTerminal': () => undefined
+    })
+    const p = proj('a', {
+      git: { isRepo: true, branch: 'main', ahead: 2, dirty: false, lastCommit: { hash: 'abcdef123', subject: 'feat: x', author: 'Ro', date: '' } },
+      stack: {
+        languages: ['TypeScript', 'CSS'],
+        frameworks: ['React'],
+        packageManager: 'npm',
+        hasReadme: true,
+        packageJson: { scripts: ['dev', 'build', 'a', 'b', 'c', 'd', 'e', 'f', 'g'] }
+      }
+    })
+    useProjects.setState({ projects: [p] })
+    render(<ProjectDetailPanel project={p} />)
+    expect(screen.getByText('clean')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('0')).toBeInTheDocument() // behind ?? 0
+    expect(screen.getByText('abcdef1 · Ro')).toBeInTheDocument()
+    expect(screen.getByText('TypeScript, CSS')).toBeInTheDocument()
+    expect(screen.getByText('npm')).toBeInTheDocument()
+    expect(screen.getByText('present')).toBeInTheDocument()
+    expect(screen.getByText('f')).toBeInTheDocument()
+    expect(screen.queryByText('g')).toBeNull() // max 8 scripts
+
+    fireEvent.click(screen.getByText('VS Code'))
+    fireEvent.click(screen.getByText('Terminal'))
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:openInEditor', { id: 'a' })
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:openTerminal', { id: 'a' })
+    fireEvent.click(screen.getByText('Refresh'))
+    expect(screen.getByText('Refreshing…').closest('button')).toBeDisabled()
+    expect(screen.getByText('Remove').closest('button')).toBeDisabled()
+  })
+
+  it('dirty repo without upstream, no repo and no stack; remove', async () => {
+    const bridge = installBridge({ 'projects:remove': () => undefined })
+    const { rerender } = render(<ProjectDetailPanel project={proj('d', { git: { isRepo: true, behind: 1, dirty: true } })} />)
+    expect(screen.getByText('dirty')).toBeInTheDocument()
+    expect(screen.getByText('detached')).toBeInTheDocument()
+    expect(screen.getByText('1')).toBeInTheDocument()
+
+    rerender(<ProjectDetailPanel project={proj('n', { stack: { languages: [], frameworks: [], hasReadme: false, packageJson: { scripts: [] } } })} />)
+    expect(screen.getByText('no repo')).toBeInTheDocument()
+    expect(screen.queryByText('Branch')).toBeNull()
+    expect(screen.getByText('—')).toBeInTheDocument()
+    expect(screen.getByText('none')).toBeInTheDocument()
+    expect(screen.queryByText('Frameworks')).toBeNull()
+    expect(screen.queryByText('Scripts')).toBeNull()
+
+    rerender(<ProjectDetailPanel project={proj('m')} />)
+    expect(screen.getByText('none')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Remove'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:remove', { id: 'm' })
+  })
+})
+
+describe('dashboard i18n', () => {
+  const load = async (language: string) => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue(language)
+    vi.resetModules()
+    return import('@/features/dashboard/i18n')
+  }
+
+  it('speaks German for de-* systems', async () => {
+    const de = await load('de-DE')
+    expect(de.isGerman).toBe(true)
+    expect(de.dashLocale).toBe('de-DE')
+    const at = (h: number) => de.greeting(new Date(2026, 0, 1, h))
+    expect([at(5), at(11), at(18), at(23), at(4)]).toEqual(['Guten Morgen', 'Guten Tag', 'Guten Abend', 'Gute Nacht', 'Gute Nacht'])
+    expect(de.longDate(new Date(2026, 9, 1))).toBe('Donnerstag, 1. Oktober 2026')
+  })
+
+  it('falls back to English with the system locale; ISO weeks', async () => {
+    const en = await load('en-US')
+    expect(en.isGerman).toBe(false)
+    expect(en.dashLocale).toBe('en-US')
+    expect(en.t.week).toBe('Week')
+    expect(en.greeting(new Date(2026, 0, 1, 12))).toBe('Good afternoon')
+    expect(en.isoWeek(new Date(2026, 0, 1))).toBe(1) // Thursday
+    expect(en.isoWeek(new Date(2027, 0, 3))).toBe(53) // Sunday → week of 2026
+    expect(en.isoWeek(new Date(2026, 9, 1))).toBe(40)
+  })
+})

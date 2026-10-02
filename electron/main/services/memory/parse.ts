@@ -77,10 +77,10 @@ export function parseNote(raw: string): ParsedNote {
 /** Link target → lookup key: no `.md`, POSIX separators, case-insensitive. */
 export function linkKey(target: string): string {
   return target
+    .trim() // first — otherwise surrounding spaces block the ./ and .md strips
     .replace(/\\/g, '/')
     .replace(/^\.?\//, '')
     .replace(/\.md$/i, '')
-    .trim()
     .toLowerCase()
 }
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, IpcError } from '@shared/ipc/client'
+import { errorMessage, ipc } from '@shared/ipc/client'
 import type { TerminalInfo } from '@shared/types/terminal'
 
 export interface TerminalTab extends TerminalInfo {
@@ -49,14 +49,16 @@ export function tabLabels(tabs: TerminalTab[]): Map<string, string> {
   )
 }
 
-function message(err: unknown): string {
-  return err instanceof IpcError ? err.message : err instanceof Error ? err.message : String(err)
-}
 
-/** Move tab `id` into the active tab's position (swap), so it becomes visible. */
-function swapIntoView(tabs: TerminalTab[], id: string, activeId: string | undefined, slots: number): TerminalTab[] {
+/**
+ * Split layouts show the first N tabs: move tab `id` into the active tab's
+ * pane (swap) so it becomes visible. Single layout shows whichever tab is
+ * active, so the tab strip keeps its order there.
+ */
+function swapIntoView(tabs: TerminalTab[], id: string, activeId: string | undefined, layout: TerminalLayout): TerminalTab[] {
+  const slots = LAYOUT_SLOTS[layout]
   const from = tabs.findIndex((t) => t.id === id)
-  if (from < slots) return tabs
+  if (layout === 'single' || from < slots) return tabs
   const activeIndex = tabs.findIndex((t) => t.id === activeId)
   const to = activeIndex >= 0 && activeIndex < slots ? activeIndex : 0
   const next = [...tabs]
@@ -77,7 +79,7 @@ export const useTerminals = create<TerminalState>((set, get) => ({
       if (existing.length) set({ tabs: existing, activeId: existing[0].id })
       else await get().open()
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 
@@ -85,11 +87,11 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     try {
       const info = await ipc('terminal:create', { projectId })
       set((s) => {
-        const tabs = swapIntoView([...s.tabs, info], info.id, s.activeId, LAYOUT_SLOTS[s.layout])
+        const tabs = swapIntoView([...s.tabs, info], info.id, s.activeId, s.layout)
         return { tabs, activeId: info.id, error: undefined }
       })
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 
@@ -115,12 +117,12 @@ export const useTerminals = create<TerminalState>((set, get) => ({
         error: undefined
       }))
     } catch (err) {
-      set({ error: message(err) })
+      set({ error: errorMessage(err) })
     }
   },
 
   setActive: (id) =>
-    set((s) => ({ tabs: swapIntoView(s.tabs, id, s.activeId, LAYOUT_SLOTS[s.layout]), activeId: id })),
+    set((s) => ({ tabs: swapIntoView(s.tabs, id, s.activeId, s.layout), activeId: id })),
 
   // Only re-arranges; empty panes show a "New terminal" placeholder instead.
   setLayout: (layout) => set({ layout }),

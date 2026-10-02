@@ -70,7 +70,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
               initial={{ opacity: 0, x: -6 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.18 }}
-              className={cn('flex gap-2', TONE[line.tone ?? 'dim'])}
+              className={cn('flex gap-2', TONE[line.tone])}
             >
               <span className="select-none text-text-muted">›</span>
               <span>{line.text}</span>
