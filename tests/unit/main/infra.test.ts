@@ -48,6 +48,7 @@ import { registerProjectIpc } from '../../../electron/ipc/projects.ipc'
 import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
 import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
+import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { DbService, DEFAULT_DB_URL, createPool, databaseUrl, type DbPool } from '../../../electron/main/services/db/DbService'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -197,6 +198,18 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['terminal:write', { id: 'i', data: 'ls' }, 'write', ['i', 'ls']],
         ['terminal:resize', { id: 'i', cols: 80, rows: 24 }, 'resize', ['i', 80, 24]],
         ['terminal:kill', { id: 'i' }, 'kill', ['i']]
+      ]
+    ],
+    [
+      'files',
+      registerFilesIpc,
+      [
+        ['files:list', { projectId: 'p' }, 'list', ['p', undefined]],
+        ['files:list', { projectId: 'p', dir: 'src' }, 'list', ['p', 'src']],
+        ['files:read', { projectId: 'p', path: 'a.ts' }, 'read', ['p', 'a.ts']],
+        ['files:stat', { projectId: 'p', paths: ['a.ts'] }, 'stat', ['p', ['a.ts']]],
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
       ]
     ]
   ] as const)('%s', async (_name, register, cases) => {

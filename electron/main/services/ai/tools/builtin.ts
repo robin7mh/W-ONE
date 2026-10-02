@@ -1,13 +1,13 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
-import { dirname, relative, resolve, sep } from 'node:path'
+import { dirname, relative } from 'node:path'
 import { z } from 'zod'
 import type { Project } from '@shared/types/project'
 import type { ProjectContext } from '@shared/types/context'
 import type { Note, NoteMeta, SearchHit } from '@shared/types/memory'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ToolContext, ToolDefinition } from './types'
+import { confine } from '../../../lib/confine'
 
 const MAX_READ = 100 * 1024
 const MAX_OUTPUT = 30_000
@@ -39,19 +39,6 @@ export function truncate(text: string, max = MAX_OUTPUT): string {
 
 const reason = z.string().min(1).max(500).describe('One sentence for the user: why this action is needed')
 const projectId = z.string().max(200).optional().describe('Project id (defaults to the conversation project)')
-
-/** Resolve `rel` inside `root`, following symlinks; refuses anything outside. */
-export async function confine(root: string, rel: string): Promise<string> {
-  const rootReal = await realpath(root)
-  const target = resolve(rootReal, rel)
-  // The deepest existing ancestor decides (the file itself may not exist yet).
-  let probe = target
-  while (!existsSync(probe)) probe = dirname(probe)
-  const real = await realpath(probe)
-  const inside = (p: string) => p === rootReal || p.startsWith(rootReal + sep)
-  if (!inside(target) || !inside(real)) throw coded('outside-project', 'Path is outside the project')
-  return target
-}
 
 export function builtinTools(deps: ToolDeps): ToolDefinition<never>[] {
   const project = (id: string | undefined, ctx: ToolContext): Project => {

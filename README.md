@@ -108,6 +108,10 @@ npm run test:all         # typecheck + coverage + e2e — what CI runs on a pull
 
 Release: `git tag v0.2.0 && git push origin v0.2.0`.
 
+`npm run build` and `npm run web:build` run Node with a 4 GB heap: bundling Monaco (the
+editor and its language workers) needs about 2.5 GB, and on GitHub's runners for private
+repos (7 GB RAM) and in Docker, Node picks only ~2 GB by default.
+
 To make the tests mandatory before merging, enable branch protection for `main`/`develop`
 (GitHub → Settings → Branches) and require the CI checks.
 
@@ -124,8 +128,8 @@ run per workspace.
 | --- | --- | --- |
 | Boot overlay | `BootSequence` | Typed boot log + progress, fades to reveal the shell (click to skip). |
 | Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
-| Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings, plus which core it is linked to. Collapses to icon-only on narrow widths. |
-| Center | the active module | **Core**: greeting, HUD clock, tiles for projects, brain and system. **Terminal**: real login shells (node-pty) in tabs or splits. **Projects**: git/stack detection + structural context (P3). **Memory**: the Obsidian vault with editor and graph. **Agents**: chat with Assistant / Coding / Research / Chat agents, tool calls, inline approvals, run activity. **System**: full telemetry. **Settings**: AI, remote access & devices, permissions, vault, about. |
+| Left rail | `SideNavigation` | Core · Editor · Terminal · Projects · Memory · Agents · System · Settings, plus which core it is linked to. Collapses to icon-only on narrow widths. |
+| Center | the active module | **Core**: greeting, HUD clock, tiles for projects, brain and system. **Editor**: Monaco (VS Code's editor core) on your project files — file tree, tabs, ⌘S, follows changes made elsewhere. **Terminal**: real login shells (node-pty) in tabs or splits. **Projects**: git/stack detection + structural context (P3). **Memory**: the Obsidian vault with editor and graph. **Agents**: chat with Assistant / Coding / Research / Chat agents, tool calls, inline approvals, run activity. **System**: full telemetry. **Settings**: AI, remote access & devices, permissions, vault, about. |
 | Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines, process preview (hidden in wide modules). |
 | Bottom | `BottomDashboard` | *Command Deck*: running agents (stop / jump in), waiting approvals, live activity. |
 | Overlay | `ApprovalToasts` | an agent waiting for approval is visible in every module. |
@@ -155,11 +159,11 @@ The mobile app itself; P5 memory pipeline, P10 Files, P11 Automations, P13 embed
 electron/      the W-ONE core: main.ts (desktop window), preload.ts (window.wone bridge),
                ipc/ (router + channel bindings), main/core (createCore, EventHub),
                main/server (HTTP + WebSocket API), main/platform (electron | headless),
-               main/services/ (ai, auth, db, events, fs, memory, projects, system, terminal, …)
+               main/services/ (ai, auth, db, events, files, fs, memory, projects, system, terminal, …)
 server/        main.ts — the same core headless (out/server/index.cjs, Docker)
 src/
   components/  shell · topbar · nav · monitor · dashboard · boot · ui
-  features/    agents · session (pairing) · settings · dashboard · projects · memory · terminal ·
+  features/    agents · session (pairing) · settings · dashboard · editor · projects · memory · terminal ·
                system · context
   shared/      contract, schemas, transport, types — shared by core, web UI and the mobile app
   hooks/ data/ lib/ types/

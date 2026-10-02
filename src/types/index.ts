@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 
 export type ModuleId =
   | 'core'
+  | 'editor'
   | 'terminal'
   | 'projects'
   | 'memory'

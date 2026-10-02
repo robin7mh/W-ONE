@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Code2,
   TerminalSquare,
   FolderGit2,
   BrainCircuit,
@@ -11,6 +12,7 @@ import type { NavItem } from '@/types'
 
 export const NAV_ITEMS: NavItem[] = [
   { id: 'core', label: 'Core', icon: LayoutDashboard },
+  { id: 'editor', label: 'Editor', icon: Code2 },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
   { id: 'memory', label: 'Memory', icon: BrainCircuit },

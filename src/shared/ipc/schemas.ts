@@ -68,6 +68,11 @@ export const REQUEST_SCHEMAS: Schemas = {
   'terminal:resize': z.object({ id, cols: z.number(), rows: z.number() }),
   'terminal:kill': z.object({ id }),
 
+  'files:list': z.object({ projectId: id, dir: text(4096).optional() }),
+  'files:read': z.object({ projectId: id, path }),
+  'files:stat': z.object({ projectId: id, paths: z.array(path).max(200) }),
+  'files:write': z.object({ projectId: id, path, content: text(6 * 1024 * 1024), expectedMtime: z.number().optional() }),
+
   'app:info': none,
   'fs:dirs': z
     .object({ path: path.optional() })

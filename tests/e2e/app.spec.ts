@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { expect, test } from './fixtures'
 
@@ -11,8 +11,11 @@ test('boots into the Command Center and connects to the Docker database', async 
 
 test('navigates every module', async ({ page }) => {
   const nav = (name: string) => page.getByRole('button', { name, exact: true }).or(page.getByTitle(name, { exact: true }))
-  await nav('Projects').click()
+  await nav('Editor').click()
   await expect(page.getByText('No projects yet')).toBeVisible()
+  await nav('Projects').click()
+  // the editor stays mounted (hidden) once opened — only the visible text counts
+  await expect(page.getByText('No projects yet').filter({ visible: true })).toBeVisible()
   await nav('Memory').click()
   await expect(page.getByText('Create W-ONE vault')).toBeVisible()
   await nav('Agents').click()
@@ -92,6 +95,36 @@ test('projects: adds a git folder through the (stubbed) native picker', async ({
   await expect(page.getByText(repo).first()).toBeVisible()
   if (branch !== 'HEAD') await expect(page.getByText(branch).first()).toBeVisible()
   await expect(page.getByText('TypeScript').first()).toBeVisible()
+})
+
+test('editor: opens a project file in Monaco, saves it with ⌘S and follows changes on disk', async ({ page, home }) => {
+  const root = join(home, 'demo')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src', 'hello.ts'), 'export const greeting = "hi"\n')
+  writeFileSync(join(root, '.gitignore'), 'dist\n')
+  mkdirSync(join(root, 'dist'))
+  const added = await page.evaluate((path) => window.wone!.invoke('projects:add', { path }), root)
+  expect(added).toMatchObject({ ok: true })
+
+  await page.getByTitle('Editor', { exact: true }).click()
+  await expect(page.getByRole('treeitem', { name: 'dist' })).toHaveClass(/opacity-50/) // git-ignored
+  await page.getByRole('treeitem', { name: 'src' }).click()
+  await page.getByRole('treeitem', { name: 'hello.ts' }).click()
+  const lines = page.locator('.monaco-editor .view-lines')
+  await expect(lines).toContainText('export const greeting')
+  await expect(page.getByText('TypeScript', { exact: true })).toBeVisible()
+
+  await lines.click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.type('export const greeting = "from W-ONE"')
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  expect(readFileSync(join(root, 'src', 'hello.ts'), 'utf8')).toBe('export const greeting = "from W-ONE"')
+
+  // an outside edit (an agent, git, VS Code) shows up in the clean tab by itself
+  writeFileSync(join(root, 'src', 'hello.ts'), 'export const greeting = "changed outside"\n')
+  await expect(lines).toContainText('changed outside')
 })
 
 test('theme toggle switches light and dark', async ({ page }) => {

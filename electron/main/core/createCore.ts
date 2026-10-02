@@ -9,6 +9,7 @@ import { registerSystemIpc } from '../../ipc/system.ipc'
 import { registerContextIpc } from '../../ipc/context.ipc'
 import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
+import { registerFilesIpc } from '../../ipc/files.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
 import { ProjectService } from '../services/projects/ProjectService'
@@ -19,6 +20,7 @@ import { VaultService } from '../services/memory/VaultService'
 import { TerminalService } from '../services/terminal/TerminalService'
 import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
+import { FilesService } from '../services/files/FilesService'
 import { AuthService } from '../services/auth/AuthService'
 import { DbService, createPool, databaseUrl } from '../services/db/DbService'
 import { MIGRATIONS } from '../services/db/migrations'
@@ -116,6 +118,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
 
   const fs = new FsService()
+  // The editor's project files — paths resolve against the project registry.
+  const files = new FilesService((id) => projects.getProjectPath(id))
   const auth = new AuthService(paths.devicesFile)
 
   // The router asks the server controller whether remote shells are allowed
@@ -175,6 +179,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerContextIpc(router, context)
   registerMemoryIpc(router, vault)
   registerTerminalIpc(router, terminal)
+  registerFilesIpc(router, files)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
   router.register('server:status', () => controller.status())

@@ -7,6 +7,7 @@ import { isDesktop } from '@shared/ipc/client'
 import { TopStatusBar } from '@/components/topbar/TopStatusBar'
 import { SideNavigation } from '@/components/nav/SideNavigation'
 import { TerminalView } from '@/features/terminal/components/TerminalView'
+import { EditorView } from '@/features/editor/components/EditorView'
 import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { MemoryView } from '@/features/memory/components/MemoryView'
@@ -57,11 +58,11 @@ export function AppShell() {
     return () => window.clearInterval(id)
   }, [booted])
 
-  // Terminal mounts on first visit and then stays mounted (hidden), so running
-  // shells and their screens survive switching modules.
-  const [terminalMounted, setTerminalMounted] = useState(false)
+  // Terminal and Editor mount on first visit and then stay mounted (hidden), so
+  // running shells, open files and their undo history survive switching modules.
+  const [kept, setKept] = useState<{ terminal?: boolean; editor?: boolean }>({})
   useEffect(() => {
-    if (active === 'terminal') setTerminalMounted(true)
+    if (active === 'terminal' || active === 'editor') setKept((k) => (k[active] ? k : { ...k, [active]: true }))
   }, [active])
 
   // The assistant's push events (approvals, activity) matter in every module.
@@ -82,10 +83,11 @@ export function AppShell() {
     if (active === 'system') return <SystemView />
     if (active === 'settings') return <SettingsView />
     if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
+    if (active === 'editor') return null
     return <Dashboard onNavigate={setActive} />
   }
   // Modules that need the width (or show telemetry themselves) hide the monitor rail.
-  const showRail = !['memory', 'agents', 'system', 'settings'].includes(active)
+  const showRail = !['editor', 'memory', 'agents', 'system', 'settings'].includes(active)
 
   return (
     <div className="relative flex h-screen min-h-[560px] w-screen flex-col overflow-hidden">
@@ -107,9 +109,14 @@ export function AppShell() {
         <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
           <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
             {renderMain()}
-            {terminalMounted && !shellsOff && (
+            {kept.terminal && !shellsOff && (
               <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
                 <TerminalView />
+              </div>
+            )}
+            {kept.editor && (
+              <div className={active === 'editor' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+                <EditorView active={active === 'editor'} onNavigate={setActive} />
               </div>
             )}
           </motion.div>
