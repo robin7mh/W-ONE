@@ -48,7 +48,8 @@ export default defineConfig({
       exclude: [
         '**/*.d.ts',
         'src/shared/types/{context,entity,project,settings,system,terminal}.ts',
-        'src/types/index.ts'
+        'src/types/index.ts',
+        'electron/main/services/ai/tools/types.ts'
       ],
       reporter: ['text-summary', 'text', 'html', 'lcov'],
       reportsDirectory: 'coverage',

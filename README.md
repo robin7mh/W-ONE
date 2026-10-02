@@ -4,15 +4,16 @@ A premium, dark, futuristic **desktop UI** — a Jarvis-style command center ins
 *principle* of sci-fi terminal UIs (terminal · system telemetry · HUD panels), **not** a clone of
 any existing tool.
 
-> Real today: system telemetry, projects (git/stack detection), an Obsidian-compatible memory
-> vault with graph, and real shells in the terminal. AI agents are next — see
-> [`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md).
+> Real today: AI agents (Claude) with tools behind a permission gate, an Obsidian-compatible memory
+> vault with graph, projects with structural context, real shells, live system telemetry — on the
+> desktop, in the browser, and over a network API for the coming mobile app. See
+> [`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md) and the API reference [`docs/API.md`](docs/API.md).
 
 ## Stack
 
 Electron (frameless) · React 18 · TypeScript · Vite (via **electron-vite**) · Tailwind CSS ·
-Framer Motion · **xterm.js** + node-pty · PostgreSQL (Docker) · Vitest + Testing Library ·
-Playwright. Fonts (Inter, JetBrains Mono) are bundled locally — no external requests.
+Framer Motion · **xterm.js** + node-pty · PostgreSQL (Docker) · Anthropic SDK (Claude) · Zod ·
+`ws` · Vitest + Testing Library · Playwright. Fonts (Inter, JetBrains Mono) are bundled locally.
 
 ## Getting started
 
@@ -20,12 +21,37 @@ Requirements: Node 22, Docker (Docker Desktop on macOS/Windows).
 
 ```bash
 npm install
-npm run dev        # starts the database container, then the Electron app (HMR)
 ```
 
-The database is PostgreSQL in Docker (`docker-compose.yml`, bound to `127.0.0.1:54329`).
-`npm run dev` starts it automatically; W-ONE still boots without it (nothing depends on it
-until P2B). Defaults work as-is — copy `.env.example` to `.env` to change them.
+W-ONE is one **core** (all services) with three ways to run it:
+
+| | Command | What you get |
+|---|---|---|
+| **Desktop app** | `npm run dev` | Electron window; starts the database container first (HMR in dev) |
+| **Web UI + API, no Docker** | `npm run web` | builds the web UI and the core server, serves both on `http://127.0.0.1:7420` |
+| **Docker** | `npm run docker:up` | database + the core in containers on `http://127.0.0.1:7420` |
+
+**Browser access is paired.** Open the address, enter the one-time code the server prints at
+startup (or `npm run server:pair` / `npm run docker:pair`, or in the desktop app: Settings →
+*Pair a device* — that also shows a QR code for a phone). Each browser/phone gets its own token;
+revoke devices in Settings. Remote shells are off unless `WONE_REMOTE_TERMINAL=1` (server) or
+Settings → *Allow remote shells* (desktop).
+
+**The desktop app can serve the web UI too:** Settings → Remote access → *Run the API server*
+(+ *Reachable on the local network* for your phone).
+
+### AI
+
+The agents run on Claude (`claude-opus-5-5` by default, Sonnet 5.5 selectable). Either set
+`ANTHROPIC_API_KEY` for the core, or paste a key in Agents/Settings — it is verified once, stored
+on the core only (encrypted by the OS keychain on the desktop) and never sent to any client.
+Reading tools run freely; anything that changes data asks you first (*Allow once / Always / Deny*);
+commands are asked every time.
+
+### Database
+
+PostgreSQL in Docker (`docker-compose.yml`, bound to `127.0.0.1:54329`). `npm run dev` starts it;
+W-ONE still works without it (agent runs and the activity history then live in memory only).
 
 ```bash
 npm run db:up      # start the database (waits until healthy)
@@ -37,11 +63,17 @@ npm run db:backup  # pg_dump → ~/W-ONE/backups/
 Other scripts:
 
 ```bash
-npm run build      # builds main / preload / renderer into out/
-npm run typecheck  # tsc for node (electron), web (renderer) and the tests
-npm run web:dev    # runs ONLY the renderer in a plain browser (no Electron)
-npm run docker:web # builds the web image (Dockerfile) and serves it on 127.0.0.1:8080
+npm run build         # Electron main / preload / renderer → out/
+npm run web:build     # the web UI → out/web
+npm run server:build  # the standalone core → out/server/index.cjs
+npm run server        # run it (WONE_PORT, WONE_LAN, WONE_REMOTE_TERMINAL, WONE_HOME …)
+npm run web:dev       # web UI with HMR; proxies /api to a core on :7420
+npm run typecheck     # tsc for node (electron + server), web (renderer) and the tests
 ```
+
+All settings and data live under `~/W-ONE` (`WONE_HOME` overrides): `data/` (settings, projects,
+paired devices, secrets, conversations) and `vault/` (the Obsidian-compatible memory). Copy
+`.env.example` to `.env` to change Docker ports or bind addresses.
 
 ## Tests
 
@@ -56,17 +88,23 @@ npm run test:all         # typecheck + coverage + e2e — what CI runs on a pull
 - **Unit** (`tests/unit/main`, `tests/unit/renderer`): every file in `electron/` and `src/` is
   measured, and lines, branches, functions and statements must all stay at **100 %**.
   Only type-only modules are excluded (`vitest.config.ts`).
-- **E2E** (`tests/e2e`): launches the built app with a throwaway `WONE_HOME` (your real
-  `~/W-ONE` is never touched) and checks boot + database connection, navigation, a real
-  shell in the terminal, writing a vault note to disk, adding a project and the theme toggle.
-  On Linux without a display run it under `xvfb-run -a`.
+- **E2E** (`tests/e2e`), every test with a throwaway `WONE_HOME` (your real `~/W-ONE` is never
+  touched):
+  - *electron*: the built desktop app — boot + database, every module, a real shell, a vault note
+    written to disk, a project, the embedded API server, the theme toggle. On Linux without a
+    display run it under `xvfb-run -a`.
+  - *web*: the built web UI in Chromium against the real standalone core — pairing, live data,
+    the folder browser, access rules, and the assistant end to end (streamed answer, a tool call
+    behind an approval, the note on disk) against a local stand-in for the Messages API
+    (`tests/e2e/fake-anthropic.mjs`, no key needed). `PW_CHROMIUM=/path/to/chrome` uses a
+    preinstalled Chromium.
 
 ## CI/CD (GitHub Actions)
 
 | Workflow | Runs on | Does |
 | --- | --- | --- |
-| `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E against Electron + the Docker database · Docker image build |
-| `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests** — builds the web image and pushes it to `ghcr.io/robin7mh/w-one-ui` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
+| `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E (Electron + Docker database, web UI + core) · Docker image build |
+| `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests** — builds the core image (API + web UI) and pushes it to `ghcr.io/robin7mh/w-one-ui` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
 
 Release: `git tag v0.2.0 && git push origin v0.2.0`.
 
@@ -86,10 +124,11 @@ run per workspace.
 | --- | --- | --- |
 | Boot overlay | `BootSequence` | Typed boot log + progress, fades to reveal the shell (click to skip). |
 | Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
-| Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings. Sliding active indicator. Collapses to icon-only on narrow widths. Routing is visual-only. |
-| Center | `Dashboard` (Core) · `TerminalView` (Terminal) | Core: greeting, HUD clock and real tiles for projects, brain and system. Terminal: real login shells (node-pty) in tabs or split layouts (side by side, stacked, 2×2), opened in Home or a project; sessions keep running while you use other modules. |
-| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines for CPU/RAM/Disk/Network/Battery, process preview. Live device telemetry; on macOS disk usage and processes match Finder / Activity Monitor. |
-| Bottom | `BottomDashboard` | Collapsible *Command Deck* (replaces the eDEX on-screen keyboard). Collapsed by default and empty for now — the demo cards were removed; real agent activity lands here in P9. |
+| Left rail | `SideNavigation` | Core · Terminal · Projects · Memory · Agents · System · Settings, plus which core it is linked to. Collapses to icon-only on narrow widths. |
+| Center | the active module | **Core**: greeting, HUD clock, tiles for projects, brain and system. **Terminal**: real login shells (node-pty) in tabs or splits. **Projects**: git/stack detection + structural context (P3). **Memory**: the Obsidian vault with editor and graph. **Agents**: chat with Assistant / Coding / Research / Chat agents, tool calls, inline approvals, run activity. **System**: full telemetry. **Settings**: AI, remote access & devices, permissions, vault, about. |
+| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines, process preview (hidden in wide modules). |
+| Bottom | `BottomDashboard` | *Command Deck*: running agents (stop / jump in), waiting approvals, live activity. |
+| Overlay | `ApprovalToasts` | an agent waiting for approval is visible in every module. |
 
 ### Design system (single source of truth)
 
@@ -107,29 +146,33 @@ run per workspace.
 
 ### Not built yet
 
-Agents/System/Settings render a `ModulePlaceholder`; Core, Terminal, Projects and Memory are real.
+The mobile app itself; P5 memory pipeline, P10 Files, P11 Automations, P13 embeddings; packaging
+(installers, signing, auto-update). See §12.4 in the architecture document.
 
 ## Project structure
 
 ```
-electron/      main.ts (window + service wiring), preload.ts (window.wone bridge),
-               ipc/ (channel handlers), main/services/ (db, memory, projects, terminal, …)
+electron/      the W-ONE core: main.ts (desktop window), preload.ts (window.wone bridge),
+               ipc/ (router + channel bindings), main/core (createCore, EventHub),
+               main/server (HTTP + WebSocket API), main/platform (electron | headless),
+               main/services/ (ai, auth, db, events, fs, memory, projects, system, terminal, …)
+server/        main.ts — the same core headless (out/server/index.cjs, Docker)
 src/
   components/  shell · topbar · nav · monitor · dashboard · boot · ui
-  features/    dashboard · projects · memory (vault, graph, editor) · terminal · system · context
-  shared/      IPC contract + types shared by main, preload and renderer
+  features/    agents · session (pairing) · settings · dashboard · projects · memory · terminal ·
+               system · context
+  shared/      contract, schemas, transport, types — shared by core, web UI and the mobile app
   hooks/ data/ lib/ types/
 tests/
-  unit/main      Vitest (node)  — services, IPC, main.ts
+  unit/main      Vitest (node)  — services, core, API server, agent runtime, main.ts
   unit/renderer  Vitest (jsdom) — stores, hooks, every component
-  e2e            Playwright     — the built Electron app
-docker-compose.yml · Dockerfile · docker/   database + web image
+  e2e            Playwright     — the built Electron app, and the web UI against the core
+docker-compose.yml · Dockerfile            database + the core image (API + web UI)
 .github/workflows/                          ci.yml (PR tests) · cd.yml (image + release)
 ```
 
-## Future integration
+## Mobile app
 
-All privileged capability flows through the single `window.wone` bridge
-(`electron/preload.ts`) — that is the seam to extend. Next up are AI agents (orchestration in the
-main process, activity in the Command Deck) — the phase plan is in
-[`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md).
+The React Native app talks to the same core over HTTP + WebSocket with a per-device token — the
+reference, including the pairing flow and a client sketch, is [`docs/API.md`](docs/API.md). The
+client code in `src/shared/ipc/transport.ts` runs in React Native unchanged.

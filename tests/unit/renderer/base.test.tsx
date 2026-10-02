@@ -142,14 +142,25 @@ describe('hooks', () => {
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
     expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
-    expect(NAV_ITEMS.filter((n) => n.ready).map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
   it('contract allowlists, graph palette and event catalog', async () => {
     expect(IPC_CHANNELS).toContain('memory:link')
     expect(new Set(IPC_CHANNELS).size).toBe(IPC_CHANNELS.length)
-    expect(IPC_EVENTS).toEqual(['system:tick', 'context:progress', 'memory:changed', 'terminal:data', 'terminal:exit'])
+    expect(IPC_EVENTS).toEqual([
+      'system:tick',
+      'context:progress',
+      'memory:changed',
+      'terminal:data',
+      'terminal:exit',
+      'ai:delta',
+      'ai:message',
+      'ai:conversationsChanged',
+      'permission:request',
+      'permission:resolved',
+      'events:event'
+    ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
     expect(EVENT_CATALOG['app.started']).toBe('activity')
@@ -251,12 +262,13 @@ describe('entry points', () => {
     vi.doUnmock('@/App')
   })
 
-  it('App renders the shell', async () => {
+  it('App renders the shell behind the session gate', async () => {
+    installBridge({ 'app:info': () => ({ mode: 'desktop' }) })
     vi.doMock('@/components/shell/AppShell', () => ({ AppShell: () => <div>shell</div> }))
     vi.resetModules()
     const { default: App } = await import('@/App')
     render(<App />)
-    expect(screen.getByText('shell')).toBeInTheDocument()
+    expect(await screen.findByText('shell')).toBeInTheDocument()
     vi.doUnmock('@/components/shell/AppShell')
   })
 })

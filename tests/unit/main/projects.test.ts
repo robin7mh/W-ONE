@@ -32,17 +32,25 @@ vi.mock('node:child_process', () => {
 
 const electron = vi.hoisted(() => ({
   showOpenDialog: vi.fn(),
-  openPath: vi.fn(async () => '')
+  openPath: vi.fn(async () => ''),
+  encryption: true
 }))
 vi.mock('electron', () => ({
   dialog: { showOpenDialog: electron.showOpenDialog },
-  shell: { openPath: electron.openPath }
+  shell: { openPath: electron.openPath },
+  safeStorage: {
+    isEncryptionAvailable: () => electron.encryption,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => b.toString().replace(/^enc:/, '')
+  }
 }))
 
 import { detectGit } from '../../../electron/main/services/projects/gitDetect'
 import { detectStack } from '../../../electron/main/services/projects/stackDetect'
 import { ProjectService } from '../../../electron/main/services/projects/ProjectService'
 import { ProjectRegistry } from '../../../electron/main/services/projects/registry'
+import { electronCipher, electronPlatform } from '../../../electron/main/platform/electron'
+import { headlessPlatform } from '../../../electron/main/platform/headless'
 
 const realPlatform = process.platform
 const setPlatform = (p: NodeJS.Platform) => Object.defineProperty(process, 'platform', { value: p })
@@ -182,10 +190,31 @@ describe('detectStack', () => {
 describe('ProjectService', () => {
   const setup = async () => {
     const data = await tempDir()
-    const service = new ProjectService(new ProjectRegistry(data))
+    const service = new ProjectService(new ProjectRegistry(data), electronPlatform)
     await service.init()
     return service
   }
+
+  it('encrypts secrets with the OS keychain when available', () => {
+    const cipher = electronCipher()!
+    const stored = cipher.encrypt('key')
+    expect(stored).toBe(Buffer.from('enc:key').toString('base64'))
+    expect(cipher.decrypt(stored)).toBe('key')
+    electron.encryption = false
+    expect(electronCipher()).toBeUndefined()
+    electron.encryption = true
+  })
+
+  it('refuses the picker and opening files on a headless host', async () => {
+    const data = await tempDir()
+    const s = new ProjectService(new ProjectRegistry(data), headlessPlatform)
+    await s.init()
+    await expect(s.pickFolder()).rejects.toMatchObject({ code: 'desktop-only' })
+    const dir = await tempDir()
+    proc.setResponder(() => new Error('nothing installed'))
+    const { id } = await s.add(dir)
+    await expect(s.openFile(id, '.')).rejects.toMatchObject({ code: 'desktop-only' })
+  })
 
   it('picks a folder via the native dialog, or returns null on cancel', async () => {
     const s = await setup()

@@ -1,5 +1,10 @@
 import { AppShell } from '@/components/shell/AppShell'
+import { SessionGate } from '@/features/session/components/SessionGate'
 
 export default function App() {
-  return <AppShell />
+  return (
+    <SessionGate>
+      <AppShell />
+    </SessionGate>
+  )
 }

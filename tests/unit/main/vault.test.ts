@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir, tick } from './helpers'
@@ -46,6 +46,8 @@ vi.mock('node:fs/promises', async (orig) => {
 })
 
 import { VaultService } from '../../../electron/main/services/memory/VaultService'
+import { electronPlatform } from '../../../electron/main/platform/electron'
+import { headlessPlatform } from '../../../electron/main/platform/headless'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
 
 const FLUSH = 260 // > the service's 200 ms debounce
@@ -55,7 +57,7 @@ async function setup(opts: { create?: boolean } = { create: true }) {
   const settings = new SettingsService(join(base, 'settings.json'))
   await settings.init()
   const onChange = vi.fn()
-  const v = new VaultService({ settings, defaultRoot: join(base, 'vault'), onChange })
+  const v = new VaultService({ settings, platform: electronPlatform, defaultRoot: join(base, 'vault'), onChange })
   if (opts.create) await v.createVault()
   const root = join(base, 'vault')
   return { base, root, settings, onChange, v, read: (p: string) => readFile(join(root, p), 'utf8') }
@@ -110,6 +112,30 @@ describe('VaultService — vault lifecycle', () => {
 
     h.dialog.mockResolvedValueOnce({ canceled: false, filePaths: [root] })
     expect(await v.pickVault()).toMatchObject({ name: 'W-ONE', isDefault: true, noteCount: 6 })
+  })
+
+  it('sets a vault by path (web folder browser) and rejects missing folders', async () => {
+    const { v, base } = await setup()
+    await expect(v.setVault(join(base, 'nope'))).rejects.toMatchObject({ code: 'not-found' })
+    const other = join(base, 'Other')
+    await mkdir(other)
+    expect(await v.setVault(other)).toMatchObject({ name: 'Other', isDefault: false, noteCount: 0 })
+  })
+
+  it('on a headless host: no picker, no reveal, deletes go to the vault .trash', async () => {
+    const base = await tempDir()
+    const settings = new SettingsService(join(base, 'settings.json'))
+    await settings.init()
+    const v = new VaultService({ settings, platform: headlessPlatform, defaultRoot: join(base, 'vault'), onChange: vi.fn() })
+    await v.createVault()
+    await expect(v.pickVault()).rejects.toMatchObject({ code: 'desktop-only' })
+    await expect(v.reveal()).rejects.toMatchObject({ code: 'desktop-only' })
+    const note = await v.create('Gone')
+    await v.trash(note.path)
+    const trashed = await readdir(join(base, 'vault', '.trash'))
+    expect(trashed).toHaveLength(1)
+    expect(trashed[0]).toMatch(/^Gone \d+\.md$/)
+    expect((await v.list()).some((n) => n.path === note.path)).toBe(false)
   })
 
   it('reveals the vault folder, reporting missing folders and OS errors', async () => {

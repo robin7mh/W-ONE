@@ -36,6 +36,27 @@ const snap = (cpu: number, ram: number, disk: number, battery: SystemSnapshot['b
   ts: 1
 })
 
+describe('Dashboard ask bar', () => {
+  it('starts a new assistant chat and opens the Agents module', async () => {
+    const { useAssistant } = await import('@/features/agents/store')
+    const send = vi.fn(async () => true)
+    const newChat = vi.fn()
+    useAssistant.setState({ send, newChat })
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+    const input = screen.getByLabelText('Ask W-ONE')
+    fireEvent.submit(input.closest('form')!) // empty: nothing
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: '  What is next?  ' } })
+    fireEvent.click(screen.getByLabelText('Ask'))
+    expect(newChat).toHaveBeenCalledWith('assistant')
+    expect(onNavigate).toHaveBeenCalledWith('agents')
+    expect(send).toHaveBeenCalledWith('What is next?')
+    expect(input).toHaveValue('')
+  })
+})
+
 describe('Dashboard', () => {
   it('shows loading tiles and a nameless greeting without a bridge', async () => {
     render(<Dashboard onNavigate={vi.fn()} />)

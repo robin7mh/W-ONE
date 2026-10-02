@@ -1,12 +1,12 @@
-import { handle } from './registry'
+import type { Router } from './router'
 import type { TerminalService } from '../main/services/terminal/TerminalService'
 
 /** Binds the terminal:* contract channels to TerminalService. */
-export function registerTerminalIpc(service: TerminalService): void {
-  handle('terminal:create', (req) => service.create(req ?? {}))
-  handle('terminal:list', () => service.list())
-  handle('terminal:attach', ({ id }) => service.attach(id))
-  handle('terminal:write', ({ id, data }) => service.write(id, data))
-  handle('terminal:resize', ({ id, cols, rows }) => service.resize(id, cols, rows))
-  handle('terminal:kill', ({ id }) => service.kill(id))
+export function registerTerminalIpc(router: Router, service: TerminalService): void {
+  router.register('terminal:create', (req) => service.create(req))
+  router.register('terminal:list', () => service.list())
+  router.register('terminal:attach', ({ id }) => service.attach(id))
+  router.register('terminal:write', ({ id, data }) => service.write(id, data))
+  router.register('terminal:resize', ({ id, cols, rows }) => service.resize(id, cols, rows))
+  router.register('terminal:kill', ({ id }) => service.kill(id))
 }

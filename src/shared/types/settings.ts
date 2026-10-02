@@ -2,6 +2,8 @@
 // Pure module (no DOM/Node/Electron) so it compiles under both tsconfigs.
 
 import type { GraphStyle } from './memory'
+import type { ServerConfig } from './server'
+import type { AiSettings } from './ai'
 
 export interface AppSettings {
   /**
@@ -11,4 +13,8 @@ export interface AppSettings {
   vaultRoot?: string
   /** Memory graph coloring (colorful by folder, or one accent). */
   graphStyle?: GraphStyle
+  /** Desktop: the embedded network API (web UI / mobile app access). */
+  server?: ServerConfig
+  /** Assistant model + effort (the API key lives in the secret store). */
+  ai?: AiSettings
 }

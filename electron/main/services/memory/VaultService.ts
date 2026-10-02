@@ -1,4 +1,3 @@
-import { dialog, shell } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
 import { mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, posix, resolve, sep } from 'node:path'
@@ -20,6 +19,7 @@ import { MemoryIndex } from './MemoryIndex'
 import { frontmatterBlock, sanitizeTitle } from './parse'
 import { appendLink, removeLinks, rewriteLinks } from './linkEdit'
 import { FOLDER_TYPES, frontmatter, starterNotes } from './starterVault'
+import { desktopOnly, type Platform } from '../../platform/types'
 
 const MAX_NOTES = 20_000
 const MAX_NOTE_BYTES = 5 * 1024 * 1024
@@ -92,6 +92,7 @@ export class VaultService {
   constructor(
     private readonly opts: {
       settings: SettingsService
+      platform: Platform
       defaultRoot: string
       onChange: (change: MemoryChanged) => void
     }
@@ -129,12 +130,16 @@ export class VaultService {
 
   /** Native folder picker — e.g. an existing Obsidian vault. Null on cancel. */
   async pickVault(): Promise<VaultStatus | null> {
-    const res = await dialog.showOpenDialog({
-      title: 'Choose a vault folder',
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (res.canceled || res.filePaths.length === 0) return null
-    const chosen = await realpath(res.filePaths[0])
+    const { pickFolder } = this.opts.platform
+    if (!pickFolder) throw desktopOnly('The folder picker')
+    const picked = await pickFolder('Choose a vault folder')
+    return picked ? this.setVault(picked) : null
+  }
+
+  /** Select an existing folder as the vault (the web UI's server-side picker). */
+  async setVault(path: string): Promise<VaultStatus> {
+    if (!(await isDir(path))) throw coded('not-found', 'That folder does not exist')
+    const chosen = await realpath(path)
     // Compare resolved paths: the default may sit behind a symlink (/var → /private/var).
     const defaultReal = await realpath(this.opts.defaultRoot).catch(() => resolve(this.opts.defaultRoot))
     const isDefault = chosen === defaultReal
@@ -213,7 +218,7 @@ export class VaultService {
   async trash(path: string): Promise<void> {
     await this.ensureIndexed()
     const rel = this.normalize(path)
-    await shell.trashItem(await this.confine(rel))
+    await this.opts.platform.trashItem(await this.confine(rel), this.root())
     this.index.remove(rel)
     this.opts.onChange({ paths: [rel] })
   }
@@ -241,8 +246,9 @@ export class VaultService {
   async reveal(): Promise<void> {
     const root = this.root()
     if (!(await isDir(root))) throw coded('not-found', 'The vault folder does not exist yet')
-    const err = await shell.openPath(root)
-    if (err) throw coded('open-failed', err)
+    const { openPath } = this.opts.platform
+    if (!openPath) throw desktopOnly('Opening the vault folder')
+    await openPath(root)
   }
 
   /** Every folder in the vault (empty ones too), vault-relative and sorted. */

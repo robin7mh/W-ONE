@@ -1,26 +1,14 @@
 import { ipcMain } from 'electron'
-import type { IpcChannel, IpcChannels, IpcResult } from '@shared/ipc/contract'
-
-type Handler<K extends IpcChannel> = (
-  req: IpcChannels[K]['request']
-) => Promise<IpcChannels[K]['response']> | IpcChannels[K]['response']
+import { IPC_CHANNELS } from '@shared/ipc/contract'
+import type { Router } from './router'
 
 /**
- * Registers a typed handler for one contract channel. Wraps the result in
- * IpcResult and converts thrown errors into a structured error payload — the
- * renderer never receives a raw exception across the bridge.
+ * Binds every contract channel to the desktop window's IPC. Validation,
+ * access rules and error wrapping all live in the Router — the same code path
+ * the network API uses.
  */
-export function handle<K extends IpcChannel>(channel: K, handler: Handler<K>): void {
-  ipcMain.handle(channel, async (_event, req): Promise<IpcResult<IpcChannels[K]['response']>> => {
-    try {
-      const data = await handler(req as IpcChannels[K]['request'])
-      return { ok: true, data }
-    } catch (err) {
-      const e = err as { code?: string; message?: string }
-      return {
-        ok: false,
-        error: { code: e?.code ?? 'error', message: e?.message ?? String(err) }
-      }
-    }
-  })
+export function bindIpc(router: Router): void {
+  for (const channel of IPC_CHANNELS) {
+    ipcMain.handle(channel, (_event, req) => router.dispatch(channel, req, { transport: 'ipc' }))
+  }
 }

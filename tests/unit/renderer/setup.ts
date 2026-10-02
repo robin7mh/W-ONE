@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
+import { setTransport } from '@shared/ipc/client'
 
 declare global {
   /** media query → matches, read by the matchMedia stub below (tests set entries). */
@@ -57,6 +58,7 @@ afterEach(() => {
   FakeResizeObserver.instances = []
   ;(globalThis as Record<string, unknown>).matchMediaMatches = {}
   delete (window as { wone?: unknown }).wone
+  setTransport(null)
   localStorage.clear()
   document.documentElement.removeAttribute('data-theme')
 })
