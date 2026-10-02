@@ -17,6 +17,7 @@ import type {
   VaultStatus
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
+import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
 import type {
   AppInfo,
   Device,
@@ -94,6 +95,14 @@ export interface IpcChannels {
   'terminal:resize': { request: { id: string; cols: number; rows: number }; response: void }
   'terminal:kill': { request: { id: string }; response: void }
 
+  'files:list': { request: { projectId: string; dir?: string }; response: FileEntry[] }
+  'files:read': { request: { projectId: string; path: string }; response: FileContent }
+  'files:stat': { request: { projectId: string; paths: string[] }; response: (FileStat | null)[] }
+  'files:write': {
+    request: { projectId: string; path: string; content: string; expectedMtime?: number }
+    response: FileStat
+  }
+
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
   'memory:setVault': { request: { path: string }; response: VaultStatus }
@@ -133,6 +142,7 @@ export type IpcChannel = keyof IpcChannels
  * - `desktop`  — only the desktop app's own window: native dialogs, opening
  *                things on the host, and the server's own configuration
  * - `terminal` — desktop, or remote clients when remote shells are enabled
+ *                (shells, and writing project files — both can run code)
  */
 export type ChannelAccess = 'any' | 'desktop' | 'terminal'
 
@@ -179,6 +189,10 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'terminal:write': 'terminal',
   'terminal:resize': 'terminal',
   'terminal:kill': 'terminal',
+  'files:list': 'any',
+  'files:read': 'any',
+  'files:stat': 'any',
+  'files:write': 'terminal',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',

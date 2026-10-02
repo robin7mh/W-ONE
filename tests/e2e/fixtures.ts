@@ -26,7 +26,8 @@ export const test = base.extend<Fixtures>({
     delete env.ELECTRON_RUN_AS_NODE
     const app = await electron.launch({
       // --no-sandbox: CI runners and containers have no usable Chromium sandbox.
-      args: [resolve('out/main/index.js'), '--no-sandbox'],
+      // --lang: on macOS Electron takes the system language, not LANG.
+      args: [resolve('out/main/index.js'), '--no-sandbox', '--lang=en-US'],
       env
     })
     await use(app)

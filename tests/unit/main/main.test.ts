@@ -11,8 +11,10 @@ class FakeWindow {
   maximized = false
   fullScreen = false
   openHandler?: (d: { url: string }) => unknown
+  contentsHandlers = new Map<string, Handler>()
   webContents = {
     send: vi.fn(),
+    on: (event: string, fn: Handler) => this.contentsHandlers.set(event, fn),
     isDestroyed: () => this.destroyed,
     setWindowOpenHandler: (fn: (d: { url: string }) => unknown) => (this.openHandler = fn)
   }
@@ -45,6 +47,7 @@ const h = vi.hoisted(() => ({
   ipcHandle: new Map<string, (...a: unknown[]) => unknown>(),
   quit: vi.fn(),
   openExternal: vi.fn(async () => {}),
+  messageBox: vi.fn((): number => 1),
   dark: true,
   migrate: vi.fn((_legacy?: string): boolean => false),
   coreOpts: undefined as undefined | Record<string, unknown>,
@@ -76,7 +79,8 @@ vi.mock('electron', () => ({
       return h.dark
     }
   },
-  shell: { openExternal: h.openExternal }
+  shell: { openExternal: h.openExternal },
+  dialog: { showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])) }
 }))
 vi.mock('../../../electron/main/lib/paths', () => ({
   wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
@@ -202,6 +206,19 @@ describe('window wiring', () => {
     expect(h.core.terminal.killAll).toHaveBeenCalled()
   })
 
+  it('asks before an unload the editor vetoed: Cancel keeps the window, Discard closes it', async () => {
+    const win = await boot()
+    const veto = win.contentsHandlers.get('will-prevent-unload')!
+    const cancel = { preventDefault: vi.fn() }
+    veto(cancel)
+    expect(h.messageBox).toHaveBeenCalledWith(win, expect.objectContaining({ message: 'You have unsaved changes in the editor.' }))
+    expect(cancel.preventDefault).not.toHaveBeenCalled() // the veto stands
+    h.messageBox.mockReturnValueOnce(0)
+    const discard = { preventDefault: vi.fn() }
+    veto(discard)
+    expect(discard.preventDefault).toHaveBeenCalled() // ignore the veto → close
+  })
+
   it('window-control IPC acts on the current window, and is safe without one', async () => {
     await boot({ ready: false })
     // before any window exists
@@ -256,18 +273,18 @@ describe('core push events', () => {
 describe('app lifecycle', () => {
   it('disposes the core once before quitting', async () => {
     await boot()
-    h.appHandlers.get('before-quit')!()
+    h.appHandlers.get('will-quit')!()
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
-    h.appHandlers.get('before-quit')!() // second quit: core already released
+    h.appHandlers.get('will-quit')!() // second quit: core already released
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
   })
 
   it('quit before anything started is harmless; a failing dispose is swallowed', async () => {
     await boot({ ready: false })
-    expect(() => h.appHandlers.get('before-quit')!()).not.toThrow()
+    expect(() => h.appHandlers.get('will-quit')!()).not.toThrow()
     h.core.dispose.mockRejectedValue(new Error('pool gone'))
     await boot()
-    h.appHandlers.get('before-quit')!()
+    h.appHandlers.get('will-quit')!()
     await flush()
   })
 

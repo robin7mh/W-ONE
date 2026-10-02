@@ -42,6 +42,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Projects | ✅ Real. JSON registry, git/stack detection, open in editor/terminal, `projects:openFile` with path confinement |
 | System monitor | ✅ Real. 1.5 s telemetry stream, pauses when window hidden |
 | Project context | ✅ Real (P3): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache; UI in the project detail (analyze/reindex, TODOs open in the editor); feeds the assistant's context engine |
+| Editor | ✅ Real (§12.5). Monaco in its own module: lazy file tree per project, tabs, explicit save with a stale-write guard, follows changes on disk |
 | Core dashboard | ✅ Real. `features/dashboard`: greeting with the OS account name (`system:user`), HUD clock (seconds/minutes/day rings), tiles for projects (live git), brain (vault) and a system verdict |
 | Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
 | Bottom dashboard | ✅ Command Deck (P9): running agents (stop / jump in), waiting approvals, live activity outcomes |
@@ -117,7 +118,7 @@ Renderer → IPC handler → domain/application service
 | Nav module | Feature dir | Backing services | Real in |
 |---|---|---|---|
 | Home / Command Center (`core`) | `features/dashboard` — a personal HUD by user decision; the assistant surface (`features/assistant`) gets its own place in P6 | SystemService, ProjectService, VaultService (read-only) | done |
-| Editor *(planned)* | `features/editor` — Monaco in its own tab, project files; VS Code stays one click away | ProjectService (confined file read/write) | next |
+| Editor | `features/editor` — Monaco in its own tab, project files; VS Code stays one click away | FilesService (confined list/read/stat/write) | done (§12.5) |
 | Projects | `features/projects` (+ `context`) | ProjectService, ContextService | done / P3 |
 | ~~Knowledge~~ | merged into Memory (§12.3) | — | — |
 | Memory | `features/memory` | VaultService, MemoryIndex; MemoryService pipeline later | vault ✅ / pipeline P5 |
@@ -585,3 +586,13 @@ User decision: W-ONE gets a React Native app, and the Docker deploy must be a wo
 - **P9:** Agents module (chat, tool cards, inline approvals, run activity), floating approvals in every module, Command Deck.
 - **Conversations are JSON files** (`~/W-ONE/data/conversations/`), not Postgres rows: the assistant must work on a desktop without the database container. Runs and events go to Postgres when it is there.
 - **Still open:** P5 memory pipeline (model-assisted classification), P10 Files, P11 Automations, P12 graph over `entities`/`links`, P13 embeddings, packaging (electron-builder, signing, auto-update), the mobile app itself.
+
+### 12.5 Editor (2026-10-02)
+
+User decision: an editor "like VS Code" in its own module. Not a VS Code replacement (no extensions, debugger or project-wide IntelliSense) — Monaco, VS Code's editor core, for reading and editing project files; VS Code stays one click away.
+
+- **Core:** `FilesService` (`electron/main/services/files/`) — `files:list` (one folder at a time, dirs first, `.git` hidden, `.gitignore` matches flagged), `files:read` (UTF-8 text; binary and > 5 MB files are reported, not sent), `files:stat` (batch), `files:write` (in place, keeps mode and hard links). Every path goes through `lib/confine.ts` (realpath-checked, shared with the agent's file tools).
+- **No silent clobbering:** a write carries the mtime the editor loaded; a newer file on disk fails with `conflict` and the user picks *Load disk version* or *Keep mine*. While the module is visible, open tabs are compared with the disk (every 3 s, on window focus): clean tabs reload by themselves (one undoable edit), dirty ones are flagged, deleted ones marked.
+- **Renderer:** `features/editor` — one Monaco editor, one model per open file (own undo history and view state). The store never copies keystrokes: Monaco's alternative version ids decide "dirty", and the text is read from the model (`BufferHost`) only when saving. Monaco and its workers load lazily (own chunks, bundled by Vite, no CDN); TypeScript semantic checks are off because the editor has no project types.
+- **Access:** reading is `any`; `files:write` is `terminal` — writing project files can run code (hooks, scripts), so remote clients may only when remote shells are allowed. Otherwise the web UI shows files read-only.
+- **Leaving with unsaved edits:** the renderer vetoes `beforeunload`; the desktop asks (`will-prevent-unload`). The core is disposed on `will-quit` (not `before-quit`), so a cancelled close keeps it alive.

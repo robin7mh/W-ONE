@@ -51,6 +51,7 @@
     "ignore": "^5.3.2",
     "lucide-react": "^0.427.0",
     "marked": "^18.0.14",
+    "monaco-editor": "^0.57.0",
     "node-pty": "^1.1.0",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",

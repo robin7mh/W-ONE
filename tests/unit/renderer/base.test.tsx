@@ -141,7 +141,7 @@ describe('hooks', () => {
 
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
-    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
+    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
@@ -168,6 +168,7 @@ describe('data & shared constants', () => {
     for (const mod of await Promise.all([
       import('@shared/types/context'),
       import('@shared/types/entity'),
+      import('@shared/types/files'),
       import('@shared/types/project'),
       import('@shared/types/settings'),
       import('@shared/types/system'),

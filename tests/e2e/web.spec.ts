@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
@@ -76,8 +76,9 @@ test('rejects a wrong pairing code', async ({ page, core }) => {
   await expect(page.getByText('Pairing code is invalid or expired')).toBeVisible()
 })
 
-test('adds a project and a vault through the folder browser', async ({ paired, core }) => {
+test('adds a project and a vault through the folder browser; the editor reads it', async ({ paired, core }) => {
   await mkdir(join(core.home, 'code', 'demo'), { recursive: true })
+  await writeFile(join(core.home, 'code', 'demo', 'notes.md'), '# Remote notes\n')
   await paired.getByTitle('Projects', { exact: true }).click()
   await paired.getByRole('button', { name: 'Add project' }).click()
   await paired.getByLabel('Folder path').fill(join(core.home, 'code'))
@@ -86,6 +87,12 @@ test('adds a project and a vault through the folder browser', async ({ paired, c
   await paired.locator('footer').getByRole('button', { name: 'Add project' }).click()
   await expect(paired.getByRole('heading', { level: 2 })).toHaveText('demo')
   await expect(paired.getByText('VS Code')).toHaveCount(0) // host apps are desktop-only
+
+  // Monaco runs in the browser too; writing project files needs remote shells (off here)
+  await paired.getByTitle('Editor', { exact: true }).click()
+  await paired.getByRole('treeitem', { name: 'notes.md' }).click()
+  await expect(paired.locator('.monaco-editor .view-lines')).toContainText('# Remote notes')
+  await expect(paired.getByText('Read-only')).toBeVisible()
 
   await paired.getByTitle('Memory', { exact: true }).click()
   await paired.getByText('Create W-ONE vault').click()

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
@@ -68,6 +68,19 @@ function createWindow(): void {
   win.on('hide', () => core?.system.setPaused(true))
   win.on('show', () => core?.system.setPaused(false))
 
+  // The editor vetoes unloading while files have unsaved edits — ask the user.
+  win.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Discard changes', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'You have unsaved changes in the editor.',
+      detail: 'Close anyway and lose them?'
+    })
+    if (choice === 0) event.preventDefault()
+  })
+
   // Open external links in the OS browser, never in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -123,7 +136,9 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('before-quit', () => {
+// will-quit, not before-quit: closing the windows can still be cancelled (unsaved
+// editor changes), and the core must survive that.
+app.on('will-quit', () => {
   const running = core
   core = null
   void running?.dispose().catch(() => {})

@@ -319,8 +319,13 @@ describe('BottomDashboard with live agents', () => {
 })
 
 describe('AppShell', () => {
-  it('boots, switches modules, keeps the terminal mounted and counts uptime', async () => {
+  it('boots, switches modules, keeps terminal and editor mounted and counts uptime', async () => {
     vi.doMock('@/features/terminal/components/TerminalView', () => ({ TerminalView: () => <div>TERMINAL</div> }))
+    vi.doMock('@/features/editor/components/EditorView', () => ({
+      EditorView: ({ active, onNavigate }: { active: boolean; onNavigate: (id: string) => void }) => (
+        <button onClick={() => onNavigate('projects')}>{active ? 'EDITOR ON' : 'EDITOR OFF'}</button>
+      )
+    }))
     vi.doMock('@/features/dashboard/components/Dashboard', () => ({
       Dashboard: ({ onNavigate }: { onNavigate: (id: string) => void }) => (
         <button onClick={() => onNavigate('projects')}>DASHBOARD</button>
@@ -356,6 +361,17 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByTitle('Terminal'))
     expect(screen.getByText('TERMINAL').parentElement!.className).not.toContain('hidden')
 
+    expect(screen.queryByText(/EDITOR/)).toBeNull()
+    fireEvent.click(screen.getByTitle('Editor'))
+    expect(screen.getByText('EDITOR ON').parentElement!.className).not.toContain('hidden')
+    expect(screen.queryByText('MONITOR')).toBeNull() // the editor needs the width
+    expect(screen.getByText('TERMINAL').parentElement!.className).toBe('hidden')
+    fireEvent.click(screen.getByTitle('Terminal')) // second visit: both stay mounted
+    expect(screen.getByText('EDITOR OFF').parentElement!.className).toBe('hidden')
+    fireEvent.click(screen.getByTitle('Editor'))
+    fireEvent.click(screen.getByText('EDITOR ON')) // the editor can send you elsewhere
+    expect(screen.getByText('PROJECTS')).toBeInTheDocument()
+
     fireEvent.click(screen.getByTitle('Memory'))
     expect(screen.getByText('MEMORY')).toBeInTheDocument()
     expect(screen.queryByText('MONITOR')).toBeNull()
@@ -390,6 +406,7 @@ describe('AppShell', () => {
     vi.doUnmock('@/features/settings/components/SettingsView')
     vi.doUnmock('@/features/system/components/SystemView')
     vi.doUnmock('@/features/terminal/components/TerminalView')
+    vi.doUnmock('@/features/editor/components/EditorView')
     vi.doUnmock('@/features/dashboard/components/Dashboard')
     vi.doUnmock('@/features/projects/components/ProjectsView')
     vi.doUnmock('@/features/memory/components/MemoryView')
