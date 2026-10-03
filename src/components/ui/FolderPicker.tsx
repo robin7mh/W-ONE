@@ -28,13 +28,15 @@ export function FolderPicker({
 
   const open = async (path?: string) => {
     const seq = ++latest.current
+    const typedBefore = typed
     setLoading(true)
     setError(undefined)
     try {
       const next = await ipc('fs:dirs', { path })
       if (seq !== latest.current) return
       setListing(next)
-      setTyped(next.path)
+      // Show the listed path — unless the user typed something meanwhile.
+      setTyped((current) => (current === typedBefore ? next.path : current))
     } catch (err) {
       if (seq === latest.current) setError(errorMessage(err))
     } finally {
