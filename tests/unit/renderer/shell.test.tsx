@@ -353,18 +353,20 @@ describe('AppShell', () => {
     })
     expect(screen.getByText('00:00:02')).toBeInTheDocument() // uptime
 
-    expect(screen.getByText('MONITOR')).toBeInTheDocument()
+    expect(screen.getByText('MONITOR')).toBeInTheDocument() // the rail is Core's
     fireEvent.click(screen.getByText('DASHBOARD'))
     expect(screen.getByText('PROJECTS')).toBeInTheDocument()
+    expect(screen.queryByText('MONITOR')).toBeNull()
 
     expect(screen.queryByText('TERMINAL')).toBeNull()
     fireEvent.click(screen.getByTitle('Terminal'))
     expect(screen.getByText('TERMINAL').parentElement!.className).not.toContain('hidden')
+    expect(screen.queryByText('MONITOR')).toBeNull()
 
     expect(screen.queryByText(/EDITOR/)).toBeNull()
     fireEvent.click(screen.getByTitle('Editor'))
     expect(screen.getByText('EDITOR ON').parentElement!.className).not.toContain('hidden')
-    expect(screen.queryByText('MONITOR')).toBeNull() // the editor needs the width
+    expect(screen.queryByText('MONITOR')).toBeNull()
     expect(screen.getByText('TERMINAL').parentElement!.className).toBe('hidden')
     fireEvent.click(screen.getByTitle('Terminal')) // second visit: both stay mounted
     expect(screen.getByText('EDITOR OFF').parentElement!.className).toBe('hidden')
