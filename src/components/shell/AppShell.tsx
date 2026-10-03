@@ -86,8 +86,8 @@ export function AppShell() {
     if (active === 'editor') return null
     return <Dashboard onNavigate={setActive} />
   }
-  // Modules that need the width (or show telemetry themselves) hide the monitor rail.
-  const showRail = !['editor', 'memory', 'agents', 'system', 'settings'].includes(active)
+  // The monitor rail belongs to the Core dashboard; every other module uses the full width.
+  const showRail = active === 'core'
 
   return (
     <div className="relative flex h-screen min-h-[560px] w-screen flex-col overflow-hidden">
@@ -121,7 +121,7 @@ export function AppShell() {
             )}
           </motion.div>
 
-          {/* Monitor rail — hidden on small widths and in wide modules */}
+          {/* Monitor rail — Core only, hidden on small widths */}
           {showRail && (
             <motion.div
               {...panelIn(0.24)}

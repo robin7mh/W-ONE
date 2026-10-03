@@ -490,6 +490,24 @@ describe('FolderPicker', () => {
     expect(screen.getByText('No sub-folders')).toBeInTheDocument()
   })
 
+  it('keeps what the user typed while the first listing was still loading', async () => {
+    const pending: Record<string, (v: unknown) => void> = {}
+    const remote = installRemote({
+      'fs:dirs': ({ path }: { path?: string }) => new Promise((resolve) => (pending[path ?? 'home'] = resolve))
+    })
+    render(<FolderPicker title="Pick" onPick={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Folder path'), { target: { value: '/srv' } })
+    // the home listing lands between typing and Enter (seen on slow CI runners)
+    await act(async () => pending.home({ path: '/root', parent: '/', home: '/root', dirs: ['code'] }))
+    expect(screen.getByLabelText('Folder path')).toHaveValue('/srv')
+    fireEvent.submit(screen.getByLabelText('Folder path').closest('form')!)
+    expect(remote.invoke).toHaveBeenLastCalledWith('fs:dirs', { path: '/srv' })
+    // the answer to the typed path shows its canonical form
+    await act(async () => pending['/srv']({ path: '/srv/', parent: '/', home: '/root', dirs: ['wanted'] }))
+    expect(screen.getByLabelText('Folder path')).toHaveValue('/srv/')
+    expect(screen.getByText('wanted')).toBeInTheDocument()
+  })
+
   it('cannot confirm before a folder loaded', async () => {
     installRemote({ 'fs:dirs': () => new Promise(() => {}) })
     const onPick = vi.fn()

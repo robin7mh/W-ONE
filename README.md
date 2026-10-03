@@ -130,7 +130,7 @@ run per workspace.
 | Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status, theme toggle; native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
 | Left rail | `SideNavigation` | Core · Editor · Terminal · Projects · Memory · Agents · System · Settings, plus which core it is linked to. Collapses to icon-only on narrow widths. |
 | Center | the active module | **Core**: greeting, HUD clock, tiles for projects, brain and system. **Editor**: Monaco (VS Code's editor core) on your project files — file tree, tabs, ⌘S, follows changes made elsewhere. **Terminal**: real login shells (node-pty) in tabs or splits. **Projects**: git/stack detection + structural context (P3). **Memory**: the Obsidian vault with editor and graph. **Agents**: chat with Assistant / Coding / Research / Chat agents, tool calls, inline approvals, run activity. **System**: full telemetry. **Settings**: AI, remote access & devices, permissions, vault, about. |
-| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines, process preview (hidden in wide modules). |
+| Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines, process preview — on Core only; every other module uses the full width. |
 | Bottom | `BottomDashboard` | *Command Deck*: running agents (stop / jump in), waiting approvals, live activity. |
 | Overlay | `ApprovalToasts` | an agent waiting for approval is visible in every module. |
 
