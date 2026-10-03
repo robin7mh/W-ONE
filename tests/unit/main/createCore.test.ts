@@ -3,9 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newDb } from 'pg-mem'
 import { tempDir } from './helpers'
 
-const h = vi.hoisted(() => ({ pool: undefined as unknown, ptyData: undefined as undefined | ((d: string) => void) }))
+const h = vi.hoisted(() => ({
+  pool: undefined as unknown,
+  ptyData: undefined as undefined | ((d: string) => void),
+  ptyEnv: undefined as undefined | Record<string, string>,
+  ptyArgs: [] as string[]
+}))
 vi.mock('node-pty', () => ({
-  spawn: () => ({
+  spawn: (_file: string, args: string[], opts: { env: Record<string, string> }) => ({
+    ...((h.ptyEnv = opts.env), (h.ptyArgs = args), {}),
     pid: 1,
     onData: (cb: (d: string) => void) => (h.ptyData = cb),
     onExit: () => {},
@@ -211,6 +217,33 @@ describe('createCore — assistant end to end (scripted model)', () => {
 })
 
 describe('standalone server entry', () => {
+  it('runs a coding agent session: hooks and memory reach it over the local endpoint', async () => {
+    process.env.WONE_CLAUDE_BIN = '/opt/fake-claude'
+    const c = await core({ mode: 'desktop', notify: vi.fn() })
+    delete process.env.WONE_CLAUDE_BIN
+    const call = async <T,>(channel: string, payload?: unknown) => {
+      const res = await c.router.dispatch(channel, payload, { transport: 'ipc' })
+      if (!res.ok) throw new Error(res.error.message)
+      return res.data as T
+    }
+    const project = await call<{ id: string }>('projects:add', { path: await tempDir() })
+    expect(await call('agents:list')).toEqual([])
+    const session = await call<{ id: string; status: string }>('agents:create', { kind: 'claude-code', projectId: project.id })
+    expect(session.status).toBe('starting')
+    expect(h.ptyArgs.at(-1)).toMatch(/^exec \/opt\/fake-claude --session-id /) // WONE_CLAUDE_BIN
+    const { WONE_HOOK_URL: hookUrl, WONE_TOKEN: token } = h.ptyEnv!
+    const post = (url: string, body: unknown) =>
+      fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+    expect((await post(hookUrl, { hook_event_name: 'UserPromptSubmit', prompt: 'hello' })).status).toBe(204)
+    const detail = await call<{ status: string; messages: { role: string }[] }>('agents:get', { id: session.id })
+    expect(detail.status).toBe('working')
+    expect(detail.messages[0].role).toBe('user')
+    const mcp = await post(hookUrl.replace('/hooks/', '/mcp/'), { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    expect(((await mcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)).toContain('memory_search')
+    await expect(call('agents:create', { kind: 'claude-code', projectId: 'nope' })).rejects.toThrow('Project not found')
+  })
+
   it('reads its config from the environment', () => {
     expect(serverConfigFromEnv({})).toEqual({ enabled: true, lan: false, port: 7420, remoteTerminal: false })
     expect(serverConfigFromEnv({ WONE_PORT: '8000', WONE_LAN: '1', WONE_REMOTE_TERMINAL: 'true' })).toEqual({

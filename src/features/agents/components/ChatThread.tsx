@@ -19,14 +19,14 @@ function toolIcon(part: ToolCallPart) {
   if (part.server) return Globe
   if (part.risk === 'execute') return TerminalSquare
   if (part.risk === 'write') return PencilLine
-  return part.name.startsWith('memory') ? BookOpen : Wrench
+  return /^(memory|mcp__wone__)/.test(part.name) ? BookOpen : Wrench
 }
 
 /** Short one-line view of the tool input (the full JSON is one click away). */
 export function inputPreview(input: unknown): string {
   if (!input || typeof input !== 'object') return ''
   const o = input as Record<string, unknown>
-  const key = ['command', 'query', 'path', 'title', 'url', 'dir', 'folder', 'projectId'].find((k) => typeof o[k] === 'string')
+  const key = ['command', 'file_path', 'notebook_path', 'query', 'pattern', 'path', 'title', 'url', 'dir', 'folder', 'description', 'projectId'].find((k) => typeof o[k] === 'string')
   return key ? String(o[key]) : ''
 }
 

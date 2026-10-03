@@ -10,6 +10,7 @@ import { registerContextIpc } from '../../ipc/context.ipc'
 import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
+import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
 import { ProjectService } from '../services/projects/ProjectService'
@@ -36,6 +37,12 @@ import { ContextBuilder } from '../services/ai/ContextBuilder'
 import { AssistantService } from '../services/ai/AssistantService'
 import { ToolRegistry } from '../services/ai/tools/registry'
 import { builtinTools } from '../services/ai/tools/builtin'
+import { GitService } from '../services/git/GitService'
+import { LocalAgentServer } from '../services/agents/LocalAgentServer'
+import { AgentSessionService } from '../services/agents/AgentSessionService'
+import { createMcpHandler } from '../services/agents/mcp'
+import { vaultJournal } from '../services/agents/journal'
+import { spawnAcp } from '../services/agents/acp'
 
 export interface CoreOptions {
   mode: CoreMode
@@ -50,6 +57,8 @@ export interface CoreOptions {
   cipher?: Cipher
   /** Injected LLM provider factory (tests). */
   providerFactory?: ProviderFactory
+  /** Tell the user an agent needs them (desktop: a notification while the window is in the background). */
+  notify?: (title: string, body: string) => void
 }
 
 export interface Core {
@@ -63,6 +72,7 @@ export interface Core {
   server: ServerController
   auth: AuthService
   assistant: AssistantService
+  agents: AgentSessionService
   /** Settles once the background database connection attempt is over. */
   dbReady: Promise<void>
   info(): AppInfo
@@ -174,12 +184,38 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     remoteShell: () => controller.remoteTerminal()
   })
 
+  // The agent cockpit: the user's own coding agents (Claude Code), each in a
+  // PTY, reporting back through hooks and reading W-ONE's memory over MCP —
+  // both on a this-computer-only endpoint with a token per session.
+  const local: LocalAgentServer = new LocalAgentServer({
+    hook: (id, body, signal) => agents.handleHook(id, body, signal),
+    mcp: (id, body) => agents.handleMcp(id, body)
+  })
+  const agents: AgentSessionService = new AgentSessionService({
+    dir: paths.agentsDir,
+    worktreesDir: paths.worktreesDir,
+    terminal,
+    git: new GitService(),
+    server: local,
+    permissions,
+    events,
+    projects: (id) => projects.list().find((p) => p.id === id),
+    publish: (channel, payload) => hub.publish(channel, payload),
+    mcp: createMcpHandler(tools, opts.version),
+    journal: vaultJournal(vault),
+    notify: opts.notify,
+    spawnAcp,
+    claudeBin: process.env.WONE_CLAUDE_BIN || undefined
+  })
+  await Promise.all([agents.init(), local.start()])
+
   registerProjectIpc(router, projects)
   registerSystemIpc(router, system)
   registerContextIpc(router, context)
   registerMemoryIpc(router, vault)
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
+  registerAgentsIpc(router, agents)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
   router.register('server:status', () => controller.status())
@@ -240,10 +276,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     server: controller,
     auth,
     assistant,
+    agents,
     dbReady: connecting,
     info,
     async dispose() {
       await assistant.dispose()
+      await agents.dispose()
+      await local.close()
       system.dispose()
       vault.dispose()
       terminal.killAll()

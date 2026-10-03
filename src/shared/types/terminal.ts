@@ -12,6 +12,8 @@ export interface TerminalInfo {
   shell: string
   projectId?: string
   createdAt: string
+  /** 'agent': a coding agent's PTY (Agents module) — not listed as a terminal tab. */
+  kind?: 'agent'
 }
 
 /**

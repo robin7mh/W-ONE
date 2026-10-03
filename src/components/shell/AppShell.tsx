@@ -14,6 +14,8 @@ import { MemoryView } from '@/features/memory/components/MemoryView'
 import { AgentsView } from '@/features/agents/components/AgentsView'
 import { ApprovalToasts } from '@/features/agents/components/ApprovalToasts'
 import { useAssistant } from '@/features/agents/store'
+import { useAgents } from '@/features/agents/sessions'
+import { useMemory } from '@/features/memory/store'
 import { SettingsView } from '@/features/settings/components/SettingsView'
 import { SystemView } from '@/features/system/components/SystemView'
 import { useSession } from '@/features/session/store'
@@ -65,21 +67,40 @@ export function AppShell() {
     if (active === 'terminal' || active === 'editor') setKept((k) => (k[active] ? k : { ...k, [active]: true }))
   }, [active])
 
-  // The assistant's push events (approvals, activity) matter in every module.
-  useEffect(() => useAssistant.getState().connect(), [])
-  const activeConversation = useAssistant((s) => s.activeId)
+  // Agents' push events (approvals, sessions, activity) matter in every module.
+  useEffect(() => {
+    const offAssistant = useAssistant.getState().connect()
+    const offAgents = useAgents.getState().connect()
+    return () => {
+      offAssistant()
+      offAgents()
+    }
+  }, [])
+  // The chat open in the Agents module shows its approvals inline — no toast for it.
+  const activeChat = useAssistant((s) => s.activeId)
+  const activeSession = useAgents((s) => (s.view === 'session' ? s.activeId : undefined))
+  const activeConversation = activeSession ?? activeChat
   const info = useSession((s) => s.info)
   const shellsOff = !isDesktop() && info?.remoteTerminal === false
 
   const openConversation = (id: string) => {
     setActive('agents')
+    useAgents.getState().showAssistant()
     void useAssistant.getState().open(id)
+  }
+  const openSession = (id: string) => {
+    setActive('agents')
+    void useAgents.getState().open(id)
+  }
+  const openNote = (path: string) => {
+    setActive('memory')
+    void useMemory.getState().open(path)
   }
 
   const renderMain = () => {
     if (active === 'projects') return <ProjectsView />
     if (active === 'memory') return <MemoryView />
-    if (active === 'agents') return <AgentsView />
+    if (active === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => setActive('settings')} />
     if (active === 'system') return <SystemView />
     if (active === 'settings') return <SettingsView />
     if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
@@ -135,7 +156,7 @@ export function AppShell() {
 
       {/* Bottom command deck (collapsible) */}
       <motion.div {...panelIn(0.3)}>
-        <BottomDashboard onOpenConversation={openConversation} />
+        <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
       </motion.div>
 
       {/* Approvals float above every module (the open chat shows its own inline). */}

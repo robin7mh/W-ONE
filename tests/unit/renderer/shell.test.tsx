@@ -17,6 +17,7 @@ import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { useAssistant as staticAssistant } from '@/features/agents/store'
+import { useAgents as staticAgents } from '@/features/agents/sessions'
 import { HudClock } from '@/features/dashboard/components/HudClock'
 import { NAV_ITEMS } from '@/data/navigation'
 import { BOOT_LINES } from '@/data/bootLines'
@@ -316,6 +317,25 @@ describe('BottomDashboard with live agents', () => {
     expect(stop).toHaveBeenCalledWith('c1')
     useAssistant.setState({ conversations: [], running: {}, pending: [], activity: [] })
   })
+
+  it('shows coding agent sessions too: who needs you, open, end', () => {
+    const session = (id: string, status: string, terminalId?: string) =>
+      ({ id, title: `Session ${id}`, status, terminalId, live: !!terminalId, projectId: 'p', projectName: 'P', kind: 'claude-code', cwd: '/', isolated: false, plan: [], notes: [], createdAt: '', updatedAt: '' }) as never
+    const stop = vi.fn(async () => {})
+    staticAgents.setState({ sessions: [session('a', 'working', 't1'), session('b', 'approval', 't2'), session('c', 'ended')], stop })
+    localStorage.setItem('wone.commandDeck.open', '1')
+    const onOpenSession = vi.fn()
+    render(<BottomDashboard onOpenSession={onOpenSession} />)
+    expect(screen.getByText('2 running')).toBeInTheDocument()
+    expect(screen.getByText('1 need you')).toBeInTheDocument()
+    expect(screen.getByText('· Needs your approval')).toBeInTheDocument()
+    expect(screen.queryByText('Session c')).toBeNull() // ended: not running
+    fireEvent.click(screen.getByText('Session a'))
+    expect(onOpenSession).toHaveBeenCalledWith('a')
+    fireEvent.click(screen.getByLabelText('End Session b'))
+    expect(stop).toHaveBeenCalledWith('b')
+    staticAgents.setState({ sessions: [] })
+  })
 })
 
 describe('AppShell', () => {
@@ -334,14 +354,29 @@ describe('AppShell', () => {
     vi.doMock('@/features/projects/components/ProjectsView', () => ({ ProjectsView: () => <div>PROJECTS</div> }))
     vi.doMock('@/features/memory/components/MemoryView', () => ({ MemoryView: () => <div>MEMORY</div> }))
     vi.doMock('@/components/monitor/SystemMonitorPanel', () => ({ SystemMonitorPanel: () => <div>MONITOR</div> }))
-    vi.doMock('@/features/agents/components/AgentsView', () => ({ AgentsView: () => <div>AGENTS</div> }))
+    vi.doMock('@/features/agents/components/AgentsView', () => ({
+      AgentsView: ({ onOpenNote, onOpenSettings }: { onOpenNote: (p: string) => void; onOpenSettings: () => void }) => (
+        <div>
+          AGENTS
+          <button onClick={() => onOpenNote('Agents/x.md')}>OPEN NOTE</button>
+          <button onClick={onOpenSettings}>OPEN SETTINGS</button>
+        </div>
+      )
+    }))
     vi.doMock('@/features/settings/components/SettingsView', () => ({ SettingsView: () => <div>SETTINGS</div> }))
     vi.doMock('@/features/system/components/SystemView', () => ({ SystemView: () => <div>SYSTEM</div> }))
     vi.resetModules()
     const { AppShell } = await import('@/components/shell/AppShell')
     const { useAssistant } = await import('@/features/agents/store')
+    const { useAgents } = await import('@/features/agents/sessions')
+    const { useMemory } = await import('@/features/memory/store')
     const connect = vi.fn(() => () => {})
     const open = vi.fn(async () => {})
+    const agentsConnect = vi.fn(() => () => {})
+    const openSession = vi.fn(async () => {})
+    const openNote = vi.fn(async () => {})
+    useAgents.setState({ connect: agentsConnect, open: openSession })
+    useMemory.setState({ open: openNote })
     useAssistant.setState({ connect, open })
 
     vi.useFakeTimers()
@@ -382,6 +417,13 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByTitle('Agents'))
     expect(screen.getByText('AGENTS')).toBeInTheDocument()
     expect(connect).toHaveBeenCalled()
+    expect(agentsConnect).toHaveBeenCalled()
+    fireEvent.click(screen.getByText('OPEN NOTE')) // a session's note → Memory
+    expect(screen.getByText('MEMORY')).toBeInTheDocument()
+    expect(openNote).toHaveBeenCalledWith('Agents/x.md')
+    fireEvent.click(screen.getByTitle('Agents'))
+    fireEvent.click(screen.getByText('OPEN SETTINGS'))
+    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
     fireEvent.click(screen.getByTitle('System'))
     expect(screen.getByText('SYSTEM')).toBeInTheDocument()
     fireEvent.click(screen.getByTitle('Settings'))
@@ -402,7 +444,30 @@ describe('AppShell', () => {
     expect(open).toHaveBeenCalledWith('c1')
     expect(screen.getByText('AGENTS')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).toBeNull() // the open chat shows it inline
+    expect(useAgents.getState().view).toBe('assistant')
     act(() => useAssistant.setState({ pending: [], conversations: [], running: {}, activeId: undefined }))
+
+    // …and into a coding agent session
+    fireEvent.click(screen.getByTitle('Core'))
+    act(() =>
+      useAgents.setState({
+        sessions: [{ id: 's1', title: 'Fix login', status: 'working', live: true, terminalId: 't', projectId: 'p', projectName: 'P', kind: 'claude-code', cwd: '/', isolated: false, plan: [], notes: [], createdAt: '', updatedAt: '' }]
+      })
+    )
+    fireEvent.click(screen.getByText('Fix login'))
+    expect(openSession).toHaveBeenCalledWith('s1')
+    expect(screen.getByText('AGENTS')).toBeInTheDocument()
+    // its approval shows inline in the open session, not as a toast
+    act(() =>
+      useAssistant.setState({
+        pending: [{ id: 'p2', conversationId: 's1', agentName: 'Claude Code', toolTitle: 'Run command', risk: 'execute', summary: 'npm test', reason: '', allowAlways: false } as never]
+      })
+    )
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument() // the session isn't the open one yet
+    act(() => useAgents.setState({ view: 'session', activeId: 's1' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    act(() => useAssistant.setState({ pending: [] }))
+    act(() => useAgents.setState({ sessions: [] }))
 
     vi.doUnmock('@/features/agents/components/AgentsView')
     vi.doUnmock('@/features/settings/components/SettingsView')

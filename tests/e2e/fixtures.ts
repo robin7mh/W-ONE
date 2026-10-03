@@ -21,7 +21,8 @@ export const test = base.extend<Fixtures>({
   },
 
   app: async ({ home }, use) => {
-    const env = { ...process.env, WONE_HOME: home, LANG: 'en_US.UTF-8' } as Record<string, string>
+    // WONE_CLAUDE_BIN: agent sessions run a stand-in for Claude Code (no account, no model).
+    const env = { ...process.env, WONE_HOME: home, LANG: 'en_US.UTF-8', WONE_CLAUDE_BIN: resolve('tests/e2e/fake-claude.mjs') } as Record<string, string>
     delete env.ELECTRON_RENDERER_URL // always the built renderer, never a dev server
     delete env.ELECTRON_RUN_AS_NODE
     const app = await electron.launch({

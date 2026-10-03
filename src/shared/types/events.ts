@@ -20,6 +20,8 @@ export type WoneEventType =
   | 'permission.requested'
   | 'permission.granted'
   | 'permission.denied'
+  | 'session.started'
+  | 'session.ended'
 
 /**
  * How an event is persisted. The bus distributes ALL events to subscribers;
@@ -46,7 +48,9 @@ export const EVENT_CATALOG: Record<WoneEventType, EventPersistence> = {
   'tool.denied': 'audit',
   'permission.requested': 'audit',
   'permission.granted': 'audit',
-  'permission.denied': 'audit'
+  'permission.denied': 'audit',
+  'session.started': 'activity',
+  'session.ended': 'activity'
 }
 
 export interface WoneEvent<T = unknown> {

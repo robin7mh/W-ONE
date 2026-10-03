@@ -31,6 +31,7 @@ const server = (over: Partial<ServerStatus> = {}): ServerStatus => ({
 
 function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
   return {
+    'agents:detect': () => [],
     'server:status': () => server(),
     'server:devices': () => [
       { id: 'd1', name: 'Pixel Phone', createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() },
@@ -148,6 +149,25 @@ describe('settings store', () => {
 })
 
 describe('SettingsView', () => {
+  it('lists the coding agents on this machine and checks again on request', async () => {
+    const detect = vi.fn()
+      .mockResolvedValueOnce([
+        { kind: 'claude-code', name: 'Claude Code', installed: true, version: '2.1.287', signedIn: true, account: 'Pro plan', ready: true },
+        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to W-ONE soon' }
+      ])
+      .mockResolvedValueOnce([{ kind: 'claude-code', name: 'Claude Code', installed: true, ready: true }])
+    installBridge(settingsCore({ 'agents:detect': detect }))
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText('Coding agents')).toBeInTheDocument()
+    expect(screen.getByText('Pro plan · v2.1.287')).toBeInTheDocument()
+    expect(screen.getByText('Coming to W-ONE soon')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Check again'))
+    await act(settle)
+    expect(detect).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('Codex')).toBeNull()
+  })
+
   it('pairing without the LAN explains itself; switching the LAN on brings the QR code (same code)', async () => {
     const loopback = ['http://127.0.0.1:7420']
     const withLan = [...loopback, 'http://192.168.1.9:7420']

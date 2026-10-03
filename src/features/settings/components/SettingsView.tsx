@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, BrainCircuit, Info, KeyRound, Laptop, QrCode, ShieldCheck, Smartphone, Trash2, Wifi, X } from 'lucide-react'
+import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
 import { EFFORTS, MODELS, type Effort } from '@shared/types/ai'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
@@ -10,6 +10,7 @@ import { FolderPicker } from '@/components/ui/FolderPicker'
 import { cn } from '@/lib/cn'
 import { useSession } from '@/features/session/store'
 import { useAssistant } from '@/features/agents/store'
+import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
 import { useSettings } from '../store'
 
@@ -50,6 +51,38 @@ const input =
 const button =
   'flex items-center justify-center gap-1.5 rounded-md border border-hud/60 px-2.5 py-1.5 font-sans text-[12px] text-text-secondary transition-colors hover:border-cyan/50 hover:text-cyan disabled:opacity-40'
 
+/** The coding agents found on this machine — they run on the user's own accounts. */
+function AgentsCard() {
+  const availability = useAgents((s) => s.availability)
+  const detecting = useAgents((s) => s.detecting)
+  useEffect(() => {
+    void useAgents.getState().detect()
+  }, [])
+  return (
+    <Card icon={TerminalSquare} title="Coding agents">
+      <p className="font-sans text-[12px] text-text-secondary">
+        Your own agents, signed in with your own accounts — W-ONE starts them, shows their work and asks you before anything risky.
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {availability.map((a) => (
+          <li key={a.kind} className="flex items-start gap-2">
+            {a.ready ? <Check size={13} className="mt-0.5 shrink-0 text-green" /> : <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-text-muted" />}
+            <span className="min-w-0 flex-1">
+              <span className="block font-sans text-[13px] text-text-primary">{a.name}</span>
+              <span className="block font-mono text-[10.5px] text-text-muted">
+                {a.ready ? [a.account, a.version && `v${a.version}`].filter(Boolean).join(' · ') : a.hint}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className={cn(button, 'mt-3')} disabled={detecting} onClick={() => void useAgents.getState().detect()}>
+        <RefreshCw size={12} className={cn(detecting && 'animate-spin')} /> Check again
+      </button>
+    </Card>
+  )
+}
+
 function AiCard() {
   const status = useAssistant((s) => s.status)
   const { setKey, clearKey, configure } = useAssistant.getState()
@@ -61,7 +94,7 @@ function AiCard() {
     setBusy(false)
   }
   return (
-    <Card icon={BrainCircuit} title="AI">
+    <Card icon={BrainCircuit} title="W-ONE Assistant (API key)">
       <div className="flex items-center gap-2">
         <StatusDot tone={status?.configured ? 'ok' : 'warn'} pulse={false} />
         <span className="font-sans text-[13px] text-text-primary">
@@ -365,6 +398,7 @@ export function SettingsView() {
         </div>
       )}
       <div className="grid gap-3 p-3 lg:grid-cols-2">
+        <AgentsCard />
         <AiCard />
         <RemoteCard />
         <PermissionsCard />

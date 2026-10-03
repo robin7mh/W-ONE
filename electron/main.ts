@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell } from 'electron'
 import { join } from 'node:path'
 import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
@@ -104,6 +104,17 @@ ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
 
+/** An agent needs the user: tell them — unless they are looking at W-ONE already. */
+function notify(title: string, body: string): void {
+  if (!Notification.isSupported() || BrowserWindow.getFocusedWindow()) return
+  const n = new Notification({ title, body })
+  n.on('click', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
+  n.show()
+}
+
 async function startCore(): Promise<void> {
   // ~/W-ONE/{data,vault} holds everything — every location derives from paths.ts.
   const paths = wonePaths()
@@ -121,7 +132,8 @@ async function startCore(): Promise<void> {
     platform: electronPlatform,
     cipher: electronCipher(),
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
-    webRoot: join(__dirname, '../renderer')
+    webRoot: join(__dirname, '../renderer'),
+    notify
   })
   core.hub.subscribe(broadcast)
   bindIpc(core.router)

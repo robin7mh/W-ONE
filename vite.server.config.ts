@@ -6,10 +6,12 @@ import pkg from './package.json'
 // The standalone W-ONE core (server/main.ts) as one CommonJS file:
 // out/server/index.cjs. npm dependencies stay external (node_modules at
 // runtime — native modules like node-pty cannot be bundled).
+// ESM-only packages are bundled instead: a CommonJS file can't require() them.
+const BUNDLED = ['@agentclientprotocol/sdk']
 const external = [
   ...builtinModules,
   ...builtinModules.map((m) => `node:${m}`),
-  ...Object.keys(pkg.dependencies)
+  ...Object.keys(pkg.dependencies).filter((d) => !BUNDLED.includes(d))
 ]
 
 export default defineConfig({

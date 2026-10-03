@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { expect, test } from './fixtures'
 
@@ -19,7 +19,7 @@ test('navigates every module', async ({ page }) => {
   await nav('Memory').click()
   await expect(page.getByText('Create W-ONE vault')).toBeVisible()
   await nav('Agents').click()
-  await expect(page.getByText('Connect the assistant')).toBeVisible() // no API key in the test home
+  await expect(page.getByText('Your agents, in one place')).toBeVisible() // starts with "New chat", no key needed
   await nav('System').click()
   await expect(page.getByText('Top processes')).toBeVisible()
   await nav('Settings').click()
@@ -127,6 +127,45 @@ test('editor: opens a project file in Monaco, saves it with ⌘S and follows cha
   // an outside edit (an agent, git, VS Code) shows up in the clean tab by itself
   writeFileSync(join(root, 'src', 'hello.ts'), 'export const greeting = "changed outside"\n')
   await expect(lines).toContainText('changed outside')
+})
+
+test('agents: a coding agent session — chat, approval in W-ONE, the change as a diff, a journal in memory', async ({ page, home }) => {
+  const root = join(home, 'agent-demo')
+  mkdirSync(root)
+  writeFileSync(join(root, 'README.md'), '# demo\n')
+  execFileSync('git', ['init', '-q'], { cwd: root })
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', 'add', '.'], { cwd: root })
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init'], { cwd: root })
+  await page.evaluate((path) => window.wone!.invoke('projects:add', { path }), root)
+  await page.evaluate(() => window.wone!.invoke('memory:createVault'))
+
+  await page.getByTitle('Agents', { exact: true }).click()
+  await page.getByRole('button', { name: 'New chat' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'New chat' })
+  await expect(dialog.getByText('Pro plan · v9.9.9')).toBeVisible() // detected (the stand-in)
+  await dialog.getByLabel('First message').fill('Write the output file')
+  await dialog.getByRole('button', { name: 'Start' }).click()
+
+  // the agent asks before it runs a command — answered in W-ONE
+  await expect(page.getByText('Write the output file').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Allow once' })).toHaveCount(1) // inline only — no toast for the open chat
+  await page.getByRole('button', { name: 'Allow once' }).click()
+  await expect(page.getByText('Done: wrote fake-output.txt')).toBeVisible()
+  await expect(page.getByText('· Your turn')).toBeVisible()
+  expect(readFileSync(join(root, 'fake-output.txt'), 'utf8')).toBe('written by the fake agent\n')
+
+  // what changed, as a diff
+  await page.getByRole('button', { name: /^A fake-output\.txt/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Changes in fake-output.txt' })).toBeVisible()
+  await expect(page.locator('.monaco-diff-editor')).toBeVisible()
+  await page.getByLabel('Close diff').click()
+
+  // the session's journal lands in the vault
+  await expect.poll(() => (existsSync(join(home, 'vault', 'Agents', 'agent-demo')) ? readdirSync(join(home, 'vault', 'Agents', 'agent-demo')) : [])).toHaveLength(1)
+  await page.getByRole('tab', { name: /Memory/ }).click()
+  await expect(page.getByText('Session journal')).toBeVisible()
+  await page.getByLabel('End session').click()
+  await expect(page.getByText('· Ended')).toBeVisible()
 })
 
 test('theme toggle switches light and dark', async ({ page }) => {

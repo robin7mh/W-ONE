@@ -47,7 +47,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
 | Bottom dashboard | ✅ Command Deck (P9): running agents (stop / jump in), waiting approvals, live activity outcomes |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
-| Agents | ✅ P6–P9 (§12.4): Anthropic provider, context engine, tools behind the permission gate, controlled agent runtime, activity timeline |
+| Agents | ✅ Cockpit (§12.6): the user's own coding agents — Claude Code (hooks, own plan), Codex and Gemini (ACP) — as chats with approvals, changes/diffs, plan and a journal in memory; plus the W-ONE Assistant on an API key (P6–P9, §12.4) |
 | Settings / System | ✅ AI key + model, remote access & devices (pairing, QR), permissions, vault, about · full telemetry view |
 | Network API | ✅ §12.4: the core as an HTTP + WebSocket service for the web UI and the mobile app (device pairing, bearer tokens) |
 
@@ -597,3 +597,20 @@ User decision: an editor "like VS Code" in its own module. Not a VS Code replace
 - **Access:** reading is `any`; `files:write` is `terminal` — writing project files can run code (hooks, scripts), so remote clients may only when remote shells are allowed. Otherwise the web UI shows files read-only.
 - **Build memory:** bundling Monaco and its workers needs ~2.5 GB of Node heap; `build` / `web:build` set `--max-old-space-size=4096` themselves, so CI, the Docker build and small machines behave the same.
 - **Leaving with unsaved edits:** the renderer vetoes `beforeunload`; the desktop asks (`will-prevent-unload`). The core is disposed on `will-quit` (not `before-quit`), so a cancelled close keeps it alive.
+
+### 12.6 Agent cockpit (2026-10-03)
+
+User decision: the Agents module works with the AI the user already pays for — not only an API key. W-ONE sells the workspace, not the model.
+
+- **Claude Code** runs as the user's own, unmodified CLI in a PTY (`AgentSessionService` → `TerminalService.spawnProgram`, through the login shell). Interactive use stays on the user's plan; W-ONE never sees or stores Claude credentials (Anthropic's terms: no third-party Claude.ai login, no token handling — running the unmodified binary is fine). Everything W-ONE needs is passed per session on the command line, the user's `~/.claude` is never touched:
+  - `--settings`: HTTP hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse(Failure)`, `PermissionRequest`, `Stop`, `TaskCreated/Completed`, `SessionEnd`) and a `curl` relay command hook for `SessionStart`/`Notification` (HTTP hooks don't run there).
+  - `--mcp-config`: W-ONE's memory as MCP server; `--allowedTools` pre-allows its read tools; `--append-system-prompt`: a short hint to use it.
+  - `--session-id` / `--resume`, `--name`.
+  - Inherited Claude Code markers (`CLAUDE_CODE_*`, `CLAUDECODE`, …) are stripped from every PTY's environment, so a `claude` started from W-ONE is never mistaken for a child session.
+- **Codex and Gemini** speak ACP (`@agentclientprotocol/sdk`, bundled — it is ESM-only) over stdio: Codex through Zed's adapter (`npx @zed-industries/codex-acp`, the user's Codex sign-in), Gemini as `gemini --experimental-acp`. `session/update` streams text, tool calls and the plan; `session/request_permission` goes to the same gate. W-ONE's MCP server is offered when the agent takes HTTP servers.
+- **LocalAgentServer**: always-on, `127.0.0.1` on a random port, Host/Origin must be loopback, a random bearer token per session (`timingSafeEqual`). Routes: `/hooks/<session>`, `/mcp/<session>`. Separate from the opt-in network API.
+- **Approvals**: `PermissionRequest` (Claude) and `request_permission` (ACP) both go through `PermissionService.ask` — inline cards, toasts (not for the open chat), Command Deck, desktop notification while W-ONE is in the background. Commands are asked every time; file/memory tools can be allowed for good per agent.
+- **Changes**: `GitService` takes a baseline when a session starts (`git stash create` — the working tree is untouched, the user's own earlier edits stay out of the diff). Optional own working folder per session: a git worktree in `~/W-ONE/worktrees` with `node_modules` linked (excluded from diffs/patches); *Take over* applies its changes to the project as uncommitted edits (refuses cleanly on conflicts), *Discard* drops it. Diffs open in Monaco's diff editor.
+- **Memory (idea 4)**: the MCP server (`mcp.ts`, minimal stateless JSON-RPC) offers `memory_search/read/list/create_note/append` and `project_context` from the built-in tools; a journal note per session (`Agents/<project>/<date> <title>.md`: task, result, changed files, open plan items) is written after every turn, so the next agent — any vendor — can continue.
+- **Sessions** are stored in `~/W-ONE/data/agents` (list + one transcript per session); after a restart they show as ended and can be resumed (Claude Code continues its own transcript).
+- **Tests**: unit tests for every piece (git against real repos, the local server over real HTTP, ACP with an in-process agent and a stdio fixture agent); E2E with `tests/e2e/fake-claude.mjs` (`WONE_CLAUDE_BIN`) — chat, approval, diff, journal — so CI needs no account.

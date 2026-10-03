@@ -5,6 +5,7 @@ type Handler = (...a: unknown[]) => unknown
 class FakeWindow {
   static all: FakeWindow[] = []
   static getAllWindows = () => FakeWindow.all
+  static getFocusedWindow = () => h.focused
   handlers = new Map<string, Handler>()
   opts: Record<string, unknown>
   destroyed = false
@@ -19,6 +20,7 @@ class FakeWindow {
     setWindowOpenHandler: (fn: (d: { url: string }) => unknown) => (this.openHandler = fn)
   }
   show = vi.fn()
+  focus = vi.fn()
   minimize = vi.fn()
   maximize = vi.fn()
   unmaximize = vi.fn()
@@ -48,6 +50,9 @@ const h = vi.hoisted(() => ({
   quit: vi.fn(),
   openExternal: vi.fn(async () => {}),
   messageBox: vi.fn((): number => 1),
+  notifications: [] as { opts: { title: string; body: string }; click?: () => void; show: ReturnType<typeof vi.fn> }[],
+  notifySupported: true,
+  focused: null as unknown,
   dark: true,
   migrate: vi.fn((_legacy?: string): boolean => false),
   coreOpts: undefined as undefined | Record<string, unknown>,
@@ -80,7 +85,18 @@ vi.mock('electron', () => ({
     }
   },
   shell: { openExternal: h.openExternal },
-  dialog: { showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])) }
+  dialog: { showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])) },
+  Notification: class {
+    static isSupported = () => h.notifySupported
+    show = vi.fn()
+    click?: () => void
+    constructor(public opts: { title: string; body: string }) {
+      h.notifications.push(this)
+    }
+    on(_event: string, fn: () => void) {
+      this.click = fn
+    }
+  }
 }))
 vi.mock('../../../electron/main/lib/paths', () => ({
   wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
@@ -153,6 +169,28 @@ describe('main process boot', () => {
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+  })
+
+  it('agents needing the user notify only while W-ONE is in the background; a click brings it up', async () => {
+    const win = await boot()
+    const notify = h.coreOpts!.notify as (title: string, body: string) => void
+    h.notifications.length = 0
+    h.focused = win
+    notify('Claude Code · fix', 'Waiting for your approval')
+    expect(h.notifications).toHaveLength(0) // looking at W-ONE already
+    h.focused = null
+    h.notifySupported = false
+    notify('x', 'y')
+    expect(h.notifications).toHaveLength(0)
+    h.notifySupported = true
+    notify('Claude Code · fix', 'Waiting for your approval')
+    expect(h.notifications[0].opts).toEqual({ title: 'Claude Code · fix', body: 'Waiting for your approval' })
+    expect(h.notifications[0].show).toHaveBeenCalled()
+    h.notifications[0].click!()
+    expect(win.show).toHaveBeenCalled()
+    expect(win.focus).toHaveBeenCalled()
+    win.emit('closed')
+    h.notifications[0].click!() // no window anymore: harmless
   })
 
   it('packaged on Linux in light mode: frameless window, file URL', async () => {

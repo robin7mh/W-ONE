@@ -49,6 +49,7 @@ import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
 import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
+import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { DbService, DEFAULT_DB_URL, createPool, databaseUrl, type DbPool } from '../../../electron/main/services/db/DbService'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -211,6 +212,25 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
       ]
+    ],
+    [
+      'agents',
+      registerAgentsIpc,
+      [
+        ['agents:detect', undefined, 'detect', []],
+        ['agents:list', undefined, 'list', []],
+        ['agents:get', { id: 'i' }, 'get', ['i']],
+        ['agents:create', { kind: 'claude-code', projectId: 'p', isolated: true }, 'create', [{ kind: 'claude-code', projectId: 'p', isolated: true }]],
+        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi']],
+        ['agents:interrupt', { id: 'i' }, 'interrupt', ['i']],
+        ['agents:stop', { id: 'i' }, 'stop', ['i']],
+        ['agents:resume', { id: 'i' }, 'resume', ['i']],
+        ['agents:remove', { id: 'i' }, 'remove', ['i']],
+        ['agents:changes', { id: 'i' }, 'changes', ['i']],
+        ['agents:diff', { id: 'i', path: 'a.ts' }, 'diff', ['i', 'a.ts']],
+        ['agents:accept', { id: 'i' }, 'accept', ['i']],
+        ['agents:discard', { id: 'i' }, 'discard', ['i']]
+      ]
     ]
   ] as const)('%s', async (_name, register, cases) => {
     const service = spyService()
@@ -290,7 +310,9 @@ describe('paths', () => {
         defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
         devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
         secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
-        grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json')
+        grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
+        agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
+        worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
       })
       process.env.WONE_HOME = '/custom'
       expect(wonePaths().dataDir).toBe(join('/custom', 'data'))

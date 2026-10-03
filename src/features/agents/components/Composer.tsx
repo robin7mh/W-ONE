@@ -18,10 +18,11 @@ export function Composer({
   running: boolean
   sending: boolean
   disabled?: boolean
-  projects: Project[]
+  /** Project context picker (W-ONE Assistant chats); agent sessions already have their project. */
+  projects?: Project[]
   projectId?: string
   placeholder: string
-  onProject: (id?: string) => void
+  onProject?: (id?: string) => void
   onSend: (text: string) => Promise<boolean>
   onStop: () => void
 }) {
@@ -84,23 +85,27 @@ export function Composer({
         )}
       </div>
       <div className="mt-1.5 flex items-center gap-2">
-        <FolderGit2 size={12} className="text-text-muted" />
-        <select
-          aria-label="Project context"
-          value={projectId ?? ''}
-          onChange={(e) => onProject(e.target.value || undefined)}
-          className={cn(
-            'max-w-[220px] truncate rounded border border-transparent bg-transparent font-mono text-[11px] text-text-muted outline-none hover:border-hud/60 focus:border-cyan/50',
-            projectId && 'text-text-secondary'
-          )}
-        >
-          <option value="">No project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        {onProject && (
+          <>
+            <FolderGit2 size={12} className="text-text-muted" />
+            <select
+              aria-label="Project context"
+              value={projectId ?? ''}
+              onChange={(e) => onProject(e.target.value || undefined)}
+              className={cn(
+                'max-w-[220px] truncate rounded border border-transparent bg-transparent font-mono text-[11px] text-text-muted outline-none hover:border-hud/60 focus:border-cyan/50',
+                projectId && 'text-text-secondary'
+              )}
+            >
+              <option value="">No project</option>
+              {projects!.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <span className="ml-auto hidden font-mono text-[10px] text-text-muted sm:inline">Enter to send · Shift+Enter new line</span>
       </div>
     </div>

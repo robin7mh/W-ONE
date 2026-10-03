@@ -39,6 +39,7 @@
     "test:all": "npm run typecheck && npm run test:coverage && npm run test:e2e"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.7.0",
     "@anthropic-ai/sdk": "^0.131.0",
     "@fontsource-variable/inter": "^5.0.20",
     "@fontsource/jetbrains-mono": "^5.0.20",
