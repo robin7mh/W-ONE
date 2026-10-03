@@ -44,10 +44,14 @@ export const useSettings = create<SettingsState>((set, get) => {
     },
 
     configureServer: async (patch) => {
-      set({ busy: true, error: undefined })
+      // The switches show the choice at once ("running" still reports the real
+      // state); the core's answer settles it, a failure puts the old one back.
+      const before = get().server
+      set({ busy: true, error: undefined, server: before && { ...before, config: { ...before.config, ...patch } } })
       try {
         set({ server: await ipc('server:configure', patch), busy: false })
       } catch (err) {
+        set({ server: before })
         fail(err)
       }
     },

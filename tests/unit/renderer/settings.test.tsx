@@ -60,6 +60,37 @@ describe('settings store', () => {
     expect(pairingUrl('X', ['http://127.0.0.1:7420'], 'file://')).toBe('http://127.0.0.1:7420/#pair=X')
   })
 
+  it('server switches move at once; the core settles them, a failure puts them back', async () => {
+    let answer!: (ok: boolean) => void
+    installBridge(
+      settingsCore({
+        'server:configure': () =>
+          new Promise((resolve, reject) => (answer = (ok) => (ok ? resolve({ ...server(), running: false, config: { ...server().config, enabled: false } }) : reject(new Error('port busy')))))
+      })
+    )
+    const s = () => useSettings.getState()
+    let pending = s().configureServer({ enabled: false }) // nothing loaded yet: nothing to move early
+    expect(s().server).toBeUndefined()
+    answer(false)
+    await pending
+    expect(s().server).toBeUndefined()
+    await s().load()
+
+    pending = s().configureServer({ enabled: false })
+    expect(s().server).toMatchObject({ running: true, config: { enabled: false } }) // the switch moved, the state is real
+    expect(s().busy).toBe(true)
+    answer(true)
+    await pending
+    expect(s().server).toMatchObject({ running: false, config: { enabled: false } })
+
+    useSettings.setState({ server: server() })
+    pending = s().configureServer({ enabled: false })
+    answer(false)
+    await pending
+    expect(s().server?.config.enabled).toBe(true)
+    expect(s()).toMatchObject({ busy: false, error: 'port busy' })
+  })
+
   it('loads, configures, pairs (with a QR code), revokes; reports failures', async () => {
     installBridge(settingsCore())
     const s = () => useSettings.getState()
