@@ -38,7 +38,9 @@ test('settings: the embedded API server starts on demand and answers', async ({ 
   const res = await fetch('http://127.0.0.1:7499/api/health')
   expect(await res.json()).toMatchObject({ ok: true, name: 'W-ONE', mode: 'desktop' })
   await page.getByRole('button', { name: 'Pair a device' }).click()
-  await expect(page.getByLabel('Pairing QR code')).toBeVisible()
+  // LAN off: no QR a phone couldn't open — the code and what to switch on instead
+  await expect(page.getByText(/Only this computer can connect right now/)).toBeVisible()
+  await expect(page.getByLabel('Pairing QR code')).toHaveCount(0)
   await page.getByLabel('Run the API server').uncheck()
   await expect(page.getByText('API server off')).toBeVisible()
 })

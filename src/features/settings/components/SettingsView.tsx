@@ -186,11 +186,21 @@ function RemoteCard() {
         </div>
         {s.pairing && (
           <div className="mt-3 flex flex-col items-center gap-2 rounded-md border border-cyan/40 bg-cyan/[0.04] p-3 sm:flex-row sm:items-start">
-            <div className="w-36 shrink-0 rounded bg-white p-1" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: s.pairing.qr }} />
+            {s.pairing.reachable && (
+              <div className="w-36 shrink-0 rounded bg-white p-1" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: s.pairing.qr }} />
+            )}
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-mono text-[22px] tracking-[0.25em] text-text-primary">{s.pairing.code}</p>
-              <p className="font-sans text-[12px] text-text-secondary">Scan with the phone camera, or open the address and enter the code. Valid 10 minutes, once.</p>
-              <p className="break-all font-mono text-[11px] text-cyan">{s.pairing.url}</p>
+              {s.pairing.reachable ? (
+                <>
+                  <p className="font-sans text-[12px] text-text-secondary">Scan with the phone camera, or open the address and enter the code. Valid 10 minutes, once.</p>
+                  <p className="break-all font-mono text-[11px] text-cyan">{s.pairing.url}</p>
+                </>
+              ) : (
+                <p className="font-sans text-[12px] text-amber">
+                  Only this computer can connect right now. Turn on “Reachable on the local network” to pair a phone.
+                </p>
+              )}
             </div>
             <button type="button" aria-label="Close pairing" onClick={s.closePairing} className="self-start text-text-muted hover:text-text-primary">
               <X size={14} />
