@@ -99,7 +99,7 @@ describe('AgentSessionService: sessions', () => {
 
   it('starts Claude Code in the project with hooks, memory and the first message; refuses unknown agents/projects', async () => {
     const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'Fix the login bug\nand add a test' })
-    expect(s).toMatchObject({ kind: 'claude-code', title: 'Fix the login bug', projectName: 'Demo App', cwd: t.projectPath, isolated: false, status: 'starting', terminalId: 'pty-1' })
+    expect(s).toMatchObject({ kind: 'claude-code', title: 'Claude Code', projectName: 'Demo App', cwd: t.projectPath, isolated: false, status: 'starting', terminalId: 'pty-1' })
     const req = t.terminal.spawned[0]
     expect(req).toMatchObject({ cwd: t.projectPath, command: { file: 'claude' }, env: { WONE_TOKEN: 'tok', WONE_HOOK_URL: `http://127.0.0.1:1/hooks/${s.id}` }, projectId: 'p1' })
     expect(req.command.args.slice(0, 2)).toEqual(['--session-id', s.id])
@@ -109,7 +109,7 @@ describe('AgentSessionService: sessions', () => {
     expect(t.svc.get(s.id)).toMatchObject({ id: s.id, messages: [] })
 
     expect((await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: '  Named  ' })).title).toBe('Named')
-    expect((await t.svc.create({ kind: 'claude-code', projectId: 'p1' })).title).toBe('New chat')
+    expect((await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: 'x'.repeat(120) })).title).toHaveLength(80)
     await expect(t.svc.create({ kind: 'claude-code', projectId: 'nope' })).rejects.toMatchObject({ code: 'not-found' })
     expect(() => t.svc.get('nope')).toThrow(expect.objectContaining({ code: 'not-found' }))
   })
@@ -198,6 +198,75 @@ describe('AgentSessionService: sessions', () => {
     expect(noTranscript.get(s.id)).toMatchObject({ status: 'ended', terminalId: undefined, messages: [] })
   })
 
+  it('named after the agent; renamed by the user (notification and journal follow); the repo page from origin', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    sh(t.projectPath, 'remote', 'add', 'origin', 'git@github.com:me/demo.git')
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    expect(s).toMatchObject({ title: 'Claude Code', repoUrl: 'https://github.com/me/demo' })
+
+    expect(t.svc.rename(s.id, '  Login fix  ').title).toBe('Login fix')
+    expect(t.published.at(-1)).toMatchObject({ channel: 'agents:changed', payload: { session: { title: 'Login fix' } } })
+    expect(t.svc.rename(s.id, 'y'.repeat(100)).title).toHaveLength(80)
+    expect(() => t.svc.rename(s.id, '   ')).toThrow(expect.objectContaining({ code: 'bad-input' }))
+    t.svc.rename(s.id, 'Login fix')
+    expect(t.journal).not.toHaveBeenCalled() // no journal yet: nothing to follow
+
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'Fix it' })
+    await t.hook(s.id, { hook_event_name: 'Stop', last_assistant_message: 'Fixed' })
+    expect(t.deps.notify).toHaveBeenCalledWith('Claude Code · Login fix', 'Done — your turn', s.id)
+    await vi.advanceTimersByTimeAsync(1500)
+    vi.useRealTimers()
+    await tick(50) // the journal reads the changes (real git)
+    expect(t.journal).toHaveBeenCalledTimes(1)
+    const note = t.svc.get(s.id).journal
+    t.svc.rename(s.id, 'Auth fix')
+    await tick(50)
+    expect(t.journal).toHaveBeenCalledTimes(2)
+    expect(t.journal.mock.calls[1][1]).toContain('Auth fix')
+    expect(t.journal.mock.calls[1][2]).toBe(note) // the same note, rewritten
+  })
+
+  it('sessions from before: "New chat" becomes the agent\'s name, the repo page is filled in', async () => {
+    sh(t.projectPath, 'remote', 'add', 'origin', 'https://user:secret@github.com/me/demo.git')
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    const named = await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: 'Kept' })
+    await t.svc.dispose()
+    const old = (x: typeof s) => ({ session: { ...x, title: x === s ? 'New chat' : x.title, repoUrl: undefined }, baseline: null, projectPath: t.projectPath })
+    await writeFile(join(t.deps.dir, 'sessions.json'), JSON.stringify({ version: 1, sessions: [old(s), old(named)] }))
+    const again = track(new AgentSessionService(t.deps))
+    await again.init()
+    expect(again.get(s.id)).toMatchObject({ title: 'Claude Code', repoUrl: 'https://github.com/me/demo' })
+    expect(again.get(named.id).title).toBe('Kept')
+  })
+
+  it('a shell in the session\'s folder: one at a time, a new one after it ends, gone with the session; VS Code opens the folder', async () => {
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    expect(s.repoUrl).toBeUndefined() // no remote
+    const first = await t.svc.shell(s.id)
+    expect(first).toEqual({ terminalId: 'pty-2' })
+    expect(t.terminal.spawned[1]).toMatchObject({ cwd: t.projectPath, projectId: 'p1', title: 'Claude Code' })
+    expect(await t.svc.shell(s.id)).toEqual(first)
+
+    t.terminal.spawned[1].onExit!(0)
+    const second = await t.svc.shell(s.id)
+    expect(second).toEqual({ terminalId: 'pty-3' })
+    t.terminal.spawned[1].onExit!(0) // a late exit of the old one changes nothing
+    expect(await t.svc.shell(s.id)).toEqual(second)
+
+    t.svc.stop(s.id)
+    expect(t.terminal.kill).toHaveBeenCalledWith('pty-3')
+    const third = await t.svc.shell(s.id)
+    await t.svc.dispose()
+    expect(t.terminal.kill).toHaveBeenCalledWith(third.terminalId)
+
+    await expect(t.svc.openInEditor(s.id)).rejects.toMatchObject({ code: 'desktop-only' })
+    const openFolder = vi.fn(async () => {})
+    const desk = track(new AgentSessionService({ ...t.deps, openFolder }))
+    await desk.init()
+    await desk.openInEditor(s.id)
+    expect(openFolder).toHaveBeenCalledWith(t.projectPath)
+  })
+
   it('saving problems are logged, never thrown', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const bad = await setup()
@@ -250,14 +319,14 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
     await t.hook(s.id, { hook_event_name: 'PostToolUse', tool_name: 'Write', tool_use_id: 'w', tool_response: 'ok' })
     await t.hook(s.id, { hook_event_name: 'Stop', last_assistant_message: 'Added hello.ts' })
     expect(t.svc.get(s.id).status).toBe('idle')
-    expect(t.deps.notify).toHaveBeenCalledWith('Claude Code · Add a greeting'.replace('Add a greeting', 'New chat'), 'Done — your turn', s.id)
+    expect(t.deps.notify).toHaveBeenCalledWith('Claude Code', 'Done — your turn', s.id)
     const messages = t.published.filter((p) => p.channel === 'agents:message')
     expect(messages.length).toBeGreaterThan(3)
 
     await vi.advanceTimersByTimeAsync(1500)
     vi.useRealTimers()
     await tick(50)
-    expect(t.journal).toHaveBeenCalledWith('Agents/Demo App', expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{4} New chat$/), undefined, expect.stringContaining('`hello.ts` (neu)'))
+    expect(t.journal).toHaveBeenCalledWith('Agents/Demo App', expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{4} Add a greeting$/), undefined, expect.stringContaining('`hello.ts` (neu)'))
     expect(t.svc.get(s.id).journal).toMatch(/^Agents\/Demo App\//)
 
     // a second turn rewrites the same note

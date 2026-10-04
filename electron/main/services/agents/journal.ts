@@ -5,14 +5,19 @@ const AGENT_NAMES: Record<AgentSession['kind'], string> = { 'claude-code': 'Clau
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** "2026-10-03 1542 Fix login" — sorts by time in the vault, local clock. */
-export function journalTitle(session: Pick<AgentSession, 'createdAt' | 'title'>): string {
-  const d = new Date(session.createdAt)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())} ${session.title}`
-}
-
 const texts = (messages: ChatMessage[], role: ChatMessage['role']) =>
   messages.filter((m) => m.role === role).flatMap((m) => m.parts.flatMap((p) => (p.type === 'text' && p.text.trim() ? [p.text.trim()] : [])))
+
+/**
+ * "2026-10-03 1542 Fix login" — sorts by time in the vault, local clock.
+ * A session still named after its agent is named by its first message.
+ */
+export function journalTitle(session: Pick<AgentSession, 'createdAt' | 'title' | 'kind'>, messages: ChatMessage[] = []): string {
+  const d = new Date(session.createdAt)
+  const first = texts(messages, 'user')[0]
+  const name = session.title === AGENT_NAMES[session.kind] && first ? first.split('\n')[0].slice(0, 60) : session.title
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())} ${name}`
+}
 
 /**
  * The session's journal in the vault: what was asked, what came out, which

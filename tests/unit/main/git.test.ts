@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
-import { GitService } from '../../../electron/main/services/git/GitService'
+import { GitService, remoteWebUrl } from '../../../electron/main/services/git/GitService'
 
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 
@@ -111,6 +111,25 @@ describe('GitService', () => {
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('totally\ndifferent\n')
     // a branch that exists already: git's own error comes through
     await expect(git.addWorktree(dir, join(await tempDir(), 'wt2'), 'wone/clash')).rejects.toMatchObject({ code: 'git' })
+  })
+
+  it('the repo page from origin; none without a remote', async () => {
+    const dir = await repo()
+    expect(await git.webUrl(dir)).toBeUndefined()
+    sh(dir, 'remote', 'add', 'origin', 'git@github.com:me/demo.git')
+    expect(await git.webUrl(dir)).toBe('https://github.com/me/demo')
+  })
+
+  it('remote addresses become web pages, never with credentials', () => {
+    expect(remoteWebUrl('git@github.com:me/demo.git')).toBe('https://github.com/me/demo')
+    expect(remoteWebUrl('ssh://git@gitlab.com:22/group/sub/demo.git')).toBe('https://gitlab.com/group/sub/demo')
+    expect(remoteWebUrl('ssh://git@example.org/me/demo')).toBe('https://example.org/me/demo')
+    expect(remoteWebUrl('https://user:ghp_secret@github.com/me/demo.git\n')).toBe('https://github.com/me/demo')
+    expect(remoteWebUrl('https://git.example.org:8443/me/demo/')).toBe('https://git.example.org:8443/me/demo')
+    expect(remoteWebUrl('http://github.com/me/demo')).toBe('https://github.com/me/demo')
+    expect(remoteWebUrl('/srv/repos/demo.git')).toBeUndefined()
+    expect(remoteWebUrl('https://github.com/demo')).toBeUndefined()
+    expect(remoteWebUrl('file:///srv/demo.git')).toBeUndefined()
   })
 
   it('reports a missing git binary as an error', async () => {

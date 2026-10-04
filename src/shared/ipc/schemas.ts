@@ -135,6 +135,9 @@ export const REQUEST_SCHEMAS: Schemas = {
   'agents:diff': z.object({ id, path }),
   'agents:accept': z.object({ id }),
   'agents:discard': z.object({ id }),
+  'agents:rename': z.object({ id, title: z.string().trim().min(1).max(200) }),
+  'agents:shell': z.object({ id }),
+  'agents:openInEditor': z.object({ id }),
 
   'events:recent': z
     .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })

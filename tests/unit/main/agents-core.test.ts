@@ -238,8 +238,11 @@ describe('session journal', () => {
     status: 'done'
   })
 
-  it('titles sort by local time', () => {
+  it('titles sort by local time; a session still named after its agent takes its first message', () => {
     expect(journalTitle(session())).toBe('2026-10-03 0905 Fix login')
+    expect(journalTitle(session({ title: 'Claude Code' }))).toBe('2026-10-03 0905 Claude Code')
+    expect(journalTitle(session({ title: 'Claude Code' }), [msg('user', 'Login fails\nwith empty password')])).toBe('2026-10-03 0905 Login fails')
+    expect(journalTitle(session(), [msg('user', 'Login fails')])).toBe('2026-10-03 0905 Fix login')
   })
 
   it('records task, result, changed files and open plan items; nothing before the first prompt', () => {

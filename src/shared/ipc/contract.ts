@@ -155,6 +155,9 @@ export interface IpcChannels {
   'agents:diff': { request: { id: string; path: string }; response: FileDiff }
   'agents:accept': { request: { id: string }; response: { files: number } }
   'agents:discard': { request: { id: string }; response: void }
+  'agents:rename': { request: { id: string; title: string }; response: AgentSession }
+  'agents:shell': { request: { id: string }; response: { terminalId: string } }
+  'agents:openInEditor': { request: { id: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -253,7 +256,10 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:changes': 'any',
   'agents:diff': 'any',
   'agents:accept': 'terminal',
-  'agents:discard': 'terminal'
+  'agents:discard': 'terminal',
+  'agents:rename': 'terminal',
+  'agents:shell': 'terminal',
+  'agents:openInEditor': 'desktop'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */

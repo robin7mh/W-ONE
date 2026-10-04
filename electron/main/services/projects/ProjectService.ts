@@ -8,6 +8,7 @@ import { ProjectRegistry } from './registry'
 import { detectGit } from './gitDetect'
 import { detectStack } from './stackDetect'
 import { desktopOnly, type Platform } from '../../platform/types'
+import { openInVsCode } from '../../lib/openInVsCode'
 
 const exec = promisify(execFile)
 
@@ -79,22 +80,7 @@ export class ProjectService {
   }
 
   async openInEditor(id: string): Promise<void> {
-    const { path } = this.requireProject(id)
-    try {
-      await exec('code', [path], { windowsHide: true })
-      return
-    } catch {
-      // `code` not on PATH — fall back per platform
-    }
-    if (process.platform === 'darwin') {
-      try {
-        await exec('open', ['-a', 'Visual Studio Code', path])
-        return
-      } catch {
-        /* VS Code not installed — reveal in Finder as last resort */
-      }
-    }
-    await this.openPath(path)
+    await openInVsCode(this.requireProject(id).path, this.platform)
   }
 
   /** Open a specific file (optionally at a line) in the editor. Path-confined. */

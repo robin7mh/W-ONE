@@ -154,6 +154,14 @@ test('agents: a coding agent session — chat, approval in W-ONE, the change as 
   await expect(page.getByText('· Your turn')).toBeVisible()
   expect(readFileSync(join(root, 'fake-output.txt'), 'utf8')).toBe('written by the fake agent\n')
 
+  // named after its agent; a click on the name renames it
+  const name = page.getByLabel('Session name')
+  await expect(name).toHaveValue('Claude Code')
+  await name.fill('Output writer')
+  await name.press('Enter')
+  await expect(page.getByText('Output writer', { exact: true })).toBeVisible() // the list follows
+  await expect(page.getByText(/^Claude Code · agent-demo/)).toBeVisible()
+
   // what changed, as a diff
   await page.getByRole('button', { name: /^A fake-output\.txt/ }).click()
   await expect(page.getByRole('dialog', { name: 'Changes in fake-output.txt' })).toBeVisible()

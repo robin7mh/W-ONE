@@ -16,4 +16,7 @@ export function registerAgentsIpc(router: Router, service: AgentSessionService):
   router.register('agents:diff', ({ id, path }) => service.diff(id, path))
   router.register('agents:accept', ({ id }) => service.accept(id))
   router.register('agents:discard', ({ id }) => service.discard(id))
+  router.register('agents:rename', ({ id, title }) => service.rename(id, title))
+  router.register('agents:shell', ({ id }) => service.shell(id))
+  router.register('agents:openInEditor', ({ id }) => service.openInEditor(id))
 }

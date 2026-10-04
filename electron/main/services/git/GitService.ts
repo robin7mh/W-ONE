@@ -26,6 +26,19 @@ const lines = (s: string) => s.split('\n').filter(Boolean)
 /** Pathspecs for "everything except …" (e.g. a node_modules link in a worktree). */
 const except = (exclude: string[]) => (exclude.length ? ['--', '.', ...exclude.map((p) => `:(exclude)${p}`)] : [])
 
+/**
+ * A remote's address as a web page: `git@host:owner/repo.git` and
+ * `https://user:token@host/owner/repo.git` → `https://host/owner/repo`.
+ * Credentials never make it into the link. Undefined for anything else.
+ */
+export function remoteWebUrl(remote: string): string | undefined {
+  const r = remote.trim()
+  const m =
+    /^(?:ssh:\/\/)?git@([^:/]+)(?::\d+(?=\/))?[:/](.+?)(?:\.git)?\/?$/.exec(r) ?? /^https?:\/\/(?:[^@/]+@)?([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(r)
+  if (!m || !m[2].includes('/')) return undefined
+  return `https://${m[1]}/${m[2]}`
+}
+
 /** Where an agent session started: the commit to diff against, plus files that were already untracked. */
 export interface GitBaseline {
   base: string
@@ -44,6 +57,11 @@ export class GitService {
       (out) => out.trim() === 'true',
       () => false
     )
+  }
+
+  /** The repo's page on GitHub (or GitLab, …) from `origin`; undefined without one. */
+  async webUrl(cwd: string): Promise<string | undefined> {
+    return git(cwd, ['remote', 'get-url', 'origin']).then(remoteWebUrl, () => undefined)
   }
 
   /**

@@ -228,6 +228,24 @@ describe('useAgents store', () => {
     expect(ag().view).toBe('assistant')
   })
 
+  it('rename, a shell for the session, VS Code', async () => {
+    installBridge({
+      'agents:rename': ({ title }: { title: string }) => session({ title }),
+      'agents:shell': () => ({ terminalId: 'sh1' }),
+      'agents:openInEditor': () => undefined
+    })
+    useAgents.setState({ sessions: [session()] })
+    await ag().rename('s1', 'Auth fix')
+    expect(ag().sessions[0].title).toBe('Auth fix')
+    expect(await ag().openShell('s1')).toBe('sh1')
+    await ag().openInEditor('s1')
+    expect(ag().error).toBeUndefined()
+
+    installBridge({ 'agents:shell': () => fail('folder gone') })
+    expect(await ag().openShell('s1')).toBeUndefined()
+    expect(ag().error).toBe('folder gone')
+  })
+
   it('failures land in error (and clear)', async () => {
     installBridge({
       'agents:create': () => fail('no claude'),
@@ -444,22 +462,89 @@ describe('SessionPane', () => {
     expect(screen.getByText(/Runs with your own Claude Code sign-in/)).toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toBeDisabled()
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Resume the session to continue')
-    expect(screen.queryByLabelText('Show terminal')).toBeNull()
+    expect(screen.getByLabelText('Show terminal')).toHaveAttribute('title', "A shell in the session's folder") // the agent's own is gone
+    expect(screen.queryByText('VS Code')).toBeNull() // no desktop bridge
     fireEvent.click(screen.getByLabelText('Resume'))
     expect(resume).toHaveBeenCalledWith('s1')
+  })
+
+  it('the name: click, edit, Enter or leaving saves; Esc or nothing new keeps it', () => {
+    const rename = vi.fn(async () => {})
+    useAgents.setState({ rename })
+    const { rerender } = pane(session())
+    const input = screen.getByLabelText('Session name')
+    expect(input).toHaveValue('Fix login')
+    fireEvent.change(input, { target: { value: '  Auth fix ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    expect(rename).toHaveBeenCalledWith('s1', 'Auth fix')
+
+    rerender(<SessionPane session={session({ title: 'Auth fix' })} messages={[]} />)
+    const fresh = screen.getByLabelText('Session name')
+    expect(fresh).toHaveValue('Auth fix')
+    fireEvent.change(fresh, { target: { value: 'Oops' } })
+    fireEvent.keyDown(fresh, { key: 'Escape' })
+    expect(fresh).toHaveValue('Auth fix')
+    fireEvent.change(fresh, { target: { value: '   ' } })
+    fireEvent.blur(fresh)
+    expect(fresh).toHaveValue('Auth fix')
+    fireEvent.keyDown(fresh, { key: 'a' })
+    expect(rename).toHaveBeenCalledTimes(1)
+  })
+
+  it('the repo page (GitHub, GitLab, any host) and the folder in VS Code', () => {
+    installBridge()
+    const openInEditor = vi.fn(async () => {})
+    useAgents.setState({ openInEditor })
+    const { rerender } = pane(session({ repoUrl: 'https://github.com/me/demo', worktree: '/wt', cwd: '/wt' }))
+    expect(screen.getByText('GitHub').closest('a')).toHaveAttribute('href', 'https://github.com/me/demo')
+    fireEvent.click(screen.getByText('VS Code'))
+    expect(openInEditor).toHaveBeenCalledWith('s1')
+    expect(screen.getByText('VS Code').closest('button')).toHaveAttribute('title', 'Open /wt in VS Code')
+
+    rerender(<SessionPane session={session({ repoUrl: 'https://gitlab.example.com/g/demo' })} messages={[]} />)
+    expect(screen.getByText('GitLab')).toBeInTheDocument()
+    rerender(<SessionPane session={session({ repoUrl: 'https://git.example.org/me/demo' })} messages={[]} />)
+    expect(screen.getByText('git.example.org')).toBeInTheDocument()
+    rerender(<SessionPane session={session()} messages={[]} />)
+    expect(screen.queryByText('git.example.org')).toBeNull()
   })
 })
 
 describe('SessionPane for ACP agents', () => {
-  it('Codex: no terminal; starting needs nothing from the user; messages go to the agent', () => {
+  it('Codex: no terminal of its own; starting needs nothing from the user; messages go to the agent', () => {
     render(<SessionPane session={session({ kind: 'codex', status: 'starting', terminalId: undefined })} messages={[]} />)
     expect(screen.getByText('Codex is starting.')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Show terminal')).toBeNull()
+    expect(screen.getByLabelText('Show terminal')).toBeInTheDocument() // a shell, on request only
     expect(screen.queryByLabelText('Hide terminal')).toBeNull()
     expect(screen.getByText('Codex · Demo')).toBeInTheDocument()
     expect(screen.getByText(/Runs with your own Codex sign-in/)).toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message Codex…')
     expect(x.terms).toHaveLength(0)
+  })
+})
+
+describe('SessionPane: a shell for agents without a terminal', () => {
+  it('opens a shell in the session\'s folder on request, hides it, notes its end; a failure shows nothing', async () => {
+    const bridge = installBridge({ 'terminal:attach': () => ({ buffer: '$ ', end: 2 }) })
+    const openShell = vi.fn(async () => 'sh1')
+    useAgents.setState({ openShell })
+    render(<SessionPane session={session({ kind: 'codex', terminalId: undefined })} messages={[]} />)
+    fireEvent.click(screen.getByLabelText('Show terminal'))
+    await act(settle)
+    expect(openShell).toHaveBeenCalledWith('s1')
+    expect(x.terms).toHaveLength(1)
+    expect(x.terms[0].written).toContain('$ ')
+    act(() => bridge.emit('terminal:exit', { id: 'sh1', exitCode: 0 }))
+    expect(x.terms[0].written.join('')).toContain('[the shell ended]')
+    fireEvent.click(screen.getByLabelText('Hide terminal'))
+    expect(x.terms[0].disposed).toBe(true)
+
+    openShell.mockResolvedValueOnce(undefined as never)
+    fireEvent.click(screen.getByLabelText('Show terminal'))
+    await act(settle)
+    expect(x.terms).toHaveLength(1)
+    expect(screen.getByLabelText('Show terminal')).toBeInTheDocument()
   })
 })
 
@@ -485,6 +570,9 @@ describe('SessionSide and diffs', () => {
     const { rerender } = render(<SessionSide session={session({ worktree: '/wt', branch: 'wone/x' })} onOpenNote={vi.fn()} />)
     expect(loadChanges).toHaveBeenCalledWith('s1')
     expect(screen.getByText('In its own working folder')).toBeInTheDocument()
+    expect(screen.getByText('/wt')).toBeInTheDocument()
+    expect(screen.getByText(/not on GitHub/)).toBeInTheDocument()
+    expect(screen.getByText(/commit and push them as usual/)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Changes 3' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getAllByText(/^[AMD]$/).map((n) => n.textContent)).toEqual(['M', 'A', 'D'])
     fireEvent.click(screen.getByText('a.ts'))
@@ -573,7 +661,7 @@ describe('AgentsView', () => {
     const remove = vi.fn(async () => {})
     const aOpen = vi.fn(async () => {})
     const aRemove = vi.fn(async () => {})
-    useAgents.setState({ open, remove, sessions: [session({ status: 'working', worktree: '/wt' }), session({ id: 's2', title: 'Old', status: 'ended', updatedAt: '2026-10-01T00:00:00.000Z' })] })
+    useAgents.setState({ open, remove, sessions: [session({ status: 'working', worktree: '/wt' }), session({ id: 's2', title: 'Old', status: 'ended', updatedAt: '2026-10-01T00:00:00.000Z' }), session({ id: 's3', kind: 'codex', title: 'Codex', status: 'ended', updatedAt: '2026-08-01T00:00:00.000Z' })] })
     useAssistant.setState({
       open: aOpen,
       remove: aRemove,
@@ -587,6 +675,8 @@ describe('AgentsView', () => {
     await act(settle)
     expect(screen.getAllByText(/^(Fix login|Ask|Old|Quiet)$/).map((n) => n.textContent)).toEqual(['Fix login', 'Ask', 'Old', 'Quiet'])
     expect(screen.getAllByText(/W-ONE Assistant ·/)).toHaveLength(2)
+    expect(screen.getAllByText(/^Claude Code · Demo ·/)).toHaveLength(2) // renamed: the agent moves to the second line
+    expect(screen.getAllByText(/^Demo ·/)).toHaveLength(1) // still named after its agent
     expect(screen.getByLabelText('Delete Fix login')).toHaveAttribute('title', 'Deletes its working folder too')
 
     fireEvent.click(screen.getByText('Fix login'))

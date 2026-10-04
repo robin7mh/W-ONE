@@ -235,7 +235,7 @@ describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
     expect(detail.messages[1].parts[0]).toEqual({ type: 'text', text: 'Running them.' })
     expect(detail.messages[1].parts[1]).toMatchObject({ status: 'done', output: 'ok' })
     expect(detail.plan).toEqual([{ id: 'plan-0', text: 'run tests', done: true }])
-    expect(t.deps.notify).toHaveBeenLastCalledWith('Codex · Run the tests', 'Done — your turn', s.id)
+    expect(t.deps.notify).toHaveBeenLastCalledWith('Codex', 'Done — your turn', s.id)
     expect(t.asks).toHaveLength(1)
   })
 

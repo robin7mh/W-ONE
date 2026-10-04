@@ -35,6 +35,9 @@ export function DiffModal() {
   )
 }
 
+/** A home-relative path for display: /Users/me/W-ONE/… → ~/W-ONE/… */
+const tilde = (path: string) => path.replace(/^(\/Users|\/home)\/[^/]+(?=\/)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\)/, '~')
+
 /**
  * Beside the chat: what the session changed (with diffs; take over or throw
  * away an own working folder), its plan, and the memory it used.
@@ -84,6 +87,12 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
                 <RefreshCw size={12} />
               </button>
             </div>
+            {session.worktree && (
+              <p className="px-1 pb-1 font-sans text-[10.5px] leading-relaxed text-text-muted">
+                A separate copy of the project in <span className="font-mono text-text-secondary">{tilde(session.worktree)}</span>, on the local branch{' '}
+                <span className="font-mono text-text-secondary">{session.branch}</span> — not on GitHub.
+              </p>
+            )}
             {!changes?.length && <p className="px-1 py-2 font-mono text-[11px] text-text-muted">No changes yet</p>}
             {changes?.map((c) => (
               <button
@@ -135,7 +144,10 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
                     </button>
                   </div>
                 )}
-                <p className="font-sans text-[10.5px] text-text-muted">Take over copies the changes into the project as uncommitted edits.</p>
+                <p className="font-sans text-[10.5px] leading-relaxed text-text-muted">
+                  Take over copies the changes into your project as uncommitted edits — commit and push them as usual to see them on GitHub. Discard deletes the
+                  folder and its branch.
+                </p>
               </div>
             )}
           </div>

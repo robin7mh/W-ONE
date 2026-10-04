@@ -25,12 +25,15 @@ vi.mock('../../../electron/main/services/system/collectors', () => ({
   collectProcesses: async () => [],
   currentUser: async () => ({ name: 'Ada Lovelace', firstName: 'Ada' })
 }))
+// Never start the real VS Code from a test.
+vi.mock('../../../electron/main/lib/openInVsCode', () => ({ openInVsCode: vi.fn(async () => {}) }))
 vi.mock('../../../electron/main/services/db/DbService', async (orig) => ({
   ...(await orig<typeof import('../../../electron/main/services/db/DbService')>()),
   createPool: () => h.pool
 }))
 
 import { createCore, type Core } from '../../../electron/main/core/createCore'
+import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
 import { headlessPlatform } from '../../../electron/main/platform/headless'
 import { wonePaths } from '../../../electron/main/lib/paths'
 import { run, serverConfigFromEnv } from '../../../server/main'
@@ -242,6 +245,8 @@ describe('standalone server entry', () => {
     const mcp = await post(hookUrl.replace('/hooks/', '/mcp/'), { jsonrpc: '2.0', id: 1, method: 'tools/list' })
     expect(((await mcp.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)).toContain('memory_search')
     await expect(call('agents:create', { kind: 'claude-code', projectId: 'nope' })).rejects.toThrow('Project not found')
+    await call('agents:openInEditor', { id: session.id })
+    expect(openInVsCode).toHaveBeenCalledWith(expect.any(String), expect.anything())
   })
 
   it('reads its config from the environment', () => {

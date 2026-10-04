@@ -25,7 +25,7 @@ import { detectAgents, type Probe } from './detect'
 import { applyHook, toolRisk, toolSummary, toolTitle, type Applied, type HookEvent } from './transcript'
 import { journalBody, journalTitle } from './journal'
 import { ACP_AGENTS, applyAcpUpdate, findAcpTool, kindRisk, openTurn, pickOption, type AcpKind, type AcpProcess } from './acp'
-import { shellEnv } from '../terminal/TerminalService'
+import { shellCommand, shellEnv } from '../terminal/TerminalService'
 
 const AGENT_NAMES: Record<AgentKind, string> = { 'claude-code': 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' }
 /** Left out of an isolated session's diff: the link to the project's dependencies. */
@@ -57,6 +57,8 @@ interface Live extends Record_ {
   messages: ChatMessage[]
   journalTimer?: NodeJS.Timeout
   acp?: AcpLink
+  /** A plain shell in the session's folder (ACP agents have no terminal of their own). */
+  shellId?: string
 }
 
 export interface AgentSessionDeps {
@@ -97,9 +99,11 @@ export interface AgentSessionDeps {
   spawnAcp: (command: { file: string; args: string[] }, cwd: string, env: Record<string, string>) => AcpProcess
   /** The Claude Code binary (default `claude` from the user's PATH; tests point it at a stand-in). */
   claudeBin?: string
+  /** Opens a folder in VS Code (desktop only). */
+  openFolder?: (path: string) => Promise<void>
 }
 
-const firstLine = (text: string) => text.trim().split('\n')[0].slice(0, 60)
+const MAX_TITLE = 80
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project'
 
 /**
@@ -125,10 +129,20 @@ export class AgentSessionService {
     } catch {
       /* unreadable list: start empty, the transcripts stay on disk */
     }
+    const repos = new Map<string, Promise<string | undefined>>()
     for (const r of records) {
       const messages = JSON.parse(await readFile(this.file(r.session.id), 'utf8').catch(() => '[]')) as ChatMessage[]
       const wasRunning = r.session.status !== 'ended' && r.session.status !== 'error'
-      const session: AgentSession = { ...r.session, live: false, terminalId: undefined, status: wasRunning ? 'ended' : r.session.status }
+      if (!repos.has(r.projectPath)) repos.set(r.projectPath, this.deps.git.webUrl(r.projectPath))
+      const session: AgentSession = {
+        ...r.session,
+        // Sessions from before titles defaulted to the agent's name.
+        title: r.session.title === 'New chat' ? AGENT_NAMES[r.session.kind] : r.session.title,
+        repoUrl: r.session.repoUrl ?? (await repos.get(r.projectPath)),
+        live: false,
+        terminalId: undefined,
+        status: wasRunning ? 'ended' : r.session.status
+      }
       this.live.set(session.id, { ...r, session, messages })
     }
   }
@@ -150,7 +164,7 @@ export class AgentSessionService {
     const project = this.deps.projects(req.projectId)
     if (!project) throw coded('not-found', 'Project not found')
     const id = randomUUID()
-    const title = req.title?.trim() || (req.prompt?.trim() ? firstLine(req.prompt) : 'New chat')
+    const title = req.title?.trim().slice(0, MAX_TITLE) || AGENT_NAMES[req.kind]
 
     let cwd = project.path
     let worktree: string | undefined
@@ -178,6 +192,7 @@ export class AgentSessionService {
       isolated: !!req.isolated,
       worktree,
       branch,
+      repoUrl: await this.deps.git.webUrl(project.path),
       status: 'starting',
       live: false,
       plan: [],
@@ -218,9 +233,45 @@ export class AgentSessionService {
   }
 
   stop(id: string): void {
-    const { session, acp } = this.require(id)
-    if (acp) acp.proc.kill()
-    else if (session.terminalId) this.deps.terminal.kill(session.terminalId)
+    const l = this.require(id)
+    if (l.acp) l.acp.proc.kill()
+    else if (l.session.terminalId) this.deps.terminal.kill(l.session.terminalId)
+    if (l.shellId) this.deps.terminal.kill(l.shellId)
+    l.shellId = undefined
+  }
+
+  /** The user names the session (its journal heading follows; Claude Code gets it on resume). */
+  rename(id: string, title: string): AgentSession {
+    const l = this.require(id)
+    const next = title.trim().slice(0, MAX_TITLE)
+    if (!next) throw coded('bad-input', 'A session needs a name')
+    this.update(l, { title: next })
+    if (l.session.journal) this.scheduleJournal(l, 0)
+    return l.session
+  }
+
+  /** A plain shell in the session's folder — one per session, started on first ask. */
+  async shell(id: string): Promise<{ terminalId: string }> {
+    const l = this.require(id)
+    if (l.shellId) return { terminalId: l.shellId }
+    const info = await this.deps.terminal.spawnProgram({
+      title: l.session.title,
+      cwd: l.session.cwd,
+      command: shellCommand(),
+      projectId: l.session.projectId,
+      onExit: () => {
+        if (l.shellId === info.id) l.shellId = undefined
+      }
+    })
+    l.shellId = info.id
+    return { terminalId: info.id }
+  }
+
+  /** The session's folder in VS Code — its own worktree, if it has one. */
+  async openInEditor(id: string): Promise<void> {
+    const { session } = this.require(id)
+    if (!this.deps.openFolder) throw coded('desktop-only', 'Opening VS Code works in the desktop app')
+    await this.deps.openFolder(session.cwd)
   }
 
   /** Start the agent again in the same folder (Claude Code continues its transcript). */
@@ -302,6 +353,7 @@ export class AgentSessionService {
     for (const l of this.live.values()) {
       if (l.acp) l.acp.proc.kill()
       else if (l.session.terminalId) this.deps.terminal.kill(l.session.terminalId)
+      if (l.shellId) this.deps.terminal.kill(l.shellId)
       clearTimeout(l.journalTimer)
     }
     await this.writes
@@ -510,7 +562,8 @@ export class AgentSessionService {
     if (!applied.attention) return
     const body =
       applied.attention === 'approval' ? 'Waiting for your approval' : applied.attention === 'waiting' ? 'Waiting for your answer' : 'Done — your turn'
-    this.deps.notify?.(`${AGENT_NAMES[l.session.kind]} · ${l.session.title}`, body, l.session.id)
+    const name = AGENT_NAMES[l.session.kind]
+    this.deps.notify?.(l.session.title === name ? name : `${name} · ${l.session.title}`, body, l.session.id)
     if (applied.attention === 'done') this.scheduleJournal(l, JOURNAL_DELAY_MS)
   }
 
@@ -535,7 +588,7 @@ export class AgentSessionService {
     try {
       const body = journalBody(l.session, l.messages, await this.changes(l.session.id).catch(() => []))
       if (!body) return
-      const path = await this.deps.journal(`Agents/${l.session.projectName}`, journalTitle(l.session), l.session.journal, body)
+      const path = await this.deps.journal(`Agents/${l.session.projectName}`, journalTitle(l.session, l.messages), l.session.journal, body)
       if (path && path !== l.session.journal) this.update(l, { journal: path })
     } catch (err) {
       console.warn('[agents] journal not written:', (err as Error).message)

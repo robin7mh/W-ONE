@@ -35,6 +35,10 @@ interface AgentsState {
   stop: (id?: string) => Promise<void>
   resume: (id?: string) => Promise<void>
   remove: (id: string) => Promise<void>
+  rename: (id: string, title: string) => Promise<void>
+  /** A shell in the session's folder (ACP agents have no terminal of their own). */
+  openShell: (id: string) => Promise<string | undefined>
+  openInEditor: (id: string) => Promise<void>
   loadChanges: (id?: string) => Promise<void>
   showDiff: (path: string) => Promise<void>
   closeDiff: () => void
@@ -181,6 +185,23 @@ export const useAgents = create<AgentsState>((set, get) => {
           ...(s.activeId === x ? { activeId: undefined, view: 'empty' as const } : {})
         }))
       }, id),
+
+    rename: (id, title) =>
+      act(async (x) => {
+        const session = await ipc('agents:rename', { id: x, title })
+        set((s) => ({ sessions: upsertSession(s.sessions, session) }))
+      }, id),
+
+    openShell: async (id) => {
+      try {
+        return (await ipc('agents:shell', { id })).terminalId
+      } catch (err) {
+        fail(err)
+        return undefined
+      }
+    },
+
+    openInEditor: (id) => act((x) => ipc('agents:openInEditor', { id: x }), id),
 
     loadChanges: (id) =>
       act(async (x) => {

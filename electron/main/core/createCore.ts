@@ -3,6 +3,7 @@ import { hostname } from 'node:os'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
 import type { WonePaths } from '../lib/paths'
 import type { Platform } from '../platform/types'
+import { openInVsCode } from '../lib/openInVsCode'
 import { Router } from '../../ipc/router'
 import { registerProjectIpc } from '../../ipc/projects.ipc'
 import { registerSystemIpc } from '../../ipc/system.ipc'
@@ -205,7 +206,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     journal: vaultJournal(vault),
     notify: opts.notify,
     spawnAcp,
-    claudeBin: process.env.WONE_CLAUDE_BIN || undefined
+    claudeBin: process.env.WONE_CLAUDE_BIN || undefined,
+    openFolder: (path) => openInVsCode(path, platform)
   })
   await Promise.all([agents.init(), local.start()])
 

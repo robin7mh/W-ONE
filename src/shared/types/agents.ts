@@ -52,6 +52,8 @@ export interface AgentSession {
   isolated: boolean
   worktree?: string
   branch?: string
+  /** The project's repo page (GitHub, GitLab, …) from its `origin` remote. */
+  repoUrl?: string
   status: SessionStatus
   /** The agent's process is running (messages can be sent). */
   live: boolean

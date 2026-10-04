@@ -12,7 +12,7 @@ import { relativeTime } from '../format'
 import { ActivityTimeline } from './ActivityTimeline'
 import { AssistantPane, iconFor } from './AssistantPane'
 import { NewChatDialog } from './NewChatDialog'
-import { SessionPane } from './SessionPane'
+import { AGENT_NAMES, SessionPane } from './SessionPane'
 import { DiffModal, SessionSide } from './SessionSide'
 
 type Entry =
@@ -50,7 +50,11 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
   const entries = useMemo<Entry[]>(
     () =>
       [
-        ...ag.sessions.map((s): Entry => ({ kind: 'session', id: s.id, title: s.title, sub: s.projectName, updatedAt: s.updatedAt, session: s })),
+        ...ag.sessions.map((s): Entry => {
+          // Renamed: the agent goes into the second line, so it stays recognisable.
+          const sub = s.title === AGENT_NAMES[s.kind] ? s.projectName : `${AGENT_NAMES[s.kind]} · ${s.projectName}`
+          return { kind: 'session', id: s.id, title: s.title, sub, updatedAt: s.updatedAt, session: s }
+        }),
         ...a.conversations.map(
           (c): Entry => ({ kind: 'chat', id: c.id, title: c.title, sub: 'W-ONE Assistant', updatedAt: c.updatedAt, agentId: c.agentId, running: !!a.running[c.id] })
         )
