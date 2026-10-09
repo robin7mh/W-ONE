@@ -60,5 +60,5 @@ afterEach(() => {
   delete (window as { wone?: unknown }).wone
   setTransport(null)
   localStorage.clear()
-  document.documentElement.removeAttribute('data-theme')
+  for (const a of ['data-theme', 'data-accent', 'data-surface', 'style']) document.documentElement.removeAttribute(a)
 })

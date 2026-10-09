@@ -212,10 +212,13 @@ Jede App bekommt ihr eigenes Dockerfile, CI und CD laufen pro Workspace.
 ### Designsystem (eine Quelle der Wahrheit)
 
 - **Farben** sind CSS-Variablen in `src/index.css`, als Tailwind-Tokens in `tailwind.config.ts`
-  verfügbar; Komponenten enthalten keine festen Hex-Werte. Der Theme-Schalter wechselt
-  `data-theme` zwischen dunkel und hell. Die Wahl wird gespeichert, beim ersten Start gilt die
-  Einstellung des Betriebssystems. Es ändern sich nur die Variablen, nie die Komponenten. Glows
-  hängen am Token `--glow` und sind im hellen Modus aus.
+  verfügbar; Komponenten enthalten keine festen Hex-Werte. Unter Einstellungen → Darstellung
+  (`src/lib/theme.ts`) wählt man Modus (dunkel, hell, System), Akzentfarbe und dunklen
+  Hintergrund. „Cyber“ färbt Flächen, Linien, Text und Raster im Ton des Akzents, „Schwarz“ und
+  „Graphit“ bleiben neutral. Der Modus setzt `data-theme`, Akzent und Hintergrund überschreiben
+  einzelne Tokens direkt an `<html>`. Die Wahl wird pro Gerät gespeichert, Standard ist System
+  in Cyan. Es ändern sich nur die Variablen, nie die Komponenten. Glows hängen am Token `--glow`,
+  sind dezent und im hellen Modus aus.
 - **Ein `Panel`-Baustein** (`src/components/ui/Panel.tsx`) gibt jeder gerahmten Fläche denselben
   Rahmen und Kopf. `HudFrame` ergänzt optionale Eckmarken. Ein gemeinsamer Glow-Token, sparsam
   eingesetzt.
@@ -468,10 +471,13 @@ Each app gets its own Dockerfile, and CI and CD run per workspace.
 ### Design system (single source of truth)
 
 - **Colors** are CSS variables in `src/index.css`, exposed as Tailwind tokens in
-  `tailwind.config.ts`; components contain no hardcoded hex. The theme toggle swaps `data-theme`
-  between dark and light. The choice is saved, and the first start follows the OS appearance.
-  Only the variables change, never the components. Glows scale with the `--glow` token, so they
-  switch off in light mode.
+  `tailwind.config.ts`; components contain no hardcoded hex. Settings → Appearance
+  (`src/lib/theme.ts`) picks the mode (dark, light, system), accent color and dark background.
+  "Cyber" tints surfaces, lines, text and grid in the accent's hue; "black" and "graphite" stay
+  neutral. The mode sets `data-theme`, accent and background override single tokens inline on
+  `<html>`. The choice is saved per device and defaults to the OS in cyan. Only the variables
+  change, never the components. Glows scale with the `--glow` token, are kept subtle and switch
+  off in light mode.
 - **One `Panel` primitive** (`src/components/ui/Panel.tsx`) gives every framed surface the same
   border and header treatment. `HudFrame` adds optional corner ticks. One shared glow token is
   used sparingly.

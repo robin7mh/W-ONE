@@ -553,6 +553,21 @@ agents: {
 
   settings: {
     title: 'Einstellungen',
+    appearanceCard: 'Darstellung',
+    appearanceHint: 'Gilt für dieses Gerät.',
+    themeMode: 'Modus',
+    themeModes: { dark: 'Dunkel', light: 'Hell', system: 'System' },
+    accent: 'Akzentfarbe',
+    accents: { cyan: 'Cyan', blue: 'Blau', violet: 'Violett', pink: 'Neon-Pink', green: 'Matrix-Grün', amber: 'Bernstein', mono: 'Mono' },
+    surface: 'Hintergrund',
+    surfaces: { cyber: 'Cyber', black: 'Schwarz', graphite: 'Graphit' },
+    surfaceHints: {
+      cyber: 'Flächen, Linien und Raster in der Akzentfarbe.',
+      black: 'Echtes Schwarz, neutrale Linien.',
+      graphite: 'Neutrales Grau, ohne Farbstich.'
+    },
+    surfaceDarkOnly: 'Gilt im dunklen Modus.',
+    resetAppearance: 'Auf Standard zurücksetzen',
     agentsCard: 'Coding-Agents',
     agentsIntro: 'Deine eigenen Agents mit deinen eigenen Konten — W-ONE startet sie, zeigt ihre Arbeit und fragt dich vor allem Riskanten.',
     checkAgain: 'Erneut prüfen',

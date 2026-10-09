@@ -12,6 +12,8 @@
  * SINGLE SOURCE OF TRUTH for color.
  * Values are space-separated RGB channels so Tailwind's `rgb(var(--x) / <alpha>)`
  * can apply opacity. Change a token here and it propagates everywhere.
+ * The user's accent and dark background (src/lib/theme.ts) override single
+ * tokens inline on <html>; the dark values here are the cyber background in cyan.
  */
 :root,
 :root[data-theme='dark'] {
@@ -29,13 +31,16 @@
   --accent-amber: 245 191 96;
   --accent-green: 96 220 150;
   --accent-danger: 255 96 112;
+  /* Companions of the accent for the ambient background light (Settings → Appearance). */
+  --accent-2: 74 132 255;
+  --accent-3: 158 122 255;
 
   --text-primary: 226 236 247;
   --text-secondary: 150 168 189;
   --text-muted: 96 112 133;
 
-  /* Strength of decorative glows (text-glow, HUD drop-shadows). */
-  --glow: 1;
+  /* Strength of decorative glows (text-glow, HUD drop-shadows) — kept subtle. */
+  --glow: 0.4;
 
   /* Memory graph palette — one hue per folder in colorful mode. */
   --graph-cyan: 56 214 232;
@@ -69,6 +74,8 @@
   --accent-amber: 180 115 0;
   --accent-green: 22 150 72;
   --accent-danger: 210 36 64;
+  --accent-2: 37 99 235;
+  --accent-3: 109 64 230;
 
   --text-primary: 17 24 39;
   --text-secondary: 61 74 94;
@@ -258,8 +265,8 @@
   /* Faint HUD grid used by the background. */
   .hud-grid {
     background-image:
-      linear-gradient(rgb(var(--border-hud) / 0.35) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(var(--border-hud) / 0.35) 1px, transparent 1px);
+      linear-gradient(rgb(var(--border-hud) / 0.2) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--border-hud) / 0.2) 1px, transparent 1px);
     background-size: 44px 44px;
   }
 }

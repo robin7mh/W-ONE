@@ -8,14 +8,15 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { isMac, useFullScreen } from '@/lib/platform'
-import { useTheme } from '@/lib/theme'
+import { useAppearance } from '@/lib/theme'
 import { isDesktop } from '@shared/ipc/client'
 import { useSession } from '@/features/session/store'
 import { useT } from '@/lib/i18n'
 
 export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
   const t = useT()
-  const [theme, toggleTheme] = useTheme()
+  const theme = useAppearance((s) => s.theme)
+  const toggleTheme = useAppearance((s) => s.toggleTheme)
   const fullScreen = useFullScreen()
   const desktop = isDesktop()
   const link = useSession((s) => s.link)

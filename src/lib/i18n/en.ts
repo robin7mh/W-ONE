@@ -567,6 +567,21 @@ agents: {
 
   settings: {
     title: 'Settings',
+    appearanceCard: 'Appearance',
+    appearanceHint: 'Saved on this device.',
+    themeMode: 'Mode',
+    themeModes: { dark: 'Dark', light: 'Light', system: 'System' },
+    accent: 'Accent color',
+    accents: { cyan: 'Cyan', blue: 'Blue', violet: 'Violet', pink: 'Neon pink', green: 'Matrix green', amber: 'Amber', mono: 'Mono' },
+    surface: 'Background',
+    surfaces: { cyber: 'Cyber', black: 'Black', graphite: 'Graphite' },
+    surfaceHints: {
+      cyber: 'Surfaces, lines and grid in the accent color.',
+      black: 'True black, neutral lines.',
+      graphite: 'Neutral grey, no tint.'
+    },
+    surfaceDarkOnly: 'Applies to dark mode.',
+    resetAppearance: 'Reset to default',
     agentsCard: 'Coding agents',
     agentsIntro: 'Your own agents, signed in with your own accounts — W-ONE starts them, shows their work and asks you before anything risky.',
     checkAgain: 'Check again',

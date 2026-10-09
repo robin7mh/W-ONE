@@ -13,6 +13,7 @@ import {
 import { Maximize2 } from 'lucide-react'
 import { GRAPH_COLORS, type GraphNode, type GraphStyle, type MemoryGraph } from '@shared/types/memory'
 import { useT } from '@/lib/i18n'
+import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 import { TechLabel } from '@/components/ui/TechLabel'
 
 interface SimNode extends SimulationNodeDatum, GraphNode {
@@ -232,7 +233,7 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
       readColors()
       requestDraw()
     })
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: APPEARANCE_ATTRIBUTES })
 
     // --- interaction -------------------------------------------------------
     const toWorld = (ev: PointerEvent | WheelEvent) => {

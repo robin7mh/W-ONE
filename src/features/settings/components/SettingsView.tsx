@@ -16,6 +16,7 @@ import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
 import { useSettings } from '../store'
+import { AppearanceCard } from './AppearanceCard'
 
 function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -363,7 +364,7 @@ function AboutCard() {
   )
 }
 
-/** Settings: AI, remote access & devices, permissions, vault, about. */
+/** Settings: appearance, language, agents, AI, remote access & devices, permissions, vault, about. */
 export function SettingsView() {
   const t = useT()
   const load = useSettings((s) => s.load)
@@ -393,6 +394,7 @@ export function SettingsView() {
         </div>
       )}
       <div className="grid gap-3 p-3 lg:grid-cols-2">
+        <AppearanceCard />
         <Card icon={Languages} title={t.account.languageCard}>
           <LanguageSwitch />
           <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
