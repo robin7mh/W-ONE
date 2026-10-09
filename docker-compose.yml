@@ -33,7 +33,7 @@ services:
   core:
     profiles: ['core']
     build: .
-    image: ghcr.io/robin7mh/w-one-ui:local
+    image: ghcr.io/robin7mh/w-one:local
     container_name: w-one-core
     restart: unless-stopped
     environment:

@@ -93,7 +93,7 @@ test('projects: adds a git folder through the (stubbed) native picker', async ({
   }, repo)
   await page.getByTitle('Projects', { exact: true }).click()
   await page.getByRole('button', { name: 'Add project' }).click()
-  await expect(page.getByRole('heading', { level: 2 })).toHaveText('w-one-ui') // package.json name
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText('w-one') // package.json name
   await expect(page.getByText(repo).first()).toBeVisible()
   if (branch !== 'HEAD') await expect(page.getByText(branch).first()).toBeVisible()
   await expect(page.getByText('TypeScript').first()).toBeVisible()

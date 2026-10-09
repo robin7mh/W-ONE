@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/w-one-ui
+  IMAGE: ghcr.io/${{ github.repository_owner }}/w-one
 
 jobs:
   image:
