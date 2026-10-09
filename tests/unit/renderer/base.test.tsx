@@ -159,7 +159,9 @@ describe('data & shared constants', () => {
       'ai:conversationsChanged',
       'permission:request',
       'permission:resolved',
-      'events:event'
+      'events:event',
+      'agents:changed',
+      'agents:message'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
@@ -167,6 +169,7 @@ describe('data & shared constants', () => {
     // type-only modules: loading them proves they compile to side-effect-free modules
     for (const mod of await Promise.all([
       import('@shared/types/context'),
+      import('@shared/types/agents'),
       import('@shared/types/entity'),
       import('@shared/types/files'),
       import('@shared/types/project'),

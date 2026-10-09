@@ -19,6 +19,15 @@ import type {
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
 import type {
+  AgentAvailability,
+  AgentMessageUpdate,
+  AgentSession,
+  AgentSessionDetail,
+  CreateSessionRequest,
+  FileChange,
+  FileDiff
+} from '@shared/types/agents'
+import type {
   AppInfo,
   Device,
   DirListing,
@@ -132,6 +141,23 @@ export interface IpcChannels {
   'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
 
   'events:recent': { request: { limit?: number; conversationId?: string }; response: WoneEvent[] }
+
+  'agents:detect': { request: void; response: AgentAvailability[] }
+  'agents:list': { request: void; response: AgentSession[] }
+  'agents:get': { request: { id: string }; response: AgentSessionDetail }
+  'agents:create': { request: CreateSessionRequest; response: AgentSession }
+  'agents:send': { request: { id: string; text: string }; response: void }
+  'agents:interrupt': { request: { id: string }; response: void }
+  'agents:stop': { request: { id: string }; response: void }
+  'agents:resume': { request: { id: string }; response: AgentSession }
+  'agents:remove': { request: { id: string }; response: void }
+  'agents:changes': { request: { id: string }; response: FileChange[] }
+  'agents:diff': { request: { id: string; path: string }; response: FileDiff }
+  'agents:accept': { request: { id: string }; response: { files: number } }
+  'agents:discard': { request: { id: string }; response: void }
+  'agents:rename': { request: { id: string; title: string }; response: AgentSession }
+  'agents:shell': { request: { id: string }; response: { terminalId: string } }
+  'agents:openInEditor': { request: { id: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -216,7 +242,24 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'permission:respond': 'any',
   'permission:grants': 'any',
   'permission:revoke': 'any',
-  'events:recent': 'any'
+  'events:recent': 'any',
+  // Agents run programs on this machine: starting or driving them is a shell's power.
+  'agents:detect': 'any',
+  'agents:list': 'any',
+  'agents:get': 'any',
+  'agents:create': 'terminal',
+  'agents:send': 'terminal',
+  'agents:interrupt': 'terminal',
+  'agents:stop': 'terminal',
+  'agents:resume': 'terminal',
+  'agents:remove': 'terminal',
+  'agents:changes': 'any',
+  'agents:diff': 'any',
+  'agents:accept': 'terminal',
+  'agents:discard': 'terminal',
+  'agents:rename': 'terminal',
+  'agents:shell': 'terminal',
+  'agents:openInEditor': 'desktop'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -235,6 +278,8 @@ export interface IpcEvents {
   'permission:request': PermissionRequest
   'permission:resolved': { id: string; decision: ApprovalDecision }
   'events:event': WoneEvent
+  'agents:changed': { session?: AgentSession; removed?: string }
+  'agents:message': AgentMessageUpdate
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -251,7 +296,9 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'ai:conversationsChanged',
   'permission:request',
   'permission:resolved',
-  'events:event'
+  'events:event',
+  'agents:changed',
+  'agents:message'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

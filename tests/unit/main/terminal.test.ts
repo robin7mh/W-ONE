@@ -92,17 +92,23 @@ describe('TerminalService.create', () => {
     process.env.npm_config_x = 'y'
     process.env.VITE_X = 'z'
     process.env.INIT_CWD = '/x'
+    // markers of a Claude Code session W-ONE was started from (CLAUDE_CODE_*, CLAUDECODE, …)
+    const claude = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT']
+    for (const k of claude) process.env[k] = '1'
+    process.env.CLAUDE_CONFIG_DIR = '/kept'
     const info = await svc.create({ cols: 100, rows: 30 })
     delete process.env.ELECTRON_RUN_AS_NODE
     delete process.env.npm_config_x
     delete process.env.VITE_X
     delete process.env.INIT_CWD
+    for (const k of [...claude, 'CLAUDE_CONFIG_DIR']) delete process.env[k]
     expect(info).toMatchObject({ title: '~', cwd: homedir(), cwdLabel: '~', shell: 'zsh', projectId: undefined })
     expect(pty().args).toEqual(['-l'])
     expect(pty().opts).toMatchObject({ cwd: homedir(), cols: 100, rows: 30 })
     const env = pty().opts.env
     expect(env).toMatchObject({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'W-ONE' })
-    for (const k of ['ELECTRON_RUN_AS_NODE', 'npm_config_x', 'VITE_X', 'INIT_CWD', 'NODE_ENV']) expect(env).not.toHaveProperty(k)
+    for (const k of ['ELECTRON_RUN_AS_NODE', 'npm_config_x', 'VITE_X', 'INIT_CWD', 'NODE_ENV', ...claude]) expect(env).not.toHaveProperty(k)
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/kept') // the user's own Claude settings stay
     expect(env.LANG).toBeTruthy()
   })
 
@@ -214,5 +220,56 @@ describe('TerminalService sessions', () => {
     svc.killAll()
     expect(svc.list()).toEqual([])
     svc.killAll() // idempotent
+  })
+})
+
+describe('TerminalService.spawnProgram (agents)', () => {
+  it('runs a program through the login shell with extra env; hidden from the terminal tabs', async () => {
+    const onExit = vi.fn()
+    const info = await svc.spawnProgram({
+      title: 'Claude Code',
+      cwd: projectDir,
+      command: { file: 'claude', args: ['--session-id', 'abc', '--settings', '{"a":"it\'s"}'] },
+      env: { WONE_HOOK_TOKEN: 't' },
+      projectId: 'p1',
+      onExit
+    })
+    expect(info).toMatchObject({ kind: 'agent', title: 'Claude Code', projectId: 'p1', shell: 'zsh' })
+    expect(pty().file).toBe('/bin/zsh')
+    expect(pty().args).toEqual(['-lc', `exec claude --session-id abc --settings '{"a":"it'\\''s"}'`])
+    expect(pty().opts.env).toMatchObject({ WONE_HOOK_TOKEN: 't', TERM_PROGRAM: 'W-ONE' })
+    expect(svc.list()).toEqual([]) // the Terminal module only lists shells
+    expect(svc.attach(info.id).info.id).toBe(info.id) // but views can attach to it
+    await svc.create({})
+    expect(svc.list()).toHaveLength(1)
+
+    pty().exit(0) // the shell tab — no agent callback
+    h.ptys[0].exit(2)
+    expect(onExit).toHaveBeenCalledOnce()
+    expect(onExit).toHaveBeenCalledWith(2)
+  })
+
+  it('on Windows starts the program directly', async () => {
+    setPlatform('win32')
+    await svc.spawnProgram({ title: 'x', cwd: projectDir, command: { file: 'claude.exe', args: ['--a b'] } })
+    expect(pty().file).toBe('claude.exe')
+    expect(pty().args).toEqual(['--a b'])
+  })
+
+  it('refuses a missing folder', async () => {
+    await expect(svc.spawnProgram({ title: 'x', cwd: join(projectDir, 'nope'), command: { file: 'claude', args: [] } })).rejects.toMatchObject({
+      code: 'not-found'
+    })
+  })
+})
+
+describe('shellQuote', () => {
+  it('leaves plain words, quotes everything else', async () => {
+    const { shellQuote } = await import('../../../electron/main/services/terminal/TerminalService')
+    expect(shellQuote('--session-id')).toBe('--session-id')
+    expect(shellQuote('/a/b.c:1,2=3@x%y+z')).toBe('/a/b.c:1,2=3@x%y+z')
+    expect(shellQuote('')).toBe("''")
+    expect(shellQuote('a b')).toBe("'a b'")
+    expect(shellQuote("it's $HOME")).toBe(`'it'\\''s $HOME'`)
   })
 })

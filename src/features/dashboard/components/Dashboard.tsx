@@ -12,6 +12,7 @@ import { useClock } from '@/hooks/useClock'
 import { useProjects } from '@/features/projects/store'
 import { useSystemMetrics } from '@/features/system/useSystemMetrics'
 import { useAssistant } from '@/features/agents/store'
+import { useAgents } from '@/features/agents/sessions'
 import { folderColors } from '@/features/memory/store'
 import { slotColor } from '@/features/memory/components/GraphView'
 import { greeting, isoWeek, longDate, t } from '../i18n'
@@ -81,9 +82,12 @@ function AskBar({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
     const question = text.trim()
     if (!question) return
     const a = useAssistant.getState()
-    a.newChat('assistant')
     setText('')
     onNavigate('agents')
+    // With an API key the W-ONE Assistant answers right away; otherwise pick an agent (e.g. Claude Code).
+    if (!a.status?.configured) return useAgents.getState().openDialog(question)
+    useAgents.getState().showAssistant()
+    a.newChat('assistant')
     void a.send(question)
   }
   return (

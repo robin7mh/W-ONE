@@ -23,6 +23,8 @@ interface P {
   reason?: string
   iterations?: number
   outputTokens?: number
+  title?: string
+  code?: number
 }
 
 /** One line per event for the activity timeline — what happened, in plain words. */
@@ -55,6 +57,10 @@ export function describeEvent(e: WoneEvent): { text: string; tone: Tone } {
       return { text: `Denied: ${p.tool}`, tone: 'error' }
     case 'db.migrated':
       return { text: 'Database schema updated', tone: 'muted' }
+    case 'session.started':
+      return { text: `${p.agent ?? 'Agent'} started: ${p.title ?? ''}`.trim(), tone: 'cyan' }
+    case 'session.ended':
+      return { text: `Session ended${p.code ? ` (exit code ${p.code})` : ''}`, tone: p.code ? 'warn' : 'muted' }
     default:
       return { text: e.type, tone: 'muted' }
   }

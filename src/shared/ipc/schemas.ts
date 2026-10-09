@@ -116,6 +116,29 @@ export const REQUEST_SCHEMAS: Schemas = {
   'permission:grants': none,
   'permission:revoke': z.object({ agentId: id, toolName: id }),
 
+  'agents:detect': none,
+  'agents:list': none,
+  'agents:get': z.object({ id }),
+  'agents:create': z.object({
+    kind: z.enum(['claude-code', 'codex', 'gemini']),
+    projectId: id,
+    title: text(200).optional(),
+    isolated: z.boolean().optional(),
+    prompt: text(100_000).optional()
+  }),
+  'agents:send': z.object({ id, text: z.string().min(1).max(100_000) }),
+  'agents:interrupt': z.object({ id }),
+  'agents:stop': z.object({ id }),
+  'agents:resume': z.object({ id }),
+  'agents:remove': z.object({ id }),
+  'agents:changes': z.object({ id }),
+  'agents:diff': z.object({ id, path }),
+  'agents:accept': z.object({ id }),
+  'agents:discard': z.object({ id }),
+  'agents:rename': z.object({ id, title: z.string().trim().min(1).max(200) }),
+  'agents:shell': z.object({ id }),
+  'agents:openInEditor': z.object({ id }),
+
   'events:recent': z
     .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })
     .optional()

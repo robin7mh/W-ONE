@@ -51,6 +51,7 @@ import { ProjectService } from '../../../electron/main/services/projects/Project
 import { ProjectRegistry } from '../../../electron/main/services/projects/registry'
 import { electronCipher, electronPlatform } from '../../../electron/main/platform/electron'
 import { headlessPlatform } from '../../../electron/main/platform/headless'
+import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
 
 const realPlatform = process.platform
 const setPlatform = (p: NodeJS.Platform) => Object.defineProperty(process, 'platform', { value: p })
@@ -283,6 +284,11 @@ describe('ProjectService', () => {
       setPlatform('linux')
       electron.openPath.mockResolvedValueOnce('could not open')
       await expect(s.openInEditor(id)).rejects.toThrow('could not open')
+    })
+
+    it('without VS Code and without a desktop: desktop-only', async () => {
+      proc.setResponder(() => new Error('missing'))
+      await expect(openInVsCode('/somewhere', {})).rejects.toMatchObject({ code: 'desktop-only' })
     })
   })
 

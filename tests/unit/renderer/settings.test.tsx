@@ -4,7 +4,7 @@ import { fail, installBridge, installRemote, settle } from './bridge'
 import type { ServerStatus } from '@shared/types/server'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext } from '@shared/types/context'
-import { pairingUrl, useSettings } from '@/features/settings/store'
+import { isLoopback, pairingReachable, pairingUrl, useSettings } from '@/features/settings/store'
 import { SettingsView } from '@/features/settings/components/SettingsView'
 import { SystemView } from '@/features/system/components/SystemView'
 import { ContextSection } from '@/features/projects/components/ContextSection'
@@ -31,6 +31,7 @@ const server = (over: Partial<ServerStatus> = {}): ServerStatus => ({
 
 function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
   return {
+    'agents:detect': () => [],
     'server:status': () => server(),
     'server:devices': () => [
       { id: 'd1', name: 'Pixel Phone', createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() },
@@ -58,6 +59,23 @@ describe('settings store', () => {
     expect(pairingUrl('X', ['http://127.0.0.1:7420'])).toBe('http://127.0.0.1:7420/#pair=X')
     expect(pairingUrl('X', ['http://127.0.0.1:7420'], 'http://nas.local:7420/')).toBe('http://nas.local:7420/#pair=X')
     expect(pairingUrl('X', ['http://127.0.0.1:7420'], 'file://')).toBe('http://127.0.0.1:7420/#pair=X')
+    // the desktop window's own address is the app itself (dev server or file://) — never for a phone
+    const lan = ['http://127.0.0.1:7420', 'http://192.168.1.9:7420']
+    expect(pairingUrl('X', lan, 'http://localhost:5173', true)).toBe('http://192.168.1.9:7420/#pair=X')
+    expect(pairingUrl('X', lan, 'http://nas.local:7420', true)).toBe('http://192.168.1.9:7420/#pair=X')
+    // a browser on this very computer: its loopback address is no use to a phone either
+    for (const origin of ['http://localhost:5173', 'http://127.0.0.1:7420', 'http://[::1]:7420']) {
+      expect(pairingUrl('X', lan, origin)).toBe('http://192.168.1.9:7420/#pair=X')
+    }
+  })
+
+  it('knows when a phone could reach the core at all', () => {
+    expect(['http://localhost', 'http://127.0.0.1:1/x', 'http://[::1]:7420', 'http://localhost.example.com'].map(isLoopback)).toEqual([true, true, true, false])
+    expect(pairingReachable(['http://127.0.0.1:7420'])).toBe(false)
+    expect(pairingReachable(['http://127.0.0.1:7420'], 'http://localhost:5173')).toBe(false)
+    expect(pairingReachable(['http://127.0.0.1:7420'], 'http://nas.local:7420')).toBe(true)
+    expect(pairingReachable(['http://127.0.0.1:7420'], 'http://nas.local:7420', true)).toBe(false)
+    expect(pairingReachable(['http://127.0.0.1:7420', 'http://192.168.1.9:7420'], undefined, true)).toBe(true)
   })
 
   it('server switches move at once; the core settles them, a failure puts them back', async () => {
@@ -131,6 +149,59 @@ describe('settings store', () => {
 })
 
 describe('SettingsView', () => {
+  it('lists the coding agents on this machine and checks again on request', async () => {
+    const detect = vi.fn()
+      .mockResolvedValueOnce([
+        { kind: 'claude-code', name: 'Claude Code', installed: true, version: '2.1.287', signedIn: true, account: 'Pro plan', ready: true },
+        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to W-ONE soon' }
+      ])
+      .mockResolvedValueOnce([{ kind: 'claude-code', name: 'Claude Code', installed: true, ready: true }])
+    installBridge(settingsCore({ 'agents:detect': detect }))
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText('Coding agents')).toBeInTheDocument()
+    expect(screen.getByText('Pro plan · v2.1.287')).toBeInTheDocument()
+    expect(screen.getByText('Coming to W-ONE soon')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Check again'))
+    await act(settle)
+    expect(detect).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('Codex')).toBeNull()
+  })
+
+  it('pairing without the LAN explains itself; switching the LAN on brings the QR code (same code)', async () => {
+    const loopback = ['http://127.0.0.1:7420']
+    const withLan = [...loopback, 'http://192.168.1.9:7420']
+    installBridge(
+      settingsCore({
+        'server:createPairingCode': () => ({ code: 'WXYZ-2345', expiresAt: '', urls: loopback }),
+        'server:configure': (patch: Record<string, unknown>) => {
+          const config = { ...server().config, ...patch }
+          return server({ config, urls: config.lan ? withLan : loopback })
+        }
+      })
+    )
+    render(<SettingsView />)
+    await act(settle)
+    fireEvent.click(screen.getByText('Pair a device'))
+    await act(settle)
+    expect(screen.getByText('WXYZ-2345')).toBeInTheDocument()
+    expect(screen.getByText(/Only this computer can connect right now/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Pairing QR code')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Reachable on the local network'))
+    await act(settle)
+    expect(screen.getByText('WXYZ-2345')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pairing QR code').innerHTML).toContain('<svg')
+    expect(screen.getByText('http://192.168.1.9:7420/#pair=WXYZ-2345')).toBeInTheDocument()
+    expect(screen.queryByText(/Only this computer/)).toBeNull()
+
+    // changing settings with no pairing open just updates the server
+    fireEvent.click(screen.getByLabelText('Close pairing'))
+    fireEvent.click(screen.getByLabelText('Allow remote shells'))
+    await act(settle)
+    expect(useSettings.getState().pairing).toBeUndefined()
+  })
+
   it('desktop: AI key + model, server toggles, pairing, devices, grants, vault, about', async () => {
     installBridge(settingsCore())
     localStorage.setItem('wone.deviceId', 'd2')

@@ -18,6 +18,10 @@ export interface WonePaths {
   secretsFile: string
   /** Persisted "Always allow" permission grants for agent tools. */
   grantsFile: string
+  /** Agent cockpit sessions (Claude Code & co.): list + one transcript file each. */
+  agentsDir: string
+  /** Isolated git worktrees for agents working in parallel — visible, so nothing hides. */
+  worktreesDir: string
 }
 
 /**
@@ -35,7 +39,9 @@ export function wonePaths(): WonePaths {
     defaultVaultRoot: join(homeDir, 'vault'),
     devicesFile: join(dataDir, 'devices.json'),
     secretsFile: join(dataDir, 'secrets.json'),
-    grantsFile: join(dataDir, 'grants.json')
+    grantsFile: join(dataDir, 'grants.json'),
+    agentsDir: join(dataDir, 'agents'),
+    worktreesDir: join(homeDir, 'worktrees')
   }
 }
 

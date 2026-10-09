@@ -1,5 +1,5 @@
 {
-  "name": "w-one-ui",
+  "name": "w-one",
   "version": "0.1.0",
   "description": "W-ONE — a dark, futuristic Sci-Fi command-center desktop app.",
   "author": "W-ONE",
@@ -27,7 +27,7 @@
     "db:logs": "docker compose logs -f db",
     "db:psql": "docker exec -it w-one-db psql -U wone -d wone",
     "db:backup": "node scripts/db-backup.cjs",
-    "docker:build": "docker build -t ghcr.io/robin7mh/w-one-ui:local .",
+    "docker:build": "docker build -t ghcr.io/robin7mh/w-one:local .",
     "docker:up": "docker compose --profile core up -d --build --wait",
     "docker:pair": "docker exec w-one-core node out/server/index.cjs pair",
     "docker:logs": "docker compose logs -f core",
@@ -39,6 +39,7 @@
     "test:all": "npm run typecheck && npm run test:coverage && npm run test:e2e"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.7.0",
     "@anthropic-ai/sdk": "^0.131.0",
     "@fontsource-variable/inter": "^5.0.20",
     "@fontsource/jetbrains-mono": "^5.0.20",

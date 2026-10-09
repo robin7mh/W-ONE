@@ -47,7 +47,7 @@ export default defineConfig({
       // at runtime — the moment one gains real code, that test fails.
       exclude: [
         '**/*.d.ts',
-        'src/shared/types/{context,entity,files,project,settings,system,terminal}.ts',
+        'src/shared/types/{agents,context,entity,files,project,settings,system,terminal}.ts',
         'src/types/index.ts',
         'electron/main/services/ai/tools/types.ts'
       ],

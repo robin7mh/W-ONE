@@ -10,8 +10,6 @@ import { ApprovalCard } from '@/features/agents/components/ApprovalCard'
 import { ApprovalToasts } from '@/features/agents/components/ApprovalToasts'
 import { ChatThread, inputPreview, interceptLinks } from '@/features/agents/components/ChatThread'
 import { Composer } from '@/features/agents/components/Composer'
-import { KeySetup } from '@/features/agents/components/KeySetup'
-import { AgentsView } from '@/features/agents/components/AgentsView'
 import { useProjects } from '@/features/projects/store'
 
 const initial = useAssistant.getState()
@@ -447,106 +445,5 @@ describe('Composer', () => {
     expect(screen.getByLabelText('Send')).toBeDisabled()
     rerender(<Composer {...p} disabled />)
     expect(screen.getByLabelText('Message')).toBeDisabled()
-  })
-})
-
-describe('KeySetup', () => {
-  it('verifies the key and clears it on success', async () => {
-    const onSave = vi.fn(async () => false)
-    render(<KeySetup onSave={onSave} error="rejected" />)
-    expect(screen.getByText('rejected')).toBeInTheDocument()
-    const input = screen.getByLabelText('Anthropic API key')
-    fireEvent.submit(input.closest('form')!) // empty: ignored
-    expect(onSave).not.toHaveBeenCalled()
-    fireEvent.change(input, { target: { value: 'sk-1' } })
-    fireEvent.click(screen.getByText('Verify & save key'))
-    await act(settle)
-    expect(input).toHaveValue('sk-1')
-    onSave.mockResolvedValueOnce(true)
-    fireEvent.click(screen.getByText('Verify & save key'))
-    await act(settle)
-    expect(input).toHaveValue('')
-  })
-})
-
-describe('AgentsView', () => {
-  const view = (over: Record<string, unknown> = {}) => {
-    const actions = {
-      open: vi.fn(async () => {}),
-      newChat: vi.fn(),
-      remove: vi.fn(async () => {}),
-      respond: vi.fn(async () => {}),
-      send: vi.fn(async () => true),
-      cancel: vi.fn(async () => {}),
-      setKey: vi.fn(async () => true),
-      setProject: vi.fn(),
-      clearError: vi.fn()
-    }
-    useAssistant.setState({ status: status(), agents, conversations: [summary('c1', { running: true }), summary('c2', { agentId: 'mystery' })], ...actions, ...over })
-    return actions
-  }
-
-  it('lists agents and conversations, opens / deletes / starts chats', () => {
-    const a = view({ running: { c1: true } })
-    render(<AgentsView />)
-    expect(screen.getByText('New chat · Assistant')).toBeInTheDocument()
-    expect(screen.getAllByText('Personal').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Tools: memory_search/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Chat c1', { selector: 'span' }))
-    expect(a.open).toHaveBeenCalledWith('c1')
-    fireEvent.click(screen.getByLabelText('Delete Chat c2'))
-    expect(a.remove).toHaveBeenCalledWith('c2')
-    fireEvent.click(screen.getAllByText('New chat')[0])
-    fireEvent.change(screen.getByLabelText('Conversations'), { target: { value: 'c2' } })
-    expect(a.open).toHaveBeenCalledWith('c2')
-    fireEvent.change(screen.getByLabelText('Conversations'), { target: { value: '' } })
-    expect(a.newChat).toHaveBeenCalledTimes(2)
-    fireEvent.click(screen.getByRole('button', { name: 'Research' }))
-    expect(a.newChat).toHaveBeenCalledWith('research')
-    expect(useProjects.getState().load).toHaveBeenCalled()
-  })
-
-  it('shows the open conversation with its activity, sends and stops', async () => {
-    const a = view({
-      activeId: 'c1',
-      running: { c1: true },
-      messages: {
-        c1: [
-          msg('u', { role: 'user', parts: [{ type: 'text', text: 'Question' }] }),
-          msg('a', { status: 'streaming', parts: [{ type: 'tool', id: 't', name: 'memory_create_note', title: 'Create note', risk: 'write', input: {}, status: 'awaiting-approval', requestId: 'req1' }] })
-        ]
-      },
-      pending: [request()],
-      activity: [event('e1', 'agent.started', { agent: 'Assistant', goal: 'Q' }, 'c1'), event('e2', 'agent.cancelled', {}, 'other')]
-    })
-    render(<AgentsView />)
-    expect(screen.getAllByText('Chat c1').length).toBeGreaterThan(1)
-    expect(screen.getByText('Run activity')).toBeInTheDocument()
-    expect(screen.getByText('Assistant started: Q')).toBeInTheDocument()
-    expect(screen.queryByText('Run cancelled')).toBeNull()
-    fireEvent.click(screen.getByLabelText('Stop'))
-    expect(a.cancel).toHaveBeenCalled()
-    fireEvent.click(screen.getByText('Deny'))
-    expect(a.respond).toHaveBeenCalledWith('req1', 'deny')
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: '' } })
-    expect(a.setProject).toHaveBeenCalledWith(undefined)
-  })
-
-  it('asks for a key first; shows and dismisses errors; web agents mention web search', async () => {
-    const a = view({ status: status({ configured: false }), error: 'Something broke' })
-    const { rerender } = render(<AgentsView />)
-    expect(screen.getByText('Connect the assistant')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Dismiss'))
-    expect(a.clearError).toHaveBeenCalled()
-    act(() => useAssistant.setState({ status: status(), agentId: 'research', error: undefined }))
-    rerender(<AgentsView />)
-    expect(screen.queryByText(/Tools:/)).toBeNull() // research has no own tools listed
-    act(() => useAssistant.setState({ agents: [{ ...agents[1], tools: ['memory_search'] }] }))
-    expect(screen.getByText(/, web search/)).toBeInTheDocument()
-    act(() => useAssistant.setState({ conversations: [] }))
-    expect(screen.getByText('No conversations yet')).toBeInTheDocument()
-    act(() => useAssistant.setState({ status: undefined, agents: [], agentId: 'ghost' }))
-    expect(screen.getByText('New chat · Agent')).toBeInTheDocument()
-    expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message the assistant…')
   })
 })
