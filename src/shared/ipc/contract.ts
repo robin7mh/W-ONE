@@ -51,6 +51,7 @@ import type {
   ToolInfo
 } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
+import type { CloudStatus } from '@shared/types/cloud'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -158,6 +159,18 @@ export interface IpcChannels {
   'agents:rename': { request: { id: string; title: string }; response: AgentSession }
   'agents:shell': { request: { id: string }; response: { terminalId: string } }
   'agents:openInEditor': { request: { id: string }; response: void }
+
+  'cloud:status': { request: void; response: CloudStatus }
+  'cloud:login': { request: { email: string; password: string }; response: CloudStatus }
+  'cloud:register': {
+    request: { email: string; password: string; name?: string; locale: 'de' | 'en' }
+    response: CloudStatus
+  }
+  'cloud:logout': { request: void; response: CloudStatus }
+  'cloud:refresh': { request: void; response: CloudStatus }
+  'cloud:resendVerification': { request: void; response: void }
+  'cloud:forgotPassword': { request: { email: string }; response: void }
+  'cloud:checkout': { request: void; response: { url: string } }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -259,7 +272,16 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:discard': 'terminal',
   'agents:rename': 'terminal',
   'agents:shell': 'terminal',
-  'agents:openInEditor': 'desktop'
+  'agents:openInEditor': 'desktop',
+  // The W-ONE account: a headless core is signed in from its web UI, so every client may.
+  'cloud:status': 'any',
+  'cloud:login': 'any',
+  'cloud:register': 'any',
+  'cloud:logout': 'any',
+  'cloud:refresh': 'any',
+  'cloud:resendVerification': 'any',
+  'cloud:forgotPassword': 'any',
+  'cloud:checkout': 'any'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -280,6 +302,7 @@ export interface IpcEvents {
   'events:event': WoneEvent
   'agents:changed': { session?: AgentSession; removed?: string }
   'agents:message': AgentMessageUpdate
+  'cloud:status': CloudStatus
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -298,7 +321,8 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'permission:resolved',
   'events:event',
   'agents:changed',
-  'agents:message'
+  'agents:message',
+  'cloud:status'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

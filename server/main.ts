@@ -11,6 +11,8 @@
 //   WONE_REMOTE_TERMINAL=1  allow paired devices to open shells (off by default)
 //   WONE_WEB_ROOT         built web UI to serve (default: next to this file)
 //   WONE_DB_URL           Postgres (default matches docker-compose.yml)
+//   NODE_ENV=production   requires a W-ONE license (the Docker image); otherwise
+//                         only with WONE_LICENSE=required. Dev: WONE_CLOUD_URL.
 
 import { join } from 'node:path'
 import { DEFAULT_SERVER_CONFIG, type ServerConfig } from '@shared/types/server'
@@ -18,6 +20,7 @@ import { wonePaths } from '../electron/main/lib/paths'
 import { headlessPlatform } from '../electron/main/platform/headless'
 import { createCore, type Core } from '../electron/main/core/createCore'
 import { AuthService } from '../electron/main/services/auth/AuthService'
+import { cloudConfig } from '../electron/main/services/cloud/config'
 
 declare const __WONE_VERSION__: string
 
@@ -61,7 +64,8 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
     paths,
     platform: headlessPlatform,
     serverConfig: serverConfigFromEnv(env),
-    webRoot: env.WONE_WEB_ROOT || join(__dirname, '../web')
+    webRoot: env.WONE_WEB_ROOT || join(__dirname, '../web'),
+    cloud: cloudConfig(env.NODE_ENV === 'production', env)
   })
   await core.server.start()
   const status = core.server.status()

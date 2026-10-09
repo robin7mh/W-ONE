@@ -14,6 +14,7 @@ const notePath = z.string().min(1).max(1024)
 const title = z.string().max(500)
 const text = (max: number) => z.string().max(max)
 const none = z.void()
+const email = z.string().trim().min(3).max(254)
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -138,6 +139,20 @@ export const REQUEST_SCHEMAS: Schemas = {
   'agents:rename': z.object({ id, title: z.string().trim().min(1).max(200) }),
   'agents:shell': z.object({ id }),
   'agents:openInEditor': z.object({ id }),
+
+  'cloud:status': none,
+  'cloud:login': z.object({ email, password: z.string().min(1).max(200) }),
+  'cloud:register': z.object({
+    email,
+    password: z.string().min(10).max(200),
+    name: z.string().trim().min(1).max(100).optional(),
+    locale: z.enum(['de', 'en'])
+  }),
+  'cloud:logout': none,
+  'cloud:refresh': none,
+  'cloud:resendVerification': none,
+  'cloud:forgotPassword': z.object({ email }),
+  'cloud:checkout': none,
 
   'events:recent': z
     .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })

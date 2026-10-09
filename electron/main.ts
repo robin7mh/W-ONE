@@ -1,9 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerMonitor, shell } from 'electron'
 import { join } from 'node:path'
 import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
 import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
+import { cloudConfig } from './main/services/cloud/config'
+
+/** After this long without keyboard or mouse, the trial clock pauses. */
+const IDLE_SECONDS = 5 * 60
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
 // __dirname is natively available — no import.meta shim needed.
@@ -133,7 +137,10 @@ async function startCore(): Promise<void> {
     cipher: electronCipher(),
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
     webRoot: join(__dirname, '../renderer'),
-    notify
+    notify,
+    // The packaged app needs a license; `npm run dev` only with WONE_LICENSE=required.
+    cloud: cloudConfig(app.isPackaged),
+    isUserActive: () => powerMonitor.getSystemIdleTime() < IDLE_SECONDS
   })
   core.hub.subscribe(broadcast)
   bindIpc(core.router)

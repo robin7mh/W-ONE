@@ -6,6 +6,8 @@ import { getT, intlLocale, systemLocale, useLocale } from '@/lib/i18n'
 import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
 import { AccountView } from '@/features/account/components/AccountView'
 import { useSession } from '@/features/session/store'
+import { useCloud } from '@/features/cloud/store'
+import { OPEN_CLOUD } from './bridge'
 
 afterEach(() => {
   act(() => useLocale.setState({ locale: 'en' }))
@@ -104,9 +106,11 @@ describe('AccountView', () => {
 
   it('shows the account state, the language switch and the linked core', () => {
     act(() => useSession.setState({ info: undefined }))
+    act(() => useCloud.setState({ status: null }))
     render(<AccountView />)
-    expect(screen.getByText('Not signed in')).toBeInTheDocument()
-    expect(screen.getByText('Connecting…')).toBeInTheDocument()
+    expect(screen.getAllByText('Connecting…')).toHaveLength(2)
+    act(() => useCloud.setState({ status: { ...OPEN_CLOUD, state: 'signed_out' } }))
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
 
     act(() => useSession.setState({ info }))
     expect(screen.getByText('Desktop app')).toBeInTheDocument()
@@ -119,8 +123,9 @@ describe('AccountView', () => {
     expect(screen.getByText('offline')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('radio', { name: 'Deutsch' }))
-    expect(screen.getByText('Nicht angemeldet')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Anmelden' })).toBeInTheDocument()
     expect(screen.getByText('Datenbank')).toBeInTheDocument()
     act(() => useSession.setState({ info: undefined }))
+    act(() => useCloud.setState({ status: null }))
   })
 })

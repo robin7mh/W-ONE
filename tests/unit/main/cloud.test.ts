@@ -1,0 +1,508 @@
+import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CloudService, deriveState, SESSION_SECRET, type CloudServiceOptions } from '../../../electron/main/services/cloud/CloudService'
+import { parsePublicKey, verifyEntitlement, type EntitlementClaims } from '../../../electron/main/services/cloud/entitlement'
+import { bakedCloud, cloudConfig, DEV_CLOUD_URL } from '../../../electron/main/services/cloud/config'
+import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
+import { Router } from '../../../electron/ipc/router'
+import { isLicenseFree } from '@shared/types/cloud'
+import { tempDir } from './helpers'
+
+// --- a fake W-ONE Cloud that signs real entitlements -------------------------
+
+function keys() {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  return { privateKey, pem: publicKey.export({ type: 'spki', format: 'pem' }).toString(), der: publicKey.export({ type: 'spki', format: 'der' }).toString('base64') }
+}
+
+function signToken(payload: string, privateKey: KeyObject): string {
+  const body = Buffer.from(payload).toString('base64url')
+  return `wone1.${body}.${sign(null, Buffer.from(`wone1.${body}`), privateKey).toString('base64url')}`
+}
+
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
+
+interface Call {
+  method: string
+  path: string
+  body: Record<string, unknown> | undefined
+  auth: string | undefined
+}
+
+function fakeCloud(clock: { now: number }) {
+  const k = keys()
+  const s = {
+    plan: 'trial' as 'trial' | 'lifetime',
+    active: true,
+    reason: 'ok' as EntitlementClaims['reason'],
+    ttl: 90,
+    used: 0,
+    down: false,
+    lease: true as boolean | 'forged' | 'broken',
+    fail: {} as Record<string, { status: number; body?: unknown }>,
+    calls: [] as Call[]
+  }
+  const license = () => ({ plan: s.plan, trial: { limitSeconds: 25_200, usedSeconds: s.used, remainingSeconds: 25_200 - s.used } })
+  const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const path = new URL(String(url)).pathname
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
+    s.calls.push({ method: init?.method ?? 'GET', path, body, auth: headers.authorization })
+    if (s.down) throw new TypeError('fetch failed')
+    const fail = s.fail[path]
+    if (fail) return fail.body === undefined ? new Response('oops', { status: fail.status, statusText: 'Broken' }) : json(fail.body, fail.status)
+    switch (path) {
+      case '/v1/meta':
+        return json({ entitlementPublicKey: k.pem, webUrl: 'https://w-one.test' })
+      case '/v1/auth/login':
+      case '/v1/auth/register':
+        return json({ user: { email: body!.email, name: body!.name ?? null }, license: license(), session: { token: 'ws_secret' } })
+      case '/v1/me':
+        return json({ user: { email: 'robin@w-one.test', name: 'Robin' }, license: license() })
+      case '/v1/license/heartbeat': {
+        if (s.lease === 'broken') return json({})
+        const iat = Math.floor(clock.now / 1000)
+        const claims = { sub: 'u1', email: 'robin@w-one.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, iat, exp: iat + s.ttl }
+        const token = s.lease === 'forged' ? signToken(JSON.stringify(claims), keys().privateKey) : signToken(JSON.stringify(claims), k.privateKey)
+        return json({ license: license(), entitlement: s.lease ? { token } : null, nextHeartbeatSeconds: 60 })
+      }
+      case '/v1/billing/checkout':
+        return json({ url: 'https://checkout.stripe.test/1' })
+      default:
+        return new Response(null, { status: 204 })
+    }
+  })
+  return { s, fetch, k, last: (path: string) => [...s.calls].reverse().find((c) => c.path === path) }
+}
+
+// --- harness -------------------------------------------------------------------
+
+const services: CloudService[] = []
+afterEach(() => {
+  services.splice(0).forEach((s) => s.dispose())
+  vi.useRealTimers()
+})
+
+async function setup(
+  opts: Partial<CloudServiceOptions> & { dir?: string; secrets?: SecretStore; offline?: boolean } = {}
+) {
+  const clock = { now: Date.parse('2026-10-10T10:00:00Z') }
+  const cloud = fakeCloud(clock)
+  cloud.s.down = !!opts.offline
+  const dir = opts.dir ?? (await tempDir())
+  const secrets = opts.secrets ?? new SecretStore(join(dir, 'secrets.json'))
+  const onStatus = vi.fn()
+  let userActive = true
+  const svc = new CloudService({
+    baseUrl: 'http://cloud.test',
+    enforced: true,
+    client: 'desktop',
+    version: '0.2.0',
+    deviceName: 'Studio',
+    platform: 'darwin',
+    file: join(dir, 'cloud.json'),
+    secrets,
+    isUserActive: () => userActive,
+    onStatus,
+    fetch: cloud.fetch as unknown as typeof fetch,
+    now: () => clock.now,
+    ...opts
+  })
+  services.push(svc)
+  await svc.init()
+  await vi.waitFor(() => expect(onStatus).toHaveBeenCalled())
+  return {
+    svc,
+    cloud,
+    clock,
+    dir,
+    secrets,
+    onStatus,
+    advance: (seconds: number) => void (clock.now += seconds * 1000),
+    setUserActive: (v: boolean) => void (userActive = v),
+    signIn: () => svc.login({ email: 'robin@w-one.test', password: 'pw' })
+  }
+}
+
+// --- tests -----------------------------------------------------------------------
+
+describe('deriveState', () => {
+  const claims = (over: Partial<EntitlementClaims> = {}): EntitlementClaims => ({
+    sub: 'u',
+    email: 'e',
+    plan: 'trial',
+    active: true,
+    reason: 'ok',
+    rem: 1,
+    iat: 0,
+    exp: 100,
+    ...over
+  })
+  it('turns what the core knows into one state', () => {
+    const base = { signedIn: true, now: 50_000, online: true }
+    expect(deriveState({ ...base, signedIn: false, claims: null })).toBe('signed_out')
+    expect(deriveState({ ...base, claims: claims({ active: false, reason: 'email_unverified' }) })).toBe('email_unverified')
+    expect(deriveState({ ...base, claims: claims({ active: false, reason: 'trial_expired' }) })).toBe('trial_expired')
+    expect(deriveState({ ...base, claims: claims() })).toBe('active')
+    expect(deriveState({ ...base, now: 200_000, claims: claims() })).toBe('paused')
+    expect(deriveState({ ...base, now: 200_000, online: false, claims: claims() })).toBe('offline')
+    expect(deriveState({ ...base, claims: null })).toBe('checking')
+  })
+})
+
+describe('entitlement tokens', () => {
+  it('reads keys as PEM (also with escaped newlines) or base64 DER', () => {
+    const k = keys()
+    expect(parsePublicKey(k.pem).asymmetricKeyType).toBe('ed25519')
+    expect(parsePublicKey(k.pem.replace(/\n/g, '\\n')).asymmetricKeyType).toBe('ed25519')
+    expect(parsePublicKey(k.der).asymmetricKeyType).toBe('ed25519')
+  })
+
+  it('accepts only genuine tokens', () => {
+    const k = keys()
+    const key = parsePublicKey(k.pem)
+    const good = signToken(JSON.stringify({ sub: 'u', exp: 1 }), k.privateKey)
+    expect(verifyEntitlement(good, key)).toMatchObject({ sub: 'u', exp: 1 })
+    expect(verifyEntitlement(signToken('{"sub":"u"}', keys().privateKey), key)).toBeNull()
+    expect(verifyEntitlement('wone1.only-two', key)).toBeNull()
+    expect(verifyEntitlement(good.replace('wone1.', 'wone2.'), key)).toBeNull()
+    expect(verifyEntitlement(signToken('not json', k.privateKey), key)).toBeNull()
+  })
+})
+
+describe('cloud config', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__WONE_CLOUD_URL__
+    delete (globalThis as Record<string, unknown>).__WONE_CLOUD_KEY__
+  })
+
+  it('reads the values baked in at build time', () => {
+    expect(bakedCloud()).toEqual({ url: undefined, key: undefined })
+    Object.assign(globalThis, { __WONE_CLOUD_URL__: '', __WONE_CLOUD_KEY__: '' })
+    expect(bakedCloud()).toEqual({ url: undefined, key: undefined })
+    Object.assign(globalThis, { __WONE_CLOUD_URL__: 'https://api.w-one.test', __WONE_CLOUD_KEY__: 'KEY' })
+    expect(bakedCloud()).toEqual({ url: 'https://api.w-one.test', key: 'KEY' })
+  })
+
+  it('locks release builds to the baked cloud; dev runs are open and configurable', () => {
+    const baked = { url: 'https://api.w-one.test/', key: 'BAKED' }
+    const env = { WONE_CLOUD_URL: 'http://evil.test', WONE_CLOUD_KEY: 'EVIL', WONE_LICENSE: 'off' }
+    expect(cloudConfig(true, env, baked)).toEqual({ url: 'https://api.w-one.test', publicKey: 'BAKED', enforced: true })
+    expect(cloudConfig(false, env, baked)).toEqual({ url: 'http://evil.test', publicKey: 'EVIL', enforced: false })
+    expect(cloudConfig(false, {}, baked)).toEqual({ url: 'https://api.w-one.test', publicKey: 'BAKED', enforced: false })
+    expect(cloudConfig(false, { WONE_LICENSE: 'required' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
+    expect(cloudConfig(true, {}, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
+    expect(cloudConfig(false).enforced).toBe(false)
+  })
+})
+
+describe('router license gate', () => {
+  it('refuses licensed channels until W-ONE may run; sign-in channels always work', async () => {
+    let licensed = false
+    const router = new Router({ remoteTerminal: () => false, licensed: (ch) => isLicenseFree(ch) || licensed })
+    router.register('projects:list', () => [])
+    router.register('cloud:status', () => ({}) as never)
+    router.register('app:info', () => ({}) as never)
+    expect(await router.dispatch('projects:list', undefined, { transport: 'ipc' })).toEqual({
+      ok: false,
+      error: { code: 'license-required', message: expect.stringContaining('license') }
+    })
+    expect(await router.dispatch('cloud:status', undefined, { transport: 'remote' })).toMatchObject({ ok: true })
+    expect(await router.dispatch('app:info', undefined, { transport: 'ipc' })).toMatchObject({ ok: true })
+    licensed = true
+    expect(await router.dispatch('projects:list', undefined, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+  })
+})
+
+describe('CloudService', () => {
+  it('starts signed out: a fresh install id, nothing sent, locked only when enforced', async () => {
+    const { svc, cloud, dir } = await setup()
+    expect(svc.status()).toEqual({
+      enforced: true,
+      allowed: false,
+      state: 'signed_out',
+      account: null,
+      license: null,
+      validUntil: null,
+      online: true,
+      webUrl: null,
+      error: null
+    })
+    expect(svc.allowed()).toBe(false)
+    expect(cloud.s.calls).toHaveLength(0)
+    const saved = JSON.parse(await readFile(join(dir, 'cloud.json'), 'utf8'))
+    expect(saved.installId).toMatch(/^[0-9a-f-]{36}$/)
+    const open = await setup({ enforced: false })
+    expect(open.svc.status()).toMatchObject({ state: 'signed_out', allowed: true })
+  })
+
+  it('signs in as this device, keeps the token secret and holds a verified lease', async () => {
+    const t = await setup()
+    const status = await t.signIn()
+    expect(status).toMatchObject({
+      allowed: true,
+      state: 'active',
+      account: { email: 'robin@w-one.test', name: null },
+      license: { plan: 'trial', trialLimitSeconds: 25_200, trialUsedSeconds: 0, trialRemainingSeconds: 25_200 },
+      validUntil: new Date(t.clock.now + 90_000).toISOString(),
+      webUrl: 'https://w-one.test',
+      error: null
+    })
+    const login = t.cloud.last('/v1/auth/login')!
+    expect(login.auth).toBeUndefined()
+    expect(login.body).toMatchObject({
+      email: 'robin@w-one.test',
+      client: 'desktop',
+      device: { name: 'Studio', platform: 'darwin', appVersion: '0.2.0', installId: expect.any(String) }
+    })
+    expect(t.cloud.last('/v1/license/heartbeat')).toMatchObject({ auth: 'Bearer ws_secret', body: { appVersion: '0.2.0' } })
+    expect(await t.secrets.get(SESSION_SECRET)).toBe('ws_secret')
+    const file = await readFile(join(t.dir, 'cloud.json'), 'utf8')
+    expect(file).not.toContain('ws_secret')
+    expect(t.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'active' }))
+  })
+
+  it('registers with name and language', async () => {
+    const t = await setup()
+    await t.svc.register({ email: 'new@w-one.test', password: 'long enough!', name: 'Robin', locale: 'de' })
+    expect(t.cloud.last('/v1/auth/register')!.body).toMatchObject({ name: 'Robin', locale: 'de', client: 'desktop' })
+    expect(t.svc.status().account).toEqual({ email: 'new@w-one.test', name: 'Robin' })
+  })
+
+  it('passes sign-in errors through and stays signed out', async () => {
+    const t = await setup()
+    t.cloud.s.fail['/v1/auth/login'] = { status: 401, body: { error: { code: 'invalid_credentials', message: 'Email or password is wrong' } } }
+    await expect(t.signIn()).rejects.toMatchObject({ code: 'invalid_credentials', message: 'Email or password is wrong' })
+    expect(t.svc.status().state).toBe('signed_out')
+  })
+
+  it('renews a trial lease shortly before it ends — only while someone uses W-ONE', async () => {
+    const t = await setup()
+    await t.signIn()
+    const beats = () => t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
+    t.advance(30)
+    await t.svc.tick()
+    expect(beats()).toBe(1) // 60 s left: not yet
+    t.advance(20)
+    await t.svc.tick()
+    expect(beats()).toBe(2) // 40 s left: renewed
+
+    t.setUserActive(false)
+    t.advance(100)
+    await t.svc.tick()
+    expect(beats()).toBe(2)
+    expect(t.svc.status()).toMatchObject({ state: 'paused', allowed: true }) // nobody here: the clock pauses
+
+    t.svc.setRemoteClients(1) // a paired phone counts as use
+    await t.svc.tick()
+    expect(beats()).toBe(3)
+    t.svc.setRemoteClients(0)
+  })
+
+  it('treats a core without a user signal as idle unless a device is connected', async () => {
+    const t = await setup({ isUserActive: undefined })
+    await t.signIn()
+    t.advance(60)
+    await t.svc.tick()
+    expect(t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat')).toHaveLength(1)
+  })
+
+  it('locks a trial without the cloud, and retries after a pause', async () => {
+    const t = await setup()
+    await t.signIn()
+    t.cloud.s.down = true
+    t.advance(60)
+    await t.svc.tick()
+    t.advance(31)
+    expect(t.svc.status()).toMatchObject({ state: 'offline', allowed: false, online: false, error: 'cloud-unreachable' })
+    const attempts = t.cloud.s.calls.length
+    t.advance(-20)
+    await t.svc.tick() // 11 s after the failure: wait
+    expect(t.cloud.s.calls.length).toBe(attempts)
+    t.cloud.s.down = false
+    t.advance(25)
+    await t.svc.tick()
+    expect(t.svc.status()).toMatchObject({ state: 'active', online: true, error: null })
+  })
+
+  it('keeps a lifetime license working offline and refreshes it now and then', async () => {
+    const t = await setup()
+    t.cloud.s.plan = 'lifetime'
+    t.cloud.s.ttl = 14 * 86_400
+    await t.signIn()
+    const beats = () => t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
+    t.advance(60)
+    await t.svc.tick()
+    expect(beats()).toBe(1)
+    t.cloud.s.down = true
+    t.advance(16 * 60)
+    await t.svc.tick()
+    expect(beats()).toBe(2)
+    expect(t.svc.status()).toMatchObject({ state: 'active', allowed: true, online: false, license: { plan: 'lifetime' } })
+    t.advance(10)
+    await t.svc.tick() // failed 10 s ago: rest first
+    expect(beats()).toBe(2)
+  })
+
+  it('reports what the cloud refuses, and re-checks every 30 s', async () => {
+    const t = await setup()
+    t.cloud.s.active = false
+    t.cloud.s.reason = 'email_unverified'
+    await t.signIn()
+    expect(t.svc.status()).toMatchObject({ state: 'email_unverified', allowed: false })
+    t.advance(10)
+    await t.svc.tick()
+    t.cloud.s.active = true
+    t.cloud.s.reason = 'ok'
+    t.advance(25)
+    await t.svc.tick()
+    expect(t.svc.status().state).toBe('active')
+    t.cloud.s.active = false
+    t.cloud.s.reason = 'trial_expired'
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ state: 'trial_expired', account: { name: 'Robin' } })
+  })
+
+  it('rejects entitlements it cannot verify and keeps the last good one', async () => {
+    const t = await setup()
+    await t.signIn()
+    const until = t.svc.status().validUntil
+    t.cloud.s.lease = 'forged'
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ error: 'bad-entitlement', validUntil: until })
+    t.cloud.s.lease = false // a heartbeat without a lease leaves it as it is
+    t.advance(31)
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ error: null, validUntil: until })
+    t.cloud.s.lease = 'broken' // malformed answer
+    await t.svc.refresh()
+    expect(t.svc.status().error).toBe('error')
+  })
+
+  it('cannot verify anything with a broken built-in key', async () => {
+    const t = await setup({ publicKey: 'not a key' })
+    await t.signIn()
+    expect(t.svc.status()).toMatchObject({ state: 'checking', error: 'bad-entitlement', webUrl: 'https://w-one.test' })
+  })
+
+  it('signs out when the cloud ends the session or disables the account', async () => {
+    const t = await setup()
+    await t.signIn()
+    t.cloud.s.fail['/v1/license/heartbeat'] = { status: 401, body: { error: { code: 'session_invalid' } } }
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ state: 'signed_out', error: 'session_expired', account: null })
+    expect(await t.secrets.get(SESSION_SECRET)).toBeUndefined()
+
+    delete t.cloud.s.fail['/v1/license/heartbeat']
+    await t.signIn()
+    t.cloud.s.fail['/v1/me'] = { status: 403, body: { error: { code: 'account_disabled', message: 'disabled' } } }
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ state: 'signed_out', error: 'account_disabled' })
+  })
+
+  it('notices a session token that vanished from the keychain', async () => {
+    const t = await setup()
+    await t.signIn()
+    await t.secrets.set(SESSION_SECRET, null)
+    await t.svc.refresh()
+    expect(t.svc.status()).toMatchObject({ state: 'signed_out', error: 'session_expired' })
+  })
+
+  it('signs out on request (and tells the cloud)', async () => {
+    const t = await setup()
+    await t.svc.logout() // signed out already: nothing to tell
+    expect(t.cloud.s.calls).toHaveLength(0)
+    await t.signIn()
+    const status = await t.svc.logout()
+    expect(t.cloud.last('/v1/auth/logout')!.auth).toBe('Bearer ws_secret')
+    expect(status).toMatchObject({ state: 'signed_out', account: null, license: null, validUntil: null })
+  })
+
+  it('refresh does nothing while signed out, and survives a failing account read', async () => {
+    const t = await setup()
+    expect((await t.svc.refresh()).state).toBe('signed_out')
+    expect(t.cloud.s.calls).toHaveLength(0)
+    await t.signIn()
+    t.cloud.s.fail['/v1/me'] = { status: 500 }
+    const status = await t.svc.refresh()
+    expect(status.state).toBe('active')
+    expect(t.cloud.last('/v1/license/heartbeat')).toBeTruthy()
+  })
+
+  it('shares one heartbeat between overlapping refreshes', async () => {
+    const t = await setup()
+    await t.signIn()
+    const before = t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
+    await Promise.all([t.svc.refresh(), t.svc.refresh()])
+    expect(t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length).toBe(before + 1)
+  })
+
+  it('resends the confirmation, asks for a reset link and opens a checkout', async () => {
+    const t = await setup()
+    await t.svc.forgotPassword({ email: 'robin@w-one.test' })
+    expect(t.cloud.last('/v1/auth/forgot-password')).toMatchObject({ auth: undefined, body: { email: 'robin@w-one.test' } })
+    await t.signIn()
+    await t.svc.resendVerification()
+    expect(t.cloud.last('/v1/auth/resend-verification')!.auth).toBe('Bearer ws_secret')
+    expect(await t.svc.checkout()).toEqual({ url: 'https://checkout.stripe.test/1' })
+    t.cloud.s.fail['/v1/billing/checkout'] = { status: 503, body: { error: { code: 'billing_unavailable' } } }
+    await expect(t.svc.checkout()).rejects.toMatchObject({ code: 'billing_unavailable' })
+    t.cloud.s.fail['/v1/billing/checkout'] = { status: 502 }
+    await expect(t.svc.checkout()).rejects.toMatchObject({ code: 'http-502', message: 'Broken' })
+    expect(t.svc.status().state).toBe('active')
+  })
+
+  it('remembers the account across restarts — a lifetime license even without the cloud', async () => {
+    const first = await setup()
+    first.cloud.s.plan = 'lifetime'
+    first.cloud.s.ttl = 14 * 86_400
+    await first.signIn()
+    first.svc.dispose()
+
+    const again = await setup({ dir: first.dir, secrets: first.secrets, offline: true })
+    expect(again.svc.status()).toMatchObject({ state: 'active', allowed: true, account: { email: 'robin@w-one.test' }, license: { plan: 'lifetime' } })
+    const saved = JSON.parse(await readFile(join(first.dir, 'cloud.json'), 'utf8'))
+    expect(saved.installId).toBe(JSON.parse(await readFile(join(again.dir, 'cloud.json'), 'utf8')).installId)
+  })
+
+  it('ignores a damaged state file and a remembered lease it cannot check', async () => {
+    const dir = await tempDir()
+    await writeFile(join(dir, 'cloud.json'), 'null')
+    expect((await setup({ dir })).svc.status().state).toBe('signed_out')
+    await writeFile(join(dir, 'cloud.json'), '{ broken')
+    expect((await setup({ dir })).svc.status().state).toBe('signed_out')
+    await writeFile(
+      join(dir, 'cloud.json'),
+      JSON.stringify({ installId: 'abc', account: { email: 'a@b.c', name: null }, license: null, entitlement: 'wone1.a.b', publicKey: null, webUrl: null })
+    )
+    const t = await setup({ dir, enforced: false, offline: true })
+    await vi.waitFor(() => expect(t.svc.status().online).toBe(false))
+    expect(t.svc.status()).toMatchObject({ state: 'offline', allowed: true, validUntil: null, error: 'cloud-unreachable' })
+  })
+
+  it('works without injected fetch or clock, and ticks on its own', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const dir = await tempDir()
+    const onStatus = vi.fn()
+    const svc = new CloudService({
+      baseUrl: 'http://cloud.test',
+      enforced: false,
+      client: 'server',
+      version: '1',
+      deviceName: 'srv',
+      platform: 'linux',
+      file: join(dir, 'cloud.json'),
+      secrets: new SecretStore(join(dir, 's.json')),
+      onStatus
+    })
+    services.push(svc)
+    await svc.init()
+    await vi.waitFor(() => expect(onStatus).toHaveBeenCalledTimes(1))
+    const tick = vi.spyOn(svc, 'tick')
+    vi.advanceTimersByTime(10_000)
+    expect(tick).toHaveBeenCalledTimes(1)
+    expect(onStatus).toHaveBeenCalledTimes(1) // nothing changed, nothing re-sent
+  })
+})

@@ -16,6 +16,8 @@ export interface WonePaths {
   devicesFile: string
   /** Secrets such as the LLM API key — encrypted on desktop, 0600 on a server. */
   secretsFile: string
+  /** The W-ONE account: last signed entitlement, install id (the session token is a secret). */
+  cloudFile: string
   /** Persisted "Always allow" permission grants for agent tools. */
   grantsFile: string
   /** Agent cockpit sessions (Claude Code & co.): list + one transcript file each. */
@@ -39,6 +41,7 @@ export function wonePaths(): WonePaths {
     defaultVaultRoot: join(homeDir, 'vault'),
     devicesFile: join(dataDir, 'devices.json'),
     secretsFile: join(dataDir, 'secrets.json'),
+    cloudFile: join(dataDir, 'cloud.json'),
     grantsFile: join(dataDir, 'grants.json'),
     agentsDir: join(dataDir, 'agents'),
     worktreesDir: join(homeDir, 'worktrees')

@@ -53,6 +53,8 @@ const h = vi.hoisted(() => ({
   notifications: [] as { opts: { title: string; body: string }; click?: () => void; show: ReturnType<typeof vi.fn> }[],
   notifySupported: true,
   focused: null as unknown,
+  idleSeconds: 0,
+  packaged: false,
   dark: true,
   migrate: vi.fn((_legacy?: string): boolean => false),
   coreOpts: undefined as undefined | Record<string, unknown>,
@@ -71,6 +73,9 @@ vi.mock('electron', () => ({
     whenReady: () => new Promise<void>((r) => (h.ready = r)),
     on: (event: string, fn: (...a: unknown[]) => unknown) => h.appHandlers.set(event, fn),
     getVersion: () => '0.1.0',
+    get isPackaged() {
+      return h.packaged
+    },
     getPath: () => '/userData',
     quit: h.quit
   },
@@ -85,6 +90,7 @@ vi.mock('electron', () => ({
     }
   },
   shell: { openExternal: h.openExternal },
+  powerMonitor: { getSystemIdleTime: () => h.idleSeconds },
   dialog: { showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])) },
   Notification: class {
     static isSupported = () => h.notifySupported
@@ -169,6 +175,20 @@ describe('main process boot', () => {
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+  })
+
+  it('needs a license only when packaged, and counts the trial only while someone is at the computer', async () => {
+    await boot()
+    expect(h.coreOpts!.cloud).toMatchObject({ enforced: false })
+    const active = h.coreOpts!.isUserActive as () => boolean
+    h.idleSeconds = 30
+    expect(active()).toBe(true)
+    h.idleSeconds = 301
+    expect(active()).toBe(false)
+    h.packaged = true
+    await boot()
+    expect(h.coreOpts!.cloud).toMatchObject({ enforced: true })
+    h.packaged = false
   })
 
   it('agents needing the user notify only while W-ONE is in the background; a click brings it up', async () => {

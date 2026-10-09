@@ -158,6 +158,32 @@ describe('createCore', () => {
   })
 })
 
+describe('createCore — W-ONE license', () => {
+  it('a licensed core refuses work until its account may run W-ONE; signing in stays possible', async () => {
+    h.pool = deadPool()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'invalid_credentials' } }), { status: 401 }))
+    const c = await core({ cloud: { url: 'http://cloud.test', enforced: true, fetch: fetch as unknown as typeof globalThis.fetch } })
+    const ipcCall = (channel: string, payload?: unknown) => c.router.dispatch(channel, payload, { transport: 'ipc' })
+    expect(await ipcCall('projects:list')).toMatchObject({ ok: false, error: { code: 'license-required' } })
+    expect(await ipcCall('cloud:status')).toMatchObject({ ok: true, data: { enforced: true, allowed: false, state: 'signed_out' } })
+    expect(await ipcCall('app:info')).toMatchObject({ ok: true })
+    expect(await ipcCall('cloud:login', { email: 'a@b.de', password: 'nope' })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_credentials' }
+    })
+    expect(fetch).toHaveBeenCalledWith('http://cloud.test/v1/auth/login', expect.objectContaining({ method: 'POST' }))
+    for (const channel of ['cloud:logout', 'cloud:refresh']) expect(await ipcCall(channel)).toMatchObject({ ok: true })
+    for (const [channel, payload] of [
+      ['cloud:register', { email: 'a@b.de', password: 'long enough!', locale: 'de' }],
+      ['cloud:forgotPassword', { email: 'a@b.de' }],
+      ['cloud:resendVerification', undefined],
+      ['cloud:checkout', undefined]
+    ] as const) {
+      expect((await ipcCall(channel, payload)).ok).toBe(false) // the fake cloud refuses everything — but it was asked
+    }
+  })
+})
+
 describe('createCore — assistant end to end (scripted model)', () => {
   it('runs an agent through the router: context, tools, permission round-trip, push events', async () => {
     const saved = process.env.ANTHROPIC_API_KEY

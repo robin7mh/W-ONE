@@ -5,6 +5,7 @@ import type { ModuleId } from '@/types'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { TechLabel } from '@/components/ui/TechLabel'
+import { useCloud } from '@/features/cloud/store'
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
@@ -20,6 +21,7 @@ export function SideNavigation({
 }) {
   const t = useT()
   const profileActive = active === 'account'
+  const account = useCloud((s) => s.status?.account)
   return (
     <nav className="flex h-full w-14 shrink-0 flex-col items-stretch gap-1 border-r border-hud/70 bg-surface/40 px-2 py-3 backdrop-blur-sm xl:w-52">
       <TechLabel className="mb-2 hidden px-2 text-text-muted xl:block">{t.nav.modules}</TechLabel>
@@ -91,8 +93,10 @@ export function SideNavigation({
           <UserRound size={15} strokeWidth={1.8} />
         </span>
         <span className="hidden min-w-0 flex-1 xl:block">
-          <span className="block truncate font-sans text-[13px] font-medium text-text-primary">{t.nav.account}</span>
-          <span className="block truncate font-mono text-[10px] text-text-muted">{t.nav.notSignedIn}</span>
+          <span className="block truncate font-sans text-[13px] font-medium text-text-primary">
+            {account?.name ?? t.nav.account}
+          </span>
+          <span className="block truncate font-mono text-[10px] text-text-muted">{account?.email ?? t.nav.notSignedIn}</span>
         </span>
       </button>
     </nav>

@@ -310,6 +310,7 @@ describe('paths', () => {
         defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
         devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
         secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
+        cloudFile: join(homedir(), 'W-ONE', 'data', 'cloud.json'),
         grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
         agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
         worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
