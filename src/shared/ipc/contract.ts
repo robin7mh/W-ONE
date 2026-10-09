@@ -33,7 +33,8 @@ import type {
   DirListing,
   PairingCode,
   ServerConfig,
-  ServerStatus
+  ServerStatus,
+  UpdateStatus
 } from '@shared/types/server'
 import type {
   AgentInfo,
@@ -171,6 +172,10 @@ export interface IpcChannels {
   'cloud:resendVerification': { request: void; response: void }
   'cloud:forgotPassword': { request: { email: string }; response: void }
   'cloud:checkout': { request: void; response: { url: string } }
+
+  'update:status': { request: void; response: UpdateStatus }
+  'update:check': { request: void; response: UpdateStatus }
+  'update:install': { request: void; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -281,7 +286,11 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'cloud:refresh': 'any',
   'cloud:resendVerification': 'any',
   'cloud:forgotPassword': 'any',
-  'cloud:checkout': 'any'
+  'cloud:checkout': 'any',
+  // The desktop app updates itself; nothing a remote client should trigger.
+  'update:status': 'desktop',
+  'update:check': 'desktop',
+  'update:install': 'desktop'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -303,6 +312,7 @@ export interface IpcEvents {
   'agents:changed': { session?: AgentSession; removed?: string }
   'agents:message': AgentMessageUpdate
   'cloud:status': CloudStatus
+  'update:status': UpdateStatus
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -322,7 +332,8 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'events:event',
   'agents:changed',
   'agents:message',
-  'cloud:status'
+  'cloud:status',
+  'update:status'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

@@ -54,6 +54,16 @@ const h = vi.hoisted(() => ({
   notifySupported: true,
   focused: null as unknown,
   idleSeconds: 0,
+  updater: {
+    autoDownload: false,
+    autoInstallOnAppQuit: false,
+    listeners: new Map<string, (...a: unknown[]) => void>(),
+    on(event: string, fn: (...a: unknown[]) => void) {
+      h.updater.listeners.set(event, fn)
+    },
+    checkForUpdates: vi.fn(async () => undefined),
+    quitAndInstall: vi.fn()
+  },
   packaged: false,
   dark: true,
   migrate: vi.fn((_legacy?: string): boolean => false),
@@ -65,7 +75,7 @@ const h = vi.hoisted(() => ({
     terminal: { killAll: vi.fn() },
     server: { start: vi.fn(async () => {}) },
     dispose: vi.fn(async () => {}),
-    router: { id: 'router' }
+    router: { id: 'router', register: vi.fn() }
   }
 }))
 vi.mock('electron', () => ({
@@ -104,6 +114,7 @@ vi.mock('electron', () => ({
     }
   }
 }))
+vi.mock('electron-updater', () => ({ autoUpdater: h.updater }))
 vi.mock('../../../electron/main/lib/paths', () => ({
   wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
   migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
@@ -175,6 +186,29 @@ describe('main process boot', () => {
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+  })
+
+  it('updates itself only when packaged, through desktop channels on the core router', async () => {
+    const handlers = () =>
+      new Map(h.core.router.register.mock.calls.map(([channel, fn]) => [channel as string, fn as () => unknown]))
+    h.core.router.register.mockClear()
+    await boot()
+    expect(handlers().get('update:status')!()).toEqual({ state: 'disabled', currentVersion: '0.1.0' })
+    expect(h.updater.listeners.size).toBe(0)
+
+    h.core.router.register.mockClear()
+    h.packaged = true
+    const win = await boot()
+    h.packaged = false
+    const on = handlers()
+    expect(on.get('update:status')!()).toMatchObject({ state: 'idle' })
+    await on.get('update:check')!()
+    expect(h.updater.checkForUpdates).toHaveBeenCalled()
+    expect(() => on.get('update:install')!()).toThrow('No update is ready')
+    h.updater.listeners.get('update-downloaded')!({ version: '0.2.0' })
+    expect(win.webContents.send).toHaveBeenCalledWith('update:status', expect.objectContaining({ state: 'ready', version: '0.2.0' }))
+    on.get('update:install')!()
+    expect(h.updater.quitAndInstall).toHaveBeenCalledWith(false, true)
   })
 
   it('needs a license only when packaged, and counts the trial only while someone is at the computer', async () => {

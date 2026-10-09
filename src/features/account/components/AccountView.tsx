@@ -8,6 +8,7 @@ import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
 import { useSession } from '@/features/session/store'
 import { formatDuration, useCloud } from '@/features/cloud/store'
+import { useUpdate } from '@/features/update/store'
 import { CloudNotice, primaryButton, quietButton, SignInForm } from '@/features/cloud/components/CloudForms'
 
 function TrialMeter({ license }: { license: CloudLicense }) {
@@ -84,6 +85,45 @@ function AccountCard({ status }: { status: CloudStatus }) {
   )
 }
 
+/** The desktop app's own update: state, plus check / restart. */
+function UpdateRow() {
+  const t = useT()
+  const status = useUpdate((s) => s.status)
+  const error = useUpdate((s) => s.error)
+  if (!status) return null
+  const text =
+    status.state === 'disabled'
+      ? t.update.disabled
+      : status.state === 'checking'
+        ? t.update.checking
+        : status.state === 'downloading'
+          ? t.update.downloading(status.progress ?? 0)
+          : status.state === 'ready'
+            ? t.update.ready(status.version ?? '')
+            : status.state === 'error'
+              ? t.update.error
+              : t.update.idle
+  const update = useUpdate.getState()
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-hud/50 pt-3">
+      <span className="w-24 shrink-0 font-mono text-[11px] uppercase tracking-wider text-text-muted">{t.update.label}</span>
+      <span className={cn('font-mono text-[12px]', status.state === 'error' ? 'text-danger' : 'text-text-secondary')}>{error ?? text}</span>
+      {status.state === 'ready' ? (
+        <button type="button" onClick={() => void update.install()} className={cn(primaryButton, 'ml-auto !py-1.5')}>
+          {t.update.install}
+        </button>
+      ) : (
+        status.state !== 'disabled' &&
+        status.state !== 'downloading' && (
+          <button type="button" disabled={status.state === 'checking'} onClick={() => void update.check()} className={cn(quietButton, 'ml-auto !py-1.5')}>
+            {t.update.check}
+          </button>
+        )
+      )}
+    </div>
+  )
+}
+
 /** Profile: the W-ONE account (license, trial), the UI language and the connected core. */
 export function AccountView() {
   const t = useT()
@@ -125,6 +165,7 @@ export function AccountView() {
           ) : (
             <p className="font-mono text-[11px] text-text-muted">{t.account.linking}</p>
           )}
+          <UpdateRow />
         </Card>
       </div>
     </Panel>

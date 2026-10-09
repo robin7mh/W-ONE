@@ -72,3 +72,19 @@ export interface DirListing {
   home: string
   dirs: string[]
 }
+
+/**
+ * App updates (desktop, packaged): GitHub Releases via electron-updater.
+ * `disabled` in dev runs and anywhere the app cannot update itself.
+ */
+export type UpdateState = 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'error'
+
+export interface UpdateStatus {
+  state: UpdateState
+  currentVersion: string
+  /** The version being downloaded or ready to install. */
+  version?: string
+  /** Download progress, 0–100. */
+  progress?: number
+  error?: string
+}

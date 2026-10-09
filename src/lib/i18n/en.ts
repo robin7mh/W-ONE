@@ -48,6 +48,19 @@ export const en = {
     linking: 'Connecting…'
   },
 
+  update: {
+    label: 'Update',
+    disabled: 'Automatic in the installed app',
+    idle: 'Up to date',
+    checking: 'Checking for updates…',
+    downloading: (percent: number) => `Downloading update… ${percent} %`,
+    ready: (version: string) => `Version ${version} is ready`,
+    error: 'Update failed',
+    check: 'Check for updates',
+    install: 'Restart & update',
+    chip: (version: string) => `Update ${version} · restart`
+  },
+
   cloud: {
     frame: 'Account',
     checking: 'Checking your license…',

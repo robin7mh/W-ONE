@@ -162,7 +162,8 @@ describe('data & shared constants', () => {
       'events:event',
       'agents:changed',
       'agents:message',
-      'cloud:status'
+      'cloud:status',
+      'update:status'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })

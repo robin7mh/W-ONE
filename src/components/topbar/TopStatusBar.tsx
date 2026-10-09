@@ -1,6 +1,7 @@
 import { LogOut, Moon, SunMedium, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
+import { UpdateChip } from '@/features/update/components/UpdateChip'
 import { WindowControls } from './WindowControls'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
@@ -60,6 +61,7 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
 
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-2 lg:ml-0">
+        <UpdateChip />
         <div className="hidden items-center gap-2 xl:flex">
           <StatusIndicator
             label={t.topbar.mode}

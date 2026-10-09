@@ -154,6 +154,10 @@ export const REQUEST_SCHEMAS: Schemas = {
   'cloud:forgotPassword': z.object({ email }),
   'cloud:checkout': none,
 
+  'update:status': none,
+  'update:check': none,
+  'update:install': none,
+
   'events:recent': z
     .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })
     .optional()

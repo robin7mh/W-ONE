@@ -4,7 +4,9 @@ import { migrateLegacyData, wonePaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
 import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
+import { autoUpdater } from 'electron-updater'
 import { cloudConfig } from './main/services/cloud/config'
+import { UpdateService } from './main/services/update/UpdateService'
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
 const IDLE_SECONDS = 5 * 60
@@ -17,6 +19,7 @@ const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 
 let mainWindow: BrowserWindow | null = null
 let core: Core | null = null
+let updates: UpdateService | null = null
 
 /** Broadcast a push event to every live renderer. */
 function broadcast(channel: string, payload: unknown): void {
@@ -143,6 +146,19 @@ async function startCore(): Promise<void> {
     isUserActive: () => powerMonitor.getSystemIdleTime() < IDLE_SECONDS
   })
   core.hub.subscribe(broadcast)
+
+  // Self-update only where it can work: the packaged app (GitHub Releases).
+  updates = new UpdateService({
+    updater: app.isPackaged ? autoUpdater : null,
+    currentVersion: app.getVersion(),
+    onStatus: (status) => broadcast('update:status', status)
+  })
+  const u = updates
+  core.router.register('update:status', () => u.status())
+  core.router.register('update:check', () => u.check())
+  core.router.register('update:install', () => u.install())
+  u.start()
+
   bindIpc(core.router)
   await core.server.start()
 }
@@ -160,6 +176,7 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   const running = core
   core = null
+  updates?.dispose()
   void running?.dispose().catch(() => {})
 })
 

@@ -46,6 +46,19 @@ export const de: Dict = {
     linking: 'Verbinde …'
   },
 
+  update: {
+    label: 'Update',
+    disabled: 'Automatisch in der installierten App',
+    idle: 'Aktuell',
+    checking: 'Suche nach Updates …',
+    downloading: (percent) => `Lädt Update … ${percent} %`,
+    ready: (version) => `Version ${version} ist bereit`,
+    error: 'Update fehlgeschlagen',
+    check: 'Nach Updates suchen',
+    install: 'Neu starten & aktualisieren',
+    chip: (version) => `Update ${version} · neu starten`
+  },
+
   cloud: {
     frame: 'Konto',
     checking: 'Lizenz wird geprüft …',

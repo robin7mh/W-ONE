@@ -57,7 +57,7 @@ export interface CloudStatus {
   error: string | null
 }
 
-/** Channels that work without a license: everything the sign-in screen needs. */
+/** Channels that work without a license: everything the sign-in screen needs, and app updates. */
 export function isLicenseFree(channel: string): boolean {
-  return channel.startsWith('cloud:') || channel === 'app:info'
+  return channel.startsWith('cloud:') || channel.startsWith('update:') || channel === 'app:info'
 }
