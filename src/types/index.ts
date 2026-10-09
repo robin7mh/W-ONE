@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 
 export type ModuleId =
   | 'core'
+  | 'editor'
   | 'terminal'
   | 'projects'
   | 'memory'
@@ -13,8 +14,6 @@ export interface NavItem {
   id: ModuleId
   label: string
   icon: LucideIcon
-  /** Modules that are not yet built get a subtle "soon" marker. */
-  ready: boolean
 }
 
 export interface ProcessRow {

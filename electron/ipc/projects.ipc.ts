@@ -1,14 +1,14 @@
-import { handle } from './registry'
+import type { Router } from './router'
 import type { ProjectService } from '../main/services/projects/ProjectService'
 
 /** Binds the projects:* contract channels to ProjectService methods. */
-export function registerProjectIpc(service: ProjectService): void {
-  handle('projects:list', () => service.list())
-  handle('projects:pickFolder', () => service.pickFolder())
-  handle('projects:add', ({ path }) => service.add(path))
-  handle('projects:remove', ({ id }) => service.remove(id))
-  handle('projects:refresh', ({ id }) => service.refresh(id))
-  handle('projects:openInEditor', ({ id }) => service.openInEditor(id))
-  handle('projects:openTerminal', ({ id }) => service.openTerminal(id))
-  handle('projects:openFile', ({ id, file, line }) => service.openFile(id, file, line))
+export function registerProjectIpc(router: Router, service: ProjectService): void {
+  router.register('projects:list', () => service.list())
+  router.register('projects:pickFolder', () => service.pickFolder())
+  router.register('projects:add', ({ path }) => service.add(path))
+  router.register('projects:remove', ({ id }) => service.remove(id))
+  router.register('projects:refresh', ({ id }) => service.refresh(id))
+  router.register('projects:openInEditor', ({ id }) => service.openInEditor(id))
+  router.register('projects:openTerminal', ({ id }) => service.openTerminal(id))
+  router.register('projects:openFile', ({ id, file, line }) => service.openFile(id, file, line))
 }

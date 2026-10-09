@@ -373,6 +373,7 @@ describe('memory store', () => {
       'memory:setGraphStyle': (s: unknown) => s,
       'memory:createVault': () => calls.push('createVault'),
       'memory:pickVault': () => ({ root: '/other' }),
+      'memory:setVault': ({ path }: { path: string }) => calls.push(`setVault:${path}`),
       'memory:reveal': () => calls.push('reveal')
     }
     const bridge = installBridge(routes)
@@ -493,8 +494,12 @@ describe('memory store', () => {
     expect(m().note).toBeDefined()
     await m().reveal()
     expect(v.calls).toContain('reveal')
+    await m().setVault('/srv/notes')
+    expect(v.calls).toContain('setVault:/srv/notes')
 
-    for (const ch of ['memory:createVault', 'memory:pickVault', 'memory:reveal']) v.routes[ch] = (() => fail(ch)) as never
+    for (const ch of ['memory:createVault', 'memory:pickVault', 'memory:reveal', 'memory:setVault']) v.routes[ch] = (() => fail(ch)) as never
+    await m().setVault('/x')
+    expect(m().error).toBe('memory:setVault')
     await m().createVault()
     expect(m().error).toBe('memory:createVault')
     await m().pickVault()

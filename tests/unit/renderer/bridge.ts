@@ -1,4 +1,6 @@
 import { vi } from 'vitest'
+import { setTransport } from '@shared/ipc/client'
+import type { Transport } from '@shared/ipc/transport'
 
 type Route = (payload: never) => unknown
 
@@ -56,4 +58,33 @@ export const fail = (message: string, code = 'error') => {
 /** Let pending promises/effects settle. */
 export const settle = async (rounds = 5) => {
   for (let i = 0; i < rounds; i += 1) await new Promise((r) => setTimeout(r, 0))
+}
+
+/**
+ * Installs a fake *network* transport (web UI mode: no `window.wone`).
+ * `routes` answer `invoke` like installBridge; `emit` pushes events.
+ */
+export function installRemote(routes: Record<string, Route> = {}) {
+  const listeners = new Map<string, Set<(p: unknown) => void>>()
+  const transport = {
+    kind: 'remote' as const,
+    routes,
+    invoke: vi.fn(async (channel: string, payload?: unknown) => {
+      const fn = routes[channel]
+      try {
+        return { ok: true, data: fn ? await fn(payload as never) : undefined }
+      } catch (err) {
+        const e = err as { code?: string; message?: string }
+        return { ok: false, error: { code: e.code ?? 'error', message: e.message ?? String(err) } }
+      }
+    }),
+    on: vi.fn((channel: string, cb: (p: unknown) => void) => {
+      if (!listeners.has(channel)) listeners.set(channel, new Set())
+      listeners.get(channel)!.add(cb)
+      return () => listeners.get(channel)!.delete(cb)
+    }),
+    emit: (channel: string, payload: unknown) => [...(listeners.get(channel) ?? [])].forEach((cb) => cb(payload))
+  }
+  setTransport(transport as unknown as Transport)
+  return transport
 }

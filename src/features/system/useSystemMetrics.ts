@@ -30,6 +30,8 @@ export interface SystemView {
   uptimeSec: number
   battery: { hasBattery: boolean; charging: boolean }
   live: boolean
+  /** The latest raw sample (per-core load, memory in GB, network split, …). */
+  snapshot?: SystemSnapshot
 }
 
 /**
@@ -44,6 +46,7 @@ export function useSystemMetrics(): SystemView {
   const [uptimeSec, setUptimeSec] = useState(0)
   const [battery, setBattery] = useState({ hasBattery: false, charging: false })
   const [live, setLive] = useState(false)
+  const [snapshot, setSnapshot] = useState<SystemSnapshot>()
 
   useEffect(() => {
     let mounted = true
@@ -61,6 +64,7 @@ export function useSystemMetrics(): SystemView {
         network: step(prev.network, s.net.rxMbps + s.net.txMbps),
         battery: step(prev.battery, s.battery.pct)
       }))
+      setSnapshot(s)
       setProcesses(s.processes)
       setUptimeSec(s.uptimeSec)
       setBattery({ hasBattery: s.battery.hasBattery, charging: s.battery.charging })
@@ -78,5 +82,5 @@ export function useSystemMetrics(): SystemView {
     }
   }, [])
 
-  return { metrics, processes, uptimeSec, battery, live }
+  return { metrics, processes, uptimeSec, battery, live, snapshot }
 }

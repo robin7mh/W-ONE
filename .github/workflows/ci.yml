@@ -48,7 +48,7 @@ jobs:
           retention-days: 14
 
   e2e:
-    name: E2E (Electron + Docker DB)
+    name: E2E (Electron + Docker DB · web UI + core)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -58,9 +58,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: System libraries for Electron + virtual display
-        run: npx playwright install-deps chromium
+      - name: Chromium (web UI) + system libraries for Electron and a virtual display
+        run: npx playwright install --with-deps chromium
       - run: npm run build
+      - run: npm run web:build && npm run server:build
       - name: Start the database (docker-compose.yml)
         run: npm run db:up
       - name: Run Playwright
@@ -79,7 +80,7 @@ jobs:
         run: docker compose logs db
 
   docker:
-    name: Docker image builds
+    name: Docker image (W-ONE core) builds
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

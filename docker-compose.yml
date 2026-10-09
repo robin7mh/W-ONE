@@ -1,9 +1,10 @@
-# W-ONE database — Postgres in Docker.
-#   npm run db:up       start (waits until healthy)
-#   npm run db:down     stop (data stays in the "wone-pgdata" volume)
-#   npm run db:backup   dump to ~/W-ONE/backups/
-#   npm run docker:web  also build + serve the web UI (profile "web", port 8080)
-# Bound to 127.0.0.1 only: nothing outside this machine can reach it.
+# W-ONE in Docker.
+#   npm run db:up          the database only (desktop development)
+#   npm run docker:up      database + the W-ONE core (API + web UI on :7420)
+#   npm run docker:pair    print a one-time pairing code for a browser / phone
+#   npm run db:backup      dump the database to ~/W-ONE/backups/
+# Ports are bound to 127.0.0.1 only. To reach the core from your phone on the
+# same network, set WONE_BIND=0.0.0.0 in .env (pairing still protects it).
 # Settings come from .env (see .env.example); the defaults match the app's.
 name: w-one
 
@@ -27,16 +28,25 @@ services:
       timeout: 3s
       retries: 30
 
-  # Web UI for a server deploy (static renderer behind nginx, see Dockerfile).
-  # Only with `--profile web`, so `npm run db:up` keeps starting just the DB.
-  web:
-    profiles: ['web']
+  # The W-ONE core (see Dockerfile). Only with `--profile core`, so
+  # `npm run db:up` keeps starting just the database.
+  core:
+    profiles: ['core']
     build: .
-    image: ghcr.io/robin7mh/w-one-ui:local
-    container_name: w-one-web
+    image: ghcr.io/robin7mh/w-one:local
+    container_name: w-one-core
     restart: unless-stopped
+    environment:
+      WONE_DB_URL: postgres://${WONE_DB_USER:-wone}:${WONE_DB_PASSWORD:-wone}@db:5432/${WONE_DB_NAME:-wone}
+      WONE_REMOTE_TERMINAL: ${WONE_REMOTE_TERMINAL:-0}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
-      - '127.0.0.1:${WONE_WEB_PORT:-8080}:80'
+      - '${WONE_BIND:-127.0.0.1}:${WONE_CORE_PORT:-7420}:7420'
+    volumes:
+      # Settings, paired devices, project registry and the vault live here.
+      - wone-data:/data
+      # Folders the core may add as projects (inside the container: /projects).
+      - ${WONE_PROJECTS_DIR:-./}:/projects:ro
     depends_on:
       db:
         condition: service_healthy
@@ -44,3 +54,5 @@ services:
 volumes:
   wone-pgdata:
     name: wone-pgdata
+  wone-data:
+    name: wone-data

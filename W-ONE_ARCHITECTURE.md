@@ -7,7 +7,7 @@ W-ONE evolves from a sci-fi command-center UI into a **modular, local-first pers
 
 Guiding doctrine (unchanged from the masterplan, restated because everything below depends on it):
 
-1. **All privileged operations live in the Electron main process.** The renderer never gets Node access.
+1. **All privileged operations live in the W-ONE core** — the Electron main process, or the same core running headless as a server (§12.4). Clients (desktop renderer, browser, mobile app) never get Node access.
 2. **Markdown is the source of truth for knowledge; the database (PostgreSQL in Docker since 2026-10-02, §11.5) is a rebuildable index plus structured data.** No ORM.
 3. **Local-first.** Cloud LLM APIs are called from main; data stays on disk in open formats.
 4. **Policy is code, never a model.** Permission decisions are made by a deterministic engine and the user — an LLM can request, never grant.
@@ -41,13 +41,15 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 |---|---|
 | Projects | ✅ Real. JSON registry, git/stack detection, open in editor/terminal, `projects:openFile` with path confinement |
 | System monitor | ✅ Real. 1.5 s telemetry stream, pauses when window hidden |
-| Project context | ✅ Backend real (commit `871ba6d`): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache → `context:get`/`context:reindex` + progress event. **No UI yet** |
+| Project context | ✅ Real (P3): bounded `.gitignore`-aware scan → tree/deps/configs/TODOs/README → JSON cache; UI in the project detail (analyze/reindex, TODOs open in the editor); feeds the assistant's context engine |
+| Editor | ✅ Real (§12.5). Monaco in its own module: lazy file tree per project, tabs, explicit save with a stale-write guard, follows changes on disk |
 | Core dashboard | ✅ Real. `features/dashboard`: greeting with the OS account name (`system:user`), HUD clock (seconds/minutes/day rings), tiles for projects (live git), brain (vault) and a system verdict |
 | Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
-| Bottom dashboard | Collapsible Command Deck, empty — demo cards removed; filled for real in P9 (Agent Activity) |
+| Bottom dashboard | ✅ Command Deck (P9): running agents (stop / jump in), waiting approvals, live activity outcomes |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
-| Agents / Settings nav | 🎭 Placeholders |
-| LLM integration | ❌ None anywhere yet (by design — lands in P6) |
+| Agents | ✅ Cockpit (§12.6): the user's own coding agents — Claude Code (hooks, own plan), Codex and Gemini (ACP) — as chats with approvals, changes/diffs, plan and a journal in memory; plus the W-ONE Assistant on an API key (P6–P9, §12.4) |
+| Settings / System | ✅ AI key + model, remote access & devices (pairing, QR), permissions, vault, about · full telemetry view |
+| Network API | ✅ §12.4: the core as an HTTP + WebSocket service for the web UI and the mobile app (device pairing, bearer tokens) |
 
 **Assessment: everything is kept.** The design system, IPC contract, service pattern, store pattern, and security baseline carry the target architecture without modification. Mock data in `src/data/` is deliberately isolated and gets replaced surgically, phase by phase.
 
@@ -116,7 +118,7 @@ Renderer → IPC handler → domain/application service
 | Nav module | Feature dir | Backing services | Real in |
 |---|---|---|---|
 | Home / Command Center (`core`) | `features/dashboard` — a personal HUD by user decision; the assistant surface (`features/assistant`) gets its own place in P6 | SystemService, ProjectService, VaultService (read-only) | done |
-| Editor *(planned)* | `features/editor` — Monaco in its own tab, project files; VS Code stays one click away | ProjectService (confined file read/write) | next |
+| Editor | `features/editor` — Monaco in its own tab, project files; VS Code stays one click away | FilesService (confined list/read/stat/write) | done (§12.5) |
 | Projects | `features/projects` (+ `context`) | ProjectService, ContextService | done / P3 |
 | ~~Knowledge~~ | merged into Memory (§12.3) | — | — |
 | Memory | `features/memory` | VaultService, MemoryIndex; MemoryService pipeline later | vault ✅ / pipeline P5 |
@@ -512,7 +514,7 @@ User decision: the database runs in Docker so the same setup carries over to a s
 - **Connection:** `pg` pool in the main process, URL from `WONE_DB_URL` (default matches the compose file, see `.env.example`). The app connects in the background and stays fully usable without the database — P2B is its first consumer.
 - **Migrations:** `DbService.migrate()` — forward-only, one transaction per migration (Postgres DDL is transactional, so a failed migration leaves no trace), ledger table `schema_migrations`. Backups on demand: `npm run db:backup` (`pg_dump` → `~/W-ONE/backups/`).
 - **Mapping of the plan below:** SQLite FTS5 → Postgres full-text search (`tsvector` + GIN, `ts_rank`); `sqlite-vec` (P13) → `pgvector`; `user_version` → `schema_migrations`. Where §4/§5/§12 still say SQLite, read Postgres.
-- **Server image:** `Dockerfile` builds the renderer as a static site behind nginx (`npm run docker:web`); CD publishes it to GHCR. The Electron app itself stays a desktop app.
+- **Server image:** `Dockerfile` builds the W-ONE core (API + web UI, §12.4); `npm run docker:up` starts it next to the database; CD publishes it to GHCR. The Electron app itself stays a desktop app (and can embed the same server).
 
 ---
 
@@ -568,3 +570,48 @@ User decision: the AI memory should *be* an Obsidian vault — notes, `[[wikilin
 - **Editing (2026-10-02):** the editor shows only the note text (`memory:writeBody` keeps the frontmatter byte-for-byte); the title is the filename and renames in place; connect/disconnect buttons write or remove `[[links]]` (new links go under `## Verbindungen`, disconnecting keeps inline mentions as plain text); notes and folders move by drag & drop. Renames and moves rewrite affected links in other notes (`linkEdit.ts`; planned before the move, while old names still resolve) — name-style links only change when the name does, path-style links follow the path.
 - **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — W-ONE writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
 - **Model mapping:** §5's `MemoryEntry` fields map onto frontmatter (`id`, `type`, `tags`, `created`, optional `importance`/`confidence`/`summary`). When P2B/P5 land, SQLite `memories` + FTS become a rebuildable index over the vault, and the memory pipeline writes notes. P6/P7 give the assistant read/write tools over this vault behind the permission gate.
+
+### 12.4 Deviation (2026-10-02): one core for desktop, web and mobile
+
+User decision: W-ONE gets a React Native app, and the Docker deploy must be a working web UI. The core therefore became host-independent and network-capable; P3 and P6–P9 shipped together on top of it.
+
+- **Core, not "main process":** every service runs behind `createCore()` (`electron/main/core/createCore.ts`) with an injected `Platform` (`electron` = native dialogs, Finder, OS trash; `headless` = none of those, deletes go to the vault's `.trash`). The Electron app and `server/main.ts` (standalone, `out/server/index.cjs`, Docker) build the same core.
+- **One Router:** `electron/ipc/router.ts` is the single dispatch point for desktop IPC and the network API. Per call: channel exists → caller may use it (`CHANNEL_ACCESS`: `any` / `desktop` = native UI or host apps / `terminal` = remote shells, opt-in) → Zod schema (`src/shared/ipc/schemas.ts`) → handler → `IpcResult`.
+- **Network API** (`electron/main/server/HttpServer.ts`, reference: [`docs/API.md`](docs/API.md)): `POST /api/rpc/<channel>`, `WS /api/events`, `POST /api/pair`, `GET /api/health`, plus the built web UI at `/`. Devices pair with one-time codes (10 min, rate-limited) and get bearer tokens; only SHA-256 hashes are stored. No cookies, no CORS. Desktop: opt-in in Settings, 127.0.0.1 unless LAN is switched on. Standalone: always on, configured by environment.
+- **Clients:** `src/shared/ipc/transport.ts` (bridge | HTTP + WebSocket, only `fetch`/`WebSocket` — the mobile app reuses it unchanged together with `contract.ts`, `schemas.ts` and `types/`).
+- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
+- **P6:** `LLMProvider` (provider-neutral, the model's own blocks replayed unchanged) + Anthropic adapter (streaming, `claude-opus-5-5` default, effort, adaptive thinking, cached system prompt, server-side refusal fallback). Key from `ANTHROPIC_API_KEY` or the secret store (OS keychain on desktop, 0600 file on a server), verified before saving, never returned. Context engine = time, user, active project, matching vault notes under a budget, sent as a `<context>` block in the user turn (cache-friendly).
+- **P7:** `ToolRegistry` (Zod → JSON Schema) with memory, project (confined to the project root), shell and system tools; `PermissionService` = read runs, write asks (Allow once / Always — persisted per agent + tool / Deny), execute always asks; remote devices only run commands with remote shells enabled; unanswered requests are denied after 10 minutes.
+- **P8:** `AssistantService` — controlled loop, per-agent iteration and time limits, cancellation, append-only transcript (dangling tool calls are closed as interrupted), structured `agent.*`/`tool.*`/`permission.*` events, no reasoning stored. Agents are data (`agents.ts`: Assistant, Coding, Research with web search/fetch, Chat).
+- **P9:** Agents module (chat, tool cards, inline approvals, run activity), floating approvals in every module, Command Deck.
+- **Conversations are JSON files** (`~/W-ONE/data/conversations/`), not Postgres rows: the assistant must work on a desktop without the database container. Runs and events go to Postgres when it is there.
+- **Still open:** P5 memory pipeline (model-assisted classification), P10 Files, P11 Automations, P12 graph over `entities`/`links`, P13 embeddings, packaging (electron-builder, signing, auto-update), the mobile app itself.
+
+### 12.5 Editor (2026-10-02)
+
+User decision: an editor "like VS Code" in its own module. Not a VS Code replacement (no extensions, debugger or project-wide IntelliSense) — Monaco, VS Code's editor core, for reading and editing project files; VS Code stays one click away.
+
+- **Core:** `FilesService` (`electron/main/services/files/`) — `files:list` (one folder at a time, dirs first, `.git` hidden, `.gitignore` matches flagged), `files:read` (UTF-8 text; binary and > 5 MB files are reported, not sent), `files:stat` (batch), `files:write` (in place, keeps mode and hard links). Every path goes through `lib/confine.ts` (realpath-checked, shared with the agent's file tools).
+- **No silent clobbering:** a write carries the mtime the editor loaded; a newer file on disk fails with `conflict` and the user picks *Load disk version* or *Keep mine*. While the module is visible, open tabs are compared with the disk (every 3 s, on window focus): clean tabs reload by themselves (one undoable edit), dirty ones are flagged, deleted ones marked.
+- **Renderer:** `features/editor` — one Monaco editor, one model per open file (own undo history and view state). The store never copies keystrokes: Monaco's alternative version ids decide "dirty", and the text is read from the model (`BufferHost`) only when saving. Monaco and its workers load lazily (own chunks, bundled by Vite, no CDN); TypeScript semantic checks are off because the editor has no project types.
+- **Access:** reading is `any`; `files:write` is `terminal` — writing project files can run code (hooks, scripts), so remote clients may only when remote shells are allowed. Otherwise the web UI shows files read-only.
+- **Build memory:** bundling Monaco and its workers needs ~2.5 GB of Node heap; `build` / `web:build` set `--max-old-space-size=4096` themselves, so CI, the Docker build and small machines behave the same.
+- **Leaving with unsaved edits:** the renderer vetoes `beforeunload`; the desktop asks (`will-prevent-unload`). The core is disposed on `will-quit` (not `before-quit`), so a cancelled close keeps it alive.
+
+### 12.6 Agent cockpit (2026-10-03)
+
+User decision: the Agents module works with the AI the user already pays for — not only an API key. W-ONE sells the workspace, not the model.
+
+- **Claude Code** runs as the user's own, unmodified CLI in a PTY (`AgentSessionService` → `TerminalService.spawnProgram`, through the login shell). Interactive use stays on the user's plan; W-ONE never sees or stores Claude credentials (Anthropic's terms: no third-party Claude.ai login, no token handling — running the unmodified binary is fine). Everything W-ONE needs is passed per session on the command line, the user's `~/.claude` is never touched:
+  - `--settings`: HTTP hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse(Failure)`, `PermissionRequest`, `Stop`, `TaskCreated/Completed`, `SessionEnd`) and a `curl` relay command hook for `SessionStart`/`Notification` (HTTP hooks don't run there).
+  - `--mcp-config`: W-ONE's memory as MCP server; `--allowedTools` pre-allows its read tools; `--append-system-prompt`: a short hint to use it.
+  - `--session-id` / `--resume`, `--name`.
+  - Inherited Claude Code markers (`CLAUDE_CODE_*`, `CLAUDECODE`, …) are stripped from every PTY's environment, so a `claude` started from W-ONE is never mistaken for a child session.
+- **Codex and Gemini** speak ACP (`@agentclientprotocol/sdk`, bundled — it is ESM-only) over stdio: Codex through Zed's adapter (`npx @zed-industries/codex-acp`, the user's Codex sign-in), Gemini as `gemini --experimental-acp`. `session/update` streams text, tool calls and the plan; `session/request_permission` goes to the same gate. W-ONE's MCP server is offered when the agent takes HTTP servers.
+- **LocalAgentServer**: always-on, `127.0.0.1` on a random port, Host/Origin must be loopback, a random bearer token per session (`timingSafeEqual`). Routes: `/hooks/<session>`, `/mcp/<session>`. Separate from the opt-in network API.
+- **Approvals**: `PermissionRequest` (Claude) and `request_permission` (ACP) both go through `PermissionService.ask` — inline cards, toasts (not for the open chat), Command Deck, desktop notification while W-ONE is in the background. Commands are asked every time; file/memory tools can be allowed for good per agent.
+- **Changes**: `GitService` takes a baseline when a session starts (`git stash create` — the working tree is untouched, the user's own earlier edits stay out of the diff). Optional own working folder per session: a git worktree in `~/W-ONE/worktrees` with `node_modules` linked (excluded from diffs/patches); *Take over* applies its changes to the project as uncommitted edits (refuses cleanly on conflicts), *Discard* drops it. Diffs open in Monaco's diff editor.
+- **Memory (idea 4)**: the MCP server (`mcp.ts`, minimal stateless JSON-RPC) offers `memory_search/read/list/create_note/append` and `project_context` from the built-in tools; a journal note per session (`Agents/<project>/<date> <title>.md`: task, result, changed files, open plan items) is written after every turn, so the next agent — any vendor — can continue.
+- **Sessions** are stored in `~/W-ONE/data/agents` (list + one transcript per session); after a restart they show as ended and can be resumed (Claude Code continues its own transcript).
+- **Session header**: the name defaults to the agent's ("Claude Code", "Codex") and is renamed in place (`agents:rename`; the journal heading follows, a journal still named after its agent takes the first message). *VS Code* opens the session's folder — its worktree, if it has one (`agents:openInEditor`, shared `lib/openInVsCode`). The repo link comes from `origin` (`GitService.webUrl`, credentials stripped) and points at the repo, since a worktree's `wone/…` branch is local only. *Terminal* shows Claude Code's own PTY; ACP agents have none, so it opens a plain shell in the session's folder instead (`agents:shell`, one per session, ended with it).
+- **Tests**: unit tests for every piece (git against real repos, the local server over real HTTP, ACP with an in-process agent and a stdio fixture agent); E2E with `tests/e2e/fake-claude.mjs` (`WONE_CLAUDE_BIN`) — chat, approval, diff, journal — so CI needs no account.

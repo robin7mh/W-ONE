@@ -169,7 +169,9 @@ describe('ContextStore', () => {
 })
 
 describe('migrations', () => {
-  it('starts with no domain migrations (P2B adds the first)', () => {
-    expect(MIGRATIONS).toEqual([])
+  it('are ordered, unique and start with the event log (P2B)', () => {
+    expect(MIGRATIONS.map((m) => m.version)).toEqual([1])
+    expect(MIGRATIONS[0]).toMatchObject({ name: 'events_and_agent_runs' })
+    expect(MIGRATIONS[0].up).toContain('CREATE TABLE events')
   })
 })

@@ -10,6 +10,7 @@ import { collect, collectProcesses, currentUser } from './collectors'
  */
 export class SystemService {
   private subscribers = 0
+  private remoteClients = 0
   private paused = false
   private timer: NodeJS.Timeout | null = null
   private tickCount = 0
@@ -29,6 +30,15 @@ export class SystemService {
 
   unsubscribe(): void {
     this.subscribers = Math.max(0, this.subscribers - 1)
+    this.evaluate()
+  }
+
+  /**
+   * Connected network clients (web UI / phone). They keep sampling alive even
+   * while the desktop window is hidden — someone is still watching.
+   */
+  setRemoteClients(count: number): void {
+    this.remoteClients = Math.max(0, count)
     this.evaluate()
   }
 
@@ -54,7 +64,7 @@ export class SystemService {
   }
 
   private evaluate(): void {
-    const shouldRun = this.subscribers > 0 && !this.paused
+    const shouldRun = (this.subscribers > 0 && !this.paused) || this.remoteClients > 0
     if (shouldRun && !this.timer) {
       void this.tick() // immediate first sample
       this.timer = setInterval(() => void this.tick(), this.intervalMs)

@@ -141,22 +141,37 @@ describe('hooks', () => {
 
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
-    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
-    expect(NAV_ITEMS.filter((n) => n.ready).map((n) => n.id)).toEqual(['core', 'terminal', 'projects', 'memory'])
+    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
   it('contract allowlists, graph palette and event catalog', async () => {
     expect(IPC_CHANNELS).toContain('memory:link')
     expect(new Set(IPC_CHANNELS).size).toBe(IPC_CHANNELS.length)
-    expect(IPC_EVENTS).toEqual(['system:tick', 'context:progress', 'memory:changed', 'terminal:data', 'terminal:exit'])
+    expect(IPC_EVENTS).toEqual([
+      'system:tick',
+      'context:progress',
+      'memory:changed',
+      'terminal:data',
+      'terminal:exit',
+      'ai:delta',
+      'ai:message',
+      'ai:conversationsChanged',
+      'permission:request',
+      'permission:resolved',
+      'events:event',
+      'agents:changed',
+      'agents:message'
+    ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
     expect(EVENT_CATALOG['app.started']).toBe('activity')
     // type-only modules: loading them proves they compile to side-effect-free modules
     for (const mod of await Promise.all([
       import('@shared/types/context'),
+      import('@shared/types/agents'),
       import('@shared/types/entity'),
+      import('@shared/types/files'),
       import('@shared/types/project'),
       import('@shared/types/settings'),
       import('@shared/types/system'),
@@ -251,12 +266,13 @@ describe('entry points', () => {
     vi.doUnmock('@/App')
   })
 
-  it('App renders the shell', async () => {
+  it('App renders the shell behind the session gate', async () => {
+    installBridge({ 'app:info': () => ({ mode: 'desktop' }) })
     vi.doMock('@/components/shell/AppShell', () => ({ AppShell: () => <div>shell</div> }))
     vi.resetModules()
     const { default: App } = await import('@/App')
     render(<App />)
-    expect(screen.getByText('shell')).toBeInTheDocument()
+    expect(await screen.findByText('shell')).toBeInTheDocument()
     vi.doUnmock('@/components/shell/AppShell')
   })
 })

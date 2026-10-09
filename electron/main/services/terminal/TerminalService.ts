@@ -33,7 +33,7 @@ const clamp = (n: unknown, min: number, max: number, fallback: number) =>
   typeof n === 'number' && Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : fallback
 
 /** The user's login shell — what Terminal.app would start. */
-function shellCommand(): { file: string; args: string[] } {
+export function shellCommand(): { file: string; args: string[] } {
   if (process.platform === 'win32') return { file: 'powershell.exe', args: ['-NoLogo'] }
   let file = ''
   try {
@@ -48,15 +48,30 @@ function shellCommand(): { file: string; args: string[] } {
   return { file, args: ['-l'] }
 }
 
+/** POSIX single-quoting: the word reaches the program exactly as given. */
+export function shellQuote(word: string): string {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`
+}
+
+/** A program started like from the user's terminal (login shell → real PATH). */
+function viaLoginShell(command: { file: string; args: string[] }): { file: string; args: string[] } {
+  if (process.platform === 'win32') return command
+  const shell = shellCommand().file
+  return { file: shell, args: ['-lc', `exec ${[command.file, ...command.args].map(shellQuote).join(' ')}`] }
+}
+
 /**
  * The user's own environment, minus what W-ONE's dev tooling injected:
- * ELECTRON_RUN_AS_NODE alone would break any Electron app started from here.
+ * ELECTRON_RUN_AS_NODE alone would break any Electron app started from here,
+ * and the markers of a Claude Code session W-ONE may have been launched from
+ * would make a `claude` started here think it is that session's child.
  */
-function shellEnv(): Record<string, string> {
+export function shellEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   // process.env values are always strings at runtime (assigning undefined stores 'undefined').
   for (const [key, value] of Object.entries(process.env) as [string, string][]) {
     if (/^(ELECTRON_|VITE_|npm_)/i.test(key) || key === 'INIT_CWD' || key === 'NODE_ENV') continue
+    if (/^(CLAUDE_CODE_|CLAUDE_AGENT_SDK)/.test(key) || key === 'CLAUDECODE' || key === 'CLAUDE_PID' || key === 'CLAUDE_EFFORT') continue
     env[key] = value
   }
   env.TERM = 'xterm-256color'
@@ -84,32 +99,71 @@ export class TerminalService {
   ) {}
 
   async create(req: { projectId?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
-    if (this.sessions.size >= MAX_SESSIONS) throw coded('limit', `At most ${MAX_SESSIONS} terminals`)
     const project = req?.projectId ? this.opts.resolveProject(req.projectId) : undefined
     if (req?.projectId && !project) throw coded('not-found', 'Project not found')
-    const cwd = project?.path ?? homedir()
+    return this.start({
+      title: project?.name ?? '~',
+      cwd: project?.path ?? homedir(),
+      command: shellCommand(),
+      projectId: project ? req.projectId : undefined,
+      cols: req?.cols,
+      rows: req?.rows
+    })
+  }
+
+  /**
+   * Core-internal (never an IPC channel): run a program — a coding agent — in
+   * a PTY, started through the user's login shell so it finds what their own
+   * terminal would. The renderer can watch and type into it like any session.
+   */
+  async spawnProgram(req: {
+    title: string
+    cwd: string
+    command: { file: string; args: string[] }
+    env?: Record<string, string>
+    projectId?: string
+    cols?: number
+    rows?: number
+    onExit?: (exitCode: number) => void
+  }): Promise<TerminalInfo> {
+    return this.start({ ...req, command: viaLoginShell(req.command), kind: 'agent' })
+  }
+
+  private async start(req: {
+    title: string
+    cwd: string
+    command: { file: string; args: string[] }
+    env?: Record<string, string>
+    projectId?: string
+    cols?: number
+    rows?: number
+    kind?: 'agent'
+    onExit?: (exitCode: number) => void
+  }): Promise<TerminalInfo> {
+    if (this.sessions.size >= MAX_SESSIONS) throw coded('limit', `At most ${MAX_SESSIONS} terminals`)
+    const { cwd, command } = req
     if (!(await stat(cwd).then((s) => s.isDirectory(), () => false))) {
       throw coded('not-found', `Folder not found: ${cwd}`)
     }
 
-    const { file, args } = shellCommand()
-    const pty = spawn(file, args, {
+    const pty = spawn(command.file, command.args, {
       name: 'xterm-256color',
-      cols: clamp(req?.cols, 2, 1000, 80),
-      rows: clamp(req?.rows, 1, 500, 24),
+      cols: clamp(req.cols, 2, 1000, 80),
+      rows: clamp(req.rows, 1, 500, 24),
       cwd,
-      env: shellEnv()
+      env: { ...shellEnv(), ...req.env }
     })
 
     const home = homedir()
     const info: TerminalInfo = {
       id: randomUUID(),
-      title: project?.name ?? '~',
+      title: req.title,
       cwd,
       cwdLabel: cwd === home ? '~' : cwd.startsWith(home + sep) ? `~${cwd.slice(home.length)}` : cwd,
-      shell: basename(file).replace(/\.exe$/i, ''),
-      projectId: project ? req.projectId : undefined,
-      createdAt: new Date().toISOString()
+      shell: basename(command.file).replace(/\.exe$/i, ''),
+      projectId: req.projectId,
+      createdAt: new Date().toISOString(),
+      ...(req.kind ? { kind: req.kind } : {})
     }
     const session: Session = { info, pty, pending: '', buffer: '', end: 0 }
     pty.onData((data) => this.push(session, data))
@@ -117,13 +171,15 @@ export class TerminalService {
       this.flush(session)
       this.sessions.delete(info.id)
       this.opts.emit('terminal:exit', { id: info.id, exitCode })
+      req.onExit?.(exitCode)
     })
     this.sessions.set(info.id, session)
     return info
   }
 
+  /** The Terminal module's tabs — agent PTYs live in the Agents module. */
   list(): TerminalInfo[] {
-    return [...this.sessions.values()].map((s) => s.info)
+    return [...this.sessions.values()].map((s) => s.info).filter((i) => i.kind !== 'agent')
   }
 
   attach(id: string): TerminalAttach {

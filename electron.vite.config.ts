@@ -9,7 +9,8 @@ export default defineConfig({
   main: {
     // Keep npm dependencies (e.g. systeminformation) external — required from
     // node_modules at runtime instead of bundled (they use dynamic requires).
-    plugins: [externalizeDepsPlugin()],
+    // ESM-only packages are bundled: the CommonJS main bundle can't require() them.
+    plugins: [externalizeDepsPlugin({ exclude: ['@agentclientprotocol/sdk'] })],
     resolve: { alias: shared },
     build: {
       outDir: 'out/main',

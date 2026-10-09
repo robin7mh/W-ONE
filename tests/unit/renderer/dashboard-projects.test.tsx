@@ -36,6 +36,46 @@ const snap = (cpu: number, ram: number, disk: number, battery: SystemSnapshot['b
   ts: 1
 })
 
+describe('Dashboard ask bar', () => {
+  it('with an API key: starts a new assistant chat and opens the Agents module', async () => {
+    const { useAssistant } = await import('@/features/agents/store')
+    const { useAgents } = await import('@/features/agents/sessions')
+    const send = vi.fn(async () => true)
+    const newChat = vi.fn()
+    useAssistant.setState({ send, newChat, status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high' } } })
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+    const input = screen.getByLabelText('Ask W-ONE')
+    fireEvent.submit(input.closest('form')!) // empty: nothing
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: '  What is next?  ' } })
+    fireEvent.click(screen.getByLabelText('Ask'))
+    expect(newChat).toHaveBeenCalledWith('assistant')
+    expect(onNavigate).toHaveBeenCalledWith('agents')
+    expect(send).toHaveBeenCalledWith('What is next?')
+    expect(useAgents.getState().view).toBe('assistant')
+    expect(input).toHaveValue('')
+  })
+
+  it('without an API key: opens "New chat" with the question, to pick an agent', async () => {
+    const { useAssistant } = await import('@/features/agents/store')
+    const { useAgents } = await import('@/features/agents/sessions')
+    const send = vi.fn(async () => true)
+    const openDialog = vi.fn()
+    useAssistant.setState({ send, status: undefined })
+    useAgents.setState({ openDialog })
+    const onNavigate = vi.fn()
+    render(<Dashboard onNavigate={onNavigate} />)
+    await act(settle)
+    fireEvent.change(screen.getByLabelText('Ask W-ONE'), { target: { value: 'Fix the login' } })
+    fireEvent.click(screen.getByLabelText('Ask'))
+    expect(onNavigate).toHaveBeenCalledWith('agents')
+    expect(openDialog).toHaveBeenCalledWith('Fix the login')
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
 describe('Dashboard', () => {
   it('shows loading tiles and a nameless greeting without a bridge', async () => {
     render(<Dashboard onNavigate={vi.fn()} />)

@@ -238,6 +238,19 @@
   .md-prose input[type='checkbox'] {
     @apply mr-1.5 align-middle accent-cyan;
   }
+  /* Assistant replies: the same prose, a little denser. */
+  .chat-prose {
+    @apply text-[13.5px] leading-[1.65];
+  }
+  .chat-prose h1 {
+    @apply text-[18px];
+  }
+  .chat-prose h2 {
+    @apply text-[16px];
+  }
+  .chat-prose > :last-child {
+    margin-bottom: 0;
+  }
   .md-prose img {
     @apply max-w-full rounded;
   }

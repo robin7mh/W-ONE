@@ -17,6 +17,40 @@ import type {
   VaultStatus
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
+import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
+import type {
+  AgentAvailability,
+  AgentMessageUpdate,
+  AgentSession,
+  AgentSessionDetail,
+  CreateSessionRequest,
+  FileChange,
+  FileDiff
+} from '@shared/types/agents'
+import type {
+  AppInfo,
+  Device,
+  DirListing,
+  PairingCode,
+  ServerConfig,
+  ServerStatus
+} from '@shared/types/server'
+import type {
+  AgentInfo,
+  AgentRun,
+  AiDelta,
+  AiMessageUpdate,
+  AiSettings,
+  AiStatus,
+  ApprovalDecision,
+  Conversation,
+  ConversationSummary,
+  PermissionGrant,
+  PermissionRequest,
+  SendRequest,
+  ToolInfo
+} from '@shared/types/ai'
+import type { WoneEvent } from '@shared/types/events'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -69,53 +103,167 @@ export interface IpcChannels {
   'terminal:write': { request: { id: string; data: string }; response: void }
   'terminal:resize': { request: { id: string; cols: number; rows: number }; response: void }
   'terminal:kill': { request: { id: string }; response: void }
+
+  'files:list': { request: { projectId: string; dir?: string }; response: FileEntry[] }
+  'files:read': { request: { projectId: string; path: string }; response: FileContent }
+  'files:stat': { request: { projectId: string; paths: string[] }; response: (FileStat | null)[] }
+  'files:write': {
+    request: { projectId: string; path: string; content: string; expectedMtime?: number }
+    response: FileStat
+  }
+
+  'app:info': { request: void; response: AppInfo }
+  'fs:dirs': { request: { path?: string }; response: DirListing }
+  'memory:setVault': { request: { path: string }; response: VaultStatus }
+
+  'server:status': { request: void; response: ServerStatus }
+  'server:configure': { request: Partial<ServerConfig>; response: ServerStatus }
+  'server:createPairingCode': { request: void; response: PairingCode }
+  'server:devices': { request: void; response: Device[] }
+  'server:revokeDevice': { request: { id: string }; response: void }
+
+  'ai:status': { request: void; response: AiStatus }
+  'ai:setKey': { request: { key: string }; response: AiStatus }
+  'ai:clearKey': { request: void; response: AiStatus }
+  'ai:configure': { request: Partial<AiSettings>; response: AiStatus }
+  'ai:agents': { request: void; response: AgentInfo[] }
+  'ai:tools': { request: void; response: ToolInfo[] }
+  'ai:conversations': { request: void; response: ConversationSummary[] }
+  'ai:conversation': { request: { id: string }; response: Conversation }
+  'ai:send': { request: SendRequest; response: { conversationId: string; messageId: string } }
+  'ai:cancel': { request: { conversationId: string }; response: void }
+  'ai:deleteConversation': { request: { id: string }; response: void }
+  'ai:runs': { request: { limit?: number }; response: AgentRun[] }
+
+  'permission:pending': { request: void; response: PermissionRequest[] }
+  'permission:respond': { request: { id: string; decision: ApprovalDecision }; response: void }
+  'permission:grants': { request: void; response: PermissionGrant[] }
+  'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
+
+  'events:recent': { request: { limit?: number; conversationId?: string }; response: WoneEvent[] }
+
+  'agents:detect': { request: void; response: AgentAvailability[] }
+  'agents:list': { request: void; response: AgentSession[] }
+  'agents:get': { request: { id: string }; response: AgentSessionDetail }
+  'agents:create': { request: CreateSessionRequest; response: AgentSession }
+  'agents:send': { request: { id: string; text: string }; response: void }
+  'agents:interrupt': { request: { id: string }; response: void }
+  'agents:stop': { request: { id: string }; response: void }
+  'agents:resume': { request: { id: string }; response: AgentSession }
+  'agents:remove': { request: { id: string }; response: void }
+  'agents:changes': { request: { id: string }; response: FileChange[] }
+  'agents:diff': { request: { id: string; path: string }; response: FileDiff }
+  'agents:accept': { request: { id: string }; response: { files: number } }
+  'agents:discard': { request: { id: string }; response: void }
+  'agents:rename': { request: { id: string; title: string }; response: AgentSession }
+  'agents:shell': { request: { id: string }; response: { terminalId: string } }
+  'agents:openInEditor': { request: { id: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
 
+/**
+ * Who may call a channel:
+ * - `any`      — every transport (desktop IPC and paired remote clients)
+ * - `desktop`  — only the desktop app's own window: native dialogs, opening
+ *                things on the host, and the server's own configuration
+ * - `terminal` — desktop, or remote clients when remote shells are enabled
+ *                (shells, and writing project files — both can run code)
+ */
+export type ChannelAccess = 'any' | 'desktop' | 'terminal'
+
+/** Every channel classified exactly once — a new channel without one is a type error. */
+export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
+  'projects:list': 'any',
+  'projects:pickFolder': 'desktop',
+  'projects:add': 'any',
+  'projects:remove': 'any',
+  'projects:refresh': 'any',
+  'projects:openInEditor': 'desktop',
+  'projects:openTerminal': 'desktop',
+  'projects:openFile': 'desktop',
+  'system:subscribe': 'any',
+  'system:unsubscribe': 'any',
+  'system:snapshot': 'any',
+  'system:user': 'any',
+  'context:get': 'any',
+  'context:reindex': 'any',
+  'memory:status': 'any',
+  'memory:createVault': 'any',
+  'memory:pickVault': 'desktop',
+  'memory:list': 'any',
+  'memory:read': 'any',
+  'memory:write': 'any',
+  'memory:create': 'any',
+  'memory:trash': 'any',
+  'memory:graph': 'any',
+  'memory:search': 'any',
+  'memory:setGraphStyle': 'any',
+  'memory:reveal': 'desktop',
+  'memory:folders': 'any',
+  'memory:writeBody': 'any',
+  'memory:createFolder': 'any',
+  'memory:rename': 'any',
+  'memory:move': 'any',
+  'memory:moveFolder': 'any',
+  'memory:link': 'any',
+  'memory:unlink': 'any',
+  'memory:setVault': 'any',
+  'terminal:create': 'terminal',
+  'terminal:list': 'terminal',
+  'terminal:attach': 'terminal',
+  'terminal:write': 'terminal',
+  'terminal:resize': 'terminal',
+  'terminal:kill': 'terminal',
+  'files:list': 'any',
+  'files:read': 'any',
+  'files:stat': 'any',
+  'files:write': 'terminal',
+  'app:info': 'any',
+  'fs:dirs': 'any',
+  'server:status': 'any',
+  'server:configure': 'desktop',
+  'server:createPairingCode': 'any',
+  'server:devices': 'any',
+  'server:revokeDevice': 'any',
+  'ai:status': 'any',
+  'ai:setKey': 'any',
+  'ai:clearKey': 'any',
+  'ai:configure': 'any',
+  'ai:agents': 'any',
+  'ai:tools': 'any',
+  'ai:conversations': 'any',
+  'ai:conversation': 'any',
+  'ai:send': 'any',
+  'ai:cancel': 'any',
+  'ai:deleteConversation': 'any',
+  'ai:runs': 'any',
+  'permission:pending': 'any',
+  'permission:respond': 'any',
+  'permission:grants': 'any',
+  'permission:revoke': 'any',
+  'events:recent': 'any',
+  // Agents run programs on this machine: starting or driving them is a shell's power.
+  'agents:detect': 'any',
+  'agents:list': 'any',
+  'agents:get': 'any',
+  'agents:create': 'terminal',
+  'agents:send': 'terminal',
+  'agents:interrupt': 'terminal',
+  'agents:stop': 'terminal',
+  'agents:resume': 'terminal',
+  'agents:remove': 'terminal',
+  'agents:changes': 'any',
+  'agents:diff': 'any',
+  'agents:accept': 'terminal',
+  'agents:discard': 'terminal',
+  'agents:rename': 'terminal',
+  'agents:shell': 'terminal',
+  'agents:openInEditor': 'desktop'
+}
+
 /** Runtime allowlist — the preload rejects any channel not in this set. */
-export const IPC_CHANNELS: readonly IpcChannel[] = [
-  'projects:list',
-  'projects:pickFolder',
-  'projects:add',
-  'projects:remove',
-  'projects:refresh',
-  'projects:openInEditor',
-  'projects:openTerminal',
-  'projects:openFile',
-  'system:subscribe',
-  'system:unsubscribe',
-  'system:snapshot',
-  'system:user',
-  'context:get',
-  'context:reindex',
-  'memory:status',
-  'memory:createVault',
-  'memory:pickVault',
-  'memory:list',
-  'memory:read',
-  'memory:write',
-  'memory:create',
-  'memory:trash',
-  'memory:graph',
-  'memory:search',
-  'memory:setGraphStyle',
-  'memory:reveal',
-  'memory:folders',
-  'memory:writeBody',
-  'memory:createFolder',
-  'memory:rename',
-  'memory:move',
-  'memory:moveFolder',
-  'memory:link',
-  'memory:unlink',
-  'terminal:create',
-  'terminal:list',
-  'terminal:attach',
-  'terminal:write',
-  'terminal:resize',
-  'terminal:kill'
-]
+export const IPC_CHANNELS = Object.keys(CHANNEL_ACCESS) as readonly IpcChannel[]
 
 /** Main→renderer push events (channel → payload). */
 export interface IpcEvents {
@@ -124,6 +272,14 @@ export interface IpcEvents {
   'memory:changed': MemoryChanged
   'terminal:data': TerminalData
   'terminal:exit': TerminalExit
+  'ai:delta': AiDelta
+  'ai:message': AiMessageUpdate
+  'ai:conversationsChanged': { reason: 'created' | 'updated' | 'deleted'; id: string }
+  'permission:request': PermissionRequest
+  'permission:resolved': { id: string; decision: ApprovalDecision }
+  'events:event': WoneEvent
+  'agents:changed': { session?: AgentSession; removed?: string }
+  'agents:message': AgentMessageUpdate
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -134,5 +290,16 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'context:progress',
   'memory:changed',
   'terminal:data',
-  'terminal:exit'
+  'terminal:exit',
+  'ai:delta',
+  'ai:message',
+  'ai:conversationsChanged',
+  'permission:request',
+  'permission:resolved',
+  'events:event',
+  'agents:changed',
+  'agents:message'
 ]
+
+/** Push events remote clients only receive when remote shells are enabled. */
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit']

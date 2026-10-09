@@ -40,41 +40,90 @@ vi.mock('electron', () => ({
   ipcRenderer: electron.ipcRenderer
 }))
 
-import { handle } from '../../../electron/ipc/registry'
+import { bindIpc } from '../../../electron/ipc/registry'
+import { Router } from '../../../electron/ipc/router'
+import { IPC_CHANNELS } from '../../../src/shared/ipc/contract'
 import { registerContextIpc } from '../../../electron/ipc/context.ipc'
 import { registerProjectIpc } from '../../../electron/ipc/projects.ipc'
 import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
 import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
+import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
+import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { DbService, DEFAULT_DB_URL, createPool, databaseUrl, type DbPool } from '../../../electron/main/services/db/DbService'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
 const call = (channel: string, req?: unknown) => electron.handlers.get(channel)!({}, req)
 
-describe('ipc registry', () => {
-  beforeEach(() => electron.handlers.clear())
+describe('ipc router', () => {
+  const ipcCtx = { transport: 'ipc' as const }
+  const remoteCtx = { transport: 'remote' as const, deviceId: 'd1' }
 
-  it('wraps results as { ok: true, data }', async () => {
-    handle('projects:list', () => [])
-    expect(await call('projects:list')).toEqual({ ok: true, data: [] })
+  it('wraps results as { ok: true, data } and passes the call context', async () => {
+    const router = new Router()
+    const seen = vi.fn(() => [])
+    router.register('projects:list', seen)
+    expect(router.has('projects:list')).toBe(true)
+    expect(router.has('nope')).toBe(false)
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: true, data: [] })
+    expect(seen).toHaveBeenCalledWith(undefined, ipcCtx)
   })
 
   it('turns thrown errors into { ok: false } with code and message', async () => {
-    handle('projects:list', () => {
+    const router = new Router()
+    router.register('projects:list', () => {
       throw Object.assign(new Error('nope'), { code: 'not-found' })
     })
-    expect(await call('projects:list')).toEqual({ ok: false, error: { code: 'not-found', message: 'nope' } })
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: false, error: { code: 'not-found', message: 'nope' } })
   })
 
   it('falls back to a generic code and String(err) for odd throwables', async () => {
-    handle('projects:list', () => {
+    const router = new Router()
+    router.register('projects:list', () => {
       throw 'plain string'
     })
-    expect(await call('projects:list')).toEqual({ ok: false, error: { code: 'error', message: 'plain string' } })
-    handle('projects:list', () => {
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: false, error: { code: 'error', message: 'plain string' } })
+    router.register('projects:list', () => {
       throw null
     })
-    expect(await call('projects:list')).toEqual({ ok: false, error: { code: 'error', message: 'null' } })
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: false, error: { code: 'error', message: 'null' } })
+  })
+
+  it('rejects unknown channels and invalid payloads before the handler runs', async () => {
+    const router = new Router()
+    const handler = vi.fn()
+    router.register('memory:read', handler)
+    expect(await router.dispatch('evil:channel', {}, ipcCtx)).toMatchObject({ ok: false, error: { code: 'unknown-channel' } })
+    const bad = await router.dispatch('memory:read', { path: 42 }, ipcCtx)
+    expect(bad).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect((bad as { error: { message: string } }).error.message).toContain('path:')
+    expect(await router.dispatch('memory:read', null, ipcCtx)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('applies the access rules to remote callers only', async () => {
+    let terminal = false
+    const router = new Router({ remoteTerminal: () => terminal })
+    router.register('projects:pickFolder', () => null)
+    router.register('terminal:list', () => [])
+    expect(await router.dispatch('projects:pickFolder', undefined, ipcCtx)).toEqual({ ok: true, data: null })
+    expect(await router.dispatch('projects:pickFolder', undefined, remoteCtx)).toMatchObject({ ok: false, error: { code: 'desktop-only' } })
+    expect(await router.dispatch('terminal:list', undefined, remoteCtx)).toMatchObject({ ok: false, error: { code: 'remote-terminal-disabled' } })
+    terminal = true
+    expect(await router.dispatch('terminal:list', undefined, remoteCtx)).toEqual({ ok: true, data: [] })
+    expect(await new Router().dispatch('terminal:list', undefined, remoteCtx)).toMatchObject({ ok: false, error: { code: 'unknown-channel' } })
+    const defaults = new Router()
+    defaults.register('terminal:list', () => [])
+    expect(await defaults.dispatch('terminal:list', undefined, remoteCtx)).toMatchObject({ error: { code: 'remote-terminal-disabled' } })
+  })
+
+  it('binds every contract channel to the window IPC through the router', async () => {
+    electron.handlers.clear()
+    const router = new Router()
+    router.register('projects:list', () => ['p'] as never)
+    bindIpc(router)
+    expect([...electron.handlers.keys()].sort()).toEqual([...IPC_CHANNELS].sort())
+    expect(await call('projects:list')).toEqual({ ok: true, data: ['p'] })
   })
 })
 
@@ -134,7 +183,8 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['memory:move', { path: 'a.md', folder: 'f' }, 'move', ['a.md', 'f']],
         ['memory:moveFolder', { folder: 'f', into: 'g' }, 'moveFolder', ['f', 'g']],
         ['memory:link', { from: 'a.md', to: 'b.md' }, 'link', ['a.md', 'b.md']],
-        ['memory:unlink', { from: 'a.md', to: 'b.md' }, 'unlink', ['a.md', 'b.md']]
+        ['memory:unlink', { from: 'a.md', to: 'b.md' }, 'unlink', ['a.md', 'b.md']],
+        ['memory:setVault', { path: '/v' }, 'setVault', ['/v']]
       ]
     ],
     [
@@ -143,18 +193,51 @@ describe('ipc handler modules bind every channel to its service', () => {
       [
         ['terminal:create', { projectId: 'p' }, 'create', [{ projectId: 'p' }]],
         ['terminal:create', undefined, 'create', [{}]],
+        ['terminal:create', { cols: 80, rows: 24 }, 'create', [{ cols: 80, rows: 24 }]],
         ['terminal:list', undefined, 'list', []],
         ['terminal:attach', { id: 'i' }, 'attach', ['i']],
         ['terminal:write', { id: 'i', data: 'ls' }, 'write', ['i', 'ls']],
         ['terminal:resize', { id: 'i', cols: 80, rows: 24 }, 'resize', ['i', 80, 24]],
         ['terminal:kill', { id: 'i' }, 'kill', ['i']]
       ]
+    ],
+    [
+      'files',
+      registerFilesIpc,
+      [
+        ['files:list', { projectId: 'p' }, 'list', ['p', undefined]],
+        ['files:list', { projectId: 'p', dir: 'src' }, 'list', ['p', 'src']],
+        ['files:read', { projectId: 'p', path: 'a.ts' }, 'read', ['p', 'a.ts']],
+        ['files:stat', { projectId: 'p', paths: ['a.ts'] }, 'stat', ['p', ['a.ts']]],
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
+      ]
+    ],
+    [
+      'agents',
+      registerAgentsIpc,
+      [
+        ['agents:detect', undefined, 'detect', []],
+        ['agents:list', undefined, 'list', []],
+        ['agents:get', { id: 'i' }, 'get', ['i']],
+        ['agents:create', { kind: 'claude-code', projectId: 'p', isolated: true }, 'create', [{ kind: 'claude-code', projectId: 'p', isolated: true }]],
+        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi']],
+        ['agents:interrupt', { id: 'i' }, 'interrupt', ['i']],
+        ['agents:stop', { id: 'i' }, 'stop', ['i']],
+        ['agents:resume', { id: 'i' }, 'resume', ['i']],
+        ['agents:remove', { id: 'i' }, 'remove', ['i']],
+        ['agents:changes', { id: 'i' }, 'changes', ['i']],
+        ['agents:diff', { id: 'i', path: 'a.ts' }, 'diff', ['i', 'a.ts']],
+        ['agents:accept', { id: 'i' }, 'accept', ['i']],
+        ['agents:discard', { id: 'i' }, 'discard', ['i']]
+      ]
     ]
   ] as const)('%s', async (_name, register, cases) => {
     const service = spyService()
-    ;(register as (s: unknown) => void)(service)
+    const router = new Router()
+    ;(register as (r: Router, s: unknown) => void)(router, service)
     for (const [channel, req, method, args] of cases) {
-      expect(await call(channel, req)).toEqual({ ok: true, data: { method, args } })
+      expect(await router.dispatch(channel, req, { transport: 'ipc' })).toEqual({ ok: true, data: { method, args } })
     }
   })
 })
@@ -225,7 +308,11 @@ describe('paths', () => {
         dataDir: join(homedir(), 'W-ONE', 'data'),
         settingsFile: join(homedir(), 'W-ONE', 'data', 'settings.json'),
         defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
-        legacyDataDir: join('/tmp/wone-userdata', 'wone')
+        devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
+        secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
+        grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
+        agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
+        worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
       })
       process.env.WONE_HOME = '/custom'
       expect(wonePaths().dataDir).toBe(join('/custom', 'data'))
@@ -240,15 +327,15 @@ describe('paths', () => {
     const legacy = join(dir, 'userData', 'wone')
     await mkdir(legacy, { recursive: true })
     await writeFile(join(legacy, 'projects.json'), '{"projects":[]}')
-    const paths = { homeDir: join(dir, 'W-ONE'), dataDir: join(dir, 'W-ONE', 'data'), settingsFile: '', defaultVaultRoot: '', legacyDataDir: legacy }
+    const paths = { ...wonePaths(), homeDir: join(dir, 'W-ONE'), dataDir: join(dir, 'W-ONE', 'data') }
 
-    expect(migrateLegacyData(paths)).toBe(true)
+    expect(migrateLegacyData(paths, legacy)).toBe(true)
     expect(await readFile(join(paths.dataDir, 'projects.json'), 'utf8')).toBe('{"projects":[]}')
     expect(existsSync(join(legacy, 'MOVED-TO-W-ONE-DATA.txt'))).toBe(true)
     expect(existsSync(join(legacy, 'projects.json'))).toBe(true) // original untouched
 
-    expect(migrateLegacyData(paths)).toBe(false) // already migrated
-    expect(migrateLegacyData({ ...paths, dataDir: join(dir, 'other'), legacyDataDir: join(dir, 'missing') })).toBe(false)
+    expect(migrateLegacyData(paths, legacy)).toBe(false) // already migrated
+    expect(migrateLegacyData({ ...paths, dataDir: join(dir, 'other') }, join(dir, 'missing'))).toBe(false)
   })
 })
 

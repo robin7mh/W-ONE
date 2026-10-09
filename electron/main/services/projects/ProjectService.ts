@@ -1,4 +1,3 @@
-import { dialog, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { realpath, stat } from 'node:fs/promises'
@@ -8,6 +7,8 @@ import type { Project } from '@shared/types/project'
 import { ProjectRegistry } from './registry'
 import { detectGit } from './gitDetect'
 import { detectStack } from './stackDetect'
+import { desktopOnly, type Platform } from '../../platform/types'
+import { openInVsCode } from '../../lib/openInVsCode'
 
 const exec = promisify(execFile)
 
@@ -17,7 +18,10 @@ const exec = promisify(execFile)
  * state — the renderer talks to it exclusively through the projects:* IPC.
  */
 export class ProjectService {
-  constructor(private readonly registry: ProjectRegistry) {}
+  constructor(
+    private readonly registry: ProjectRegistry,
+    private readonly platform: Platform
+  ) {}
 
   async init(): Promise<void> {
     await this.registry.load()
@@ -34,12 +38,9 @@ export class ProjectService {
 
   /** Native directory picker. Returns null if the user cancels. */
   async pickFolder(): Promise<{ path: string } | null> {
-    const res = await dialog.showOpenDialog({
-      title: 'Add project folder',
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (res.canceled || res.filePaths.length === 0) return null
-    return { path: res.filePaths[0] }
+    if (!this.platform.pickFolder) throw desktopOnly('The folder picker')
+    const path = await this.platform.pickFolder('Add project folder')
+    return path ? { path } : null
   }
 
   async add(path: string): Promise<Project> {
@@ -79,23 +80,7 @@ export class ProjectService {
   }
 
   async openInEditor(id: string): Promise<void> {
-    const { path } = this.requireProject(id)
-    try {
-      await exec('code', [path], { windowsHide: true })
-      return
-    } catch {
-      // `code` not on PATH — fall back per platform
-    }
-    if (process.platform === 'darwin') {
-      try {
-        await exec('open', ['-a', 'Visual Studio Code', path])
-        return
-      } catch {
-        /* VS Code not installed — reveal in Finder as last resort */
-      }
-    }
-    const err = await shell.openPath(path)
-    if (err) throw new Error(err)
+    await openInVsCode(this.requireProject(id).path, this.platform)
   }
 
   /** Open a specific file (optionally at a line) in the editor. Path-confined. */
@@ -115,8 +100,7 @@ export class ProjectService {
     } catch {
       // `code` not available — reveal the file instead
     }
-    const err = await shell.openPath(target)
-    if (err) throw new Error(err)
+    await this.openPath(target)
   }
 
   async openTerminal(id: string): Promise<void> {
@@ -152,6 +136,11 @@ export class ProjectService {
   }
 
   // --- helpers ---
+
+  private async openPath(path: string): Promise<void> {
+    if (!this.platform.openPath) throw desktopOnly('Opening files on this machine')
+    await this.platform.openPath(path)
+  }
 
   private requireProject(id: string): Project {
     const project = this.registry.get(id)

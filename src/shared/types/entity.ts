@@ -7,7 +7,7 @@
  * tool, file, automation); the SQLite column stays TEXT, so additions are
  * type-level only.
  */
-export type EntityKind = 'project' | 'memory' | 'knowledge'
+export type EntityKind = 'project' | 'memory' | 'knowledge' | 'conversation' | 'agent_run'
 
 /** Stable address of any domain object. Relations and events point at these. */
 export interface EntityRef {
