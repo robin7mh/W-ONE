@@ -1,23 +1,29 @@
+import { useEffect } from 'react'
 import {
+  AppWindow,
   GitBranch,
   GitCommitHorizontal,
   ArrowUp,
   ArrowDown,
   Code2,
-  TerminalSquare,
   RefreshCw,
   Trash2,
   FileText,
   Package
 } from 'lucide-react'
 import type { Project } from '@shared/types/project'
+import type { ModuleId } from '@/types'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { repoLink } from '@/lib/repo'
+import { useSession } from '@/features/session/store'
 import { useProjects } from '../store'
 import { isDesktop } from '@shared/ipc/client'
+import { ActionButton } from './ActionButton'
 import { ContextSection } from './ContextSection'
+import { ProjectTerminalMenu } from './ProjectTerminalMenu'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -28,43 +34,21 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
-function ActionButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-  danger
-}: {
-  icon: typeof Code2
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'flex items-center gap-2 rounded-md border px-3 py-2 font-sans text-[12px] font-medium transition-colors disabled:opacity-40',
-        danger
-          ? 'border-hud/60 text-text-secondary hover:border-danger/50 hover:text-danger'
-          : 'border-hud/60 text-text-secondary hover:border-cyan/50 hover:text-cyan'
-      )}
-    >
-      <Icon size={14} strokeWidth={1.8} />
-      {label}
-    </button>
-  )
-}
-
-export function ProjectDetailPanel({ project }: { project: Project }) {
+export function ProjectDetailPanel({ project, onNavigate }: { project: Project; onNavigate: (module: ModuleId) => void }) {
   const t = useT()
-  const { refresh, remove, openEditor, openTerminal, busyId } = useProjects()
+  const { refresh, remove, openEditor, openInGitHubDesktop, githubDesktop, busyId } = useProjects()
   const busy = busyId === project.id
   const g = project.git
   const s = project.stack
+  const desktop = isDesktop()
+  // A paired browser gets shells only when the core allows remote shells.
+  const shells = useSession((st) => desktop || st.info?.remoteTerminal === true)
+  const repo = g?.webUrl ? repoLink(g.webUrl) : undefined
+
+  // Git changes outside W-ONE (commits, pushes, a new remote): re-detect whenever a project is shown.
+  useEffect(() => {
+    void useProjects.getState().refresh(project.id)
+  }, [project.id])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -108,7 +92,7 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
             )}
             {g.lastCommit && (
               <Row label={t.projects.lastCommit}>
-                <span className="inline-flex items-start gap-1.5">
+                <span className="flex min-w-0 items-start gap-1.5">
                   <GitCommitHorizontal size={12} className="mt-0.5 shrink-0 text-text-muted" />
                   <span className="min-w-0">
                     <span className="block truncate text-text-primary">{g.lastCommit.subject}</span>
@@ -174,11 +158,11 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
       {/* actions */}
       <div className="flex flex-wrap gap-2 border-t border-hud/50 px-4 py-3">
         {/* Opening apps on the host only makes sense in the desktop window. */}
-        {isDesktop() && (
-          <>
-            <ActionButton icon={Code2} label="VS Code" onClick={() => openEditor(project.id)} />
-            <ActionButton icon={TerminalSquare} label={t.projects.terminal} onClick={() => openTerminal(project.id)} />
-          </>
+        {desktop && <ActionButton icon={Code2} label="VS Code" onClick={() => openEditor(project.id)} />}
+        {shells && <ProjectTerminalMenu projectId={project.id} onShow={() => onNavigate('terminal')} />}
+        {repo && <ActionButton icon={repo.Icon} label={repo.label} title={t.projects.openRepo(g!.webUrl!)} href={g!.webUrl} />}
+        {desktop && githubDesktop && g?.isRepo && (
+          <ActionButton icon={AppWindow} label={githubDesktop} title={t.projects.openIn(githubDesktop)} onClick={() => openInGitHubDesktop(project.id)} />
         )}
         <ActionButton icon={RefreshCw} label={busy ? t.projects.refreshing : t.projects.refresh} onClick={() => refresh(project.id)} disabled={busy} />
         <div className="flex-1" />

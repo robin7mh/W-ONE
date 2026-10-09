@@ -7,26 +7,37 @@ export interface TerminalTab extends TerminalInfo {
   exitCode?: number
 }
 
-/** single = tabs, one visible · cols = side by side · rows = stacked · grid = 2×2 */
+/**
+ * How many terminals fill one screen: single = one · cols = two side by side ·
+ * rows = two stacked · grid = 2×2. Further terminals continue below (scroll).
+ */
 export type TerminalLayout = 'single' | 'cols' | 'rows' | 'grid'
 
-export const LAYOUT_SLOTS: Record<TerminalLayout, number> = { single: 1, cols: 2, rows: 2, grid: 4 }
+/** Columns of each layout, and how many rows fill one screen. */
+export const LAYOUT_GRID: Record<TerminalLayout, { cols: number; rows: number }> = {
+  single: { cols: 1, rows: 1 },
+  cols: { cols: 2, rows: 1 },
+  rows: { cols: 1, rows: 2 },
+  grid: { cols: 2, rows: 2 }
+}
 
 interface TerminalState {
-  /** Order matters: in split layouts the first N tabs fill the N panes. */
+  /** Shown in this order, row by row. */
   tabs: TerminalTab[]
   activeId?: string
   layout: TerminalLayout
   error?: string
   initialized: boolean
 
-  /** Re-attach to sessions that survived a renderer reload, else open one. */
-  init: () => Promise<void>
+  /** Re-attach to sessions that survived a renderer reload, else open one (in Home, unless `openHome` is false). */
+  init: (openHome?: boolean) => Promise<void>
   open: (projectId?: string) => Promise<void>
+  /** From elsewhere in the app (e.g. a project): a shell in that folder, without the extra Home shell of a first visit. */
+  openProject: (projectId: string) => Promise<void>
   close: (id: string) => Promise<void>
   /** Replace an exited tab with a fresh shell in the same place. */
   restart: (id: string) => Promise<void>
-  /** Focus a tab; a tab outside the visible panes takes the active pane's slot. */
+  /** Focus a tab (the view scrolls it into sight). */
   setActive: (id: string) => void
   /** Switch layout. Never opens shells — the user fills empty panes. */
   setLayout: (layout: TerminalLayout) => void
@@ -50,34 +61,18 @@ export function tabLabels(tabs: TerminalTab[]): Map<string, string> {
 }
 
 
-/**
- * Split layouts show the first N tabs: move tab `id` into the active tab's
- * pane (swap) so it becomes visible. Single layout shows whichever tab is
- * active, so the tab strip keeps its order there.
- */
-function swapIntoView(tabs: TerminalTab[], id: string, activeId: string | undefined, layout: TerminalLayout): TerminalTab[] {
-  const slots = LAYOUT_SLOTS[layout]
-  const from = tabs.findIndex((t) => t.id === id)
-  if (layout === 'single' || from < slots) return tabs
-  const activeIndex = tabs.findIndex((t) => t.id === activeId)
-  const to = activeIndex >= 0 && activeIndex < slots ? activeIndex : 0
-  const next = [...tabs]
-  ;[next[from], next[to]] = [next[to], next[from]]
-  return next
-}
-
 export const useTerminals = create<TerminalState>((set, get) => ({
   tabs: [],
   layout: 'single',
   initialized: false,
 
-  init: async () => {
+  init: async (openHome = true) => {
     if (get().initialized) return
     set({ initialized: true })
     try {
       const existing = await ipc('terminal:list')
       if (existing.length) set({ tabs: existing, activeId: existing[0].id })
-      else await get().open()
+      else if (openHome) await get().open()
     } catch (err) {
       set({ error: errorMessage(err) })
     }
@@ -86,13 +81,15 @@ export const useTerminals = create<TerminalState>((set, get) => ({
   open: async (projectId) => {
     try {
       const info = await ipc('terminal:create', { projectId })
-      set((s) => {
-        const tabs = swapIntoView([...s.tabs, info], info.id, s.activeId, s.layout)
-        return { tabs, activeId: info.id, error: undefined }
-      })
+      set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
     } catch (err) {
       set({ error: errorMessage(err) })
     }
+  },
+
+  openProject: async (projectId) => {
+    await get().init(false)
+    await get().open(projectId)
   },
 
   close: async (id) => {
@@ -121,8 +118,7 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     }
   },
 
-  setActive: (id) =>
-    set((s) => ({ tabs: swapIntoView(s.tabs, id, s.activeId, s.layout), activeId: id })),
+  setActive: (id) => set({ activeId: id }),
 
   // Only re-arranges; empty panes show a "New terminal" placeholder instead.
   setLayout: (layout) => set({ layout }),

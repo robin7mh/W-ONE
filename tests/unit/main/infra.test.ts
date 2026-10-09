@@ -146,7 +146,8 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['projects:remove', { id: 'i' }, 'remove', ['i']],
         ['projects:refresh', { id: 'i' }, 'refresh', ['i']],
         ['projects:openInEditor', { id: 'i' }, 'openInEditor', ['i']],
-        ['projects:openTerminal', { id: 'i' }, 'openTerminal', ['i']],
+        ['projects:githubDesktop', undefined, 'githubDesktop', []],
+        ['projects:openInGitHubDesktop', { id: 'i' }, 'openInGitHubDesktop', ['i']],
         ['projects:openFile', { id: 'i', file: 'f', line: 3 }, 'openFile', ['i', 'f', 3]]
       ]
     ],

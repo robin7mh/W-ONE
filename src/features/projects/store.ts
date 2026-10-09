@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { errorMessage, ipc } from '@shared/ipc/client'
+import { errorMessage, ipc, isDesktop } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
 
 interface ProjectsState {
@@ -8,6 +8,8 @@ interface ProjectsState {
   loading: boolean
   busyId?: string // project currently being refreshed/opened/removed
   error?: string
+  /** GitHub Desktop's name when it is installed (desktop window only). */
+  githubDesktop?: string | null
 
   load: () => Promise<void>
   addViaPicker: () => Promise<void>
@@ -16,7 +18,7 @@ interface ProjectsState {
   remove: (id: string) => Promise<void>
   refresh: (id: string) => Promise<void>
   openEditor: (id: string) => Promise<void>
-  openTerminal: (id: string) => Promise<void>
+  openInGitHubDesktop: (id: string) => Promise<void>
   select: (id: string) => void
 }
 
@@ -28,9 +30,13 @@ export const useProjects = create<ProjectsState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: undefined })
     try {
-      const projects = await ipc('projects:list')
+      const [projects, githubDesktop] = await Promise.all([
+        ipc('projects:list'),
+        isDesktop() ? ipc('projects:githubDesktop').catch(() => null) : null
+      ])
       set((s) => ({
         projects,
+        githubDesktop,
         loading: false,
         selectedId: s.selectedId ?? projects[0]?.id
       }))
@@ -102,10 +108,10 @@ export const useProjects = create<ProjectsState>((set, get) => ({
     }
   },
 
-  openTerminal: async (id) => {
+  openInGitHubDesktop: async (id) => {
     set({ error: undefined })
     try {
-      await ipc('projects:openTerminal', { id })
+      await ipc('projects:openInGitHubDesktop', { id })
     } catch (err) {
       set({ error: errorMessage(err) })
     }

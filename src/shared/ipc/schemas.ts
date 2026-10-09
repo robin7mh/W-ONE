@@ -26,7 +26,8 @@ export const REQUEST_SCHEMAS: Schemas = {
   'projects:remove': z.object({ id }),
   'projects:refresh': z.object({ id }),
   'projects:openInEditor': z.object({ id }),
-  'projects:openTerminal': z.object({ id }),
+  'projects:githubDesktop': none,
+  'projects:openInGitHubDesktop': z.object({ id }),
   'projects:openFile': z.object({ id, file: path, line: z.number().int().min(0).optional() }),
 
   'system:subscribe': none,

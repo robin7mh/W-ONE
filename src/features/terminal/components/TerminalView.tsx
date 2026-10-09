@@ -7,7 +7,7 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
-import { LAYOUT_SLOTS, tabLabels, useTerminals, type TerminalLayout } from '../store'
+import { LAYOUT_GRID, tabLabels, useTerminals, type TerminalLayout } from '../store'
 import { XtermPane } from './XtermPane'
 
 /** Split layouts; each label is `t.terminal[id]`. */
@@ -18,32 +18,34 @@ const LAYOUTS: { id: TerminalLayout; icon: typeof Square }[] = [
   { id: 'grid', icon: Grid2x2 }
 ]
 
-/** Pane `slot`'s box in a split layout, as percentages of the pane area. */
-function slotBox(layout: TerminalLayout, slot: number): React.CSSProperties {
-  const cols = layout === 'cols' || layout === 'grid' ? 2 : 1
-  const rows = layout === 'rows' || layout === 'grid' ? 2 : 1
-  const c = slot % cols
-  const r = Math.floor(slot / cols)
-  return { left: `${(c / cols) * 100}%`, top: `${(r / rows) * 100}%`, width: `${100 / cols}%`, height: `${100 / rows}%` }
-}
-
 /**
- * The Terminal module: real shells (node-pty in main) in tabs, shown one at a
- * time or split side by side / stacked / 2×2. "+" opens a shell in Home or a
- * registered project. Sessions keep running while you're in other modules —
- * the shell mounts this view once and hides it.
+ * The Terminal module: real shells (node-pty in main), all of them in one
+ * grid. The layout sets how many fill a screen — one, side by side, stacked or
+ * 2×2 — and further shells continue below, so the area scrolls. Tabs jump to a
+ * shell. "+" opens one in Home or a registered project. Sessions keep running
+ * while you're in other modules — the shell mounts this view once and hides it.
  */
 export function TerminalView() {
   const tr = useT()
   const { tabs, activeId, layout, error, init, open, close, setActive, setLayout } = useTerminals()
   const active = tabs.find((t) => t.id === activeId)
-  const slots = LAYOUT_SLOTS[layout]
+  const { cols, rows } = LAYOUT_GRID[layout]
   const split = layout !== 'single'
+  // Frames show where one shell ends and the next begins.
+  const framed = split || tabs.length > 1
+  // Split layouts fill the first screen and the last row with "new terminal" panes.
+  const empty = split ? Math.max(cols * rows, Math.ceil(tabs.length / cols) * cols) - tabs.length : 0
   const labels = tabLabels(tabs)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     void init()
   }, [init])
+
+  // Keep the active shell in sight: after a tab click, a new shell, a layout switch.
+  useEffect(() => {
+    scrollRef.current!.querySelector(`[data-terminal="${activeId}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [activeId, layout])
 
   return (
     <Panel
@@ -64,16 +66,12 @@ export function TerminalView() {
           so the "+" menu can drop down without being clipped. */}
       <div className="flex items-center gap-1 border-b border-hud/50 px-2 py-1.5">
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
-          {tabs.map((t, i) => (
+          {tabs.map((t) => (
             <div
               key={t.id}
               className={cn(
                 'group flex shrink-0 items-center gap-1 rounded-md border pl-2 pr-1 transition-colors',
-                t.id === activeId
-                  ? 'border-cyan/40 bg-cyan/[0.06] text-text-primary'
-                  : split && i < slots
-                    ? 'border-hud/50 text-text-secondary hover:bg-elevated/50'
-                    : 'border-transparent text-text-muted hover:bg-elevated/50 hover:text-text-secondary'
+                t.id === activeId ? 'border-cyan/40 bg-cyan/[0.06] text-text-primary' : 'border-hud/50 text-text-secondary hover:bg-elevated/50'
               )}
             >
               <button type="button" onClick={() => setActive(t.id)} className="flex items-center gap-1.5 py-1">
@@ -123,28 +121,25 @@ export function TerminalView() {
         </div>
       )}
 
-      <div className={cn('relative min-h-0 flex-1', split && 'm-1')}>
-        {tabs.map((t, i) => (
-          <XtermPane
-            key={t.id}
-            tab={t}
-            label={labels.get(t.id)!}
-            active={t.id === activeId}
-            visible={split ? i < slots : t.id === activeId}
-            box={split && i < slots ? slotBox(layout, i) : undefined}
-            framed={split}
-          />
-        ))}
-
-        {/* split layouts: empty panes let the user open a shell (Home or a project) */}
-        {split &&
-          Array.from({ length: Math.max(0, slots - tabs.length) }, (_, k) => tabs.length + k).map((slot) => (
-            <div key={`empty-${slot}`} style={slotBox(layout, slot)} className="absolute p-1">
-              <NewTerminalMenu variant="pane" onOpen={(projectId) => void open(projectId)} />
-            </div>
-          ))}
-
-        {!split && tabs.length === 0 && (
+      {/* Row height = one screen / rows per screen (container query units of
+          the scroll area itself), so the layout fills the screen exactly. */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto [container-type:size]">
+        {split || tabs.length > 0 ? (
+          <div
+            className={cn('grid', framed && 'p-1')}
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: framed ? `calc((100cqh - 8px) / ${rows})` : '100cqh' }}
+          >
+            {tabs.map((t) => (
+              <XtermPane key={t.id} tab={t} label={labels.get(t.id)!} active={t.id === activeId} framed={framed} />
+            ))}
+            {/* empty panes let the user open a shell (Home or a project) */}
+            {Array.from({ length: empty }, (_, k) => (
+              <div key={`empty-${k}`} className="p-1">
+                <NewTerminalMenu variant="pane" onOpen={(projectId) => void open(projectId)} />
+              </div>
+            ))}
+          </div>
+        ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <TerminalSquare size={26} className="text-text-muted" />
             <button

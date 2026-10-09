@@ -8,8 +8,9 @@ import { ProjectDetailPanel } from './ProjectDetailPanel'
 import { FolderPicker } from '@/components/ui/FolderPicker'
 import { isDesktop } from '@shared/ipc/client'
 import { useT } from '@/lib/i18n'
+import type { ModuleId } from '@/types'
 
-export function ProjectsView() {
+export function ProjectsView({ onNavigate }: { onNavigate: (module: ModuleId) => void }) {
   const t = useT()
   const { projects, selectedId, loading, error, load, addViaPicker, addPath, select } = useProjects()
   const selected = useSelectedProject()
@@ -76,7 +77,7 @@ export function ProjectsView() {
       {/* right: detail */}
       <div className="min-w-0 flex-1">
         {selected ? (
-          <ProjectDetailPanel project={selected} />
+          <ProjectDetailPanel project={selected} onNavigate={onNavigate} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="font-mono text-[12px] text-text-muted">{t.projects.select}</p>

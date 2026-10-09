@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Code2, ExternalLink, FolderGit2, GitBranch, Github, Gitlab, Play, Power, Square, TerminalSquare, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Code2, FolderGit2, GitBranch, Play, Power, Square, TerminalSquare, X } from 'lucide-react'
 import type { ChatMessage } from '@shared/types/ai'
 import type { AgentSession, SessionStatus } from '@shared/types/agents'
 import { isDesktop } from '@shared/ipc/client'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { repoLink } from '@/lib/repo'
 import { useXterm } from '@/features/terminal/useXterm'
 import { useAssistant } from '../store'
 import { useAgents } from '../sessions'
@@ -73,14 +74,6 @@ function TitleInput({ title, onRename }: { title: string; onRename: (title: stri
       className="-mx-1 min-w-0 max-w-[40%] truncate rounded bg-transparent px-1 font-sans text-[13px] font-semibold text-text-primary outline-none transition-colors hover:bg-elevated/50 focus:bg-elevated/70 focus:ring-1 focus:ring-cyan/40"
     />
   )
-}
-
-/** "GitHub", "GitLab" — or the host — for the repo link. */
-function repoLink(url: string): { label: string; Icon: typeof Github } {
-  const host = new URL(url).hostname
-  if (host === 'github.com') return { label: 'GitHub', Icon: Github }
-  if (host.startsWith('gitlab.')) return { label: 'GitLab', Icon: Gitlab }
-  return { label: host, Icon: ExternalLink }
 }
 
 const iconButton =

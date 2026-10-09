@@ -12,9 +12,12 @@ import { openInVsCode } from '../../lib/openInVsCode'
 
 const exec = promisify(execFile)
 
+/** GitHub Desktop's link scheme (its `github` command line tool uses the same). */
+const GITHUB_DESKTOP = 'x-github-client://'
+
 /**
  * Orchestrates the project registry, deterministic detection, and the few
- * Electron-side actions (folder picker, open in editor/terminal). Holds no UI
+ * Electron-side actions (folder picker, open in editor / GitHub Desktop). Holds no UI
  * state — the renderer talks to it exclusively through the projects:* IPC.
  */
 export class ProjectService {
@@ -103,36 +106,16 @@ export class ProjectService {
     await this.openPath(target)
   }
 
-  async openTerminal(id: string): Promise<void> {
+  /** GitHub Desktop's name when it is installed here, else null. */
+  githubDesktop(): string | null {
+    return this.platform.appForUrl?.(GITHUB_DESKTOP) || null
+  }
+
+  /** Open the project in GitHub Desktop — it adds the repo on first use. */
+  async openInGitHubDesktop(id: string): Promise<void> {
     const { path } = this.requireProject(id)
-    if (process.platform === 'darwin') {
-      await exec('open', ['-a', 'Terminal', path])
-    } else if (process.platform === 'win32') {
-      // Windows Terminal if present, else classic console — both start in `path`
-      try {
-        await exec('wt', ['-d', path], { windowsHide: true })
-      } catch {
-        await exec('cmd', ['/c', 'start', 'cmd'], { cwd: path, windowsHide: true })
-      }
-    } else {
-      // Linux: try common emulators
-      const candidates: [string, string[]][] = [
-        ['x-terminal-emulator', []],
-        ['gnome-terminal', []],
-        ['konsole', []]
-      ]
-      let opened = false
-      for (const [bin, args] of candidates) {
-        try {
-          await exec(bin, args, { cwd: path })
-          opened = true
-          break
-        } catch {
-          /* try next */
-        }
-      }
-      if (!opened) throw new Error('No terminal emulator found')
-    }
+    if (!this.platform.openExternal) throw desktopOnly('GitHub Desktop')
+    await this.platform.openExternal(`${GITHUB_DESKTOP}openLocalRepo/${encodeURIComponent(path)}`)
   }
 
   // --- helpers ---

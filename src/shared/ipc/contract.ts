@@ -67,7 +67,9 @@ export interface IpcChannels {
   'projects:remove': { request: { id: string }; response: void }
   'projects:refresh': { request: { id: string }; response: Project }
   'projects:openInEditor': { request: { id: string }; response: void }
-  'projects:openTerminal': { request: { id: string }; response: void }
+  /** GitHub Desktop's name when it is installed on the desktop, else null. */
+  'projects:githubDesktop': { request: void; response: string | null }
+  'projects:openInGitHubDesktop': { request: { id: string }; response: void }
   'projects:openFile': { request: { id: string; file: string; line?: number }; response: void }
 
   'system:subscribe': { request: void; response: void }
@@ -198,7 +200,8 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'projects:remove': 'any',
   'projects:refresh': 'any',
   'projects:openInEditor': 'desktop',
-  'projects:openTerminal': 'desktop',
+  'projects:githubDesktop': 'desktop',
+  'projects:openInGitHubDesktop': 'desktop',
   'projects:openFile': 'desktop',
   'system:subscribe': 'any',
   'system:unsubscribe': 'any',

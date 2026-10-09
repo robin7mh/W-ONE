@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeAtomic } from '../../lib/writeAtomic'
 
 /** Encrypts values at rest (desktop: Electron safeStorage / OS keychain). */
 export interface Cipher {
@@ -35,13 +35,7 @@ export class SecretStore {
     const all = { ...(await this.load()) }
     if (value === null) delete all[name]
     else all[name] = this.cipher ? this.cipher.encrypt(value) : value
-    await mkdir(dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify({ version: 1, encrypted: !!this.cipher, secrets: all }, null, 2), {
-      encoding: 'utf8',
-      mode: 0o600
-    })
-    await rename(tmp, this.file)
+    await writeAtomic(this.file, JSON.stringify({ version: 1, encrypted: !!this.cipher, secrets: all }, null, 2), 0o600)
     this.cache = all
   }
 

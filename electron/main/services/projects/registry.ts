@@ -1,11 +1,12 @@
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Project } from '@shared/types/project'
+import { writeAtomic } from '../../lib/writeAtomic'
 
 /**
  * Persistent project list backed by a single JSON file. Electron-agnostic: the
  * data directory is injected, so it is fully unit-testable against a temp dir.
- * Writes are atomic (temp file + rename) to avoid corruption on crash.
+ * Writes are atomic and one at a time (see writeAtomic).
  */
 export class ProjectRegistry {
   private readonly file: string
@@ -53,10 +54,7 @@ export class ProjectRegistry {
     await this.persist()
   }
 
-  private async persist(): Promise<void> {
-    await mkdir(dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify({ version: 1, projects: this.projects }, null, 2), 'utf8')
-    await rename(tmp, this.file)
+  private persist(): Promise<void> {
+    return writeAtomic(this.file, JSON.stringify({ version: 1, projects: this.projects }, null, 2))
   }
 }

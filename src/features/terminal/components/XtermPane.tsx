@@ -9,22 +9,18 @@ interface PaneProps {
   tab: TerminalTab
   /** Tab label (numbered when titles repeat). */
   label: string
-  /** Has keyboard focus (single layout: the shown tab; split: the outlined pane). */
+  /** Has keyboard focus (outlined when framed). */
   active: boolean
-  /** Shown at all — background tabs stay mounted but invisible. */
-  visible: boolean
-  /** Position inside the pane area (percentages); split layouts only. */
-  box?: React.CSSProperties
-  /** Split layouts: frame + slim header with title, folder and close. */
+  /** Several shells on the page: frame + slim header with title, folder and close. */
   framed: boolean
 }
 
 /**
- * One terminal tab's view (see useXterm). Stays mounted while hidden or
- * re-positioned (layout changes only move its box), so nothing is lost when
- * switching tabs or layouts. An exited shell restarts on Enter.
+ * One terminal tab's view (see useXterm) — a cell of the terminal grid. Stays
+ * mounted when the layout changes (only the grid around it changes), so nothing
+ * is lost. An exited shell restarts on Enter.
  */
-export function XtermPane({ tab, label, active, visible, box, framed }: PaneProps) {
+export function XtermPane({ tab, label, active, framed }: PaneProps) {
   const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
   const { termRef, fitRef } = useXterm(hostRef, tab.id, tab.exitCode !== undefined, {
@@ -58,11 +54,7 @@ export function XtermPane({ tab, label, active, visible, box, framed }: PaneProp
   // Padding lives on the wrapper: FitAddon measures the host's parent box, so
   // padding on the host itself would count as usable width and clip the text.
   return (
-    <div
-      style={box}
-      className={cn('absolute', box ? 'p-1' : 'inset-0', !visible && 'invisible')}
-      onMouseDown={focus}
-    >
+    <div data-terminal={tab.id} className={cn('min-h-0 min-w-0', framed && 'p-1')} onMouseDown={focus}>
       <div
         className={cn(
           'flex h-full flex-col overflow-hidden',

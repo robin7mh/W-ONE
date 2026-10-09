@@ -529,9 +529,10 @@ describe('projects in a browser', () => {
     const remote = installRemote({
       'projects:list': () => [],
       'fs:dirs': () => ({ path: '/srv/new', parent: '/srv', home: '/root', dirs: [] }),
-      'projects:add': () => project
+      'projects:add': () => project,
+      'projects:refresh': () => project
     })
-    render(<ProjectsView />)
+    render(<ProjectsView onNavigate={vi.fn()} />)
     await act(settle)
     fireEvent.click(screen.getByText('Add project'))
     expect(remote.invoke).not.toHaveBeenCalledWith('projects:pickFolder', undefined)
@@ -546,11 +547,18 @@ describe('projects in a browser', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('reports a failing add', async () => {
-    installRemote({ 'projects:add': () => fail('not a folder') })
+  it('reports a failing add; the terminal button follows remote shells', async () => {
+    installRemote({ 'projects:add': () => fail('not a folder'), 'projects:refresh': () => project })
     await useProjects.getState().addPath('/x')
     expect(useProjects.getState().error).toBe('not a folder')
-    render(<ProjectDetailPanel project={project} />)
+    useProjects.setState({ githubDesktop: 'GitHub Desktop' })
+    useSession.setState({ info: undefined })
+    const { rerender } = render(<ProjectDetailPanel project={{ ...project, git: { isRepo: true } }} onNavigate={vi.fn()} />)
     expect(screen.queryByText('Terminal')).toBeNull()
+    expect(screen.queryByText('GitHub Desktop')).toBeNull() // host apps: desktop window only
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true, db: { connected: true } } })
+    rerender(<ProjectDetailPanel project={project} onNavigate={vi.fn()} />)
+    expect(screen.getByText('Terminal')).toBeInTheDocument()
+    await act(settle)
   })
 })

@@ -1,5 +1,6 @@
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeAtomic } from '../../lib/writeAtomic'
 import type { ProjectContext } from '@shared/types/context'
 
 /**
@@ -27,11 +28,7 @@ export class ContextStore {
   }
 
   async save(context: ProjectContext): Promise<ProjectContext> {
-    await mkdir(this.dir, { recursive: true })
-    const target = this.file(context.projectId)
-    const tmp = `${target}.tmp`
-    await writeFile(tmp, JSON.stringify(context, null, 2), 'utf8')
-    await rename(tmp, target)
+    await writeAtomic(this.file(context.projectId), JSON.stringify(context, null, 2))
     return context
   }
 }

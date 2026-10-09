@@ -4,7 +4,7 @@ import { fail, installBridge, settle } from './bridge'
 
 import { useProjects, useSelectedProject } from '@/features/projects/store'
 import { useContextStore, useProjectContextEntry } from '@/features/context/store'
-import { LAYOUT_SLOTS, tabLabels, useTerminals } from '@/features/terminal/store'
+import { LAYOUT_GRID, tabLabels, useTerminals } from '@/features/terminal/store'
 import { folderColors, useMemory } from '@/features/memory/store'
 import { useSystemMetrics } from '@/features/system/useSystemMetrics'
 import type { Note, NoteMeta } from '@shared/types/memory'
@@ -36,11 +36,12 @@ describe('projects store', () => {
       'projects:refresh': ({ id }: { id: string }) => ({ ...project(id), name: 'fresh' }),
       'projects:remove': () => undefined,
       'projects:openInEditor': () => undefined,
-      'projects:openTerminal': () => undefined
+      'projects:openInGitHubDesktop': () => undefined,
+      'projects:githubDesktop': () => 'GitHub Desktop'
     })
     const s = useProjects.getState()
     await s.load()
-    expect(useProjects.getState()).toMatchObject({ loading: false, selectedId: 'a' })
+    expect(useProjects.getState()).toMatchObject({ loading: false, selectedId: 'a', githubDesktop: 'GitHub Desktop' })
     await s.load() // keeps the selection
     list = []
     useProjects.setState({ selectedId: undefined })
@@ -62,7 +63,7 @@ describe('projects store', () => {
     await s.remove('c') // not selected → selection kept
     expect(useProjects.getState().selectedId).toBe('a')
     await s.openEditor('a')
-    await s.openTerminal('a')
+    await s.openInGitHubDesktop('a')
     expect(useProjects.getState().error).toBeUndefined()
   })
 
@@ -73,7 +74,7 @@ describe('projects store', () => {
 
     installBridge(
       Object.fromEntries(
-        ['projects:list', 'projects:pickFolder', 'projects:remove', 'projects:refresh', 'projects:openInEditor', 'projects:openTerminal'].map(
+        ['projects:list', 'projects:pickFolder', 'projects:remove', 'projects:refresh', 'projects:openInEditor', 'projects:openInGitHubDesktop'].map(
           (ch) => [ch, () => fail(`${ch} failed`)]
         )
       )
@@ -85,7 +86,7 @@ describe('projects store', () => {
       [() => s.remove('x'), 'projects:remove'],
       [() => s.refresh('x'), 'projects:refresh'],
       [() => s.openEditor('x'), 'projects:openInEditor'],
-      [() => s.openTerminal('x'), 'projects:openTerminal']
+      [() => s.openInGitHubDesktop('x'), 'projects:openInGitHubDesktop']
     ] as const) {
       await run()
       expect(useProjects.getState().error).toBe(`${ch} failed`)
@@ -215,33 +216,23 @@ describe('terminal store', () => {
     await s().close(fresh.id) // kill fails silently
   })
 
-  it('split layouts: new tabs land in view, picking a hidden tab swaps it into the active pane', async () => {
+  it('layouts never reorder: new tabs append, picking a tab only focuses it', async () => {
     const queue: TerminalInfo[] = []
     installBridge({ 'terminal:create': () => queue.shift()!, 'terminal:kill': () => fail('x') })
     const s = () => useTerminals.getState()
-    const tabs = [info(), info(), info()]
+    const tabs = [info(), info(), info(), info(), info()]
     queue.push(...tabs)
-    for (let i = 0; i < 3; i += 1) await s().open()
+    for (let i = 0; i < 5; i += 1) await s().open()
 
-    s().setLayout('cols')
-    expect(LAYOUT_SLOTS[s().layout]).toBe(2)
+    s().setLayout('grid')
+    expect(LAYOUT_GRID[s().layout]).toEqual({ cols: 2, rows: 2 })
     s().setActive(tabs[0].id)
-    s().setActive(tabs[2].id) // hidden (index 2) → swaps into tab 0's pane
-    expect(s().tabs.map((t) => t.id)).toEqual([tabs[2].id, tabs[1].id, tabs[0].id])
-    s().setActive(tabs[1].id) // visible → no reorder
-    expect(s().tabs[1].id).toBe(tabs[1].id)
+    s().setActive(tabs[4].id) // the fifth shell lives in the third row — nothing moves
+    expect(s().tabs.map((t) => t.id)).toEqual(tabs.map((t) => t.id))
+    expect(s().activeId).toBe(tabs[4].id)
 
-    useTerminals.setState({ activeId: 'gone' })
-    s().setActive(tabs[0].id) // active unknown → swaps into pane 0
-    expect(s().tabs[0].id).toBe(tabs[0].id)
-
-    const d = info()
-    queue.push(d)
-    s().setActive(tabs[1].id)
-    await s().open() // grid full → new tab replaces the active pane
-    expect(s().tabs.indexOf(s().tabs.find((t) => t.id === d.id)!)).toBe(1)
-    await s().close(d.id) // kill rejects → still closes
-    expect(s().tabs.some((t) => t.id === d.id)).toBe(false)
+    await s().close(tabs[4].id) // kill rejects → still closes
+    expect(s().tabs.some((t) => t.id === tabs[4].id)).toBe(false)
   })
 
   it('tabLabels numbers duplicate titles by age, independent of order', () => {

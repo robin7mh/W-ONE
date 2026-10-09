@@ -17,6 +17,8 @@ type FakePty = {
 }
 const h = vi.hoisted(() => ({
   ptys: [] as FakePty[],
+  /** What node-pty reports as the foreground process ('' = the shell itself). */
+  foreground: '' as string | Error,
   userShell: '/bin/zsh' as string | undefined | Error,
   missing: new Set<string>()
 }))
@@ -38,6 +40,10 @@ vi.mock('node-pty', () => ({
     h.ptys.push(pty)
     return {
       ...pty,
+      get process() {
+        if (h.foreground instanceof Error) throw h.foreground
+        return h.foreground || file.split('/').pop()
+      },
       onData: (cb: typeof onData) => (onData = cb),
       onExit: (cb: typeof onExit) => (onExit = cb)
     }
@@ -71,6 +77,7 @@ let projectDir: string
 
 beforeEach(async () => {
   h.ptys.length = 0
+  h.foreground = ''
   h.userShell = '/bin/zsh'
   h.missing.clear()
   emit = vi.fn()
@@ -209,6 +216,17 @@ describe('TerminalService sessions', () => {
     ])
     expect(svc.list()).toEqual([])
     svc.kill(id) // unknown → no-op
+  })
+
+  it('lists what runs in each shell: nothing at the prompt, else the program', async () => {
+    const { id } = await svc.create({})
+    expect(svc.list()[0]).not.toHaveProperty('running') // zsh waits at its prompt
+    h.foreground = 'node'
+    expect(svc.list()[0]).toMatchObject({ id, running: 'node' })
+    h.foreground = '-zsh' // a login shell's process name
+    expect(svc.list()[0].running).toBeUndefined()
+    h.foreground = new Error('closed')
+    expect(svc.list()[0].running).toBeUndefined()
   })
 
   it('kill and killAll end sessions, clearing pending timers', async () => {

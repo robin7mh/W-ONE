@@ -101,7 +101,7 @@ export function AppShell() {
   }
 
   const renderMain = () => {
-    if (active === 'projects') return <ProjectsView />
+    if (active === 'projects') return <ProjectsView onNavigate={setActive} />
     if (active === 'memory') return <MemoryView />
     if (active === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => setActive('settings')} />
     if (active === 'system') return <SystemView />

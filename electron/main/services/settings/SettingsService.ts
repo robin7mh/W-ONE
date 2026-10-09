@@ -1,5 +1,5 @@
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { writeAtomic } from '../../lib/writeAtomic'
 import type { AppSettings } from '@shared/types/settings'
 
 /**
@@ -35,10 +35,7 @@ export class SettingsService {
     return this.get()
   }
 
-  private async persist(): Promise<void> {
-    await mkdir(dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify({ version: 1, settings: this.settings }, null, 2), 'utf8')
-    await rename(tmp, this.file)
+  private persist(): Promise<void> {
+    return writeAtomic(this.file, JSON.stringify({ version: 1, settings: this.settings }, null, 2))
   }
 }
