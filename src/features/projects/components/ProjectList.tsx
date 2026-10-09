@@ -1,6 +1,7 @@
 import { GitBranch, FolderGit2, Folder } from 'lucide-react'
 import type { Project } from '@shared/types/project'
 import { StatusDot } from '@/components/ui/StatusDot'
+import { useT } from '@/lib/i18n'
 import { cn } from '@/lib/cn'
 
 function gitTone(p: Project): 'ok' | 'warn' | 'muted' {
@@ -17,6 +18,7 @@ export function ProjectListItem({
   active: boolean
   onSelect: () => void
 }) {
+  const t = useT()
   const Icon = project.git?.isRepo ? FolderGit2 : Folder
   return (
     <button
@@ -44,11 +46,11 @@ export function ProjectListItem({
         {project.git?.isRepo ? (
           <span className="flex items-center gap-1 font-mono text-[10px] text-text-secondary">
             <GitBranch size={11} className="text-text-muted" />
-            {project.git.branch ?? 'detached'}
-            {project.git.dirty && <span className="text-amber">•dirty</span>}
+            {project.git.branch ?? t.projects.detached}
+            {project.git.dirty && <span className="text-amber">•{t.projects.dirty}</span>}
           </span>
         ) : (
-          <span className="font-mono text-[10px] text-text-muted">no repo</span>
+          <span className="font-mono text-[10px] text-text-muted">{t.projects.noRepo}</span>
         )}
         {project.stack?.frameworks.slice(0, 2).map((f) => (
           <span

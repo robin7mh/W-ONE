@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BOOT_LINES } from '@/data/bootLines'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 
 const TONE: Record<string, string> = {
   accent: 'text-cyan text-glow-cyan',
@@ -15,6 +16,7 @@ const TONE: Record<string, string> = {
  * Clicking anywhere skips.
  */
 export function BootSequence({ onSkip }: { onSkip: () => void }) {
+  const t = useT()
   const [visibleCount, setVisibleCount] = useState(0)
 
   // Precompute cumulative timestamps for each line.
@@ -27,7 +29,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
     const timers = marks.map((m, i) =>
       window.setTimeout(() => setVisibleCount(i + 1), m)
     )
-    return () => timers.forEach((t) => window.clearTimeout(t))
+    return () => timers.forEach((id) => window.clearTimeout(id))
   }, [marks])
 
   const total = marks[marks.length - 1]
@@ -59,7 +61,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
             <div className="font-sans text-sm font-semibold tracking-wide text-text-primary">
               W-ONE COMMAND CENTER
             </div>
-            <div className="tech-label mt-0.5 text-text-muted">System bootstrap</div>
+            <div className="tech-label mt-0.5 text-text-muted">{t.boot.bootstrap}</div>
           </div>
         </div>
 
@@ -73,7 +75,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
               className={cn('flex gap-2', TONE[line.tone])}
             >
               <span className="select-none text-text-muted">›</span>
-              <span>{line.text}</span>
+              <span>{t.boot.lines[i]}</span>
             </motion.div>
           ))}
           {visibleCount < BOOT_LINES.length && (
@@ -83,7 +85,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
 
         <div className="mt-6">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="tech-label text-text-muted">Initializing</span>
+            <span className="tech-label text-text-muted">{t.boot.initializing}</span>
             <span className="font-mono text-[11px] text-cyan">{Math.round(progress)}%</span>
           </div>
           <div className="h-1 overflow-hidden rounded-full bg-elevated">
@@ -95,7 +97,7 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
             />
           </div>
           <div className="tech-label mt-3 text-center text-text-muted opacity-60">
-            click to skip
+            {t.boot.skip}
           </div>
         </div>
       </div>

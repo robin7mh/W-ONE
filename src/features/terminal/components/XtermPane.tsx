@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useTerminals, type TerminalTab } from '../store'
+import { getT, useT } from '@/lib/i18n'
 import { useXterm } from '../useXterm'
 
 interface PaneProps {
@@ -24,11 +25,12 @@ interface PaneProps {
  * switching tabs or layouts. An exited shell restarts on Enter.
  */
 export function XtermPane({ tab, label, active, visible, box, framed }: PaneProps) {
+  const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
   const { termRef, fitRef } = useXterm(hostRef, tab.id, tab.exitCode !== undefined, {
     onExit: (exitCode) => {
       useTerminals.getState().markExited(tab.id, exitCode)
-      return `\r\n\x1b[90m[process exited with code ${exitCode} — press Enter to restart]\x1b[0m\r\n`
+      return `\r\n\x1b[90m[${getT().terminal.exited(exitCode)}]\x1b[0m\r\n`
     },
     onInputAfterExit: (data) => {
       if (data === '\r') void useTerminals.getState().restart(tab.id)
@@ -79,7 +81,7 @@ export function XtermPane({ tab, label, active, visible, box, framed }: PaneProp
             </span>
             <button
               type="button"
-              aria-label={`Close ${label}`}
+              aria-label={t.terminal.close(label)}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => void useTerminals.getState().close(tab.id)}
               className="rounded p-0.5 text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"

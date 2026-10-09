@@ -3,6 +3,7 @@ import { BookOpen, Check, CircleDot, FileDiff, GitMerge, Loader2, RefreshCw, Tra
 import type { AgentSession } from '@shared/types/agents'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useAgents } from '../sessions'
 
 // Monaco's diff editor — loaded only when a diff is opened.
@@ -12,21 +13,22 @@ type Tab = 'changes' | 'plan' | 'memory'
 
 /** Before → after for one file, over the whole module. */
 export function DiffModal() {
+  const t = useT()
   const diff = useAgents((s) => s.diff)
   if (!diff) return null
   return (
-    <div role="dialog" aria-label={`Changes in ${diff.path}`} className="fixed inset-0 z-50 flex items-center justify-center bg-void/70 p-6 backdrop-blur-sm">
+    <div role="dialog" aria-label={t.agents.changesIn(diff.path)} className="fixed inset-0 z-50 flex items-center justify-center bg-void/70 p-6 backdrop-blur-sm">
       <div className="panel flex h-full max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden">
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hud/60 px-3">
           <FileDiff size={14} className="text-cyan" />
           <span className="truncate font-mono text-[12px] text-text-primary">{diff.path}</span>
-          <span className="font-mono text-[10.5px] text-text-muted">before → after</span>
-          <button type="button" aria-label="Close diff" onClick={() => useAgents.getState().closeDiff()} className="ml-auto text-text-muted hover:text-text-primary">
+          <span className="font-mono text-[10.5px] text-text-muted">{t.agents.beforeAfter}</span>
+          <button type="button" aria-label={t.agents.closeDiff} onClick={() => useAgents.getState().closeDiff()} className="ml-auto text-text-muted hover:text-text-primary">
             <X size={15} />
           </button>
         </div>
         <div className="relative min-h-0 flex-1">
-          <Suspense fallback={<p className="p-4 font-mono text-[11px] text-text-muted">Loading the diff…</p>}>
+          <Suspense fallback={<p className="p-4 font-mono text-[11px] text-text-muted">{t.agents.loadingDiff}</p>}>
             <DiffView path={diff.path} original={diff.original} modified={diff.modified} />
           </Suspense>
         </div>
@@ -43,6 +45,7 @@ const tilde = (path: string) => path.replace(/^(\/Users|\/home)\/[^/]+(?=\/)/, '
  * away an own working folder), its plan, and the memory it used.
  */
 export function SessionSide({ session, onOpenNote }: { session: AgentSession; onOpenNote: (path: string) => void }) {
+  const t = useT()
   const changes = useAgents((s) => s.changes[session.id])
   const busy = useAgents((s) => s.busy)
   const [tab, setTab] = useState<Tab>('changes')
@@ -55,9 +58,9 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
   }, [session.id, session.status])
 
   const tabs: [Tab, string, number][] = [
-    ['changes', 'Changes', changes?.length ?? 0],
-    ['plan', 'Plan', session.plan.filter((p) => !p.done).length],
-    ['memory', 'Memory', session.notes.length]
+    ['changes', t.agents.changes, changes?.length ?? 0],
+    ['plan', t.agents.plan, session.plan.filter((p) => !p.done).length],
+    ['memory', t.agents.memory, session.notes.length]
   ]
 
   return (
@@ -82,18 +85,18 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
         {tab === 'changes' && (
           <div className="space-y-1">
             <div className="flex items-center justify-between px-1">
-              <TechLabel className="text-text-muted">{session.worktree ? 'In its own working folder' : 'Since the session started'}</TechLabel>
-              <button type="button" aria-label="Refresh changes" onClick={() => void loadChanges(session.id)} className="text-text-muted hover:text-cyan">
+              <TechLabel className="text-text-muted">{session.worktree ? t.agents.inOwnFolder : t.agents.sinceStart}</TechLabel>
+              <button type="button" aria-label={t.agents.refreshChanges} onClick={() => void loadChanges(session.id)} className="text-text-muted hover:text-cyan">
                 <RefreshCw size={12} />
               </button>
             </div>
             {session.worktree && (
               <p className="px-1 pb-1 font-sans text-[10.5px] leading-relaxed text-text-muted">
-                A separate copy of the project in <span className="font-mono text-text-secondary">{tilde(session.worktree)}</span>, on the local branch{' '}
-                <span className="font-mono text-text-secondary">{session.branch}</span> — not on GitHub.
+                {t.agents.copyIn} <span className="font-mono text-text-secondary">{tilde(session.worktree)}</span>
+                {t.agents.onBranch} <span className="font-mono text-text-secondary">{session.branch}</span> {t.agents.notOnGithub}
               </p>
             )}
-            {!changes?.length && <p className="px-1 py-2 font-mono text-[11px] text-text-muted">No changes yet</p>}
+            {!changes?.length && <p className="px-1 py-2 font-mono text-[11px] text-text-muted">{t.agents.noChanges}</p>}
             {changes?.map((c) => (
               <button
                 key={c.path}
@@ -114,13 +117,13 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
               <div className="mt-3 space-y-1.5 border-t border-hud/50 pt-2">
                 {confirmDiscard ? (
                   <div className="space-y-1.5">
-                    <p className="font-sans text-[11.5px] text-text-secondary">Throw away all changes and the working folder?</p>
+                    <p className="font-sans text-[11.5px] text-text-secondary">{t.agents.discardConfirm}</p>
                     <div className="flex gap-1.5">
                       <button type="button" onClick={() => void discard()} className="flex-1 rounded-md border border-danger/50 px-2 py-1 font-sans text-[11.5px] text-danger hover:bg-danger/10">
-                        Discard
+                        {t.agents.discard}
                       </button>
                       <button type="button" onClick={() => setConfirmDiscard(false)} className="flex-1 rounded-md border border-hud/60 px-2 py-1 font-sans text-[11.5px] text-text-secondary">
-                        Keep
+                        {t.agents.keep}
                       </button>
                     </div>
                   </div>
@@ -132,11 +135,11 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
                       onClick={() => void accept()}
                       className="flex flex-1 items-center justify-center gap-1 rounded-md border border-cyan/50 bg-cyan/[0.08] px-2 py-1 font-sans text-[11.5px] text-cyan hover:bg-cyan/15 disabled:opacity-40"
                     >
-                      {busy ? <Loader2 size={12} className="animate-spin" /> : <GitMerge size={12} />} Take over
+                      {busy ? <Loader2 size={12} className="animate-spin" /> : <GitMerge size={12} />} {t.agents.takeOver}
                     </button>
                     <button
                       type="button"
-                      aria-label="Discard changes"
+                      aria-label={t.agents.discardChanges}
                       onClick={() => setConfirmDiscard(true)}
                       className="rounded-md border border-hud/60 px-2 py-1 text-text-muted hover:border-danger/50 hover:text-danger"
                     >
@@ -145,8 +148,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
                   </div>
                 )}
                 <p className="font-sans text-[10.5px] leading-relaxed text-text-muted">
-                  Take over copies the changes into your project as uncommitted edits — commit and push them as usual to see them on GitHub. Discard deletes the
-                  folder and its branch.
+                  {t.agents.takeOverHint}
                 </p>
               </div>
             )}
@@ -164,7 +166,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
               ))}
             </ul>
           ) : (
-            <p className="px-1 py-2 font-mono text-[11px] text-text-muted">No plan yet — it appears when the agent makes one</p>
+            <p className="px-1 py-2 font-mono text-[11px] text-text-muted">{t.agents.noPlan}</p>
           ))}
 
         {tab === 'memory' && (
@@ -172,7 +174,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
             {session.journal && (
               <button type="button" onClick={() => onOpenNote(session.journal!)} className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-elevated/50">
                 <BookOpen size={12} className="shrink-0 text-cyan" />
-                <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-text-primary">Session journal</span>
+                <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-text-primary">{t.agents.journal}</span>
               </button>
             )}
             {session.notes.map((n) => (
@@ -183,7 +185,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
             ))}
             {!session.journal && !session.notes.length && (
               <p className="px-1 py-2 font-mono text-[11px] text-text-muted">
-                Notes the agent reads or writes show up here; the session journal is written after its first answer.
+                {t.agents.noNotes}
               </p>
             )}
           </div>

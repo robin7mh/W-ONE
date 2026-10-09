@@ -4,15 +4,16 @@ import type { ApprovalDecision, ChatMessage, PermissionRequest, ToolCallPart } f
 import { renderMarkdown } from '@/features/memory/markdown'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { ApprovalCard } from './ApprovalCard'
 
-const STATUS: Record<ToolCallPart['status'], { label: string; cls: string }> = {
-  pending: { label: 'queued', cls: 'text-text-muted' },
-  'awaiting-approval': { label: 'waiting for you', cls: 'text-amber' },
-  running: { label: 'running', cls: 'text-cyan' },
-  done: { label: 'done', cls: 'text-green' },
-  error: { label: 'failed', cls: 'text-danger' },
-  denied: { label: 'blocked', cls: 'text-amber' }
+const STATUS_TONE: Record<ToolCallPart['status'], string> = {
+  pending: 'text-text-muted',
+  'awaiting-approval': 'text-amber',
+  running: 'text-cyan',
+  done: 'text-green',
+  error: 'text-danger',
+  denied: 'text-amber'
 }
 
 function toolIcon(part: ToolCallPart) {
@@ -31,9 +32,9 @@ export function inputPreview(input: unknown): string {
 }
 
 function ToolCard({ part, request, onRespond }: { part: ToolCallPart; request?: PermissionRequest; onRespond: (id: string, d: ApprovalDecision) => void }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const Icon = toolIcon(part)
-  const s = STATUS[part.status]
   const preview = inputPreview(part.input)
   return (
     <div className="my-1.5">
@@ -47,20 +48,20 @@ function ToolCard({ part, request, onRespond }: { part: ToolCallPart; request?: 
         <Icon size={13} className="shrink-0 text-cyan" />
         <span className="shrink-0 font-sans text-[12px] font-medium text-text-primary">{part.title}</span>
         {preview && <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted">{preview}</span>}
-        <span className={cn('ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wider', s.cls)}>
+        <span className={cn('ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wider', STATUS_TONE[part.status])}>
           {part.status === 'running' && <Loader2 size={10} className="animate-spin" />}
-          {s.label}
+          {t.agents.toolStatus[part.status]}
         </span>
       </button>
       {open && (
         <div className="mt-1 space-y-1.5 rounded-md border border-hud/40 bg-surface/60 p-2">
-          <TechLabel className="text-text-muted">Input</TechLabel>
+          <TechLabel className="text-text-muted">{t.agents.input}</TechLabel>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary">
             {JSON.stringify(part.input, null, 2)}
           </pre>
           {part.output !== undefined && (
             <>
-              <TechLabel className="text-text-muted">Result</TechLabel>
+              <TechLabel className="text-text-muted">{t.agents.result}</TechLabel>
               <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary">{part.output}</pre>
             </>
           )}
@@ -89,6 +90,7 @@ function Message({
   pending: PermissionRequest[]
   onRespond: (id: string, d: ApprovalDecision) => void
 }) {
+  const t = useT()
   if (message.role === 'user') {
     const text = message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
     return (
@@ -96,7 +98,7 @@ function Message({
         <div className="max-w-[85%] rounded-lg border border-cyan/30 bg-cyan/[0.07] px-3 py-2">
           <div className="mb-0.5 flex items-center gap-1.5">
             <User size={11} className="text-cyan" />
-            <TechLabel className="text-text-muted">You</TechLabel>
+            <TechLabel className="text-text-muted">{t.agents.you}</TechLabel>
           </div>
           <p className="whitespace-pre-wrap break-words font-sans text-[13px] text-text-primary">{text}</p>
         </div>
@@ -115,24 +117,24 @@ function Message({
       )}
       {message.status === 'streaming' && empty && (
         <p className="flex items-center gap-2 font-mono text-[11px] text-text-muted">
-          <Loader2 size={12} className="animate-spin text-cyan" /> thinking…
+          <Loader2 size={12} className="animate-spin text-cyan" /> {t.agents.thinking}
         </p>
       )}
       {message.status === 'streaming' && !empty && <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-cyan/70 align-middle" />}
       {message.status === 'error' && (
         <p className="mt-1 flex items-start gap-1.5 font-mono text-[11px] text-danger">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {message.error ?? 'The run failed.'}
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {message.error ?? t.agents.runFailed}
         </p>
       )}
       {message.status === 'cancelled' && (
         <p className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-amber">
-          <Ban size={12} /> Stopped
+          <Ban size={12} /> {t.agents.stopped}
         </p>
       )}
       {message.status !== 'streaming' && message.model && (
         <p className="mt-1 font-mono text-[10px] text-text-muted">
           {message.model}
-          {message.usage ? ` · ${message.usage.inputTokens} in / ${message.usage.outputTokens} out` : ''}
+          {message.usage ? t.agents.tokens(message.usage.inputTokens, message.usage.outputTokens) : ''}
         </p>
       )}
     </div>

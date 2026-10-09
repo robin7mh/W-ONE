@@ -8,6 +8,7 @@ import {
   type RemoteTransport
 } from '@shared/ipc/transport'
 import type { AppInfo } from '@shared/types/server'
+import { getT } from '@/lib/i18n'
 
 const TOKEN_KEY = 'wone.token'
 const DEVICE_KEY = 'wone.deviceId'
@@ -85,7 +86,7 @@ export const useSession = create<SessionState>((set, get) => {
         transport?.close()
         transport = null
         setTransport(null)
-        set({ status: 'unpaired', info: undefined, error: 'This device is no longer paired' })
+        set({ status: 'unpaired', info: undefined, error: getT().pair.noLongerPaired })
       }
     })
     setTransport(transport)
@@ -127,7 +128,7 @@ export const useSession = create<SessionState>((set, get) => {
         return
       }
       const core = await probeCore(BASE_URL)
-      set(core ? { status: 'unpaired' } : { status: 'unreachable', error: 'No W-ONE core answered at this address' })
+      set(core ? { status: 'unpaired' } : { status: 'unreachable', error: getT().pair.noCore })
     },
 
     pair: async (code, name) => {

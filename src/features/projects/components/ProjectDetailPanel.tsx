@@ -14,6 +14,7 @@ import type { Project } from '@shared/types/project'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useProjects } from '../store'
 import { isDesktop } from '@shared/ipc/client'
 import { ContextSection } from './ContextSection'
@@ -59,6 +60,7 @@ function ActionButton({
 }
 
 export function ProjectDetailPanel({ project }: { project: Project }) {
+  const t = useT()
   const { refresh, remove, openEditor, openTerminal, busyId } = useProjects()
   const busy = busyId === project.id
   const g = project.git
@@ -74,7 +76,7 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <StatusDot tone={g?.isRepo ? (g.dirty ? 'warn' : 'ok') : 'muted'} pulse={false} />
-          <TechLabel className="text-text-muted">{g?.isRepo ? (g.dirty ? 'dirty' : 'clean') : 'no repo'}</TechLabel>
+          <TechLabel className="text-text-muted">{g?.isRepo ? (g.dirty ? t.projects.dirty : t.projects.clean) : t.projects.noRepo}</TechLabel>
         </div>
       </div>
 
@@ -83,15 +85,15 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
         {/* git */}
         {g?.isRepo && (
           <section>
-            <TechLabel className="mb-1.5 block text-text-secondary">Git</TechLabel>
-            <Row label="Branch">
+            <TechLabel className="mb-1.5 block text-text-secondary">{t.projects.git}</TechLabel>
+            <Row label={t.projects.branch}>
               <span className="inline-flex items-center gap-1.5">
                 <GitBranch size={12} className="text-cyan" />
-                {g.branch ?? 'detached'}
+                {g.branch ?? t.projects.detached}
               </span>
             </Row>
             {(g.ahead != null || g.behind != null) && (
-              <Row label="Upstream">
+              <Row label={t.projects.upstream}>
                 <span className="inline-flex items-center gap-3">
                   <span className="inline-flex items-center gap-1">
                     <ArrowUp size={11} className="text-text-muted" />
@@ -105,7 +107,7 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
               </Row>
             )}
             {g.lastCommit && (
-              <Row label="Last commit">
+              <Row label={t.projects.lastCommit}>
                 <span className="inline-flex items-start gap-1.5">
                   <GitCommitHorizontal size={12} className="mt-0.5 shrink-0 text-text-muted" />
                   <span className="min-w-0">
@@ -122,14 +124,14 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
 
         {/* stack */}
         <section>
-          <TechLabel className="mb-1.5 block text-text-secondary">Stack</TechLabel>
+          <TechLabel className="mb-1.5 block text-text-secondary">{t.projects.stack}</TechLabel>
           {s?.languages.length ? (
-            <Row label="Languages">{s.languages.join(', ')}</Row>
+            <Row label={t.projects.languages}>{s.languages.join(', ')}</Row>
           ) : (
-            <Row label="Languages"><span className="text-text-muted">—</span></Row>
+            <Row label={t.projects.languages}><span className="text-text-muted">—</span></Row>
           )}
           {s?.frameworks.length ? (
-            <Row label="Frameworks">
+            <Row label={t.projects.frameworks}>
               <span className="flex flex-wrap gap-1.5">
                 {s.frameworks.map((f) => (
                   <span
@@ -142,15 +144,15 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
               </span>
             </Row>
           ) : null}
-          {s?.packageManager && <Row label="Pkg manager">{s.packageManager}</Row>}
-          <Row label="README">
+          {s?.packageManager && <Row label={t.projects.pkgManager}>{s.packageManager}</Row>}
+          <Row label={t.projects.readme}>
             <span className={cn('inline-flex items-center gap-1.5', s?.hasReadme ? 'text-text-secondary' : 'text-text-muted')}>
               <FileText size={12} />
-              {s?.hasReadme ? 'present' : 'none'}
+              {s?.hasReadme ? t.projects.present : t.projects.none_}
             </span>
           </Row>
           {s?.packageJson?.scripts?.length ? (
-            <Row label="Scripts">
+            <Row label={t.projects.scripts}>
               <span className="flex flex-wrap gap-1.5">
                 {s.packageJson.scripts.slice(0, 8).map((sc) => (
                   <span
@@ -175,12 +177,12 @@ export function ProjectDetailPanel({ project }: { project: Project }) {
         {isDesktop() && (
           <>
             <ActionButton icon={Code2} label="VS Code" onClick={() => openEditor(project.id)} />
-            <ActionButton icon={TerminalSquare} label="Terminal" onClick={() => openTerminal(project.id)} />
+            <ActionButton icon={TerminalSquare} label={t.projects.terminal} onClick={() => openTerminal(project.id)} />
           </>
         )}
-        <ActionButton icon={RefreshCw} label={busy ? 'Refreshing…' : 'Refresh'} onClick={() => refresh(project.id)} disabled={busy} />
+        <ActionButton icon={RefreshCw} label={busy ? t.projects.refreshing : t.projects.refresh} onClick={() => refresh(project.id)} disabled={busy} />
         <div className="flex-1" />
-        <ActionButton icon={Trash2} label="Remove" onClick={() => remove(project.id)} disabled={busy} danger />
+        <ActionButton icon={Trash2} label={t.projects.remove} onClick={() => remove(project.id)} disabled={busy} danger />
       </div>
     </div>
   )

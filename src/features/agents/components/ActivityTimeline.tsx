@@ -1,6 +1,7 @@
 import type { WoneEvent } from '@shared/types/events'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { clock, describeEvent } from '../format'
 
 /**
@@ -9,7 +10,7 @@ import { clock, describeEvent } from '../format'
  */
 export function ActivityTimeline({
   events,
-  empty = 'No activity yet',
+  empty,
   compact = false,
   max = 60
 }: {
@@ -18,7 +19,8 @@ export function ActivityTimeline({
   compact?: boolean
   max?: number
 }) {
-  if (!events.length) return <p className="px-2 py-3 font-mono text-[11px] text-text-muted">{empty}</p>
+  const t = useT()
+  if (!events.length) return <p className="px-2 py-3 font-mono text-[11px] text-text-muted">{empty ?? t.agents.noActivity}</p>
   return (
     <ol className={cn('space-y-1', compact ? 'text-[11px]' : 'text-[11.5px]')}>
       {events.slice(0, max).map((e) => {

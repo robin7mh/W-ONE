@@ -5,6 +5,7 @@ import { RadialGauge } from './RadialGauge'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { useSystemMetrics } from '@/features/system/useSystemMetrics'
+import { useT } from '@/lib/i18n'
 
 function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400)
@@ -19,18 +20,19 @@ function fmtUptime(sec: number): string {
  * changed. `live` reflects whether the telemetry stream is connected.
  */
 export function SystemMonitorPanel() {
+  const t = useT()
   const { metrics: m, processes, uptimeSec, battery, live } = useSystemMetrics()
   const netMax = Math.max(1, ...m.network.history)
 
   return (
     <Panel
-      title="System Monitor"
+      title={t.monitor.title}
       corners
       className="w-full"
       headerRight={
         <span className="flex items-center gap-1.5">
           <StatusDot tone={live ? 'ok' : 'muted'} pulse={live} />
-          <span className="font-mono text-[10px] text-text-muted">{live ? 'LIVE' : 'OFFLINE'}</span>
+          <span className="font-mono text-[10px] text-text-muted">{live ? t.monitor.live : t.monitor.offline}</span>
         </span>
       }
       bodyClassName="flex flex-col gap-3 overflow-y-auto"
@@ -45,7 +47,7 @@ export function SystemMonitorPanel() {
       <div className="flex items-center justify-between rounded-md border border-hud/50 bg-surface/40 px-2.5 py-1.5">
         <span className="flex items-center gap-2">
           <Clock3 size={13} className="text-text-muted" />
-          <TechLabel className="text-text-secondary">System Uptime</TechLabel>
+          <TechLabel className="text-text-secondary">{t.monitor.uptime}</TechLabel>
         </span>
         <span className="font-mono text-[12px] text-text-primary tabular-nums">
           {uptimeSec > 0 ? fmtUptime(uptimeSec) : '—'}
@@ -53,11 +55,11 @@ export function SystemMonitorPanel() {
       </div>
 
       {/* metric sparklines */}
-      <SystemMetricCard label="CPU Load" icon={Cpu} sample={m.cpu} accent="var(--accent-cyan)" />
-      <SystemMetricCard label="Memory" icon={MemoryStick} sample={m.ram} accent="var(--accent-blue)" />
-      <SystemMetricCard label="Disk Used" icon={HardDrive} sample={m.disk} accent="var(--accent-purple)" />
+      <SystemMetricCard label={t.monitor.cpu} icon={Cpu} sample={m.cpu} accent="var(--accent-cyan)" />
+      <SystemMetricCard label={t.monitor.memory} icon={MemoryStick} sample={m.ram} accent="var(--accent-blue)" />
+      <SystemMetricCard label={t.monitor.disk} icon={HardDrive} sample={m.disk} accent="var(--accent-purple)" />
       <SystemMetricCard
-        label="Network"
+        label={t.monitor.network}
         icon={Activity}
         sample={m.network}
         accent="var(--accent-cyan)"
@@ -67,7 +69,7 @@ export function SystemMonitorPanel() {
       />
       {battery.hasBattery ? (
         <SystemMetricCard
-          label={battery.charging ? 'Battery ⚡' : 'Battery'}
+          label={battery.charging ? `${t.monitor.battery} ⚡` : t.monitor.battery}
           icon={BatteryMedium}
           sample={m.battery}
           accent="var(--accent-amber)"
@@ -76,22 +78,22 @@ export function SystemMonitorPanel() {
         <div className="flex items-center justify-between rounded-md border border-hud/50 bg-surface/40 p-2.5">
           <span className="flex items-center gap-2">
             <BatteryMedium size={14} className="text-text-muted" />
-            <TechLabel className="text-text-secondary">Battery</TechLabel>
+            <TechLabel className="text-text-secondary">{t.monitor.battery}</TechLabel>
           </span>
-          <span className="font-mono text-[11px] text-text-muted">N/A</span>
+          <span className="font-mono text-[11px] text-text-muted">{t.monitor.na}</span>
         </div>
       )}
 
       {/* processes preview */}
       <div className="rounded-md border border-hud/50 bg-surface/40 p-2.5">
         <div className="mb-2 flex items-center justify-between">
-          <TechLabel className="text-text-secondary">Top Processes</TechLabel>
-          <TechLabel className="text-text-muted">cpu · mem</TechLabel>
+          <TechLabel className="text-text-secondary">{t.monitor.processes}</TechLabel>
+          <TechLabel className="text-text-muted">{t.monitor.cpuMem}</TechLabel>
         </div>
         <ul className="space-y-1.5">
           {processes.length === 0 && (
             <li className="py-1 font-mono text-[11px] text-text-muted">
-              {live ? 'sampling…' : 'no data'}
+              {live ? t.monitor.sampling : t.monitor.noData}
             </li>
           )}
           {processes.map((p) => (

@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useEditor, type EditorTab } from '../store'
+import { useT } from '@/lib/i18n'
 import { fileIcon } from './FileTree'
 
 /**
@@ -22,13 +23,14 @@ function hints(tabs: EditorTab[], projectNames: Map<string, string>): Map<string
  * middle-click closes, like in VS Code.
  */
 export function EditorTabs({ projectNames }: { projectNames: Map<string, string> }) {
+  const tr = useT()
   const tabs = useEditor((s) => s.tabs)
   const activeId = useEditor((s) => s.activeId)
   const hint = hints(tabs, projectNames)
   const { setActive, requestClose } = useEditor.getState()
 
   return (
-    <div role="tablist" aria-label="Open files" className="flex h-9 shrink-0 overflow-x-auto border-b border-hud/60">
+    <div role="tablist" aria-label={tr.editor.openFiles} className="flex h-9 shrink-0 overflow-x-auto border-b border-hud/60">
       {tabs.map((t) => {
         const active = t.id === activeId
         const { Icon, tint } = fileIcon(t.name)
@@ -56,7 +58,7 @@ export function EditorTabs({ projectNames }: { projectNames: Map<string, string>
             {hint.has(t.id) && <span className="font-mono text-[10px] text-text-muted">{hint.get(t.id)}</span>}
             <button
               type="button"
-              aria-label={`Close ${t.name}`}
+              aria-label={tr.editor.closeFile(t.name)}
               onClick={(e) => {
                 e.stopPropagation()
                 requestClose(t.id)
@@ -64,7 +66,7 @@ export function EditorTabs({ projectNames }: { projectNames: Map<string, string>
               className="relative ml-0.5 flex h-5 w-5 items-center justify-center rounded text-text-muted hover:bg-elevated hover:text-text-primary"
             >
               {t.dirty && (
-                <span aria-label="Unsaved" className="h-2 w-2 rounded-full bg-text-secondary group-hover:hidden" />
+                <span aria-label={tr.editor.unsaved} className="h-2 w-2 rounded-full bg-text-secondary group-hover:hidden" />
               )}
               <X size={12} className={cn(t.dirty ? 'hidden group-hover:block' : active ? '' : 'opacity-0 group-hover:opacity-100')} />
             </button>

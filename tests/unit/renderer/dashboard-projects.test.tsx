@@ -9,7 +9,8 @@ import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { ProjectDetailPanel } from '@/features/projects/components/ProjectDetailPanel'
 import { useProjects } from '@/features/projects/store'
-import { t } from '@/features/dashboard/i18n'
+import { en } from '@/lib/i18n/en'
+const t = en.dashboard
 
 const initialProjects = useProjects.getState()
 beforeEach(() => useProjects.setState(initialProjects, true))
@@ -307,29 +308,20 @@ describe('ProjectDetailPanel', () => {
 })
 
 describe('dashboard i18n', () => {
-  const load = async (language: string) => {
-    vi.spyOn(navigator, 'language', 'get').mockReturnValue(language)
-    vi.resetModules()
-    return import('@/features/dashboard/i18n')
-  }
-
-  it('speaks German for de-* systems', async () => {
-    const de = await load('de-DE')
-    expect(de.isGerman).toBe(true)
-    expect(de.dashLocale).toBe('de-DE')
-    const at = (h: number) => de.greeting(new Date(2026, 0, 1, h))
+  it('greets by time of day and writes long dates in the UI language', async () => {
+    const { greeting, longDate } = await import('@/features/dashboard/i18n')
+    const { de } = await import('@/lib/i18n/de')
+    const at = (h: number) => greeting(new Date(2026, 0, 1, h), de)
     expect([at(5), at(11), at(18), at(23), at(4)]).toEqual(['Guten Morgen', 'Guten Tag', 'Guten Abend', 'Gute Nacht', 'Gute Nacht'])
-    expect(de.longDate(new Date(2026, 9, 1))).toBe('Donnerstag, 1. Oktober 2026')
+    expect(greeting(new Date(2026, 0, 1, 12), en)).toBe('Good afternoon')
+    expect(longDate(new Date(2026, 9, 1), 'de-DE')).toBe('Donnerstag, 1. Oktober 2026')
+    expect(longDate(new Date(2026, 9, 1))).toBe('Thursday, October 1, 2026')
   })
 
-  it('falls back to English with the system locale; ISO weeks', async () => {
-    const en = await load('en-US')
-    expect(en.isGerman).toBe(false)
-    expect(en.dashLocale).toBe('en-US')
-    expect(en.t.week).toBe('Week')
-    expect(en.greeting(new Date(2026, 0, 1, 12))).toBe('Good afternoon')
-    expect(en.isoWeek(new Date(2026, 0, 1))).toBe(1) // Thursday
-    expect(en.isoWeek(new Date(2027, 0, 3))).toBe(53) // Sunday → week of 2026
-    expect(en.isoWeek(new Date(2026, 9, 1))).toBe(40)
+  it('counts ISO weeks', async () => {
+    const { isoWeek } = await import('@/features/dashboard/i18n')
+    expect(isoWeek(new Date(2026, 0, 1))).toBe(1) // Thursday
+    expect(isoWeek(new Date(2027, 0, 3))).toBe(53) // Sunday → week of 2026
+    expect(isoWeek(new Date(2026, 9, 1))).toBe(40)
   })
 })

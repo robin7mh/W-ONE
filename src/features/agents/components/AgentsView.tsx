@@ -5,6 +5,7 @@ import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useAssistant } from '../store'
 import { useActiveSession, useAgents } from '../sessions'
@@ -36,6 +37,7 @@ const DOT: Record<AgentSession['status'], { tone: 'cyan' | 'warn' | 'ok' | 'mute
  * beside it. Everything starts with "New chat".
  */
 export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: string) => void; onOpenSettings: () => void }) {
+  const t = useT()
   const ag = useAgents()
   const a = useAssistant()
   const { session, messages } = useActiveSession()
@@ -56,10 +58,10 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
           return { kind: 'session', id: s.id, title: s.title, sub, updatedAt: s.updatedAt, session: s }
         }),
         ...a.conversations.map(
-          (c): Entry => ({ kind: 'chat', id: c.id, title: c.title, sub: 'W-ONE Assistant', updatedAt: c.updatedAt, agentId: c.agentId, running: !!a.running[c.id] })
+          (c): Entry => ({ kind: 'chat', id: c.id, title: c.title, sub: t.agents.assistant, updatedAt: c.updatedAt, agentId: c.agentId, running: !!a.running[c.id] })
         )
       ].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)),
-    [ag.sessions, a.conversations, a.running]
+    [ag.sessions, a.conversations, a.running, t]
   )
   const activity = useMemo(() => (a.activeId ? a.activity.filter((e) => e.conversationId === a.activeId) : a.activity), [a.activity, a.activeId])
   const isActive = (e: Entry) => (e.kind === 'session' ? ag.view === 'session' && ag.activeId === e.id : ag.view === 'assistant' && a.activeId === e.id)
@@ -76,7 +78,7 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
   }
 
   return (
-    <Panel title="Agents" corners flush className="min-h-0 flex-1" bodyClassName="flex min-h-0">
+    <Panel title={t.agents.title} corners flush className="min-h-0 flex-1" bodyClassName="flex min-h-0">
       {/* left: every chat */}
       <aside className="flex w-60 shrink-0 flex-col border-r border-hud/50">
         <div className="border-b border-hud/50 p-2.5">
@@ -85,11 +87,11 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
             onClick={() => ag.openDialog()}
             className="flex w-full items-center justify-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/[0.06] px-2.5 py-1.5 font-sans text-[12px] font-medium text-cyan hover:bg-cyan/[0.12]"
           >
-            <Plus size={14} /> New chat
+            <Plus size={14} /> {t.agents.newChat}
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
-          {entries.length === 0 && <p className="px-2 py-3 font-mono text-[11px] text-text-muted">No chats yet</p>}
+          {entries.length === 0 && <p className="px-2 py-3 font-mono text-[11px] text-text-muted">{t.agents.noChats}</p>}
           {entries.map((e) => {
             const Icon = e.kind === 'session' ? TerminalSquare : iconFor(e.agentId)
             const active = isActive(e)
@@ -108,13 +110,13 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
                 </button>
                 {confirm === e.id ? (
                   <button type="button" onClick={() => removeEntry(e)} className="shrink-0 rounded border border-danger/50 px-1.5 font-sans text-[10.5px] text-danger">
-                    Delete
+                    {t.agents.delete}
                   </button>
                 ) : (
                   <button
                     type="button"
-                    aria-label={`Delete ${e.title}`}
-                    title={e.kind === 'session' && e.session.worktree ? 'Deletes its working folder too' : undefined}
+                    aria-label={t.agents.deleteItem(e.title)}
+                    title={e.kind === 'session' && e.session.worktree ? t.agents.deletesFolder : undefined}
                     onClick={() => setConfirm(e.id)}
                     className="shrink-0 text-text-muted opacity-0 hover:text-danger group-hover:opacity-100"
                   >
@@ -135,16 +137,16 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
       ) : (
         <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <TerminalSquare size={30} className="text-cyan/70" />
-          <p className="font-sans text-[15px] font-semibold text-text-primary">Your agents, in one place</p>
+          <p className="font-sans text-[15px] font-semibold text-text-primary">{t.agents.emptyTitle}</p>
           <p className="max-w-md font-sans text-[13px] text-text-secondary">
-            Start Claude Code, Codex or Gemini on a project with your own account — approvals, changes and a journal in your memory come with it.
+            {t.agents.emptyText}
           </p>
           <button
             type="button"
             onClick={() => ag.openDialog()}
             className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/[0.1] px-3 py-1.5 font-sans text-[12px] font-medium text-cyan hover:bg-cyan/[0.16]"
           >
-            <Plus size={14} /> New chat
+            <Plus size={14} /> {t.agents.newChat}
           </button>
         </section>
       )}
@@ -155,10 +157,10 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
       ) : (
         <aside className="hidden w-72 shrink-0 flex-col border-l border-hud/50 xl:flex">
           <div className="flex h-10 items-center border-b border-hud/50 px-3">
-            <TechLabel className="text-text-secondary">{ag.view === 'assistant' && a.activeId ? 'Run activity' : 'All activity'}</TechLabel>
+            <TechLabel className="text-text-secondary">{ag.view === 'assistant' && a.activeId ? t.agents.runActivity : t.agents.allActivity}</TechLabel>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            <ActivityTimeline events={ag.view === 'assistant' ? activity : a.activity} empty="Nothing happened here yet" />
+            <ActivityTimeline events={ag.view === 'assistant' ? activity : a.activity} empty={t.agents.nothingYet} />
           </div>
         </aside>
       )}

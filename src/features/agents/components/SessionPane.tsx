@@ -4,6 +4,7 @@ import type { ChatMessage } from '@shared/types/ai'
 import type { AgentSession, SessionStatus } from '@shared/types/agents'
 import { isDesktop } from '@shared/ipc/client'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useXterm } from '@/features/terminal/useXterm'
 import { useAssistant } from '../store'
 import { useAgents } from '../sessions'
@@ -12,14 +13,15 @@ import { Composer } from './Composer'
 
 export const AGENT_NAMES: Record<AgentSession['kind'], string> = { 'claude-code': 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' }
 
-export const STATUS_LABEL: Record<SessionStatus, { text: string; tone: string }> = {
-  starting: { text: 'Starting…', tone: 'text-text-muted' },
-  working: { text: 'Working', tone: 'text-cyan' },
-  approval: { text: 'Needs your approval', tone: 'text-amber' },
-  waiting: { text: 'Waiting for you', tone: 'text-amber' },
-  idle: { text: 'Your turn', tone: 'text-green' },
-  ended: { text: 'Ended', tone: 'text-text-muted' },
-  error: { text: 'Error', tone: 'text-danger' }
+/** Text color per session status; the words are `t.agents.status[status]`. */
+export const STATUS_TONE: Record<SessionStatus, string> = {
+  starting: 'text-text-muted',
+  working: 'text-cyan',
+  approval: 'text-amber',
+  waiting: 'text-amber',
+  idle: 'text-green',
+  ended: 'text-text-muted',
+  error: 'text-danger'
 }
 
 /** The agent's own terminal — for whatever it only shows there (sign-in, trust prompt, /commands). */
@@ -48,11 +50,12 @@ function SessionTerminal({ id, ended }: { id: string; ended: string }) {
 
 /** The session's name: click to edit, Enter or leaving the field saves, Esc cancels. */
 function TitleInput({ title, onRename }: { title: string; onRename: (title: string) => void }) {
+  const t = useT()
   const [value, setValue] = useState(title)
   const commit = () => (value.trim() && value.trim() !== title ? onRename(value.trim()) : setValue(title))
   return (
     <input
-      aria-label="Session name"
+      aria-label={t.agents.sessionName}
       value={value}
       maxLength={80}
       onChange={(e) => setValue(e.target.value)}
@@ -64,7 +67,7 @@ function TitleInput({ title, onRename }: { title: string; onRename: (title: stri
           e.currentTarget.blur()
         }
       }}
-      title="Rename"
+      title={t.agents.rename}
       spellCheck={false}
       style={{ width: `${Math.max(value.length, 4) + 2}ch` }}
       className="-mx-1 min-w-0 max-w-[40%] truncate rounded bg-transparent px-1 font-sans text-[13px] font-semibold text-text-primary outline-none transition-colors hover:bg-elevated/50 focus:bg-elevated/70 focus:ring-1 focus:ring-cyan/40"
@@ -89,6 +92,7 @@ const iconButton =
  * and opens by itself while the agent waits for input only it can show.
  */
 export function SessionPane({ session, messages }: { session: AgentSession; messages: ChatMessage[] }) {
+  const t = useT()
   const pending = useAssistant((s) => s.pending)
   const respond = useAssistant((s) => s.respond)
   const error = useAgents((s) => s.error)
@@ -104,7 +108,6 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
   const needsTerminal = !!agentTerminal && (session.status === 'starting' || session.status === 'waiting')
   const shownId = agentTerminal ? (terminal || needsTerminal ? agentTerminal : undefined) : terminal ? shellId : undefined
   const showTerminal = !!shownId
-  const status = STATUS_LABEL[session.status]
   const repo = session.repoUrl ? repoLink(session.repoUrl) : undefined
   const { send, interrupt, stop, resume, clearError, rename, openShell, openInEditor } = useAgents.getState()
 
@@ -122,7 +125,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hud/50 px-4">
         <TerminalSquare size={14} className="shrink-0 text-cyan" />
-        <TitleInput key={`${session.id}:${session.title}`} title={session.title} onRename={(t) => void rename(session.id, t)} />
+        <TitleInput key={`${session.id}:${session.title}`} title={session.title} onRename={(title) => void rename(session.id, title)} />
         <span className="hidden items-center gap-1 font-mono text-[10.5px] text-text-muted lg:flex">
           <FolderGit2 size={11} /> {session.projectName}
           {session.branch && (
@@ -131,39 +134,39 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
             </>
           )}
         </span>
-        <span className={cn('font-mono text-[10.5px]', status.tone)}>· {status.text}</span>
+        <span className={cn('font-mono text-[10.5px]', STATUS_TONE[session.status])}>· {t.agents.status[session.status]}</span>
         <div className="ml-auto flex items-center gap-1.5">
           {repo && (
-            <a href={session.repoUrl} target="_blank" rel="noreferrer" className={iconButton} title={`Open ${session.repoUrl}`}>
+            <a href={session.repoUrl} target="_blank" rel="noreferrer" className={iconButton} title={t.agents.openUrl(session.repoUrl!)}>
               <repo.Icon size={12} /> {repo.label}
             </a>
           )}
           {isDesktop() && (
-            <button type="button" className={iconButton} title={`Open ${session.cwd} in VS Code`} onClick={() => void openInEditor(session.id)}>
+            <button type="button" className={iconButton} title={t.agents.openInVsCode(session.cwd)} onClick={() => void openInEditor(session.id)}>
               <Code2 size={12} /> VS Code
             </button>
           )}
           <button
             type="button"
             className={iconButton}
-            aria-label={showTerminal ? 'Hide terminal' : 'Show terminal'}
-            title={agentTerminal ? `${name}'s terminal` : "A shell in the session's folder"}
+            aria-label={showTerminal ? t.agents.hideTerminal : t.agents.showTerminal}
+            title={agentTerminal ? t.agents.agentTerminal(name) : t.agents.sessionShell}
             onClick={() => void toggleTerminal()}
           >
-            {showTerminal ? <ChevronDown size={12} /> : <ChevronUp size={12} />} Terminal
+            {showTerminal ? <ChevronDown size={12} /> : <ChevronUp size={12} />} {t.agents.terminal}
           </button>
           {running && busy && (
-            <button type="button" className={iconButton} aria-label="Interrupt" title="Stop what it is doing (Esc)" onClick={() => void interrupt()}>
-              <Square size={11} /> Interrupt
+            <button type="button" className={iconButton} aria-label={t.agents.interrupt} title={t.agents.interruptTitle} onClick={() => void interrupt()}>
+              <Square size={11} /> {t.agents.interrupt}
             </button>
           )}
           {running ? (
-            <button type="button" className={iconButton} aria-label="End session" onClick={() => void stop(session.id)}>
-              <Power size={12} /> End
+            <button type="button" className={iconButton} aria-label={t.agents.endSession} onClick={() => void stop(session.id)}>
+              <Power size={12} /> {t.agents.end}
             </button>
           ) : (
-            <button type="button" className={iconButton} aria-label="Resume" onClick={() => void resume(session.id)}>
-              <Play size={12} /> Resume
+            <button type="button" className={iconButton} aria-label={t.agents.resume} onClick={() => void resume(session.id)}>
+              <Play size={12} /> {t.agents.resume}
             </button>
           )}
         </div>
@@ -171,7 +174,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
 
       {session.status === 'starting' && (
         <p className="border-b border-hud/50 bg-elevated/40 px-4 py-1.5 font-sans text-[12px] text-text-secondary">
-          {name} is starting.{agentTerminal ? ' If it asks something — like trusting this folder — answer in the terminal below.' : ''}
+          {t.agents.isStarting(name, !!agentTerminal)}
         </p>
       )}
       {(session.error || error) && (
@@ -179,7 +182,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{error ?? session.error}</span>
           {error && (
-            <button type="button" aria-label="Dismiss" onClick={clearError} className="text-text-muted hover:text-text-primary">
+            <button type="button" aria-label={t.common.dismiss} onClick={clearError} className="text-text-muted hover:text-text-primary">
               <X size={12} />
             </button>
           )}
@@ -194,7 +197,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
               {name} · {session.projectName}
             </p>
             <p className="max-w-md font-sans text-[12.5px] text-text-secondary">
-              Runs with your own {name} sign-in. Approvals appear here, changes on the right, and every session is journaled in your memory.
+              {t.agents.ownSignIn(name)}
             </p>
           </div>
         ) : (
@@ -204,7 +207,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
 
       {shownId && (
         <div className="flex h-[42%] min-h-[160px] shrink-0 flex-col border-t border-hud/60 bg-void/40">
-          <SessionTerminal key={shownId} id={shownId} ended={shownId === agentTerminal ? 'the agent ended' : 'the shell ended'} />
+          <SessionTerminal key={shownId} id={shownId} ended={shownId === agentTerminal ? t.agents.agentEnded : t.agents.shellEnded} />
         </div>
       )}
 
@@ -212,7 +215,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
         running={running && busy}
         sending={false}
         disabled={!running}
-        placeholder={running ? `Message ${name}…` : 'Resume the session to continue'}
+        placeholder={running ? t.agents.messageTo(name) : t.agents.resumeToContinue}
         onSend={send}
         onStop={() => void interrupt()}
       />

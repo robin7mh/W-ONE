@@ -6,15 +6,17 @@ export function formatTime(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
-// Day/month names follow the system language (German → "DO 01 OKT 2026").
-const LOCALE = navigator.language
-const weekdayFmt = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' })
-const monthFmt = new Intl.DateTimeFormat(LOCALE, { month: 'short' })
+import { intlLocale } from '@/lib/i18n'
+
+// Day/month names follow the UI language (German → "DO 01 OKT 2026").
 const noDot = (s: string) => s.replace(/\.$/, '')
 
 /** Format a Date as e.g. "THU 01 OCT 2026" / "DO 01 OKT 2026" (uppercase, technical). */
 export function formatDate(d: Date): string {
-  return `${noDot(weekdayFmt.format(d))} ${pad2(d.getDate())} ${noDot(monthFmt.format(d))} ${d.getFullYear()}`.toUpperCase()
+  const locale = intlLocale()
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(d)
+  const month = new Intl.DateTimeFormat(locale, { month: 'short' }).format(d)
+  return `${noDot(weekday)} ${pad2(d.getDate())} ${noDot(month)} ${d.getFullYear()}`.toUpperCase()
 }
 
 /** Seconds → "HH:MM:SS" uptime string. */

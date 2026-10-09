@@ -3,6 +3,7 @@ import { ArrowDownLeft, ArrowUpRight, BookOpen, Check, Link2, Loader2, PencilLin
 import type { Note, NoteMeta } from '@shared/types/memory'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { intlLocale, useT } from '@/lib/i18n'
 import { renderMarkdown } from '../markdown'
 
 interface Props {
@@ -35,9 +36,9 @@ const HIDDEN_PROPS = new Set(['id', 'type', 'tags', 'tag'])
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 
 function formatValue(v: unknown): string {
-  if (v instanceof Date) return v.toLocaleString()
+  if (v instanceof Date) return v.toLocaleString(intlLocale())
   if (typeof v === 'string' && ISO_DATE.test(v) && !Number.isNaN(Date.parse(v))) {
-    return new Date(v).toLocaleString()
+    return new Date(v).toLocaleString(intlLocale())
   }
   if (Array.isArray(v)) return v.join(', ')
   if (v && typeof v === 'object') return JSON.stringify(v)
@@ -50,6 +51,7 @@ function formatValue(v: unknown): string {
  * the connections in both directions with link / unlink controls.
  */
 export function NoteEditor(p: Props) {
+  const t = useT()
   const { note } = p
   const [confirmTrash, setConfirmTrash] = useState(false)
   const dirty = p.draft !== note.body
@@ -128,9 +130,9 @@ export function NoteEditor(p: Props) {
                   {note.type}
                 </span>
               )}
-              {note.tags.map((t) => (
-                <span key={t} className="rounded border border-hud/60 bg-elevated/50 px-1.5 py-px font-mono text-[10px] text-purple">
-                  #{t}
+              {note.tags.map((tag) => (
+                <span key={tag} className="rounded border border-hud/60 bg-elevated/50 px-1.5 py-px font-mono text-[10px] text-purple">
+                  #{tag}
                 </span>
               ))}
             </div>
@@ -141,32 +143,32 @@ export function NoteEditor(p: Props) {
           <span className="flex items-center gap-1 font-mono text-[10px] text-text-muted">
             {p.saving ? (
               <>
-                <Loader2 size={11} className="animate-spin" /> saving
+                <Loader2 size={11} className="animate-spin" /> {t.memory.saving}
               </>
             ) : dirty ? (
-              'unsaved'
+              t.memory.unsaved
             ) : (
               <>
-                <Check size={11} /> saved
+                <Check size={11} /> {t.memory.saved}
               </>
             )}
           </span>
           <div className="flex rounded-md border border-hud/60 bg-surface/50 p-0.5">
             <button
               type="button"
-              title="Read (⌘E)"
+              title={t.memory.readTitle}
               onClick={() => onMode('preview')}
               className={cn(seg, mode === 'preview' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
             >
-              <BookOpen size={12} /> Read
+              <BookOpen size={12} /> {t.memory.read}
             </button>
             <button
               type="button"
-              title="Edit (⌘E)"
+              title={t.memory.editTitle}
               onClick={() => onMode('edit')}
               className={cn(seg, mode === 'edit' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
             >
-              <PencilLine size={12} /> Edit
+              <PencilLine size={12} /> {t.memory.edit}
             </button>
           </div>
           {confirmTrash ? (
@@ -177,12 +179,12 @@ export function NoteEditor(p: Props) {
               autoFocus
               className="rounded-md border border-danger/50 bg-danger/10 px-2 py-1 font-sans text-[11px] font-medium text-danger"
             >
-              Move to trash?
+              {t.memory.trashConfirm}
             </button>
           ) : (
             <button
               type="button"
-              title="Move to trash"
+              title={t.memory.trash}
               onClick={() => setConfirmTrash(true)}
               className="flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 text-text-muted transition-colors hover:border-danger/50 hover:text-danger"
             >
@@ -200,7 +202,7 @@ export function NoteEditor(p: Props) {
             onChange={(e) => p.onDraft(e.target.value)}
             autoFocus
             className="h-full min-h-[300px] w-full resize-none bg-transparent px-5 py-4 font-sans text-[14px] leading-[1.75] text-text-primary caret-cyan outline-none placeholder:text-text-muted/60"
-            placeholder={'Just start writing.\n\nTip: [[Note title]] links to another note, #tag adds a tag — or use "Connect" below.'}
+            placeholder={t.memory.writeHint}
           />
         ) : (
           <div className="mx-auto max-w-3xl px-5 py-4">
@@ -218,7 +220,7 @@ export function NoteEditor(p: Props) {
               <div className="md-prose" onClick={onPreviewClick} dangerouslySetInnerHTML={{ __html: html }} />
             ) : (
               <button type="button" onClick={() => onMode('edit')} className="font-sans text-[13px] text-text-muted hover:text-cyan">
-                Empty note — click to start writing
+                {t.memory.emptyNote}
               </button>
             )}
           </div>
@@ -230,7 +232,7 @@ export function NoteEditor(p: Props) {
       <div className="shrink-0 border-t border-hud/50 px-5 py-2.5">
         <div className="mb-1.5 flex items-center gap-1.5">
           <Link2 size={12} className="text-text-muted" />
-          <TechLabel className="text-text-secondary">Connections</TechLabel>
+          <TechLabel className="text-text-secondary">{t.memory.connections}</TechLabel>
           <span className="font-mono text-[10px] text-text-muted">{outgoing.length + note.backlinks.length}</span>
           <ConnectPicker
             notes={p.notes.filter((n) => n.path !== note.path && !outgoing.some((o) => o.path === n.path))}
@@ -238,7 +240,7 @@ export function NoteEditor(p: Props) {
           />
         </div>
         {outgoing.length === 0 && note.backlinks.length === 0 ? (
-          <p className="font-sans text-[12px] text-text-muted">Not connected yet — use “Connect” to link a note.</p>
+          <p className="font-sans text-[12px] text-text-muted">{t.memory.notConnected}</p>
         ) : (
           <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
             {outgoing.map((n) => (
@@ -270,6 +272,7 @@ export function NoteEditor(p: Props) {
 
 /** The note title as an input: Enter or leaving the field renames the file. */
 function TitleInput({ title, onRename }: { title: string; onRename: (title: string) => void }) {
+  const t = useT()
   const [value, setValue] = useState(title)
   const commit = () => (value.trim() && value.trim() !== title ? onRename(value) : setValue(title))
   return (
@@ -284,7 +287,7 @@ function TitleInput({ title, onRename }: { title: string; onRename: (title: stri
           e.currentTarget.blur()
         }
       }}
-      title="Rename — links in other notes are updated"
+      title={t.memory.renameHint}
       spellCheck={false}
       className="-mx-1 w-full truncate rounded bg-transparent px-1 font-sans text-[18px] font-semibold text-text-primary outline-none transition-colors hover:bg-elevated/40 focus:bg-elevated/60 focus:ring-1 focus:ring-cyan/40"
     />
@@ -302,13 +305,14 @@ function ConnectionChip({
   onOpen: () => void
   onRemove: () => void
 }) {
+  const t = useT()
   const Icon = direction === 'out' ? ArrowUpRight : ArrowDownLeft
   return (
     <span className="group flex items-center rounded-md border border-hud/60 bg-surface/50 text-text-secondary transition-colors hover:border-cyan/40">
       <button
         type="button"
         onClick={onOpen}
-        title={direction === 'out' ? 'This note links to it' : 'It links to this note'}
+        title={direction === 'out' ? t.memory.linksTo : t.memory.linkedFrom}
         className="flex items-center gap-1 py-1 pl-2 pr-1 font-sans text-[12px] hover:text-cyan"
       >
         <Icon size={11} className="text-text-muted" />
@@ -317,8 +321,8 @@ function ConnectionChip({
       <button
         type="button"
         onClick={onRemove}
-        title="Disconnect (the text stays, only the link goes)"
-        aria-label={`Disconnect ${title}`}
+        title={t.memory.disconnectHint}
+        aria-label={t.memory.disconnect(title)}
         className="mr-1 rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-elevated hover:text-danger group-hover:opacity-100"
       >
         <X size={11} />
@@ -329,6 +333,7 @@ function ConnectionChip({
 
 /** "+ Connect": search any note and link to it. */
 function ConnectPicker({ notes, onPick }: { notes: NoteMeta[]; onPick: (path: string) => void }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -346,8 +351,8 @@ function ConnectPicker({ notes, onPick }: { notes: NoteMeta[]; onPick: (path: st
   // "W-ONE" over "Ideen für W-ONE".
   const needle = q.trim().toLowerCase()
   const rank = (title: string) => {
-    const t = title.toLowerCase()
-    return t === needle ? 0 : t.startsWith(needle) ? 1 : 2
+    const lower = title.toLowerCase()
+    return lower === needle ? 0 : lower.startsWith(needle) ? 1 : 2
   }
   const matches = notes
     .filter((n) => n.title.toLowerCase().includes(needle))
@@ -364,7 +369,7 @@ function ConnectPicker({ notes, onPick }: { notes: NoteMeta[]; onPick: (path: st
         }}
         className="flex items-center gap-1 rounded-md border border-cyan/40 bg-cyan/[0.06] px-2 py-0.5 font-sans text-[11px] font-medium text-cyan transition-colors hover:bg-cyan/[0.12]"
       >
-        <Plus size={12} /> Connect
+        <Plus size={12} /> {t.memory.connect}
       </button>
       {open && (
         <div className="absolute bottom-full right-0 z-30 mb-1 w-72 rounded-md border border-hud/60 bg-panel shadow-lg">
@@ -381,13 +386,13 @@ function ConnectPicker({ notes, onPick }: { notes: NoteMeta[]; onPick: (path: st
                   setOpen(false)
                 }
               }}
-              placeholder="Connect to…"
+              placeholder={t.memory.connectTo}
               spellCheck={false}
               className="min-w-0 flex-1 bg-transparent font-sans text-[12px] text-text-primary outline-none placeholder:text-text-muted/70"
             />
           </label>
           <div className="max-h-56 overflow-y-auto py-1">
-            {matches.length === 0 && <p className="px-3 py-2 font-sans text-[12px] text-text-muted">No matching note</p>}
+            {matches.length === 0 && <p className="px-3 py-2 font-sans text-[12px] text-text-muted">{t.memory.noMatch}</p>}
             {matches.map((n) => (
               <button
                 key={n.path}

@@ -15,7 +15,8 @@ import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
 import { folderColors } from '@/features/memory/store'
 import { slotColor } from '@/features/memory/components/GraphView'
-import { greeting, isoWeek, longDate, t } from '../i18n'
+import { useT } from '@/lib/i18n'
+import { greeting, isoWeek, longDate } from '../i18n'
 import { HudClock } from './HudClock'
 
 const rise = (delay: number) => ({
@@ -30,6 +31,7 @@ const rise = (delay: number) => ({
  * one-line system verdict. Everything links into its module.
  */
 export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
+  const t = useT()
   const now = useClock()
   const [firstName, setFirstName] = useState<string>()
 
@@ -40,18 +42,18 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
   }, [])
 
   return (
-    <Panel title="Command Center" corners className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col overflow-y-auto">
+    <Panel title={t.dashboard.panel} corners className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col overflow-y-auto">
       <div className="flex min-h-full flex-col items-center justify-between gap-8 px-6 py-8">
         <motion.header {...rise(0.05)} className="text-center">
           <h1 className="font-sans text-[34px] font-semibold tracking-tight text-text-primary">
-            {greeting(now)}
+            {greeting(now, t)}
             {firstName && <span className="text-cyan text-glow-cyan">, {firstName}</span>}
           </h1>
           <p className="mt-2 font-sans text-[14px] text-text-secondary">
             {longDate(now)}
             <span className="mx-2 text-text-muted">·</span>
             <span className="font-mono text-[13px] text-text-muted">
-              {t.week} {isoWeek(now)}
+              {t.dashboard.week} {isoWeek(now)}
             </span>
           </p>
         </motion.header>
@@ -76,6 +78,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
 
 /** One line to the assistant: starts a new chat and opens the Agents module. */
 function AskBar({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
+  const t = useT()
   const [text, setText] = useState('')
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -94,13 +97,13 @@ function AskBar({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
     <form onSubmit={submit} className="flex items-center gap-2 rounded-lg border border-hud/70 bg-surface/60 px-3 py-2 backdrop-blur focus-within:border-cyan/50">
       <Sparkles size={15} className="shrink-0 text-cyan" />
       <input
-        aria-label="Ask W-ONE"
+        aria-label={t.dashboard.askLabel}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={t.ask}
+        placeholder={t.dashboard.ask}
         className="min-w-0 flex-1 bg-transparent font-sans text-[14px] text-text-primary outline-none placeholder:text-text-muted"
       />
-      <button type="submit" aria-label="Ask" disabled={!text.trim()} className="text-cyan disabled:opacity-30">
+      <button type="submit" aria-label={t.dashboard.askSubmit} disabled={!text.trim()} className="text-cyan disabled:opacity-30">
         <Send size={15} />
       </button>
     </form>
@@ -118,6 +121,7 @@ function Tile({
   onOpen?: () => void
   children: React.ReactNode
 }) {
+  const t = useT()
   return (
     <section className="group flex min-h-[150px] flex-col rounded-lg border border-hud/60 bg-surface/40 p-4 transition-colors hover:border-hud-strong/70">
       <header className="mb-3 flex items-center gap-2">
@@ -127,7 +131,7 @@ function Tile({
           <button
             type="button"
             onClick={onOpen}
-            aria-label={`Open ${title}`}
+            aria-label={t.dashboard.open(title)}
             className="ml-auto rounded p-0.5 text-text-muted transition-colors hover:text-cyan"
           >
             <ArrowUpRight size={14} />
@@ -149,6 +153,7 @@ function BigNumber({ value, label }: { value: number | string; label: string }) 
 }
 
 function ProjectsTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
+  const t = useT()
   const [projects, setProjects] = useState<Project[]>()
 
   // Cached list first, then a live git refresh (git state is never trusted from cache).
@@ -175,16 +180,16 @@ function ProjectsTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
   const dirty = projects?.filter((p) => p.git?.dirty).length ?? 0
 
   return (
-    <Tile icon={FolderGit2} title={t.projects} onOpen={() => open()}>
+    <Tile icon={FolderGit2} title={t.dashboard.projects} onOpen={() => open()}>
       {!projects ? (
-        <p className="font-mono text-[11px] text-text-muted">{t.loading}</p>
+        <p className="font-mono text-[11px] text-text-muted">{t.dashboard.loading}</p>
       ) : projects.length === 0 ? (
         <button type="button" onClick={() => open()} className="text-left font-sans text-[13px] text-text-muted hover:text-cyan">
-          {t.noProjects} — {t.addProject} →
+          {t.dashboard.noProjects} — {t.dashboard.addProject} →
         </button>
       ) : (
         <>
-          <BigNumber value={projects.length} label={dirty ? `${dirty} ${t.changed}` : t.allClean} />
+          <BigNumber value={projects.length} label={dirty ? `${dirty} ${t.dashboard.changed}` : t.dashboard.allClean} />
           <ul className="mt-3 space-y-1">
             {projects.slice(0, 3).map((p) => (
               <li key={p.id}>
@@ -212,6 +217,7 @@ function ProjectsTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
 }
 
 function BrainTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
+  const t = useT()
   const [state, setState] = useState<{ exists: boolean; notes: NoteMeta[]; links: number }>()
 
   useEffect(() => {
@@ -234,16 +240,16 @@ function BrainTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
   }, [state])
 
   return (
-    <Tile icon={BrainCircuit} title={t.brain} onOpen={() => onNavigate('memory')}>
+    <Tile icon={BrainCircuit} title={t.dashboard.brain} onOpen={() => onNavigate('memory')}>
       {!state ? (
-        <p className="font-mono text-[11px] text-text-muted">{t.loading}</p>
+        <p className="font-mono text-[11px] text-text-muted">{t.dashboard.loading}</p>
       ) : !state.exists ? (
         <button type="button" onClick={() => onNavigate('memory')} className="text-left font-sans text-[13px] text-text-muted hover:text-cyan">
-          {t.noVault} — {t.setUp} →
+          {t.dashboard.noVault} — {t.dashboard.setUp} →
         </button>
       ) : (
         <>
-          <BigNumber value={state.notes.length} label={`${t.notes} · ${state.links} ${t.links}`} />
+          <BigNumber value={state.notes.length} label={`${t.dashboard.notes} · ${state.links} ${t.dashboard.links}`} />
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
             {folders.map(([folder, count]) => (
               <span key={folder} className="flex items-center gap-1.5">
@@ -258,7 +264,7 @@ function BrainTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
             onClick={() => onNavigate('memory')}
             className="mt-auto self-start pt-3 font-sans text-[12px] text-text-muted transition-colors hover:text-cyan"
           >
-            {t.openGraph} →
+            {t.dashboard.openGraph} →
           </button>
         </>
       )}
@@ -267,31 +273,32 @@ function BrainTile({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
 }
 
 function SystemTile() {
+  const t = useT()
   const { metrics: m, battery, live } = useSystemMetrics()
 
   const warnings = [
-    m.cpu.value > 85 && t.cpuHigh,
-    m.ram.value > 90 && t.ramHigh,
-    m.disk.value > 90 && t.diskHigh,
-    battery.hasBattery && !battery.charging && m.battery.value < 20 && t.batteryLow
+    m.cpu.value > 85 && t.dashboard.cpuHigh,
+    m.ram.value > 90 && t.dashboard.ramHigh,
+    m.disk.value > 90 && t.dashboard.diskHigh,
+    battery.hasBattery && !battery.charging && m.battery.value < 20 && t.dashboard.batteryLow
   ].filter(Boolean) as string[]
 
   const stats: [string, number][] = [
     ['CPU', m.cpu.value],
     ['RAM', m.ram.value],
-    ['Disk', m.disk.value],
-    ...(battery.hasBattery ? [[t.battery, m.battery.value] as [string, number]] : [])
+    [t.dashboard.disk, m.disk.value],
+    ...(battery.hasBattery ? [[t.dashboard.battery, m.battery.value] as [string, number]] : [])
   ]
 
   return (
-    <Tile icon={Cpu} title={t.system}>
+    <Tile icon={Cpu} title={t.dashboard.system}>
       {!live ? (
-        <p className="font-mono text-[11px] text-text-muted">{t.loading}</p>
+        <p className="font-mono text-[11px] text-text-muted">{t.dashboard.loading}</p>
       ) : (
         <>
           <div className="flex items-center gap-2">
             <StatusDot tone={warnings.length ? 'warn' : 'ok'} />
-            <span className="font-sans text-[14px] font-medium text-text-primary">{warnings[0] ?? t.allGood}</span>
+            <span className="font-sans text-[14px] font-medium text-text-primary">{warnings[0] ?? t.dashboard.allGood}</span>
           </div>
           {warnings.length > 1 && (
             <p className="mt-1 font-sans text-[12px] text-amber">{warnings.slice(1).join(' · ')}</p>
@@ -305,7 +312,7 @@ function SystemTile() {
                 </div>
                 <div className="tech-label mt-1 truncate text-text-muted">
                   {label}
-                  {label === t.battery && battery.charging ? ' ⚡' : ''}
+                  {label === t.dashboard.battery && battery.charging ? ' ⚡' : ''}
                 </div>
               </div>
             ))}

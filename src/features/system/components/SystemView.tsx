@@ -7,6 +7,7 @@ import { RadialGauge } from '@/components/monitor/RadialGauge'
 import { Sparkline } from '@/components/monitor/Sparkline'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useSystemMetrics } from '../useSystemMetrics'
 
 function Tile({ icon: Icon, label, value, sub, children }: { icon: typeof Cpu; label: string; value: string; sub?: string; children?: ReactNode }) {
@@ -29,17 +30,18 @@ function Tile({ icon: Icon, label, value, sub, children }: { icon: typeof Cpu; l
  * Shows the machine the W-ONE core runs on (on a server: the server).
  */
 export function SystemView() {
+  const t = useT()
   const { metrics: m, processes, uptimeSec, battery, live, snapshot: s } = useSystemMetrics()
   const pct = (v: number) => `${Math.round(v)}%`
   return (
     <Panel
-      title="System"
+      title={t.system.title}
       corners
       className="min-h-0 flex-1"
       headerRight={
         <span className="flex items-center gap-1.5">
           <StatusDot tone={live ? 'ok' : 'muted'} pulse={live} />
-          <span className="font-mono text-[10px] text-text-muted">{live ? 'LIVE' : 'OFFLINE'}</span>
+          <span className="font-mono text-[10px] text-text-muted">{live ? t.system.live : t.system.offline}</span>
         </span>
       }
       bodyClassName="min-h-0 overflow-y-auto"
@@ -48,31 +50,31 @@ export function SystemView() {
         <div className="flex items-center justify-around gap-4 rounded-md border border-hud/50 bg-surface/40 px-4 py-4 lg:flex-col lg:justify-start">
           <RadialGauge value={m.cpu.value} size={110} accent="var(--accent-cyan)" label="CPU" />
           <RadialGauge value={m.ram.value} size={110} accent="var(--accent-blue)" label="RAM" />
-          <RadialGauge value={m.disk.value} size={110} accent="var(--accent-purple)" label="DISK" />
+          <RadialGauge value={m.disk.value} size={110} accent="var(--accent-purple)" label={t.system.disk} />
         </div>
 
         <div className="grid min-w-0 content-start gap-3 md:grid-cols-2">
-          <Tile icon={Cpu} label="CPU" value={pct(m.cpu.value)} sub={s ? `${s.cpu.cores.length} cores` : undefined}>
+          <Tile icon={Cpu} label="CPU" value={pct(m.cpu.value)} sub={s ? t.system.cores(s.cpu.cores.length) : undefined}>
             <Sparkline data={m.cpu.history} accent="var(--accent-cyan)" />
             {s && s.cpu.cores.length > 0 && (
-              <div className="mt-2 grid grid-cols-8 gap-1" aria-label="Per-core load">
+              <div className="mt-2 grid grid-cols-8 gap-1" aria-label={t.system.perCore}>
                 {s.cpu.cores.map((c, i) => (
-                  <div key={i} title={`Core ${i + 1}: ${Math.round(c)}%`} className="flex h-6 items-end overflow-hidden rounded-sm bg-elevated/60">
+                  <div key={i} title={t.system.core(i + 1, Math.round(c))} className="flex h-6 items-end overflow-hidden rounded-sm bg-elevated/60">
                     <div className="w-full bg-cyan/70" style={{ height: `${Math.max(4, Math.min(100, c))}%` }} />
                   </div>
                 ))}
               </div>
             )}
           </Tile>
-          <Tile icon={MemoryStick} label="Memory" value={pct(m.ram.value)} sub={s ? `${s.mem.usedGb.toFixed(1)} / ${s.mem.totalGb.toFixed(1)} GB` : undefined}>
+          <Tile icon={MemoryStick} label={t.system.memory} value={pct(m.ram.value)} sub={s ? `${s.mem.usedGb.toFixed(1)} / ${s.mem.totalGb.toFixed(1)} GB` : undefined}>
             <Sparkline data={m.ram.history} accent="var(--accent-blue)" />
           </Tile>
-          <Tile icon={HardDrive} label="Disk" value={pct(m.disk.value)} sub={s ? `used on ${s.disk.mount}` : undefined}>
+          <Tile icon={HardDrive} label={t.system.diskTile} value={pct(m.disk.value)} sub={s ? t.system.usedOn(s.disk.mount) : undefined}>
             <Sparkline data={m.disk.history} accent="var(--accent-purple)" />
           </Tile>
           <Tile
             icon={Activity}
-            label="Network"
+            label={t.system.network}
             value={`${m.network.value.toFixed(1)} MB/s`}
             sub={s ? `↓ ${s.net.rxMbps.toFixed(2)} · ↑ ${s.net.txMbps.toFixed(2)} MB/s` : undefined}
           >
@@ -80,30 +82,30 @@ export function SystemView() {
           </Tile>
           <Tile
             icon={BatteryMedium}
-            label="Battery"
-            value={battery.hasBattery ? pct(m.battery.value) : 'N/A'}
-            sub={battery.hasBattery ? (battery.charging ? 'charging' : 'on battery') : 'no battery'}
+            label={t.system.battery}
+            value={battery.hasBattery ? pct(m.battery.value) : t.system.na}
+            sub={battery.hasBattery ? (battery.charging ? t.system.charging : t.system.onBattery) : t.system.noBattery}
           />
-          <Tile icon={Clock3} label="Uptime" value={uptimeSec > 0 ? formatUptime(uptimeSec) : '—'} />
+          <Tile icon={Clock3} label={t.system.uptime} value={uptimeSec > 0 ? formatUptime(uptimeSec) : '—'} />
         </div>
       </div>
 
       <div className="mt-3 rounded-md border border-hud/50 bg-surface/40 p-2">
-        <TechLabel className="px-1 text-text-secondary">Top processes</TechLabel>
+        <TechLabel className="px-1 text-text-secondary">{t.system.processes}</TechLabel>
         <table className="mt-1.5 w-full font-mono text-[12px]">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-text-muted">
-              <th className="px-1 py-1 font-normal">PID</th>
-              <th className="px-1 py-1 font-normal">Name</th>
-              <th className="px-1 py-1 text-right font-normal">CPU %</th>
-              <th className="px-1 py-1 text-right font-normal">MEM MB</th>
+              <th className="px-1 py-1 font-normal">{t.system.pid}</th>
+              <th className="px-1 py-1 font-normal">{t.system.name}</th>
+              <th className="px-1 py-1 text-right font-normal">{t.system.cpuPct}</th>
+              <th className="px-1 py-1 text-right font-normal">{t.system.memMb}</th>
             </tr>
           </thead>
           <tbody>
             {processes.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-1 py-2 text-text-muted">
-                  No data yet
+                  {t.system.noData}
                 </td>
               </tr>
             )}

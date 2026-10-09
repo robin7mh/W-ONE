@@ -1,6 +1,7 @@
 import { AlertTriangle, Bot, Code2, Globe, MessageSquare, Sparkles, X } from 'lucide-react'
 import type { AgentInfo } from '@shared/types/ai'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useActiveMessages, useAssistant } from '../store'
 import { ChatThread } from './ChatThread'
@@ -9,7 +10,13 @@ import { Composer } from './Composer'
 const AGENT_ICON: Record<string, typeof Bot> = { assistant: Sparkles, coding: Code2, research: Globe, chat: MessageSquare }
 export const iconFor = (id: string) => AGENT_ICON[id] ?? Bot
 
+/** A built-in persona in the UI language (the core sends English). */
+export function persona(a: AgentInfo, t: ReturnType<typeof useT>): { name: string; description: string } {
+  return t.agents.personas[a.id] ?? a
+}
+
 function AgentPicker({ agents, value, onPick }: { agents: AgentInfo[]; value: string; onPick: (id: string) => void }) {
+  const t = useT()
   return (
     <div className="grid grid-cols-2 gap-1.5">
       {agents.map((a) => {
@@ -18,7 +25,7 @@ function AgentPicker({ agents, value, onPick }: { agents: AgentInfo[]; value: st
           <button
             key={a.id}
             type="button"
-            title={a.description}
+            title={persona(a, t).description}
             aria-pressed={a.id === value}
             onClick={() => onPick(a.id)}
             className={cn(
@@ -27,7 +34,7 @@ function AgentPicker({ agents, value, onPick }: { agents: AgentInfo[]; value: st
             )}
           >
             <Icon size={13} className="shrink-0" />
-            <span className="truncate">{a.name}</span>
+            <span className="truncate">{persona(a, t).name}</span>
           </button>
         )
       })}
@@ -40,12 +47,14 @@ function AgentPicker({ agents, value, onPick }: { agents: AgentInfo[]; value: st
  * built-in personas, tool calls inline, approvals where they happen.
  */
 export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const t = useT()
   const a = useAssistant()
   const messages = useActiveMessages()
   const projects = useProjects((s) => s.projects)
   const active = a.conversations.find((c) => c.id === a.activeId)
   const agentId = active?.agentId ?? a.agentId
-  const agent = a.agents.find((x) => x.id === agentId)
+  const found = a.agents.find((x) => x.id === agentId)
+  const agent = found && persona(found, t)
   const running = !!(a.activeId && a.running[a.activeId])
   const Icon = iconFor(agentId)
 
@@ -53,10 +62,10 @@ export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hud/50 px-4">
         <Icon size={14} className="shrink-0 text-cyan" />
-        <span className="truncate font-sans text-[13px] font-semibold text-text-primary">{active ? active.title : `New chat · ${agent?.name ?? 'Assistant'}`}</span>
+        <span className="truncate font-sans text-[13px] font-semibold text-text-primary">{active ? active.title : t.agents.newChatWith(agent?.name ?? t.agents.assistantName)}</span>
         {a.status?.settings.model && (
           <span className="ml-auto hidden font-mono text-[10px] text-text-muted md:inline">
-            W-ONE Assistant · {a.status.settings.model} · {a.status.settings.effort}
+            {t.agents.assistant} · {a.status.settings.model} · {a.status.settings.effort}
           </span>
         )}
       </div>
@@ -65,7 +74,7 @@ export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }
         <div className="flex items-start gap-2 border-b border-danger/30 bg-danger/[0.06] px-3 py-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{a.error}</span>
-          <button type="button" aria-label="Dismiss" onClick={a.clearError} className="text-text-muted hover:text-text-primary">
+          <button type="button" aria-label={t.common.dismiss} onClick={a.clearError} className="text-text-muted hover:text-text-primary">
             <X size={12} />
           </button>
         </div>
@@ -75,12 +84,12 @@ export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }
         {messages.length === 0 ? (
           <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 p-6 text-center">
             <Icon size={28} className="text-cyan/70" />
-            <p className="font-sans text-[15px] font-semibold text-text-primary">{agent?.name ?? 'Assistant'}</p>
+            <p className="font-sans text-[15px] font-semibold text-text-primary">{agent?.name ?? t.agents.assistantName}</p>
             <p className="font-sans text-[13px] text-text-secondary">{agent?.description}</p>
             {!active && a.agents.length > 1 && <AgentPicker agents={a.agents} value={a.agentId} onPick={(id) => a.newChat(id)} />}
             {a.status && !a.status.configured && (
               <button type="button" onClick={onOpenSettings} className="font-sans text-[12px] text-cyan hover:underline">
-                Add an API key in Settings to use the W-ONE Assistant →
+                {t.agents.addKey}
               </button>
             )}
           </div>
@@ -94,7 +103,7 @@ export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }
         disabled={!a.status?.configured}
         projects={projects}
         projectId={a.projectId}
-        placeholder={`Message ${agent?.name ?? 'the assistant'}…`}
+        placeholder={t.agents.messageTo(agent?.name ?? t.agents.theAssistant)}
         onProject={a.setProject}
         onSend={a.send}
         onStop={() => void a.cancel()}

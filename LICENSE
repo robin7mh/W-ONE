@@ -1,0 +1,45 @@
+W-ONE — Proprietary Source-Available License
+Copyright (c) 2026 Robin Hinkelmann. All rights reserved.
+
+1. Source visible, not open source.
+   The source code in this repository is published so that it can be read and
+   reviewed (for example by prospective employers, clients and customers). Making
+   it visible does not grant any licence to use it.
+
+2. What you may do without a W-ONE licence.
+   You may view and read the source code on GitHub, and fork it on GitHub solely
+   as permitted by the GitHub Terms of Service, for the purpose of reading it.
+
+3. What requires a W-ONE licence.
+   Building, compiling, installing, running, deploying (including as a server,
+   container or hosted service), modifying, creating derivative works of,
+   sublicensing, selling or otherwise distributing W-ONE or any part of it is
+   permitted only
+     (a) through the official W-ONE distribution channels, and
+     (b) within the scope of a valid W-ONE licence or free trial, as set out in
+         the W-ONE terms of use published on the official W-ONE website.
+   Circumventing, removing or disabling licence, trial or account checks is
+   prohibited.
+
+4. Third-party components.
+   Third-party libraries included in or used by W-ONE remain under their own
+   licences. Nothing in this licence restricts rights granted by those licences.
+
+5. No warranty.
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, TO THE EXTENT PERMITTED BY APPLICABLE LAW. Statutory liability that
+   cannot be excluded remains unaffected.
+
+6. Governing law.
+   This licence is governed by the laws of the Federal Republic of Germany.
+
+For licensing enquiries, use the contact details on the official W-ONE website.
+
+---
+
+Deutsche Kurzfassung (maßgeblich ist der englische Text oben):
+Der Quellcode ist öffentlich zur Ansicht, aber nicht Open Source. Bauen,
+Installieren, Ausführen, Betreiben (auch als Server oder Container), Ändern und
+Verbreiten sind nur über die offiziellen W-ONE-Kanäle und im Rahmen einer
+gültigen Lizenz oder Testversion erlaubt. Das Umgehen von Lizenz-, Test- oder
+Kontoprüfungen ist untersagt.

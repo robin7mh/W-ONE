@@ -6,14 +6,16 @@ import { Panel } from '@/components/ui/Panel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { LAYOUT_SLOTS, tabLabels, useTerminals, type TerminalLayout } from '../store'
 import { XtermPane } from './XtermPane'
 
-const LAYOUTS: { id: TerminalLayout; icon: typeof Square; label: string }[] = [
-  { id: 'single', icon: Square, label: 'Single' },
-  { id: 'cols', icon: Columns2, label: 'Side by side' },
-  { id: 'rows', icon: Rows2, label: 'Stacked' },
-  { id: 'grid', icon: Grid2x2, label: '2 × 2' }
+/** Split layouts; each label is `t.terminal[id]`. */
+const LAYOUTS: { id: TerminalLayout; icon: typeof Square }[] = [
+  { id: 'single', icon: Square },
+  { id: 'cols', icon: Columns2 },
+  { id: 'rows', icon: Rows2 },
+  { id: 'grid', icon: Grid2x2 }
 ]
 
 /** Pane `slot`'s box in a split layout, as percentages of the pane area. */
@@ -32,6 +34,7 @@ function slotBox(layout: TerminalLayout, slot: number): React.CSSProperties {
  * the shell mounts this view once and hides it.
  */
 export function TerminalView() {
+  const tr = useT()
   const { tabs, activeId, layout, error, init, open, close, setActive, setLayout } = useTerminals()
   const active = tabs.find((t) => t.id === activeId)
   const slots = LAYOUT_SLOTS[layout]
@@ -44,7 +47,7 @@ export function TerminalView() {
 
   return (
     <Panel
-      title="Terminal"
+      title={tr.terminal.title}
       corners
       flush
       className="min-h-0 flex-1"
@@ -79,7 +82,7 @@ export function TerminalView() {
               </button>
               <button
                 type="button"
-                aria-label={`Close ${labels.get(t.id)}`}
+                aria-label={tr.terminal.close(labels.get(t.id)!)}
                 onClick={() => void close(t.id)}
                 className={cn(
                   'rounded p-0.5 text-text-muted transition-opacity hover:bg-elevated hover:text-text-primary',
@@ -98,8 +101,8 @@ export function TerminalView() {
             <button
               key={l.id}
               type="button"
-              title={l.label}
-              aria-label={`Layout: ${l.label}`}
+              title={tr.terminal[l.id]}
+              aria-label={tr.terminal.layout(tr.terminal[l.id])}
               aria-pressed={layout === l.id}
               onClick={() => setLayout(l.id)}
               className={cn(
@@ -149,7 +152,7 @@ export function TerminalView() {
               onClick={() => void open()}
               className="rounded-md border border-cyan/40 bg-cyan/[0.06] px-3 py-1.5 font-sans text-[12px] font-medium text-cyan transition-colors hover:bg-cyan/[0.12]"
             >
-              Open terminal
+              {tr.terminal.open}
             </button>
           </div>
         )}
@@ -169,6 +172,7 @@ function NewTerminalMenu({
   onOpen: (projectId?: string) => void
   variant?: 'icon' | 'pane'
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const ref = useRef<HTMLDivElement>(null)
@@ -207,13 +211,13 @@ function NewTerminalMenu({
           onClick={() => setOpen((o) => !o)}
           className="flex h-full w-full items-center justify-center gap-2 rounded-md border border-dashed border-hud/60 font-sans text-[12px] text-text-muted transition-colors hover:border-cyan/40 hover:text-cyan"
         >
-          <Plus size={14} /> New terminal
+          <Plus size={14} /> {t.terminal.new}
         </button>
       ) : (
         <button
           type="button"
-          title="New terminal"
-          aria-label="New terminal"
+          title={t.terminal.new}
+          aria-label={t.terminal.new}
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
@@ -230,9 +234,9 @@ function NewTerminalMenu({
         >
           <button type="button" onClick={() => pick()} className={item}>
             <House size={13} className="text-text-muted" />
-            Home
+            {t.terminal.home}
           </button>
-          {projects.length > 0 && <TechLabel className="block px-3 pb-1 pt-2 text-text-muted">Projects</TechLabel>}
+          {projects.length > 0 && <TechLabel className="block px-3 pb-1 pt-2 text-text-muted">{t.terminal.projects}</TechLabel>}
           {projects.map((p) => (
             <button key={p.id} type="button" onClick={() => pick(p.id)} className={item}>
               <FolderGit2 size={13} className="text-text-muted" />

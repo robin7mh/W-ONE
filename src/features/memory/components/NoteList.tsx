@@ -3,6 +3,7 @@ import { ChevronDown, FilePlus2, FileText, Folder, FolderPlus, Search, X } from 
 import type { GraphStyle, NoteMeta, SearchHit } from '@shared/types/memory'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import type { Creating } from '../store'
 import { slotColor } from './GraphView'
 
@@ -34,6 +35,7 @@ const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastInd
  * is the vault root. New notes/folders get their name in an inline input.
  */
 export function NoteList(p: Props) {
+  const t = useT()
   const [input, setInput] = useState(p.query)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [dropTarget, setDropTarget] = useState<string | null>(null) // '' = root
@@ -77,7 +79,7 @@ export function NoteList(p: Props) {
       if (dropTarget !== folder) setDropTarget(folder)
     },
     onDragLeave: (e: React.DragEvent) => {
-      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget((t) => (t === folder ? null : t))
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget((d) => (d === folder ? null : d))
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault()
@@ -116,20 +118,20 @@ export function NoteList(p: Props) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Search memory…"
+            placeholder={t.memory.search}
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent font-sans text-[12px] text-text-primary outline-none placeholder:text-text-muted/70"
           />
           {input && (
-            <button type="button" aria-label="Clear search" onClick={() => setInput('')}>
+            <button type="button" aria-label={t.memory.clearSearch} onClick={() => setInput('')}>
               <X size={12} className="text-text-muted hover:text-text-primary" />
             </button>
           )}
         </label>
         <button
           type="button"
-          title="New note"
-          aria-label="New note"
+          title={t.memory.newNote}
+          aria-label={t.memory.newNote}
           onClick={() => p.onStartCreate('note', '')}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
         >
@@ -137,8 +139,8 @@ export function NoteList(p: Props) {
         </button>
         <button
           type="button"
-          title="New folder"
-          aria-label="New folder"
+          title={t.memory.newFolder}
+          aria-label={t.memory.newFolder}
           onClick={() => p.onStartCreate('folder', '')}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
         >
@@ -156,7 +158,7 @@ export function NoteList(p: Props) {
       >
         {p.query.trim() ? (
           <div className="space-y-1">
-            <TechLabel className="block px-1.5 py-1 text-text-muted">{p.hits.length} results</TechLabel>
+            <TechLabel className="block px-1.5 py-1 text-text-muted">{t.memory.results(p.hits.length)}</TechLabel>
             {p.hits.map((h) => (
               <button
                 key={h.path}
@@ -198,7 +200,7 @@ export function NoteList(p: Props) {
                     </button>
                     <button
                       type="button"
-                      title={`New note in ${dir}`}
+                      title={t.memory.newNoteIn(dir)}
                       onClick={() => p.onStartCreate('note', dir)}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                     >
@@ -206,7 +208,7 @@ export function NoteList(p: Props) {
                     </button>
                     <button
                       type="button"
-                      title={`New folder in ${dir}`}
+                      title={t.memory.newFolderIn(dir)}
                       onClick={() => p.onStartCreate('folder', dir)}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                     >
@@ -240,7 +242,7 @@ export function NoteList(p: Props) {
                     </button>
                   ))}
                 {dir && !isCollapsed && items.length === 0 && !(p.creating?.parent === dir) && (
-                  <p className="py-1 pl-7 font-sans text-[11px] text-text-muted/70">Empty — drop notes here</p>
+                  <p className="py-1 pl-7 font-sans text-[11px] text-text-muted/70">{t.memory.emptyFolder}</p>
                 )}
               </div>
             )
@@ -263,6 +265,7 @@ function CreateInput({
   onSubmit: (name: string) => void
   onCancel: () => void
 }) {
+  const t = useT()
   const [value, setValue] = useState('')
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => ref.current?.focus(), [])
@@ -279,7 +282,7 @@ function CreateInput({
           if (e.key === 'Escape') onCancel()
         }}
         onBlur={() => (value.trim() ? onSubmit(value) : onCancel())}
-        placeholder={kind === 'note' ? 'Note title…' : 'Folder name…'}
+        placeholder={kind === 'note' ? t.memory.noteTitle : t.memory.folderName}
         spellCheck={false}
         className="min-w-0 flex-1 bg-transparent font-sans text-[12.5px] text-text-primary outline-none placeholder:text-text-muted/70"
       />

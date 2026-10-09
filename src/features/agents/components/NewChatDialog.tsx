@@ -3,6 +3,7 @@ import { Check, GitBranch, Loader2, Sparkles, TerminalSquare, X } from 'lucide-r
 import type { AgentAvailability, AgentKind } from '@shared/types/agents'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useAssistant } from '../store'
 import { useAgents } from '../sessions'
@@ -38,6 +39,7 @@ function AgentCard({ a, chosen, onPick }: { a: AgentAvailability; chosen: boolea
  * worktree for parallel work, and the first message. Mounted while open.
  */
 export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { prompt?: string; onOpenSettings: () => void }) {
+  const t = useT()
   const { availability, detecting, busy, error, closeDialog, create, sessions } = useAgents()
   const assistantReady = !!useAssistant((s) => s.status?.configured)
   const projects = useProjects((s) => s.projects)
@@ -76,20 +78,20 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
   }
 
   return (
-    <div role="dialog" aria-label="New chat" className="fixed inset-0 z-50 flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onKeyDown={(e) => e.key === 'Escape' && closeDialog()}>
+    <div role="dialog" aria-label={t.agents.newChat} className="fixed inset-0 z-50 flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onKeyDown={(e) => e.key === 'Escape' && closeDialog()}>
       <form onSubmit={(e) => void submit(e)} className="panel flex w-full max-w-xl flex-col gap-4 p-4">
         <div className="flex items-center justify-between">
-          <TechLabel className="text-text-secondary">New chat</TechLabel>
-          <button type="button" aria-label="Close" onClick={closeDialog} className="text-text-muted hover:text-text-primary">
+          <TechLabel className="text-text-secondary">{t.agents.newChat}</TechLabel>
+          <button type="button" aria-label={t.common.close} onClick={closeDialog} className="text-text-muted hover:text-text-primary">
             <X size={15} />
           </button>
         </div>
 
         <div className="space-y-1.5">
-          <TechLabel className="text-text-muted">Agent</TechLabel>
+          <TechLabel className="text-text-muted">{t.agents.agent}</TechLabel>
           {detecting && !availability.length ? (
             <p className="flex items-center gap-2 font-mono text-[11px] text-text-muted">
-              <Loader2 size={12} className="animate-spin" /> Looking for your agents…
+              <Loader2 size={12} className="animate-spin" /> {t.agents.looking}
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-2">
@@ -107,57 +109,57 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
                 )}
               >
                 <span className="flex items-center gap-1.5 font-sans text-[13px] font-semibold text-text-primary">
-                  <Sparkles size={13} className="text-cyan" /> W-ONE Assistant
+                  <Sparkles size={13} className="text-cyan" /> {t.agents.assistant}
                 </span>
-                <span className="font-mono text-[10.5px] text-text-muted">{assistantReady ? 'API key' : 'Needs an API key'}</span>
+                <span className="font-mono text-[10.5px] text-text-muted">{assistantReady ? t.agents.apiKey : t.agents.needsKey}</span>
               </button>
             </div>
           )}
           {!assistantReady && (
             <button type="button" onClick={onOpenSettings} className="font-sans text-[11.5px] text-cyan hover:underline">
-              API keys and agent sign-in live in Settings →
+              {t.agents.keysInSettings}
             </button>
           )}
         </div>
 
         <label className="space-y-1.5">
-          <TechLabel className="text-text-muted">Project</TechLabel>
+          <TechLabel className="text-text-muted">{t.agents.project}</TechLabel>
           <select
-            aria-label="Project"
+            aria-label={t.agents.project}
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             className="w-full rounded-md border border-hud/60 bg-surface/50 px-2 py-1.5 font-sans text-[12.5px] text-text-primary outline-none focus:border-cyan/50"
           >
-            {choice === 'assistant' && <option value="">No project</option>}
+            {choice === 'assistant' && <option value="">{t.agents.noProject}</option>}
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
-          {!projects.length && <span className="block font-sans text-[11.5px] text-text-muted">Add a project in Projects first.</span>}
+          {!projects.length && <span className="block font-sans text-[11.5px] text-text-muted">{t.agents.addProjectFirst}</span>}
         </label>
 
         {isAgent && (
           <label className="flex items-start gap-2">
-            <input type="checkbox" aria-label="Own working folder" checked={isolated} onChange={(e) => setIsolated(e.target.checked)} className="mt-0.5 accent-cyan" />
+            <input type="checkbox" aria-label={t.agents.ownFolder} checked={isolated} onChange={(e) => setIsolated(e.target.checked)} className="mt-0.5 accent-cyan" />
             <span>
               <span className="flex items-center gap-1.5 font-sans text-[12.5px] text-text-primary">
-                <GitBranch size={12} /> Own working folder
+                <GitBranch size={12} /> {t.agents.ownFolder}
               </span>
               <span className="block font-sans text-[11.5px] text-text-muted">
-                {busyProject ? 'Another agent works in this project — ' : ''}a git worktree, so agents don't get in each other's way. You review and take over the changes at the end.
+                {t.agents.ownFolderHint(busyProject)}
               </span>
             </span>
           </label>
         )}
 
         <textarea
-          aria-label="First message"
+          aria-label={t.agents.firstMessage}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={3}
-          placeholder="What should it do? (optional)"
+          placeholder={t.agents.whatToDo}
           className="w-full resize-none rounded-md border border-hud/60 bg-surface/50 px-2.5 py-2 font-sans text-[13px] text-text-primary outline-none placeholder:text-text-muted/70 focus:border-cyan/50"
         />
 
@@ -165,14 +167,14 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
 
         <div className="flex justify-end gap-2">
           <button type="button" onClick={closeDialog} className="rounded-md border border-hud/60 px-3 py-1.5 font-sans text-[12px] text-text-secondary hover:text-text-primary">
-            Cancel
+            {t.common.cancel}
           </button>
           <button
             type="submit"
             disabled={!choice || busy || (isAgent && !projectId)}
             className="flex items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/[0.1] px-3 py-1.5 font-sans text-[12px] font-medium text-cyan hover:bg-cyan/[0.16] disabled:opacity-40"
           >
-            {busy && <Loader2 size={13} className="animate-spin" />} Start
+            {busy && <Loader2 size={13} className="animate-spin" />} {t.agents.start}
           </button>
         </div>
       </form>

@@ -20,7 +20,7 @@ import { useAssistant as staticAssistant } from '@/features/agents/store'
 import { useAgents as staticAgents } from '@/features/agents/sessions'
 import { HudClock } from '@/features/dashboard/components/HudClock'
 import { NAV_ITEMS } from '@/data/navigation'
-import { BOOT_LINES } from '@/data/bootLines'
+import { en } from '@/lib/i18n/en'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -72,26 +72,23 @@ describe('shell pieces', () => {
   it('SideNavigation marks the active item and selects', () => {
     const onSelect = vi.fn()
     render(<SideNavigation active="terminal" onSelect={onSelect} />)
-    expect(screen.getAllByRole('button')).toHaveLength(NAV_ITEMS.length)
+    expect(screen.getAllByRole('button')).toHaveLength(NAV_ITEMS.length + 1) // + profile
     expect(screen.getByTitle('Terminal').className).toContain('text-text-primary')
     expect(screen.getByTitle('Core').className).toContain('text-text-muted')
     fireEvent.click(screen.getByTitle('Memory'))
     expect(onSelect).toHaveBeenCalledWith('memory')
   })
 
-  it('SideNavigation shows which core it is linked to', async () => {
-    const { useSession } = await import('@/features/session/store')
-    useSession.setState({ info: undefined })
-    render(<SideNavigation active="core" onSelect={vi.fn()} />)
-    expect(screen.getByText('LINKING…')).toBeInTheDocument()
-    const info = { mode: 'desktop' as const, version: '1.0.0', platform: 'darwin', hostname: 'mac', remoteTerminal: false, db: { connected: true } }
-    act(() => useSession.setState({ info }))
-    expect(screen.getByText('DESKTOP · v1.0.0')).toBeInTheDocument()
-    expect(screen.getByText('mac · db online')).toBeInTheDocument()
-    act(() => useSession.setState({ info: { ...info, mode: 'server', db: { connected: false } } }))
-    expect(screen.getByText('SERVER · v1.0.0')).toBeInTheDocument()
-    expect(screen.getByText('mac · db offline')).toBeInTheDocument()
-    act(() => useSession.setState({ info: undefined }))
+  it('SideNavigation ends in the profile tab', () => {
+    const onSelect = vi.fn()
+    const { rerender } = render(<SideNavigation active="core" onSelect={onSelect} />)
+    const profile = screen.getByLabelText('Profile')
+    expect(profile.className).toContain('border-hud/50')
+    expect(screen.getByText('Not signed in')).toBeInTheDocument()
+    fireEvent.click(profile)
+    expect(onSelect).toHaveBeenCalledWith('account')
+    rerender(<SideNavigation active="account" onSelect={onSelect} />)
+    expect(screen.getByLabelText('Profile').className).toContain('border-cyan/40')
   })
 
   it('WindowControls drive the bridge and follow the maximized state', async () => {
@@ -244,7 +241,7 @@ describe('BootSequence', () => {
       vi.advanceTimersByTime(BOOT_TOTAL_MS)
     })
     expect(screen.getByText('100%')).toBeInTheDocument()
-    expect(screen.getByText(BOOT_LINES[0].text)).toBeInTheDocument()
+    expect(screen.getByText(en.boot.lines[0])).toBeInTheDocument()
     expect(container.querySelector('.animate-pulse')).toBeNull()
     fireEvent.click(screen.getByText('click to skip'))
     expect(onSkip).toHaveBeenCalled()
@@ -365,6 +362,7 @@ describe('AppShell', () => {
     }))
     vi.doMock('@/features/settings/components/SettingsView', () => ({ SettingsView: () => <div>SETTINGS</div> }))
     vi.doMock('@/features/system/components/SystemView', () => ({ SystemView: () => <div>SYSTEM</div> }))
+    vi.doMock('@/features/account/components/AccountView', () => ({ AccountView: () => <div>ACCOUNT</div> }))
     vi.resetModules()
     const { AppShell } = await import('@/components/shell/AppShell')
     const { useAssistant } = await import('@/features/agents/store')
@@ -428,6 +426,8 @@ describe('AppShell', () => {
     expect(screen.getByText('SYSTEM')).toBeInTheDocument()
     fireEvent.click(screen.getByTitle('Settings'))
     expect(screen.getByText('SETTINGS')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Profile'))
+    expect(screen.getByText('ACCOUNT')).toBeInTheDocument()
 
     // approvals float above modules; the Command Deck jumps into a conversation
     act(() =>
@@ -472,6 +472,7 @@ describe('AppShell', () => {
     vi.doUnmock('@/features/agents/components/AgentsView')
     vi.doUnmock('@/features/settings/components/SettingsView')
     vi.doUnmock('@/features/system/components/SystemView')
+    vi.doUnmock('@/features/account/components/AccountView')
     vi.doUnmock('@/features/terminal/components/TerminalView')
     vi.doUnmock('@/features/editor/components/EditorView')
     vi.doUnmock('@/features/dashboard/components/Dashboard')

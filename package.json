@@ -2,8 +2,8 @@
   "name": "w-one",
   "version": "0.1.0",
   "description": "W-ONE — a dark, futuristic Sci-Fi command-center desktop app.",
-  "author": "W-ONE",
-  "license": "MIT",
+  "author": "Robin Hinkelmann",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
