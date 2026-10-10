@@ -326,7 +326,7 @@ agents: {
     endSession: 'Sitzung beenden',
     end: 'Beenden',
     resume: 'Fortsetzen',
-    isStarting: (name, terminal) => `${name} startet.${terminal ? ' Falls er etwas fragt — etwa ob er diesem Ordner vertrauen soll — antworte im Terminal unten.' : ''}`,
+    isStarting: (name, terminal) => `${name} startet.${terminal ? ' Falls er etwas fragt — etwa ob er diesem Ordner vertrauen soll —, öffnet sich unten sein Terminal.' : ''}`,
     ownSignIn: (name) => `Läuft mit deiner eigenen ${name}-Anmeldung. Freigaben erscheinen hier, Änderungen rechts, und jede Sitzung wird in deinem Gedächtnis protokolliert.`,
     agentEnded: 'der Agent wurde beendet',
     shellEnded: 'die Shell wurde beendet',

@@ -386,14 +386,26 @@ describe('NewChatDialog', () => {
 describe('SessionPane', () => {
   const pane = (s: AgentSession, messages: ChatMessage[] = []) => render(<SessionPane session={s} messages={messages} />)
 
-  it('starting: explains, shows the terminal by itself; ends', async () => {
+  it('starting: explains; the terminal opens by itself only when the start takes long (a question there); ends', async () => {
     installBridge({ 'terminal:attach': () => ({ buffer: 'trust?', end: 6 }) })
     const stop = vi.fn(async () => {})
     useAgents.setState({ stop })
-    pane(session({ status: 'starting', branch: 'wone/abc' }))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { rerender } = pane(session({ status: 'starting', branch: 'wone/abc' }))
     expect(screen.getByText(/Claude Code is starting/)).toBeInTheDocument()
     expect(screen.getByText(/wone\/abc/)).toBeInTheDocument()
     expect(screen.getByText('· Starting…')).toBeInTheDocument()
+    // A quick start (a resume, a trusted folder): ready before the grace — no terminal flashes up.
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    rerender(<SessionPane session={session({ status: 'idle', branch: 'wone/abc' })} messages={[]} />)
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    expect(x.terms).toHaveLength(0)
+    // The next start takes long: the agent asks something in its terminal, which opens.
+    rerender(<SessionPane session={session({ status: 'starting', branch: 'wone/abc', terminalId: 'pty2' })} messages={[]} />)
+    await act(() => vi.advanceTimersByTimeAsync(2900))
+    expect(x.terms).toHaveLength(0)
+    await act(() => vi.advanceTimersByTimeAsync(100))
+    vi.useRealTimers()
     await act(settle)
     expect(x.terms).toHaveLength(1)
     expect(x.terms[0].written).toContain('trust?')

@@ -334,7 +334,7 @@ agents: {
     endSession: 'End session',
     end: 'End',
     resume: 'Resume',
-    isStarting: (name: string, terminal: boolean) => `${name} is starting.${terminal ? ' If it asks something — like trusting this folder — answer in the terminal below.' : ''}`,
+    isStarting: (name: string, terminal: boolean) => `${name} is starting.${terminal ? ' If it asks something — like trusting this folder — its terminal opens below.' : ''}`,
     ownSignIn: (name: string) => `Runs with your own ${name} sign-in. Approvals appear here, changes on the right, and every session is journaled in your memory.`,
     agentEnded: 'the agent ended',
     shellEnded: 'the shell ended',

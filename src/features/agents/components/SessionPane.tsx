@@ -76,6 +76,13 @@ function TitleInput({ title, onRename }: { title: string; onRename: (title: stri
   )
 }
 
+/**
+ * How long a start may take before its terminal opens by itself: by then the
+ * agent most likely asks something there (trusting a new folder). A normal
+ * start or resume is ready in about a second.
+ */
+const START_GRACE_MS = 3000
+
 const iconButton =
   'flex h-7 items-center gap-1 rounded-md border border-hud/60 px-2 font-sans text-[11.5px] text-text-secondary transition-colors hover:border-cyan/50 hover:text-cyan'
 
@@ -98,7 +105,14 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
   // Claude Code runs in a PTY the user can watch; its prompts there open it by themselves.
   const agentTerminal = session.terminalId
   const shellId = shell?.sessionId === session.id ? shell.terminalId : undefined
-  const needsTerminal = !!agentTerminal && (session.status === 'starting' || session.status === 'waiting')
+  // A start opens it only once it takes longer than usual — so a resume doesn't flash up an empty terminal.
+  const [slowStart, setSlowStart] = useState<string>()
+  useEffect(() => {
+    if (!agentTerminal || session.status !== 'starting') return
+    const timer = window.setTimeout(() => setSlowStart(agentTerminal), START_GRACE_MS)
+    return () => window.clearTimeout(timer)
+  }, [agentTerminal, session.status])
+  const needsTerminal = !!agentTerminal && (session.status === 'waiting' || (session.status === 'starting' && slowStart === agentTerminal))
   const shownId = agentTerminal ? (terminal || needsTerminal ? agentTerminal : undefined) : terminal ? shellId : undefined
   const showTerminal = !!shownId
   const repo = session.repoUrl ? repoLink(session.repoUrl) : undefined
