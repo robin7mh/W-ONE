@@ -17,6 +17,10 @@ COPY package.json package-lock.json ./
 COPY scripts ./scripts
 RUN npm ci --no-audit --no-fund
 COPY . .
+# W-ONE Cloud for this image (license + sign-in), baked in at build time:
+#   docker build --build-arg WONE_CLOUD_URL=https://api.example.com --build-arg WONE_CLOUD_KEY=… .
+ARG WONE_CLOUD_URL=
+ARG WONE_CLOUD_KEY=
 RUN npm run web:build && npm run server:build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim

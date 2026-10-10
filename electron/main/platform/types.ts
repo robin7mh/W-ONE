@@ -10,6 +10,10 @@ export interface Platform {
   pickFolder?: (title: string) => Promise<string | null>
   /** Open a file or folder with the host's default app. Absent on a server. */
   openPath?: (path: string) => Promise<void>
+  /** Hand a link to the app registered for it (browser, GitHub Desktop, …). Absent on a server. */
+  openExternal?: (url: string) => Promise<void>
+  /** Name of the app that handles links like `url` (`scheme://`), '' if none. Absent on a server. */
+  appForUrl?: (url: string) => string
   /** Move a file to a recoverable trash. `root` is the vault it belongs to. */
   trashItem: (path: string, root: string) => Promise<void>
 }

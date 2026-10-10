@@ -12,6 +12,8 @@ import {
 } from 'd3-force'
 import { Maximize2 } from 'lucide-react'
 import { GRAPH_COLORS, type GraphNode, type GraphStyle, type MemoryGraph } from '@shared/types/memory'
+import { useT } from '@/lib/i18n'
+import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 import { TechLabel } from '@/components/ui/TechLabel'
 
 interface SimNode extends SimulationNodeDatum, GraphNode {
@@ -44,6 +46,7 @@ export function slotColor(slot: number): string {
  * survive graph refreshes so saving a note doesn't reshuffle the layout.
  */
 export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenGhost }: Props) {
+  const t = useT()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const positions = useRef(new Map<string, { x: number; y: number }>())
@@ -230,7 +233,7 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
       readColors()
       requestDraw()
     })
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: APPEARANCE_ATTRIBUTES })
 
     // --- interaction -------------------------------------------------------
     const toWorld = (ev: PointerEvent | WheelEvent) => {
@@ -356,7 +359,7 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
 
       {graph.nodes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <p className="font-mono text-[12px] text-text-muted">No notes yet — create one to start your graph</p>
+          <p className="font-mono text-[12px] text-text-muted">{t.memory.noNotes}</p>
         </div>
       )}
 
@@ -365,7 +368,7 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
           {legend.map(([folder, slot]) => (
             <div key={folder || '.'} className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full" style={{ background: slotColor(slot) }} />
-              <span className="font-mono text-[10px] text-text-secondary">{folder || 'Vault root'}</span>
+              <span className="font-mono text-[10px] text-text-secondary">{folder || t.memory.vaultRoot}</span>
             </div>
           ))}
         </div>
@@ -373,11 +376,11 @@ export function GraphView({ graph, style, folderSlots, activeId, onOpen, onOpenG
 
       <div className="absolute bottom-3 right-3 flex items-center gap-2">
         <TechLabel className="hidden text-text-muted sm:inline">
-          {graph.nodes.filter((n) => !n.ghost).length} notes · {graph.edges.length} links
+          {t.memory.graphStats(graph.nodes.filter((n) => !n.ghost).length, graph.edges.length)}
         </TechLabel>
         <button
           type="button"
-          title="Fit to view"
+          title={t.memory.fit}
           onClick={() => fit.current()}
           className="flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/70 text-text-muted transition-colors hover:border-cyan/50 hover:text-cyan"
         >

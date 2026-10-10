@@ -26,6 +26,9 @@ class FakeResizeObserver {
 globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
 ;(globalThis as Record<string, unknown>).FakeResizeObserver = FakeResizeObserver
 
+/** scrollIntoView: recorded, so tests can see what was scrolled into sight. */
+Element.prototype.scrollIntoView = vi.fn()
+
 /** matchMedia: everything false unless a test sets `matchMediaMatches`. */
 ;(globalThis as Record<string, unknown>).matchMediaMatches = {} as Record<string, boolean>
 window.matchMedia = ((query: string) => ({
@@ -60,5 +63,5 @@ afterEach(() => {
   delete (window as { wone?: unknown }).wone
   setTransport(null)
   localStorage.clear()
-  document.documentElement.removeAttribute('data-theme')
+  for (const a of ['data-theme', 'data-accent', 'data-surface', 'style']) document.documentElement.removeAttribute(a)
 })

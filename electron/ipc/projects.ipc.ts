@@ -8,7 +8,9 @@ export function registerProjectIpc(router: Router, service: ProjectService): voi
   router.register('projects:add', ({ path }) => service.add(path))
   router.register('projects:remove', ({ id }) => service.remove(id))
   router.register('projects:refresh', ({ id }) => service.refresh(id))
+  router.register('projects:pull', ({ id }) => service.pull(id))
   router.register('projects:openInEditor', ({ id }) => service.openInEditor(id))
-  router.register('projects:openTerminal', ({ id }) => service.openTerminal(id))
+  router.register('projects:githubDesktop', () => service.githubDesktop())
+  router.register('projects:openInGitHubDesktop', ({ id }) => service.openInGitHubDesktop(id))
   router.register('projects:openFile', ({ id, file, line }) => service.openFile(id, file, line))
 }

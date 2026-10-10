@@ -1,12 +1,14 @@
 import type { WoneEvent } from '@shared/types/events'
+import { getT, intlLocale } from '@/lib/i18n'
 
 /** "just now", "5 min ago", "3 h ago", else a short date. */
 export function relativeTime(iso: string, now: number = Date.now()): string {
+  const t = getT().common
   const diff = Math.max(0, now - Date.parse(iso))
-  if (diff < 45_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)} min ago`
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)} h ago`
-  return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+  if (diff < 45_000) return t.justNow
+  if (diff < 3_600_000) return t.minAgo(Math.round(diff / 60_000))
+  if (diff < 86_400_000) return t.hAgo(Math.round(diff / 3_600_000))
+  return new Date(iso).toLocaleDateString(intlLocale(), { day: '2-digit', month: 'short' })
 }
 
 export type Tone = 'cyan' | 'ok' | 'warn' | 'error' | 'muted'
@@ -30,42 +32,43 @@ interface P {
 /** One line per event for the activity timeline — what happened, in plain words. */
 export function describeEvent(e: WoneEvent): { text: string; tone: Tone } {
   const p = (e.payload ?? {}) as P
+  const t = getT().agents.ev
   switch (e.type) {
     case 'agent.started':
-      return { text: `${p.agent ?? 'Agent'} started: ${p.goal ?? ''}`.trim(), tone: 'cyan' }
+      return { text: t.started(p.agent ?? t.agent, p.goal ?? ''), tone: 'cyan' }
     case 'agent.status.updated':
-      return { text: p.text ?? 'Working', tone: 'muted' }
+      return { text: p.text ?? t.working, tone: 'muted' }
     case 'agent.completed':
-      return { text: `Run completed · ${p.iterations ?? 0} steps · ${p.outputTokens ?? 0} tokens out`, tone: 'ok' }
+      return { text: t.completed(p.iterations ?? 0, p.outputTokens ?? 0), tone: 'ok' }
     case 'agent.failed':
-      return { text: `Run ${p.status === 'timeout' ? 'timed out' : 'failed'}${p.error ? `: ${p.error}` : ''}`, tone: 'error' }
+      return { text: t.failed(p.status === 'timeout', p.error ?? ''), tone: 'error' }
     case 'agent.cancelled':
-      return { text: 'Run cancelled', tone: 'warn' }
+      return { text: t.cancelled, tone: 'warn' }
     case 'tool.started':
-      return { text: p.summary ?? `Tool ${p.tool}`, tone: 'cyan' }
+      return { text: p.summary ?? t.tool(String(p.tool)), tone: 'cyan' }
     case 'tool.completed':
-      return { text: `Done: ${p.summary ?? p.tool}`, tone: 'ok' }
+      return { text: t.done(String(p.summary ?? p.tool)), tone: 'ok' }
     case 'tool.failed':
-      return { text: `Failed: ${p.summary ?? p.tool}${p.error ? ` — ${p.error}` : ''}`, tone: 'error' }
+      return { text: t.toolFailed(String(p.summary ?? p.tool), p.error ?? ''), tone: 'error' }
     case 'tool.denied':
-      return { text: `Blocked: ${p.summary ?? p.tool}${p.reason && p.reason !== 'user' ? ` (${p.reason})` : ''}`, tone: 'warn' }
+      return { text: t.blocked(String(p.summary ?? p.tool), p.reason && p.reason !== 'user' ? p.reason : ''), tone: 'warn' }
     case 'permission.requested':
-      return { text: `Approval requested: ${p.summary ?? p.tool}`, tone: 'warn' }
+      return { text: t.requested(String(p.summary ?? p.tool)), tone: 'warn' }
     case 'permission.granted':
-      return { text: `Approved (${p.decision === 'always' ? 'always' : 'once'}): ${p.tool}`, tone: 'ok' }
+      return { text: t.granted(p.decision === 'always', String(p.tool)), tone: 'ok' }
     case 'permission.denied':
-      return { text: `Denied: ${p.tool}`, tone: 'error' }
+      return { text: t.denied(String(p.tool)), tone: 'error' }
     case 'db.migrated':
-      return { text: 'Database schema updated', tone: 'muted' }
+      return { text: t.migrated, tone: 'muted' }
     case 'session.started':
-      return { text: `${p.agent ?? 'Agent'} started: ${p.title ?? ''}`.trim(), tone: 'cyan' }
+      return { text: t.started(p.agent ?? t.agent, p.title ?? ''), tone: 'cyan' }
     case 'session.ended':
-      return { text: `Session ended${p.code ? ` (exit code ${p.code})` : ''}`, tone: p.code ? 'warn' : 'muted' }
+      return { text: t.ended(p.code), tone: p.code ? 'warn' : 'muted' }
     default:
       return { text: e.type, tone: 'muted' }
   }
 }
 
 export function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return new Date(iso).toLocaleTimeString(intlLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }

@@ -4,7 +4,7 @@ import { installBridge, settle } from './bridge'
 
 import { cn } from '@/lib/cn'
 import { clamp, formatDate, formatTime, formatUptime, pad2 } from '@/lib/format'
-import { applyTheme, initialTheme, useTheme } from '@/lib/theme'
+import { ACCENTS, applyAppearance, DEFAULT_APPEARANCE, loadAppearance, resolveTheme, startAppearance, surfaceTokens, useAppearance } from '@/lib/theme'
 import { useClock } from '@/hooks/useClock'
 import { useBoot } from '@/hooks/useBoot'
 import { NAV_ITEMS } from '@/data/navigation'
@@ -37,44 +37,94 @@ describe('lib', () => {
     expect(clamp(5, 10, 20)).toBe(10)
   })
 
-  it('theme: saved choice, else OS appearance; persisting survives storage errors', () => {
-    expect(initialTheme()).toBe('dark')
-    ;(globalThis as { matchMediaMatches: Record<string, boolean> }).matchMediaMatches['(prefers-color-scheme: light)'] = true
-    expect(initialTheme()).toBe('light')
-    localStorage.setItem('wone.theme', 'dark')
-    expect(initialTheme()).toBe('dark')
+  it('appearance: saved choice, the old dark/light choice, defaults for anything unknown; storage errors never throw', () => {
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
+    localStorage.setItem('wone.theme', 'light')
+    expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, mode: 'light' })
     localStorage.setItem('wone.theme', 'bogus')
-    expect(initialTheme()).toBe('light')
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
 
-    applyTheme('light')
-    expect(document.documentElement.dataset.theme).toBe('light')
-    expect(localStorage.getItem('wone.theme')).toBe('bogus') // not persisted
-    applyTheme('dark', true)
-    expect(localStorage.getItem('wone.theme')).toBe('dark')
+    const saved = { mode: 'dark', accent: 'pink', surface: 'graphite' }
+    localStorage.setItem('wone.appearance', JSON.stringify(saved))
+    expect(loadAppearance()).toEqual(saved)
+    // Unknown values (and fields of older versions) fall back field by field.
+    localStorage.setItem('wone.appearance', JSON.stringify({ mode: 'neon', accent: 'violet', surface: 'midnight', effects: 'off' }))
+    expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
+    localStorage.setItem('wone.appearance', 'null')
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
+    localStorage.setItem('wone.appearance', '{broken')
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
 
     const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('blocked')
     })
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
+    get.mockRestore()
+  })
+
+  it('applyAppearance: system follows the OS; the accent per theme; dark backgrounds only in dark', () => {
+    const root = document.documentElement
+    const css = (name: string) => root.style.getPropertyValue(name)
+    expect(resolveTheme('system')).toBe('dark')
+    expect(resolveTheme('light')).toBe('light')
+
+    expect(applyAppearance({ mode: 'dark', accent: 'green', surface: 'black' })).toBe('dark')
+    expect({ ...root.dataset }).toEqual({ theme: 'dark', accent: 'green', surface: 'black' })
+    expect([css('--accent-cyan'), css('--accent-2'), css('--accent-3')]).toEqual(ACCENTS.green.dark)
+    expect(css('--bg-void')).toBe('0 0 0')
+
+    // Cyber: surfaces, lines and text in the accent's hue.
+    applyAppearance({ mode: 'dark', accent: 'green', surface: 'cyber' })
+    expect([css('--bg-void'), css('--border-hud')]).toEqual(['4 11 8', '42 84 64'])
+
+    ;(globalThis as { matchMediaMatches: Record<string, boolean> }).matchMediaMatches['(prefers-color-scheme: light)'] = true
+    expect(applyAppearance({ mode: 'system', accent: 'green', surface: 'graphite' })).toBe('light')
+    expect(css('--accent-cyan')).toBe(ACCENTS.green.light[0])
+    expect(css('--bg-void')).toBe('') // light keeps its own surfaces
+  })
+
+  it('the cyber background in cyan is index.css; mono turns it grey; black and graphite stay neutral', () => {
+    expect(surfaceTokens('cyber', 'cyan')).toMatchObject({ '--bg-void': '4 7 11', '--bg-panel': '12 18 26', '--border-hud': '42 60 84' })
+    expect(surfaceTokens('cyber', 'mono')['--bg-void']).toBe('7 7 7')
+    expect(surfaceTokens('graphite', 'pink')).toEqual(surfaceTokens('graphite', 'green'))
+  })
+
+  it('useAppearance updates, toggles, resets and remembers; on system it follows OS changes', () => {
+    const LIGHT = '(prefers-color-scheme: light)'
+    const os = (globalThis as { matchMediaMatches: Record<string, boolean> }).matchMediaMatches
+    const real = window.matchMedia
+    let osChanged = () => {}
+    window.matchMedia = ((q: string) => ({
+      ...real(q),
+      addEventListener: (_: string, cb: () => void) => {
+        osChanged = cb
+      }
+    })) as unknown as typeof window.matchMedia
+    const s = () => useAppearance.getState()
+
+    useAppearance.setState({ appearance: DEFAULT_APPEARANCE })
+    startAppearance()
+    expect(s().theme).toBe('dark')
+    os[LIGHT] = true
+    osChanged()
+    expect([s().theme, document.documentElement.dataset.theme]).toEqual(['light', 'light'])
+
+    s().update({ accent: 'violet' })
+    expect(JSON.parse(localStorage.getItem('wone.appearance')!)).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
+    s().toggleTheme() // the other theme, as a fixed choice
+    expect([s().appearance.mode, s().theme]).toEqual(['dark', 'dark'])
+    osChanged() // fixed: the OS no longer decides
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    s().toggleTheme()
+    expect(s().appearance.mode).toBe('light')
+
     const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('blocked')
     })
-    expect(initialTheme()).toBe('light')
-    expect(() => applyTheme('light', true)).not.toThrow()
-    get.mockRestore()
+    expect(() => s().reset()).not.toThrow()
+    expect(s().appearance).toEqual(DEFAULT_APPEARANCE)
     set.mockRestore()
-  })
-
-  it('useTheme toggles and persists', () => {
-    const { result } = renderHook(() => useTheme())
-    expect(result.current[0]).toBe('dark') // no attribute yet → dark
-    act(() => result.current[1]())
-    expect(result.current[0]).toBe('light')
-    expect(localStorage.getItem('wone.theme')).toBe('light')
-    act(() => result.current[1]())
-    expect(document.documentElement.dataset.theme).toBe('dark')
-
-    document.documentElement.setAttribute('data-theme', 'light')
-    expect(renderHook(() => useTheme()).result.current[0]).toBe('light')
+    window.matchMedia = real
   })
 })
 
@@ -161,7 +211,9 @@ describe('data & shared constants', () => {
       'permission:resolved',
       'events:event',
       'agents:changed',
-      'agents:message'
+      'agents:message',
+      'cloud:status',
+      'update:status'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })

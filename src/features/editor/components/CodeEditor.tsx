@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { applyMonacoTheme, languageName, monaco, THEME } from '../monaco/setup'
 import { setBufferHost, useEditor, type EditorTab } from '../store'
+import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 
 export interface CursorInfo {
   line: number
@@ -94,9 +95,9 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
       }
     })
 
-    // Follow the app's light/dark switch.
+    // Follow the appearance settings (theme, accent, background).
     const theme = new MutationObserver(applyMonacoTheme)
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: APPEARANCE_ATTRIBUTES })
     // Monaco measures glyph widths once; measure again when the bundled font is in.
     void document.fonts?.ready.then(() => monaco.editor.remeasureFonts())
 

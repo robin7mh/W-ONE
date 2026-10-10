@@ -1,10 +1,13 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
 import { EFFORTS, MODELS, type Effort } from '@shared/types/ai'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
+import { Card } from '@/components/ui/Card'
+import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
+import { useT } from '@/lib/i18n'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { FolderPicker } from '@/components/ui/FolderPicker'
 import { cn } from '@/lib/cn'
@@ -13,18 +16,7 @@ import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
 import { useSettings } from '../store'
-
-function Card({ icon: Icon, title, children, className }: { icon: typeof Info; title: string; children: ReactNode; className?: string }) {
-  return (
-    <section className={cn('rounded-md border border-hud/60 bg-surface/40 p-3.5', className)}>
-      <div className="mb-3 flex items-center gap-2">
-        <Icon size={14} className="text-cyan" />
-        <TechLabel className="text-text-secondary">{title}</TechLabel>
-      </div>
-      {children}
-    </section>
-  )
-}
+import { AppearanceCard } from './AppearanceCard'
 
 function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -55,13 +47,14 @@ const button =
 function AgentsCard() {
   const availability = useAgents((s) => s.availability)
   const detecting = useAgents((s) => s.detecting)
+  const t = useT()
   useEffect(() => {
     void useAgents.getState().detect()
   }, [])
   return (
-    <Card icon={TerminalSquare} title="Coding agents">
+    <Card icon={TerminalSquare} title={t.settings.agentsCard}>
       <p className="font-sans text-[12px] text-text-secondary">
-        Your own agents, signed in with your own accounts — W-ONE starts them, shows their work and asks you before anything risky.
+        {t.settings.agentsIntro}
       </p>
       <ul className="mt-2 space-y-1.5">
         {availability.map((a) => (
@@ -77,13 +70,14 @@ function AgentsCard() {
         ))}
       </ul>
       <button type="button" className={cn(button, 'mt-3')} disabled={detecting} onClick={() => void useAgents.getState().detect()}>
-        <RefreshCw size={12} className={cn(detecting && 'animate-spin')} /> Check again
+        <RefreshCw size={12} className={cn(detecting && 'animate-spin')} /> {t.settings.checkAgain}
       </button>
     </Card>
   )
 }
 
 function AiCard() {
+  const t = useT()
   const status = useAssistant((s) => s.status)
   const { setKey, clearKey, configure } = useAssistant.getState()
   const [key, setKeyText] = useState('')
@@ -94,30 +88,30 @@ function AiCard() {
     setBusy(false)
   }
   return (
-    <Card icon={BrainCircuit} title="W-ONE Assistant (API key)">
+    <Card icon={BrainCircuit} title={t.settings.aiCard}>
       <div className="flex items-center gap-2">
         <StatusDot tone={status?.configured ? 'ok' : 'warn'} pulse={false} />
         <span className="font-sans text-[13px] text-text-primary">
           {status?.configured
-            ? `Anthropic key ${status.source === 'env' ? 'from the environment' : 'stored'} · …${status.keyHint}`
-            : 'No API key yet'}
+            ? t.settings.keyFrom(status.source === 'env', status.keyHint)
+            : t.settings.noKey}
         </span>
       </div>
       {status?.source !== 'env' && (
         <div className="mt-3 flex gap-2">
           <input
             type="password"
-            aria-label="New API key"
-            placeholder={status?.configured ? 'Replace key…' : 'sk-ant-…'}
+            aria-label={t.settings.newKey}
+            placeholder={status?.configured ? t.settings.replaceKey : 'sk-ant-…'}
             value={key}
             onChange={(e) => setKeyText(e.target.value)}
             className={cn(input, 'min-w-0 flex-1')}
           />
           <button type="button" className={button} disabled={!key.trim() || busy} onClick={() => void save()}>
-            <KeyRound size={13} /> Save
+            <KeyRound size={13} /> {t.common.save}
           </button>
           {status?.source === 'stored' && (
-            <button type="button" aria-label="Remove key" className={cn(button, 'hover:border-danger/50 hover:text-danger')} onClick={() => void clearKey()}>
+            <button type="button" aria-label={t.settings.removeKey} className={cn(button, 'hover:border-danger/50 hover:text-danger')} onClick={() => void clearKey()}>
               <Trash2 size={13} />
             </button>
           )}
@@ -125,8 +119,8 @@ function AiCard() {
       )}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1">
-          <TechLabel className="text-text-muted">Model</TechLabel>
-          <select aria-label="Model" className={input} value={status?.settings.model ?? MODELS[0].id} onChange={(e) => void configure({ model: e.target.value })}>
+          <TechLabel className="text-text-muted">{t.settings.model}</TechLabel>
+          <select aria-label={t.settings.model} className={input} value={status?.settings.model ?? MODELS[0].id} onChange={(e) => void configure({ model: e.target.value })}>
             {MODELS.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label} — {m.note}
@@ -135,8 +129,8 @@ function AiCard() {
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <TechLabel className="text-text-muted">Effort</TechLabel>
-          <select aria-label="Effort" className={input} value={status?.settings.effort ?? 'high'} onChange={(e) => void configure({ effort: e.target.value as Effort })}>
+          <TechLabel className="text-text-muted">{t.settings.effort}</TechLabel>
+          <select aria-label={t.settings.effort} className={input} value={status?.settings.effort ?? 'high'} onChange={(e) => void configure({ effort: e.target.value as Effort })}>
             {EFFORTS.map((e) => (
               <option key={e} value={e}>
                 {e}
@@ -145,12 +139,13 @@ function AiCard() {
           </select>
         </label>
       </div>
-      <p className="mt-2 font-sans text-[11.5px] text-text-muted">Higher effort means deeper reasoning — slower and more tokens. "high" suits most work.</p>
+      <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.settings.effortHint}</p>
     </Card>
   )
 }
 
 function RemoteCard() {
+  const t = useT()
   const s = useSettings()
   const desktop = isDesktop()
   const cfg = s.server?.config
@@ -164,10 +159,10 @@ function RemoteCard() {
   })()
 
   return (
-    <Card icon={Wifi} title="Remote access · web & mobile" className="lg:row-span-2">
+    <Card icon={Wifi} title={t.settings.remoteCard} className="lg:row-span-2">
       <div className="flex items-center gap-2">
         <StatusDot tone={s.server?.running ? 'ok' : 'muted'} pulse={false} />
-        <span className="font-sans text-[13px] text-text-primary">{s.server?.running ? 'API server running' : 'API server off'}</span>
+        <span className="font-sans text-[13px] text-text-primary">{s.server?.running ? t.settings.serverRunning : t.settings.serverOff}</span>
       </div>
       {s.server?.running && (
         <ul className="mt-1 space-y-0.5">
@@ -182,13 +177,13 @@ function RemoteCard() {
 
       {cfg && editable && (
         <div className="mt-3 border-t border-hud/40 pt-2">
-          <Toggle label="Run the API server" hint="Lets browsers and the W-ONE app connect to this computer." checked={cfg.enabled} disabled={s.busy} onChange={(v) => void s.configureServer({ enabled: v })} />
-          <Toggle label="Reachable on the local network" hint="Off: this computer only (127.0.0.1). On: phones on your network can connect — pairing still protects it." checked={cfg.lan} disabled={s.busy || !cfg.enabled} onChange={(v) => void s.configureServer({ lan: v })} />
-          <Toggle label="Allow remote shells" hint="Paired devices may open terminals and let agents run commands. Off by default." checked={cfg.remoteTerminal} disabled={s.busy} onChange={(v) => void s.configureServer({ remoteTerminal: v })} />
+          <Toggle label={t.settings.runServer} hint={t.settings.runServerHint} checked={cfg.enabled} disabled={s.busy} onChange={(v) => void s.configureServer({ enabled: v })} />
+          <Toggle label={t.settings.lan} hint={t.settings.lanHint} checked={cfg.lan} disabled={s.busy || !cfg.enabled} onChange={(v) => void s.configureServer({ lan: v })} />
+          <Toggle label={t.settings.shells} hint={t.settings.shellsHint} checked={cfg.remoteTerminal} disabled={s.busy} onChange={(v) => void s.configureServer({ remoteTerminal: v })} />
           <label className="mt-1 flex items-center gap-2">
-            <TechLabel className="text-text-muted">Port</TechLabel>
+            <TechLabel className="text-text-muted">{t.settings.port}</TechLabel>
             <input
-              aria-label="Port"
+              aria-label={t.settings.port}
               type="number"
               min={1024}
               max={65535}
@@ -205,43 +200,40 @@ function RemoteCard() {
       )}
       {cfg && !editable && (
         <p className="mt-2 font-sans text-[11.5px] text-text-muted">
-          {s.server?.configurable ? 'Server settings can only be changed in the desktop app.' : 'This core is configured through its environment (WONE_PORT, WONE_LAN, WONE_REMOTE_TERMINAL).'}
-          {' '}Remote shells: {cfg.remoteTerminal ? 'allowed' : 'off'}.
+          {s.server?.configurable ? t.settings.desktopOnly : t.settings.envOnly} {t.settings.remoteShells(cfg.remoteTerminal)}
         </p>
       )}
 
       <div className="mt-3 border-t border-hud/40 pt-3">
         <div className="flex items-center justify-between">
-          <TechLabel className="text-text-muted">Paired devices</TechLabel>
+          <TechLabel className="text-text-muted">{t.settings.pairedDevices}</TechLabel>
           <button type="button" className={button} disabled={s.busy || !s.server?.running} onClick={() => void s.createPairing()}>
-            <QrCode size={13} /> Pair a device
+            <QrCode size={13} /> {t.settings.pairDevice}
           </button>
         </div>
         {s.pairing && (
           <div className="mt-3 flex flex-col items-center gap-2 rounded-md border border-cyan/40 bg-cyan/[0.04] p-3 sm:flex-row sm:items-start">
             {s.pairing.reachable && (
-              <div className="w-36 shrink-0 rounded bg-white p-1" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: s.pairing.qr }} />
+              <div className="w-36 shrink-0 rounded bg-white p-1" aria-label={t.settings.pairingQr} dangerouslySetInnerHTML={{ __html: s.pairing.qr }} />
             )}
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-mono text-[22px] tracking-[0.25em] text-text-primary">{s.pairing.code}</p>
               {s.pairing.reachable ? (
                 <>
-                  <p className="font-sans text-[12px] text-text-secondary">Scan with the phone camera, or open the address and enter the code. Valid 10 minutes, once.</p>
+                  <p className="font-sans text-[12px] text-text-secondary">{t.settings.pairingHint}</p>
                   <p className="break-all font-mono text-[11px] text-cyan">{s.pairing.url}</p>
                 </>
               ) : (
-                <p className="font-sans text-[12px] text-amber">
-                  Only this computer can connect right now. Turn on “Reachable on the local network” to pair a phone.
-                </p>
+                <p className="font-sans text-[12px] text-amber">{t.settings.pairingLocalOnly}</p>
               )}
             </div>
-            <button type="button" aria-label="Close pairing" onClick={s.closePairing} className="self-start text-text-muted hover:text-text-primary">
+            <button type="button" aria-label={t.settings.closePairing} onClick={s.closePairing} className="self-start text-text-muted hover:text-text-primary">
               <X size={14} />
             </button>
           </div>
         )}
         <ul className="mt-2 space-y-1">
-          {s.devices.length === 0 && <li className="font-mono text-[11px] text-text-muted">No devices paired</li>}
+          {s.devices.length === 0 && <li className="font-mono text-[11px] text-text-muted">{t.settings.noDevices}</li>}
           {s.devices.map((d) => {
             const Icon = /android|ios|phone/i.test(d.name) ? Smartphone : Laptop
             return (
@@ -250,14 +242,14 @@ function RemoteCard() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-sans text-[12.5px] text-text-primary">
                     {d.name}
-                    {d.id === myDevice && <span className="ml-1.5 font-mono text-[10px] text-cyan">this browser</span>}
+                    {d.id === myDevice && <span className="ml-1.5 font-mono text-[10px] text-cyan">{t.settings.thisBrowser}</span>}
                   </span>
                   <span className="block font-mono text-[10px] text-text-muted">
-                    paired {relativeTime(d.createdAt)}
-                    {d.lastSeenAt ? ` · seen ${relativeTime(d.lastSeenAt)}` : ''}
+                    {t.settings.paired(relativeTime(d.createdAt))}
+                    {d.lastSeenAt ? t.settings.seen(relativeTime(d.lastSeenAt)) : ''}
                   </span>
                 </span>
-                <button type="button" aria-label={`Revoke ${d.name}`} onClick={() => void s.revokeDevice(d.id)} className="text-text-muted hover:text-danger">
+                <button type="button" aria-label={t.settings.revoke(d.name)} onClick={() => void s.revokeDevice(d.id)} className="text-text-muted hover:text-danger">
                   <Trash2 size={12} />
                 </button>
               </li>
@@ -270,21 +262,22 @@ function RemoteCard() {
 }
 
 function PermissionsCard() {
+  const t = useT()
   const grants = useSettings((s) => s.grants)
   const revokeGrant = useSettings((s) => s.revokeGrant)
   return (
-    <Card icon={ShieldCheck} title="Agent permissions">
+    <Card icon={ShieldCheck} title={t.settings.permissionsCard}>
       <p className="font-sans text-[12px] text-text-secondary">
-        Reading is always allowed. Changes ask first; "Always allow" is remembered per agent and tool. Commands are asked every time.
+        {t.settings.permissionsIntro}
       </p>
       <ul className="mt-2 space-y-1">
-        {grants.length === 0 && <li className="font-mono text-[11px] text-text-muted">No standing permissions</li>}
+        {grants.length === 0 && <li className="font-mono text-[11px] text-text-muted">{t.settings.noGrants}</li>}
         {grants.map((g) => (
           <li key={`${g.agentId}:${g.toolName}`} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-text-primary">
               {g.agentId} → {g.toolName}
             </span>
-            <button type="button" aria-label={`Revoke ${g.agentId} ${g.toolName}`} onClick={() => void revokeGrant(g.agentId, g.toolName)} className="text-text-muted hover:text-danger">
+            <button type="button" aria-label={t.settings.revoke(`${g.agentId} ${g.toolName}`)} onClick={() => void revokeGrant(g.agentId, g.toolName)} className="text-text-muted hover:text-danger">
               <Trash2 size={12} />
             </button>
           </li>
@@ -295,6 +288,7 @@ function PermissionsCard() {
 }
 
 function VaultCard() {
+  const t = useT()
   const [vault, setVault] = useState<VaultStatus>()
   const [browsing, setBrowsing] = useState(false)
   const [error, setError] = useState<string>()
@@ -312,27 +306,27 @@ function VaultCard() {
     }
   }
   return (
-    <Card icon={Info} title="Memory vault">
+    <Card icon={Info} title={t.settings.vaultCard}>
       {vault ? (
         <>
           <p className="break-all font-mono text-[12px] text-text-primary">{vault.root}</p>
           <p className="mt-0.5 font-sans text-[12px] text-text-muted">
-            {vault.exists ? `${vault.noteCount} notes` : 'Not created yet'} · {vault.isDefault ? 'default location' : 'custom folder'}
+            {vault.exists ? t.settings.notes(vault.noteCount) : t.settings.notCreated} · {vault.isDefault ? t.settings.defaultLocation : t.settings.customFolder}
           </p>
         </>
       ) : (
-        <p className="font-mono text-[11px] text-text-muted">Loading…</p>
+        <p className="font-mono text-[11px] text-text-muted">{t.common.loading}</p>
       )}
       {error && <p className="mt-1 font-mono text-[11px] text-danger">{error}</p>}
       <div className="mt-3 flex gap-2">
         <button type="button" className={button} onClick={() => (isDesktop() ? void choose() : setBrowsing(true))}>
-          Choose folder…
+          {t.settings.chooseFolder}
         </button>
       </div>
       {browsing && (
         <FolderPicker
-          title="Choose a vault folder"
-          confirmLabel="Use as vault"
+          title={t.settings.chooseVault}
+          confirmLabel={t.settings.useAsVault}
           onClose={() => setBrowsing(false)}
           onPick={(path) => {
             setBrowsing(false)
@@ -345,18 +339,19 @@ function VaultCard() {
 }
 
 function AboutCard() {
+  const t = useT()
   const info = useSession((s) => s.info)
   const rows: [string, string][] = info
     ? [
-        ['Version', info.version],
-        ['Core', info.mode === 'desktop' ? 'Desktop app' : 'Server'],
-        ['Host', `${info.hostname} (${info.platform})`],
-        ['Database', info.db.connected ? `Postgres · schema v${info.db.schema}` : 'not connected — npm run db:up'],
-        ['Client', isDesktop() ? 'Desktop window' : 'Browser (paired)']
+        [t.settings.version, info.version],
+        [t.settings.core, info.mode === 'desktop' ? t.settings.desktopApp : t.settings.server],
+        [t.settings.host, `${info.hostname} (${info.platform})`],
+        [t.settings.database, info.db.connected ? t.settings.dbConnected(info.db.schema) : t.settings.dbMissing],
+        [t.settings.client, isDesktop() ? t.settings.desktopWindow : t.settings.pairedBrowser]
       ]
     : []
   return (
-    <Card icon={Info} title="About">
+    <Card icon={Info} title={t.settings.aboutCard}>
       <dl className="space-y-1">
         {rows.map(([k, v]) => (
           <div key={k} className="flex gap-3">
@@ -369,8 +364,9 @@ function AboutCard() {
   )
 }
 
-/** Settings: AI, remote access & devices, permissions, vault, about. */
+/** Settings: appearance, language, agents, AI, remote access & devices, permissions, vault, about. */
 export function SettingsView() {
+  const t = useT()
   const load = useSettings((s) => s.load)
   const error = useSettings((s) => s.error)
   const clearError = useSettings((s) => s.clearError)
@@ -379,14 +375,14 @@ export function SettingsView() {
     void load()
   }, [load])
   return (
-    <Panel title="Settings" corners flush className="min-h-0 flex-1" bodyClassName="min-h-0 overflow-y-auto">
+    <Panel title={t.settings.title} corners flush className="min-h-0 flex-1" bodyClassName="min-h-0 overflow-y-auto">
       {(error || aiError) && (
         <div className="flex items-start gap-2 border-b border-danger/30 bg-danger/[0.06] px-3 py-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{error ?? aiError}</span>
           <button
             type="button"
-            aria-label="Dismiss"
+            aria-label={t.common.dismiss}
             onClick={() => {
               clearError()
               useAssistant.getState().clearError()
@@ -398,6 +394,11 @@ export function SettingsView() {
         </div>
       )}
       <div className="grid gap-3 p-3 lg:grid-cols-2">
+        <AppearanceCard />
+        <Card icon={Languages} title={t.account.languageCard}>
+          <LanguageSwitch />
+          <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
+        </Card>
         <AgentsCard />
         <AiCard />
         <RemoteCard />

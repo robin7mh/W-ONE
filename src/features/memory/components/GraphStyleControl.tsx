@@ -1,9 +1,11 @@
 import { Palette, Circle } from 'lucide-react'
 import { GRAPH_COLORS, type GraphStyle } from '@shared/types/memory'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 
 /** Colorful (one hue per folder) vs. single color, plus the accent swatches. */
 export function GraphStyleControl({ style, onChange }: { style: GraphStyle; onChange: (s: GraphStyle) => void }) {
+  const t = useT()
   const seg = 'flex items-center gap-1.5 rounded px-2 py-1 font-sans text-[11px] font-medium transition-colors'
   return (
     <div className="flex items-center gap-2">
@@ -14,7 +16,7 @@ export function GraphStyleControl({ style, onChange }: { style: GraphStyle; onCh
           className={cn(seg, style.mode === 'colorful' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
         >
           <Palette size={12} />
-          Colorful
+          {t.memory.colorful}
         </button>
         <button
           type="button"
@@ -22,7 +24,7 @@ export function GraphStyleControl({ style, onChange }: { style: GraphStyle; onCh
           className={cn(seg, style.mode === 'single' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
         >
           <Circle size={11} />
-          Single
+          {t.memory.single}
         </button>
       </div>
 
@@ -33,7 +35,7 @@ export function GraphStyleControl({ style, onChange }: { style: GraphStyle; onCh
               key={c}
               type="button"
               title={c}
-              aria-label={`Graph color ${c}`}
+              aria-label={t.memory.graphColor(c)}
               onClick={() => onChange({ mode: 'single', color: c })}
               className={cn(
                 'h-4 w-4 rounded-full transition-transform hover:scale-110',

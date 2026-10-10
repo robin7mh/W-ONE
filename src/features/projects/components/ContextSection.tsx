@@ -4,6 +4,7 @@ import { ipc, isDesktop } from '@shared/ipc/client'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { relativeTime } from '@/features/agents/format'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useContextStore, useProjectContextEntry } from '@/features/context/store'
 
 const chip = 'rounded border border-hud/60 bg-elevated/40 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary'
@@ -14,6 +15,7 @@ const chip = 'rounded border border-hud/60 bg-elevated/40 px-1.5 py-0.5 font-mon
  * assistant's context engine and its project_context tool.
  */
 export function ContextSection({ projectId }: { projectId: string }) {
+  const t = useT()
   const entry = useProjectContextEntry(projectId)
   const { load, reindex } = useContextStore.getState()
   const [showAllTodos, setShowAllTodos] = useState(false)
@@ -31,8 +33,8 @@ export function ContextSection({ projectId }: { projectId: string }) {
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-2">
-        <TechLabel className="text-text-secondary">Context</TechLabel>
-        {c && <span className="font-mono text-[10px] text-text-muted">indexed {relativeTime(c.indexedAt)}</span>}
+        <TechLabel className="text-text-secondary">{t.projects.context}</TechLabel>
+        {c && <span className="font-mono text-[10px] text-text-muted">{t.projects.indexed(relativeTime(c.indexedAt))}</span>}
         <button
           type="button"
           onClick={() => void reindex(projectId)}
@@ -40,7 +42,7 @@ export function ContextSection({ projectId }: { projectId: string }) {
           className="ml-auto flex items-center gap-1.5 rounded border border-hud/60 px-2 py-0.5 font-sans text-[11px] text-text-secondary hover:border-cyan/50 hover:text-cyan disabled:opacity-50"
         >
           {entry.indexing ? <Loader2 size={11} className="animate-spin" /> : c ? <RefreshCw size={11} /> : <ScanSearch size={11} />}
-          {entry.indexing ? `Scanning${entry.progress ? ` · ${entry.progress.filesScanned} files` : '…'}` : c ? 'Reindex' : 'Analyze project'}
+          {entry.indexing ? t.projects.scanning(entry.progress?.filesScanned) : c ? t.projects.reindex : t.projects.analyze}
         </button>
       </div>
 
@@ -48,20 +50,20 @@ export function ContextSection({ projectId }: { projectId: string }) {
         <p className="font-mono text-[11px] text-danger">
           {entry.error}{' '}
           <button type="button" className="underline" onClick={() => void load(projectId)}>
-            retry
+            {t.projects.retry}
           </button>
         </p>
       )}
       {!c && !entry.indexing && !entry.error && (
         <p className="font-sans text-[12px] text-text-muted">
-          {entry.loading ? 'Loading…' : 'Not analyzed yet — the scan reads structure, config, dependencies and TODOs (nothing is executed).'}
+          {entry.loading ? t.common.loading : t.projects.notAnalyzed}
         </p>
       )}
 
       {c && (
         <div className="space-y-2 font-mono text-[12px] text-text-secondary">
           <p>
-            {c.fileCount} files · {c.dirCount} folders{c.truncated ? ' · scan truncated' : ''}
+            {t.projects.counts(c.fileCount, c.dirCount, !!c.truncated)}
           </p>
           {c.readme && (
             <p className="font-sans text-[12px]">
@@ -81,41 +83,41 @@ export function ContextSection({ projectId }: { projectId: string }) {
           )}
           {(runtime.length > 0 || dev.length > 0) && (
             <p className="font-sans text-[12px]">
-              <span className="text-text-muted">Dependencies </span>
-              {runtime.length} runtime · {dev.length} dev
+              <span className="text-text-muted">{t.projects.dependencies} </span>
+              {t.projects.depCounts(runtime.length, dev.length)}
               {runtime.length > 0 && <span className="text-text-muted"> — {runtime.slice(0, 8).map((d) => d.name).join(', ')}</span>}
             </p>
           )}
           {c.todos.length > 0 && (
             <div>
               <p className="mb-1 flex items-center gap-1.5 font-sans text-[12px] text-text-muted">
-                <ListTodo size={12} /> {c.todos.length} markers
+                <ListTodo size={12} /> {t.projects.markers(c.todos.length)}
               </p>
               <ul className="space-y-0.5">
-                {todos.map((t) => (
-                  <li key={`${t.file}:${t.line}`} className="flex gap-2">
-                    <span className={cn('shrink-0 text-[10px]', t.kind === 'FIXME' || t.kind === 'HACK' ? 'text-amber' : 'text-cyan')}>{t.kind}</span>
+                {todos.map((todo) => (
+                  <li key={`${todo.file}:${todo.line}`} className="flex gap-2">
+                    <span className={cn('shrink-0 text-[10px]', todo.kind === 'FIXME' || todo.kind === 'HACK' ? 'text-amber' : 'text-cyan')}>{todo.kind}</span>
                     {desktop ? (
                       <button
                         type="button"
-                        title="Open in the editor"
-                        onClick={() => void ipc('projects:openFile', { id: projectId, file: t.file, line: t.line }).catch(() => {})}
+                        title={t.projects.openInEditor}
+                        onClick={() => void ipc('projects:openFile', { id: projectId, file: todo.file, line: todo.line }).catch(() => {})}
                         className="shrink-0 text-text-muted hover:text-cyan"
                       >
-                        {t.file}:{t.line}
+                        {todo.file}:{todo.line}
                       </button>
                     ) : (
                       <span className="shrink-0 text-text-muted">
-                        {t.file}:{t.line}
+                        {todo.file}:{todo.line}
                       </span>
                     )}
-                    <span className="min-w-0 truncate">{t.text}</span>
+                    <span className="min-w-0 truncate">{todo.text}</span>
                   </li>
                 ))}
               </ul>
               {c.todos.length > 8 && (
                 <button type="button" onClick={() => setShowAllTodos(!showAllTodos)} className="mt-1 font-sans text-[11px] text-cyan hover:underline">
-                  {showAllTodos ? 'Show fewer' : `Show all ${c.todos.length}`}
+                  {showAllTodos ? t.projects.showFewer : t.projects.showAll(c.todos.length)}
                 </button>
               )}
             </div>

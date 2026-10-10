@@ -2,33 +2,31 @@ import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useTerminals, type TerminalTab } from '../store'
+import { getT, useT } from '@/lib/i18n'
 import { useXterm } from '../useXterm'
 
 interface PaneProps {
   tab: TerminalTab
   /** Tab label (numbered when titles repeat). */
   label: string
-  /** Has keyboard focus (single layout: the shown tab; split: the outlined pane). */
+  /** Has keyboard focus (outlined when framed). */
   active: boolean
-  /** Shown at all — background tabs stay mounted but invisible. */
-  visible: boolean
-  /** Position inside the pane area (percentages); split layouts only. */
-  box?: React.CSSProperties
-  /** Split layouts: frame + slim header with title, folder and close. */
+  /** Several shells on the page: frame + slim header with title, folder and close. */
   framed: boolean
 }
 
 /**
- * One terminal tab's view (see useXterm). Stays mounted while hidden or
- * re-positioned (layout changes only move its box), so nothing is lost when
- * switching tabs or layouts. An exited shell restarts on Enter.
+ * One terminal tab's view (see useXterm) — a cell of the terminal grid. Stays
+ * mounted when the layout changes (only the grid around it changes), so nothing
+ * is lost. An exited shell restarts on Enter.
  */
-export function XtermPane({ tab, label, active, visible, box, framed }: PaneProps) {
+export function XtermPane({ tab, label, active, framed }: PaneProps) {
+  const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
   const { termRef, fitRef } = useXterm(hostRef, tab.id, tab.exitCode !== undefined, {
     onExit: (exitCode) => {
       useTerminals.getState().markExited(tab.id, exitCode)
-      return `\r\n\x1b[90m[process exited with code ${exitCode} — press Enter to restart]\x1b[0m\r\n`
+      return `\r\n\x1b[90m[${getT().terminal.exited(exitCode)}]\x1b[0m\r\n`
     },
     onInputAfterExit: (data) => {
       if (data === '\r') void useTerminals.getState().restart(tab.id)
@@ -56,11 +54,7 @@ export function XtermPane({ tab, label, active, visible, box, framed }: PaneProp
   // Padding lives on the wrapper: FitAddon measures the host's parent box, so
   // padding on the host itself would count as usable width and clip the text.
   return (
-    <div
-      style={box}
-      className={cn('absolute', box ? 'p-1' : 'inset-0', !visible && 'invisible')}
-      onMouseDown={focus}
-    >
+    <div data-terminal={tab.id} className={cn('min-h-0 min-w-0', framed && 'p-1')} onMouseDown={focus}>
       <div
         className={cn(
           'flex h-full flex-col overflow-hidden',
@@ -79,7 +73,7 @@ export function XtermPane({ tab, label, active, visible, box, framed }: PaneProp
             </span>
             <button
               type="button"
-              aria-label={`Close ${label}`}
+              aria-label={t.terminal.close(label)}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => void useTerminals.getState().close(tab.id)}
               className="rounded p-0.5 text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"

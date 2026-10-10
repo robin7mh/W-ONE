@@ -1,18 +1,22 @@
 import { LogOut, Moon, SunMedium, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
+import { UpdateChip } from '@/features/update/components/UpdateChip'
 import { WindowControls } from './WindowControls'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { isMac, useFullScreen } from '@/lib/platform'
-import { useTheme } from '@/lib/theme'
+import { useAppearance } from '@/lib/theme'
 import { isDesktop } from '@shared/ipc/client'
 import { useSession } from '@/features/session/store'
+import { useT } from '@/lib/i18n'
 
 export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
-  const [theme, toggleTheme] = useTheme()
+  const t = useT()
+  const theme = useAppearance((s) => s.theme)
+  const toggleTheme = useAppearance((s) => s.toggleTheme)
   const fullScreen = useFullScreen()
   const desktop = isDesktop()
   const link = useSession((s) => s.link)
@@ -41,7 +45,7 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
           <div className="font-sans text-[13px] font-semibold tracking-wide text-text-primary">
             W-ONE
           </div>
-          <TechLabel className="text-text-muted">Command Center</TechLabel>
+          <TechLabel className="text-text-muted">{t.topbar.commandCenter}</TechLabel>
         </div>
         <span className="ml-1 hidden items-center gap-1.5 rounded border border-hud/60 bg-surface/60 px-1.5 py-0.5 md:flex">
           <StatusDot tone="ok" />
@@ -58,16 +62,17 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
 
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-2 lg:ml-0">
+        <UpdateChip />
         <div className="hidden items-center gap-2 xl:flex">
           <StatusIndicator
-            label="Mode"
-            value={desktop ? 'LOCAL' : `REMOTE · ${info?.hostname ?? 'core'}`}
+            label={t.topbar.mode}
+            value={desktop ? t.topbar.local : t.topbar.remote(info?.hostname ?? 'core')}
             tone="cyan"
           />
-          <StatusIndicator label="Uptime" value={formatUptime(uptime)} tone="ok" pulse={false} />
+          <StatusIndicator label={t.topbar.uptime} value={formatUptime(uptime)} tone="ok" pulse={false} />
         </div>
         <div className="hidden items-center gap-2 sm:flex">
-          <StatusIndicator label="Link" value={linkView.value} tone={linkView.tone} />
+          <StatusIndicator label={t.topbar.link} value={linkView.value} tone={linkView.tone} />
         </div>
 
         {/* quick status glyphs */}
@@ -78,8 +83,8 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
 
         <button
           type="button"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          aria-label={theme === 'dark' ? t.topbar.toLight : t.topbar.toDark}
+          title={theme === 'dark' ? t.topbar.light : t.topbar.dark}
           onClick={toggleTheme}
           className="no-drag flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/50 text-text-muted transition-colors hover:border-cyan/50 hover:text-cyan"
         >
@@ -89,8 +94,8 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
         {!desktop && (
           <button
             type="button"
-            aria-label="Disconnect this browser"
-            title="Disconnect this browser (unpair)"
+            aria-label={t.topbar.disconnect}
+            title={t.topbar.disconnectTitle}
             onClick={() => void logout()}
             className="no-drag flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/50 text-text-muted transition-colors hover:border-danger/50 hover:text-danger"
           >

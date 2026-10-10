@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeAtomic } from '../../lib/writeAtomic'
 import type { ChatMessage, ConversationSummary } from '@shared/types/ai'
 import type { LlmMessage } from './llm'
 
@@ -47,10 +48,7 @@ export class ConversationStore {
 
   async save(c: StoredConversation): Promise<void> {
     if (!SAFE_ID.test(c.id)) throw Object.assign(new Error('Invalid conversation id'), { code: 'bad-id' })
-    await mkdir(this.dir, { recursive: true })
-    const tmp = `${this.file(c.id)}.tmp`
-    await writeFile(tmp, JSON.stringify(c), 'utf8')
-    await rename(tmp, this.file(c.id))
+    await writeAtomic(this.file(c.id), JSON.stringify(c))
     const { messages: _m, transcript: _t, ...summary } = c
     ;(await this.loadIndex()).set(c.id, { ...summary, running: false })
   }

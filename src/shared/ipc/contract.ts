@@ -25,6 +25,7 @@ import type {
   AgentSessionDetail,
   CreateSessionRequest,
   FileChange,
+  SessionBranch,
   FileDiff
 } from '@shared/types/agents'
 import type {
@@ -33,7 +34,8 @@ import type {
   DirListing,
   PairingCode,
   ServerConfig,
-  ServerStatus
+  ServerStatus,
+  UpdateStatus
 } from '@shared/types/server'
 import type {
   AgentInfo,
@@ -51,6 +53,7 @@ import type {
   ToolInfo
 } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
+import type { CloudStatus } from '@shared/types/cloud'
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -64,8 +67,12 @@ export interface IpcChannels {
   'projects:add': { request: { path: string }; response: Project }
   'projects:remove': { request: { id: string }; response: void }
   'projects:refresh': { request: { id: string }; response: Project }
+  /** `git pull --ff-only` in the project, then fresh detection. */
+  'projects:pull': { request: { id: string }; response: Project }
   'projects:openInEditor': { request: { id: string }; response: void }
-  'projects:openTerminal': { request: { id: string }; response: void }
+  /** GitHub Desktop's name when it is installed on the desktop, else null. */
+  'projects:githubDesktop': { request: void; response: string | null }
+  'projects:openInGitHubDesktop': { request: { id: string }; response: void }
   'projects:openFile': { request: { id: string; file: string; line?: number }; response: void }
 
   'system:subscribe': { request: void; response: void }
@@ -152,12 +159,29 @@ export interface IpcChannels {
   'agents:resume': { request: { id: string }; response: AgentSession }
   'agents:remove': { request: { id: string }; response: void }
   'agents:changes': { request: { id: string }; response: FileChange[] }
+  'agents:branch': { request: { id: string }; response: SessionBranch | null }
   'agents:diff': { request: { id: string; path: string }; response: FileDiff }
   'agents:accept': { request: { id: string }; response: { files: number } }
   'agents:discard': { request: { id: string }; response: void }
   'agents:rename': { request: { id: string; title: string }; response: AgentSession }
   'agents:shell': { request: { id: string }; response: { terminalId: string } }
   'agents:openInEditor': { request: { id: string }; response: void }
+
+  'cloud:status': { request: void; response: CloudStatus }
+  'cloud:login': { request: { email: string; password: string }; response: CloudStatus }
+  'cloud:register': {
+    request: { email: string; password: string; name?: string; locale: 'de' | 'en' }
+    response: CloudStatus
+  }
+  'cloud:logout': { request: void; response: CloudStatus }
+  'cloud:refresh': { request: void; response: CloudStatus }
+  'cloud:resendVerification': { request: void; response: void }
+  'cloud:forgotPassword': { request: { email: string }; response: void }
+  'cloud:checkout': { request: void; response: { url: string } }
+
+  'update:status': { request: void; response: UpdateStatus }
+  'update:check': { request: void; response: UpdateStatus }
+  'update:install': { request: void; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -179,8 +203,10 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'projects:add': 'any',
   'projects:remove': 'any',
   'projects:refresh': 'any',
+  'projects:pull': 'terminal',
   'projects:openInEditor': 'desktop',
-  'projects:openTerminal': 'desktop',
+  'projects:githubDesktop': 'desktop',
+  'projects:openInGitHubDesktop': 'desktop',
   'projects:openFile': 'desktop',
   'system:subscribe': 'any',
   'system:unsubscribe': 'any',
@@ -254,12 +280,26 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:resume': 'terminal',
   'agents:remove': 'terminal',
   'agents:changes': 'any',
+  'agents:branch': 'any',
   'agents:diff': 'any',
   'agents:accept': 'terminal',
   'agents:discard': 'terminal',
   'agents:rename': 'terminal',
   'agents:shell': 'terminal',
-  'agents:openInEditor': 'desktop'
+  'agents:openInEditor': 'desktop',
+  // The W-ONE account: a headless core is signed in from its web UI, so every client may.
+  'cloud:status': 'any',
+  'cloud:login': 'any',
+  'cloud:register': 'any',
+  'cloud:logout': 'any',
+  'cloud:refresh': 'any',
+  'cloud:resendVerification': 'any',
+  'cloud:forgotPassword': 'any',
+  'cloud:checkout': 'any',
+  // The desktop app updates itself; nothing a remote client should trigger.
+  'update:status': 'desktop',
+  'update:check': 'desktop',
+  'update:install': 'desktop'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -280,6 +320,8 @@ export interface IpcEvents {
   'events:event': WoneEvent
   'agents:changed': { session?: AgentSession; removed?: string }
   'agents:message': AgentMessageUpdate
+  'cloud:status': CloudStatus
+  'update:status': UpdateStatus
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -298,7 +340,9 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'permission:resolved',
   'events:event',
   'agents:changed',
-  'agents:message'
+  'agents:message',
+  'cloud:status',
+  'update:status'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

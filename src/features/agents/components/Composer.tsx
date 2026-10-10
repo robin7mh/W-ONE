@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FolderGit2, Loader2, Send, Square } from 'lucide-react'
 import type { Project } from '@shared/types/project'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 
 /** Message input: Enter sends, Shift+Enter breaks the line; Stop while a run is active. */
 export function Composer({
@@ -26,6 +27,7 @@ export function Composer({
   onSend: (text: string) => Promise<boolean>
   onStop: () => void
 }) {
+  const t = useT()
   const [text, setText] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
 
@@ -53,7 +55,7 @@ export function Composer({
       <div className="flex items-end gap-2 rounded-lg border border-hud/70 bg-surface/70 px-2.5 py-2 focus-within:border-cyan/50">
         <textarea
           ref={area}
-          aria-label="Message"
+          aria-label={t.agents.message}
           rows={1}
           value={text}
           disabled={disabled}
@@ -66,8 +68,8 @@ export function Composer({
           <button
             type="button"
             onClick={onStop}
-            aria-label="Stop"
-            title="Stop the agent"
+            aria-label={t.agents.stop}
+            title={t.agents.stopAgent}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-amber/50 bg-amber/10 text-amber hover:bg-amber/20"
           >
             <Square size={13} fill="currentColor" />
@@ -76,7 +78,7 @@ export function Composer({
           <button
             type="button"
             onClick={() => void submit()}
-            aria-label="Send"
+            aria-label={t.agents.send}
             disabled={!text.trim() || sending || disabled}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-cyan/50 bg-cyan/[0.12] text-cyan hover:bg-cyan/20 disabled:opacity-40"
           >
@@ -89,7 +91,7 @@ export function Composer({
           <>
             <FolderGit2 size={12} className="text-text-muted" />
             <select
-              aria-label="Project context"
+              aria-label={t.agents.projectContext}
               value={projectId ?? ''}
               onChange={(e) => onProject(e.target.value || undefined)}
               className={cn(
@@ -97,7 +99,7 @@ export function Composer({
                 projectId && 'text-text-secondary'
               )}
             >
-              <option value="">No project</option>
+              <option value="">{t.agents.noProject}</option>
               {projects!.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -106,7 +108,7 @@ export function Composer({
             </select>
           </>
         )}
-        <span className="ml-auto hidden font-mono text-[10px] text-text-muted sm:inline">Enter to send · Shift+Enter new line</span>
+        <span className="ml-auto hidden font-mono text-[10px] text-text-muted sm:inline">{t.agents.enterHint}</span>
       </div>
     </div>
   )

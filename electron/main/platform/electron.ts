@@ -1,8 +1,8 @@
-import { dialog, safeStorage, shell } from 'electron'
+import { app, dialog, safeStorage, shell } from 'electron'
 import type { Cipher } from '../services/ai/SecretStore'
 import type { Platform } from './types'
 
-/** Desktop host: native dialogs, the OS file manager and the OS trash. */
+/** Desktop host: native dialogs, the OS file manager, its link handlers and the OS trash. */
 export const electronPlatform: Platform = {
   kind: 'desktop',
   async pickFolder(title) {
@@ -14,6 +14,10 @@ export const electronPlatform: Platform = {
     const err = await shell.openPath(path)
     if (err) throw Object.assign(new Error(err), { code: 'open-failed' })
   },
+  async openExternal(url) {
+    await shell.openExternal(url)
+  },
+  appForUrl: (url) => app.getApplicationNameForProtocol(url),
   async trashItem(path) {
     await shell.trashItem(path)
   }

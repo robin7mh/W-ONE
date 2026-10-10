@@ -145,8 +145,10 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['projects:add', { path: '/x' }, 'add', ['/x']],
         ['projects:remove', { id: 'i' }, 'remove', ['i']],
         ['projects:refresh', { id: 'i' }, 'refresh', ['i']],
+        ['projects:pull', { id: 'i' }, 'pull', ['i']],
         ['projects:openInEditor', { id: 'i' }, 'openInEditor', ['i']],
-        ['projects:openTerminal', { id: 'i' }, 'openTerminal', ['i']],
+        ['projects:githubDesktop', undefined, 'githubDesktop', []],
+        ['projects:openInGitHubDesktop', { id: 'i' }, 'openInGitHubDesktop', ['i']],
         ['projects:openFile', { id: 'i', file: 'f', line: 3 }, 'openFile', ['i', 'f', 3]]
       ]
     ],
@@ -227,6 +229,7 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['agents:resume', { id: 'i' }, 'resume', ['i']],
         ['agents:remove', { id: 'i' }, 'remove', ['i']],
         ['agents:changes', { id: 'i' }, 'changes', ['i']],
+        ['agents:branch', { id: 'i' }, 'branch', ['i']],
         ['agents:diff', { id: 'i', path: 'a.ts' }, 'diff', ['i', 'a.ts']],
         ['agents:accept', { id: 'i' }, 'accept', ['i']],
         ['agents:discard', { id: 'i' }, 'discard', ['i']]
@@ -310,6 +313,7 @@ describe('paths', () => {
         defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
         devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
         secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
+        cloudFile: join(homedir(), 'W-ONE', 'data', 'cloud.json'),
         grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
         agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
         worktreesDir: join(homedir(), 'W-ONE', 'worktrees')

@@ -296,6 +296,8 @@ describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
     expect(ok.agents).toHaveLength(2)
     await ok.settled(s2.id, 'idle')
     expect(await ok.svc.resume(s2.id)).toMatchObject({ live: true }) // already running
+    ok.agents[0].proc.kill() // the old process reports its end late: the resumed agent keeps running
+    expect(ok.svc.get(s2.id)).toMatchObject({ live: true, status: 'idle' })
   })
 
   it('stopping in the middle: a late handshake or a late answer changes nothing', async () => {

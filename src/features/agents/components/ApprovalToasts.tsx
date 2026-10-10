@@ -1,3 +1,4 @@
+import { useT } from '@/lib/i18n'
 import { useAssistant } from '../store'
 import { ApprovalCard } from './ApprovalCard'
 
@@ -6,6 +7,7 @@ import { ApprovalCard } from './ApprovalCard'
  * unseen — on the desktop, in a browser and on a phone alike.
  */
 export function ApprovalToasts({ hideConversation }: { hideConversation?: string }) {
+  const t = useT()
   const pending = useAssistant((s) => s.pending)
   const respond = useAssistant((s) => s.respond)
   const visible = pending.filter((p) => p.conversationId !== hideConversation)
@@ -19,7 +21,7 @@ export function ApprovalToasts({ hideConversation }: { hideConversation?: string
       ))}
       {visible.length > 3 && (
         <p className="pointer-events-auto self-end rounded bg-surface/90 px-2 py-0.5 font-mono text-[10px] text-text-muted">
-          +{visible.length - 3} more waiting
+          {t.agents.moreWaiting(visible.length - 3)}
         </p>
       )}
     </div>

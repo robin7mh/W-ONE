@@ -137,17 +137,19 @@ describe('TerminalView', () => {
     await act(settle)
     expect(screen.queryByText('Open terminal')).toBeNull()
 
+    // Two shells in single layout: both on the page (framed), one per screen.
     act(() => useTerminals.setState({ tabs: [a, { ...b, exitCode: 1 }], activeId: a.id }))
-    expect(screen.getByLabelText('Close ~ 2').className).toContain('opacity-0')
-    fireEvent.click(screen.getByText('~ 2'))
+    expect(screen.getAllByLabelText('Close ~ 2')[0].className).toContain('opacity-0') // tab strip first
+    expect(document.querySelectorAll('[data-terminal]')).toHaveLength(2)
+    fireEvent.click(screen.getAllByText('~ 2')[0])
     expect(useTerminals.getState().activeId).toBe(b.id)
-    fireEvent.click(screen.getByLabelText('Close ~'))
+    fireEvent.click(screen.getAllByLabelText('Close ~')[0])
     await act(settle)
     expect(bridge.invoke).toHaveBeenCalledWith('terminal:kill', { id: a.id })
     expect(useTerminals.getState().tabs.map((t) => t.id)).toEqual([b.id])
   })
 
-  it('split layouts style visible vs. hidden tabs; panes and the + menu open shells', async () => {
+  it('every layout shows all shells, fills the last row with new-terminal panes and scrolls the active one into sight', async () => {
     const tabs = [info(), info(), info()]
     const bridge = installBridge({
       'terminal:list': () => tabs,
@@ -157,12 +159,20 @@ describe('TerminalView', () => {
     })
     render(<TerminalView />)
     await act(settle)
+    const panes = () => document.querySelectorAll('[data-terminal]').length
+    const scrolled = vi.mocked(Element.prototype.scrollIntoView)
+    expect(panes()).toBe(3) // single: one per screen, the rest below
+
     fireEvent.click(screen.getByLabelText('Layout: Side by side'))
     const strip = (label: string) => screen.getByText(label, { selector: 'span.font-mono.text-\\[11\\.5px\\]' }).closest('div')!
-    expect(strip('~ 2').className).toContain('border-hud/50') // visible pane
-    expect(strip('~ 3').className).toContain('border-transparent') // beyond the panes
+    expect(strip('~ 3').className).toContain('border-hud/50')
+    expect([panes(), screen.getAllByText('New terminal').length]).toEqual([3, 1]) // 2 + 1, second row completed
+    scrolled.mockClear()
+    fireEvent.click(strip('~ 3').querySelector('button')!)
+    expect(scrolled.mock.contexts[0]).toBe(document.querySelector(`[data-terminal="${tabs[2].id}"]`))
 
     fireEvent.click(screen.getByLabelText('Layout: Stacked'))
+    expect(screen.queryByText('New terminal')).toBeNull() // 3 rows, nothing to complete
     fireEvent.click(screen.getByLabelText('Layout: 2 × 2'))
     // empty pane → menu with Home and projects
     fireEvent.click(screen.getAllByText('New terminal')[0])
@@ -209,7 +219,7 @@ describe('XtermPane', () => {
     const tab = info()
     let resolveAttach: (v: unknown) => void = () => {}
     const bridge = installBridge({ 'terminal:attach': () => new Promise((r) => (resolveAttach = r)), 'terminal:write': () => undefined })
-    render(<XtermPane tab={tab} label="~" active={false} visible framed={false} />)
+    render(<XtermPane tab={tab} label="~" active={false} framed={false} />)
     const term = x.terms[0]
     act(() => bridge.emit('terminal:data', { id: tab.id, data: 'abc', end: 3 })) // queued, covered by buffer
     act(() => bridge.emit('terminal:data', { id: tab.id, data: 'cdef', end: 6 })) // queued, overlaps
@@ -239,7 +249,7 @@ describe('XtermPane', () => {
       'terminal:resize': () => fail('closed'),
       'terminal:create': () => fresh
     })
-    render(<XtermPane tab={tab} label="~" active visible framed={false} />)
+    render(<XtermPane tab={tab} label="~" active framed={false} />)
     const term = x.terms[0]
     act(() => bridge.emit('terminal:data', { id: tab.id, data: 'hi', end: 2 }))
     await act(settle)
@@ -266,11 +276,11 @@ describe('XtermPane', () => {
     installBridge({ 'terminal:attach': pending })
     const tab = info()
     useTerminals.setState({ tabs: [tab, info()], activeId: 'nope' })
-    const { rerender, unmount, container } = render(<XtermPane tab={tab} label="~" active={false} visible={false} framed={false} />)
+    const { rerender, unmount, container } = render(<XtermPane tab={tab} label="~" active={false} framed={false} />)
     const term = x.terms[0]
     const fit = x.fits[0].fit
     expect(fit).toHaveBeenCalledTimes(1)
-    expect(container.firstElementChild!.className).toContain('invisible')
+    expect(container.firstElementChild).toHaveAttribute('data-terminal', tab.id)
 
     x.fitThrows = true
     act(() => (globalThis as unknown as { FakeResizeObserver: { instances: { trigger(): void }[] } }).FakeResizeObserver.instances[0].trigger())
@@ -285,20 +295,20 @@ describe('XtermPane', () => {
     expect(useTerminals.getState().activeId).toBe(tab.id)
     expect(term.focus).toHaveBeenCalled()
 
-    rerender(<XtermPane tab={tab} label="~" active visible framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active framed={false} />)
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
     expect(fit.mock.calls.length).toBeGreaterThan(1)
     fireEvent.mouseDown(container.firstElementChild!) // already active → just focus
 
     x.fitThrows = true
-    rerender(<XtermPane tab={tab} label="~" active={false} visible framed={false} />)
-    rerender(<XtermPane tab={tab} label="~" active visible framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active={false} framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active framed={false} />)
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
 
     // deactivating before the frame cancels it
-    rerender(<XtermPane tab={tab} label="~" active={false} visible framed={false} />)
-    rerender(<XtermPane tab={tab} label="~" active visible framed={false} />)
-    rerender(<XtermPane tab={tab} label="~" active={false} visible framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active={false} framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active framed={false} />)
+    rerender(<XtermPane tab={tab} label="~" active={false} framed={false} />)
 
     unmount()
     expect(term.disposed).toBe(true)
@@ -308,7 +318,7 @@ describe('XtermPane', () => {
   it('unmeasurable hosts are not fitted', () => {
     const restore = sized(800, 0)
     installBridge({ 'terminal:attach': pending })
-    render(<XtermPane tab={info()} label="~" active={false} visible framed={false} />)
+    render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
     expect(x.fits[0].fit).not.toHaveBeenCalled()
     restore()
   })
@@ -318,19 +328,19 @@ describe('XtermPane', () => {
     const bridge = installBridge({ 'terminal:attach': pending, 'terminal:kill': () => undefined })
     useTerminals.setState({ tabs: [tab], activeId: tab.id })
     const { rerender, container } = render(
-      <XtermPane tab={tab} label="demo" active visible framed box={{ left: '0%', top: '0%', width: '50%', height: '100%' }} />
+      <XtermPane tab={tab} label="demo" active framed />
     )
     expect(container.querySelector('.border-cyan\\/50')).not.toBeNull()
     expect(container.querySelector('.bg-green')).not.toBeNull()
     expect(screen.getByText('~/demo')).toBeInTheDocument()
     expect(container.firstElementChild!.className).toContain('p-1')
 
-    rerender(<XtermPane tab={{ ...tab, exitCode: 0, cwdLabel: 'demo' }} label="demo" active={false} visible framed />)
+    rerender(<XtermPane tab={{ ...tab, exitCode: 0, cwdLabel: 'demo' }} label="demo" active={false} framed />)
     expect(container.querySelector('.border-hud\\/50')).not.toBeNull()
     expect(container.querySelector('.bg-text-muted')).not.toBeNull()
     expect(screen.queryByText('~/demo')).toBeNull()
 
-    rerender(<XtermPane tab={tab} label="demo" active visible framed />)
+    rerender(<XtermPane tab={tab} label="demo" active framed />)
     fireEvent.mouseDown(screen.getByLabelText('Close demo'))
     fireEvent.click(screen.getByLabelText('Close demo'))
     await act(settle)

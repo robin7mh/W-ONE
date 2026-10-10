@@ -44,6 +44,9 @@ import { AgentSessionService } from '../services/agents/AgentSessionService'
 import { createMcpHandler } from '../services/agents/mcp'
 import { vaultJournal } from '../services/agents/journal'
 import { spawnAcp } from '../services/agents/acp'
+import { CloudService } from '../services/cloud/CloudService'
+import { cloudConfig, type CloudConfig } from '../services/cloud/config'
+import { isLicenseFree } from '@shared/types/cloud'
 
 export interface CoreOptions {
   mode: CoreMode
@@ -60,6 +63,10 @@ export interface CoreOptions {
   providerFactory?: ProviderFactory
   /** Tell the user an agent needs them (desktop: a notification while the window is in the background). */
   notify?: (title: string, body: string) => void
+  /** W-ONE Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
+  cloud?: CloudConfig & { fetch?: typeof fetch }
+  /** Someone is at this machine (desktop: not idle). Remote clients count as use, too. */
+  isUserActive?: () => boolean
 }
 
 export interface Core {
@@ -74,6 +81,7 @@ export interface Core {
   auth: AuthService
   assistant: AssistantService
   agents: AgentSessionService
+  cloud: CloudService
   /** Settles once the background database connection attempt is over. */
   dbReady: Promise<void>
   info(): AppInfo
@@ -133,9 +141,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const files = new FilesService((id) => projects.getProjectPath(id))
   const auth = new AuthService(paths.devicesFile)
 
-  // The router asks the server controller whether remote shells are allowed
-  // (only ever called per request, after both exist).
-  const router = new Router({ remoteTerminal: () => controller.remoteTerminal() })
+  // The router asks the server controller whether remote shells are allowed,
+  // and the cloud whether W-ONE is licensed (only ever called per request,
+  // after all of them exist).
+  const router = new Router({
+    remoteTerminal: () => controller.remoteTerminal(),
+    licensed: (channel) => isLicenseFree(channel) || cloud.allowed()
+  })
 
   const controller: ServerController = new ServerController({
     mode: opts.mode,
@@ -146,7 +158,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     settings: opts.serverConfig ? undefined : settings,
     fixedConfig: opts.serverConfig,
     webRoot: opts.webRoot,
-    onClients: (count) => system.setRemoteClients(count)
+    onClients: (count) => {
+      system.setRemoteClients(count)
+      cloud.setRemoteClients(count)
+    }
   })
 
   const info = (): AppInfo => ({
@@ -159,7 +174,27 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
 
   // The assistant: provider, context engine, tools behind the permission gate.
-  const ai = new AiService({ settings, secrets: new SecretStore(paths.secretsFile, opts.cipher), factory: opts.providerFactory })
+  // One store for every secret (LLM key, cloud session) — one writer per file.
+  const secrets = new SecretStore(paths.secretsFile, opts.cipher)
+  const ai = new AiService({ settings, secrets, factory: opts.providerFactory })
+
+  // The W-ONE account: sign-in, the trial clock and the license (W-ONE Cloud).
+  const cloudCfg: CloudConfig & { fetch?: typeof fetch } = opts.cloud ?? cloudConfig(false)
+  const cloud: CloudService = new CloudService({
+    baseUrl: cloudCfg.url,
+    publicKey: cloudCfg.publicKey,
+    enforced: cloudCfg.enforced,
+    client: opts.mode,
+    version: opts.version,
+    deviceName: hostname(),
+    platform: process.platform,
+    file: paths.cloudFile,
+    secrets,
+    isUserActive: opts.isUserActive,
+    onStatus: (status) => hub.publish('cloud:status', status),
+    fetch: cloudCfg.fetch
+  })
+  await cloud.init()
   const permissions = new PermissionService({
     file: paths.grantsFile,
     events,
@@ -242,6 +277,14 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('permission:grants', () => permissions.grants())
   router.register('permission:revoke', ({ agentId, toolName }) => permissions.revoke(agentId, toolName))
   router.register('events:recent', (q) => eventLog.recent(q))
+  router.register('cloud:status', () => cloud.status())
+  router.register('cloud:login', (req) => cloud.login(req))
+  router.register('cloud:register', (req) => cloud.register(req))
+  router.register('cloud:logout', () => cloud.logout())
+  router.register('cloud:refresh', () => cloud.refresh())
+  router.register('cloud:resendVerification', () => cloud.resendVerification())
+  router.register('cloud:forgotPassword', (req) => cloud.forgotPassword(req))
+  router.register('cloud:checkout', () => cloud.checkout())
 
   // Postgres runs in Docker (docker-compose.yml). Connected in the background:
   // a stopped container never delays startup — W-ONE stays usable without it.
@@ -279,9 +322,11 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     auth,
     assistant,
     agents,
+    cloud,
     dbReady: connecting,
     info,
     async dispose() {
+      cloud.dispose()
       await assistant.dispose()
       await agents.dispose()
       await local.close()

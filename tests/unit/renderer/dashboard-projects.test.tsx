@@ -9,7 +9,9 @@ import { Dashboard } from '@/features/dashboard/components/Dashboard'
 import { ProjectsView } from '@/features/projects/components/ProjectsView'
 import { ProjectDetailPanel } from '@/features/projects/components/ProjectDetailPanel'
 import { useProjects } from '@/features/projects/store'
-import { t } from '@/features/dashboard/i18n'
+import { useTerminals } from '@/features/terminal/store'
+import { en } from '@/lib/i18n/en'
+const t = en.dashboard
 
 const initialProjects = useProjects.getState()
 beforeEach(() => useProjects.setState(initialProjects, true))
@@ -209,7 +211,7 @@ describe('ProjectsView', () => {
   it('loading, empty, error and the selected detail', async () => {
     let resolve: (v: Project[]) => void = () => {}
     installBridge({ 'projects:list': () => new Promise((r) => (resolve = r)) })
-    render(<ProjectsView />)
+    render(<ProjectsView onNavigate={vi.fn()} />)
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     await act(async () => resolve([]))
     expect(screen.getByText('No projects yet')).toBeInTheDocument()
@@ -225,8 +227,8 @@ describe('ProjectsView', () => {
       proj('b', { git: { isRepo: true } }),
       proj('c')
     ]
-    const bridge = installBridge({ 'projects:list': () => list, 'projects:pickFolder': () => null })
-    render(<ProjectsView />)
+    const bridge = installBridge({ 'projects:list': () => list, 'projects:pickFolder': () => null, 'projects:refresh': () => new Promise(() => {}) })
+    render(<ProjectsView onNavigate={vi.fn()} />)
     await act(settle)
     expect(screen.getByText('3 registered')).toBeInTheDocument()
     expect(screen.getByText('•dirty')).toBeInTheDocument()
@@ -247,13 +249,19 @@ describe('ProjectsView', () => {
 
 describe('ProjectDetailPanel', () => {
   it('a full repo: upstream, last commit, stack, scripts; actions call the store', async () => {
+    const shell = { id: 's1', title: 'a', cwd: '/a', cwdLabel: '~/a', shell: 'zsh', createdAt: '' }
     const bridge = installBridge({
       'projects:refresh': () => new Promise(() => {}),
       'projects:openInEditor': () => undefined,
-      'projects:openTerminal': () => undefined
+      'projects:openInGitHubDesktop': () => undefined,
+      'projects:pull': () => undefined,
+      'terminal:list': () => [],
+      'terminal:create': () => shell
     })
+    useTerminals.setState({ tabs: [], activeId: undefined, initialized: false })
+    const onNavigate = vi.fn()
     const p = proj('a', {
-      git: { isRepo: true, branch: 'main', ahead: 2, dirty: false, lastCommit: { hash: 'abcdef123', subject: 'feat: x', author: 'Ro', date: '' } },
+      git: { isRepo: true, branch: 'main', ahead: 2, dirty: false, lastCommit: { hash: 'abcdef123', subject: 'feat: x', author: 'Ro', date: '' }, webUrl: 'https://github.com/o/r' },
       stack: {
         languages: ['TypeScript', 'CSS'],
         frameworks: ['React'],
@@ -262,8 +270,9 @@ describe('ProjectDetailPanel', () => {
         packageJson: { scripts: ['dev', 'build', 'a', 'b', 'c', 'd', 'e', 'f', 'g'] }
       }
     })
-    useProjects.setState({ projects: [p] })
-    render(<ProjectDetailPanel project={p} />)
+    useProjects.setState({ projects: [p], githubDesktop: 'GitHub Desktop' })
+    render(<ProjectDetailPanel project={p} onNavigate={onNavigate} />)
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:refresh', { id: 'a' }) // re-detected when shown
     expect(screen.getByText('clean')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.getByText('0')).toBeInTheDocument() // behind ?? 0
@@ -275,31 +284,112 @@ describe('ProjectDetailPanel', () => {
     expect(screen.queryByText('g')).toBeNull() // max 8 scripts
 
     fireEvent.click(screen.getByText('VS Code'))
-    fireEvent.click(screen.getByText('Terminal'))
     expect(bridge.invoke).toHaveBeenCalledWith('projects:openInEditor', { id: 'a' })
-    expect(bridge.invoke).toHaveBeenCalledWith('projects:openTerminal', { id: 'a' })
-    fireEvent.click(screen.getByText('Refresh'))
+
+    // Terminal, no shell in this project yet: opens one in W-ONE's own terminal — no extra Home shell.
+    fireEvent.click(screen.getByText('Terminal'))
+    await act(settle)
+    expect(onNavigate).toHaveBeenCalledWith('terminal')
+    expect(bridge.invoke.mock.calls.filter(([c]) => c === 'terminal:create')).toEqual([['terminal:create', { projectId: 'a' }]])
+    expect(useTerminals.getState().activeId).toBe('s1')
+
+    // The repo on GitHub (browser) and in GitHub Desktop.
+    expect(screen.getByText('GitHub').closest('a')).toHaveAttribute('href', 'https://github.com/o/r')
+    fireEvent.click(screen.getByText('GitHub Desktop'))
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:openInGitHubDesktop', { id: 'a' })
+
     expect(screen.getByText('Refreshing…').closest('button')).toBeDisabled()
+    expect(screen.getByText('Pull').closest('button')).toBeDisabled() // with an upstream; busy while re-detecting
     expect(screen.getByText('Remove').closest('button')).toBeDisabled()
   })
 
+  it("the terminal menu lists this project's shells — free or busy — and opens a new one on request", async () => {
+    const a1 = { id: 'x1', title: 'a', cwd: '/a', cwdLabel: '~/a', shell: 'zsh', projectId: 'a', createdAt: '1' }
+    const a2 = { ...a1, id: 'x2', createdAt: '2' }
+    const other = { ...a1, id: 'y', projectId: 'b', title: 'b', createdAt: '3' }
+    let failList = false
+    const bridge = installBridge({
+      'projects:refresh': () => new Promise(() => {}),
+      'terminal:list': () => (failList ? fail('x') : [a1, { ...a2, running: 'node' }, other]),
+      'terminal:create': () => ({ ...a1, id: 'x4', createdAt: '5' })
+    })
+    useTerminals.setState({ tabs: [a1, a2, other, { ...a1, id: 'x3', createdAt: '4', exitCode: 0 }], activeId: 'y', initialized: true })
+    const onNavigate = vi.fn()
+    render(<ProjectDetailPanel project={proj('a')} onNavigate={onNavigate} />)
+    const button = screen.getByText('Terminal').closest('button')!
+    const menuItems = () => [...document.querySelectorAll('.z-30 button')].map((b) => b.textContent)
+
+    fireEvent.click(button)
+    await act(settle)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Shells in this project')).toBeInTheDocument()
+    expect(menuItems()).toEqual(['afree', 'a 2node', 'New terminal']) // not other projects', not ended ones
+    fireEvent.click(screen.getByText('a 2'))
+    expect([useTerminals.getState().activeId, button.getAttribute('aria-expanded')]).toEqual(['x2', 'false'])
+    expect(onNavigate).toHaveBeenCalledWith('terminal')
+
+    // closes on Escape, an outside click and a second click
+    fireEvent.click(button)
+    await act(settle)
+    fireEvent.keyDown(document, { key: 'a' })
+    fireEvent.mouseDown(screen.getByText('free')) // inside
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(button)
+    await act(settle)
+    fireEvent.mouseDown(document.body)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(button)
+    await act(settle)
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+
+    // without the live list the shells still show; "New terminal" opens one more
+    failList = true
+    fireEvent.click(button)
+    await act(settle)
+    expect(screen.getAllByText('free')).toHaveLength(2)
+    fireEvent.click(screen.getByText('New terminal'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('terminal:create', { projectId: 'a' })
+    expect(useTerminals.getState().activeId).toBe('x4')
+  })
+
   it('dirty repo without upstream, no repo and no stack; remove', async () => {
-    const bridge = installBridge({ 'projects:remove': () => undefined })
-    const { rerender } = render(<ProjectDetailPanel project={proj('d', { git: { isRepo: true, behind: 1, dirty: true } })} />)
+    const bridge = installBridge({
+      'projects:remove': () => undefined,
+      'projects:refresh': ({ id }: { id: string }) => proj(id),
+      'projects:pull': ({ id }: { id: string }) => proj(id)
+    })
+    useProjects.setState({ githubDesktop: 'GitHub Desktop' })
+    const { rerender } = render(<ProjectDetailPanel project={proj('d', { git: { isRepo: true, behind: 1, dirty: true } })} onNavigate={vi.fn()} />)
     expect(screen.getByText('dirty')).toBeInTheDocument()
     expect(screen.getByText('detached')).toBeInTheDocument()
     expect(screen.getByText('1')).toBeInTheDocument()
+    await act(settle)
+    fireEvent.click(screen.getByText('Pull'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:pull', { id: 'd' })
 
-    rerender(<ProjectDetailPanel project={proj('n', { stack: { languages: [], frameworks: [], hasReadme: false, packageJson: { scripts: [] } } })} />)
+    expect(screen.queryByText('GitHub')).toBeNull() // no origin → no repo link
+    rerender(<ProjectDetailPanel project={proj('n', { stack: { languages: [], frameworks: [], hasReadme: false, packageJson: { scripts: [] } } })} onNavigate={vi.fn()} />)
     expect(screen.getByText('no repo')).toBeInTheDocument()
+    expect(screen.queryByText('GitHub Desktop')).toBeNull() // not a repo
+    expect(screen.queryByText('Pull')).toBeNull() // no upstream
     expect(screen.queryByText('Branch')).toBeNull()
     expect(screen.getByText('—')).toBeInTheDocument()
     expect(screen.getByText('none')).toBeInTheDocument()
     expect(screen.queryByText('Frameworks')).toBeNull()
     expect(screen.queryByText('Scripts')).toBeNull()
 
-    rerender(<ProjectDetailPanel project={proj('m')} />)
+    rerender(<ProjectDetailPanel project={proj('m')} onNavigate={vi.fn()} />)
     expect(screen.getByText('none')).toBeInTheDocument()
+    await act(settle)
+    bridge.invoke.mockClear()
+    fireEvent.click(screen.getByText('Refresh'))
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:refresh', { id: 'm' })
+    await act(settle)
     fireEvent.click(screen.getByText('Remove'))
     await act(settle)
     expect(bridge.invoke).toHaveBeenCalledWith('projects:remove', { id: 'm' })
@@ -307,29 +397,20 @@ describe('ProjectDetailPanel', () => {
 })
 
 describe('dashboard i18n', () => {
-  const load = async (language: string) => {
-    vi.spyOn(navigator, 'language', 'get').mockReturnValue(language)
-    vi.resetModules()
-    return import('@/features/dashboard/i18n')
-  }
-
-  it('speaks German for de-* systems', async () => {
-    const de = await load('de-DE')
-    expect(de.isGerman).toBe(true)
-    expect(de.dashLocale).toBe('de-DE')
-    const at = (h: number) => de.greeting(new Date(2026, 0, 1, h))
+  it('greets by time of day and writes long dates in the UI language', async () => {
+    const { greeting, longDate } = await import('@/features/dashboard/i18n')
+    const { de } = await import('@/lib/i18n/de')
+    const at = (h: number) => greeting(new Date(2026, 0, 1, h), de)
     expect([at(5), at(11), at(18), at(23), at(4)]).toEqual(['Guten Morgen', 'Guten Tag', 'Guten Abend', 'Gute Nacht', 'Gute Nacht'])
-    expect(de.longDate(new Date(2026, 9, 1))).toBe('Donnerstag, 1. Oktober 2026')
+    expect(greeting(new Date(2026, 0, 1, 12), en)).toBe('Good afternoon')
+    expect(longDate(new Date(2026, 9, 1), 'de-DE')).toBe('Donnerstag, 1. Oktober 2026')
+    expect(longDate(new Date(2026, 9, 1))).toBe('Thursday, October 1, 2026')
   })
 
-  it('falls back to English with the system locale; ISO weeks', async () => {
-    const en = await load('en-US')
-    expect(en.isGerman).toBe(false)
-    expect(en.dashLocale).toBe('en-US')
-    expect(en.t.week).toBe('Week')
-    expect(en.greeting(new Date(2026, 0, 1, 12))).toBe('Good afternoon')
-    expect(en.isoWeek(new Date(2026, 0, 1))).toBe(1) // Thursday
-    expect(en.isoWeek(new Date(2027, 0, 3))).toBe(53) // Sunday → week of 2026
-    expect(en.isoWeek(new Date(2026, 9, 1))).toBe(40)
+  it('counts ISO weeks', async () => {
+    const { isoWeek } = await import('@/features/dashboard/i18n')
+    expect(isoWeek(new Date(2026, 0, 1))).toBe(1) // Thursday
+    expect(isoWeek(new Date(2027, 0, 3))).toBe(53) // Sunday → week of 2026
+    expect(isoWeek(new Date(2026, 9, 1))).toBe(40)
   })
 })

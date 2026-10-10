@@ -3,6 +3,7 @@ import { KeyRound, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { GlowBackground } from '@/components/shell/GlowBackground'
+import { useT } from '@/lib/i18n'
 import { defaultDeviceName, useSession } from '../store'
 
 /** XXXX-XXXX as the user types (letters/digits only, uppercase). */
@@ -12,6 +13,7 @@ export function formatCode(input: string): string {
 }
 
 function Frame({ children }: { children: ReactNode }) {
+  const t = useT()
   return (
     <div className="relative flex h-screen w-screen items-center justify-center overflow-hidden p-4">
       <GlowBackground />
@@ -22,7 +24,7 @@ function Frame({ children }: { children: ReactNode }) {
           </div>
           <div className="leading-none">
             <div className="font-sans text-[15px] font-semibold tracking-wide text-text-primary">W-ONE</div>
-            <TechLabel className="text-text-muted">Command Center · Web</TechLabel>
+            <TechLabel className="text-text-muted">{t.pair.web}</TechLabel>
           </div>
         </div>
         {children}
@@ -33,30 +35,32 @@ function Frame({ children }: { children: ReactNode }) {
 
 /** Shown while checking the stored token. */
 export function ConnectingScreen() {
+  const t = useT()
   return (
     <Frame>
       <div className="flex items-center justify-center gap-2 font-mono text-[12px] text-text-muted">
-        <Loader2 size={14} className="animate-spin text-cyan" /> Connecting to the W-ONE core…
+        <Loader2 size={14} className="animate-spin text-cyan" /> {t.pair.connecting}
       </div>
     </Frame>
   )
 }
 
 export function UnreachableScreen() {
+  const t = useT()
   const { error, init } = useSession()
   return (
     <Frame>
-      <Panel title="Core unreachable" corners>
+      <Panel title={t.pair.unreachable} corners>
         <div className="flex flex-col items-center gap-3 py-4 text-center">
           <WifiOff size={26} className="text-danger" />
-          <p className="font-sans text-[13px] text-text-secondary">The W-ONE core did not answer.</p>
+          <p className="font-sans text-[13px] text-text-secondary">{t.pair.noAnswer}</p>
           {error && <p className="font-mono text-[11px] text-text-muted">{error}</p>}
           <button
             type="button"
             onClick={() => void init()}
             className="mt-1 flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/[0.06] px-3 py-1.5 font-sans text-[12px] font-medium text-cyan hover:bg-cyan/[0.12]"
           >
-            <RefreshCw size={13} /> Retry
+            <RefreshCw size={13} /> {t.common.retry}
           </button>
         </div>
       </Panel>
@@ -74,6 +78,7 @@ export function codeFromHash(): string {
 
 /** First visit from a browser: redeem a one-time pairing code. */
 export function PairScreen() {
+  const t = useT()
   const { error, pair } = useSession()
   const [code, setCode] = useState(codeFromHash)
   const [name, setName] = useState(() => defaultDeviceName())
@@ -90,18 +95,18 @@ export function PairScreen() {
 
   return (
     <Frame>
-      <Panel title="Pair this browser" corners>
+      <Panel title={t.pair.title} corners>
         <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4 py-1">
           <p className="font-sans text-[13px] leading-relaxed text-text-secondary">
-            Enter the one-time pairing code of your W-ONE core. You find it in the server log (
-            <code className="font-mono text-cyan">npm run server:pair</code>) or in the desktop app under{' '}
-            <span className="text-text-primary">Settings → Devices</span>.
+            {t.pair.introBefore}
+            <code className="font-mono text-cyan">npm run server:pair</code>
+            {t.pair.introMiddle} <span className="text-text-primary">{t.pair.introPath}</span>.
           </p>
           <label className="flex flex-col gap-1.5">
-            <TechLabel className="text-text-muted">Pairing code</TechLabel>
+            <TechLabel className="text-text-muted">{t.pair.code}</TechLabel>
             <input
               autoFocus
-              aria-label="Pairing code"
+              aria-label={t.pair.code}
               value={code}
               onChange={(e) => setCode(formatCode(e.target.value))}
               placeholder="XXXX-XXXX"
@@ -111,9 +116,9 @@ export function PairScreen() {
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <TechLabel className="text-text-muted">Device name</TechLabel>
+            <TechLabel className="text-text-muted">{t.pair.deviceName}</TechLabel>
             <input
-              aria-label="Device name"
+              aria-label={t.pair.deviceName}
               value={name}
               maxLength={80}
               onChange={(e) => setName(e.target.value)}
@@ -127,7 +132,7 @@ export function PairScreen() {
             className="flex items-center justify-center gap-2 rounded-md border border-cyan/50 bg-cyan/[0.10] px-3 py-2 font-sans text-[13px] font-medium text-cyan transition-colors hover:bg-cyan/[0.16] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
-            Pair device
+            {t.pair.submit}
           </button>
         </form>
       </Panel>

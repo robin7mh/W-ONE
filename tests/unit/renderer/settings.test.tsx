@@ -12,6 +12,8 @@ import { useContextStore } from '@/features/context/store'
 import { useAssistant } from '@/features/agents/store'
 import { useSession } from '@/features/session/store'
 import { codeFromHash, PairScreen } from '@/features/session/components/PairScreen'
+import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
+import { surfaceTokens, useAppearance } from '@/lib/theme'
 
 const initialSettings = useSettings.getState()
 const initialAssistant = useAssistant.getState()
@@ -467,5 +469,33 @@ describe('pairing link from the QR code', () => {
     history.replaceState(null, '', '/#pair=wxyz2345')
     render(<PairScreen />)
     expect(screen.getByLabelText('Pairing code')).toHaveValue('WXYZ-2345')
+  })
+})
+
+describe('Appearance', () => {
+  it('switches mode, accent and background at once — and back to the defaults', () => {
+    useAppearance.getState().reset()
+    const root = document.documentElement
+    render(<AppearanceCard />)
+    const reset = screen.getByRole('button', { name: /Reset to default/ })
+    expect(reset).toBeDisabled()
+
+    expect(screen.getByText('Surfaces, lines and grid in the accent color.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Neon pink' }))
+    expect(root.dataset.accent).toBe('pink')
+    expect(screen.getByRole('radio', { name: 'Neon pink' })).toHaveAttribute('aria-checked', 'true')
+    expect(root.style.getPropertyValue('--border-hud')).toBe(surfaceTokens('cyber', 'pink')['--border-hud'])
+    fireEvent.click(screen.getByRole('radio', { name: 'Graphite' }))
+    expect(root.style.getPropertyValue('--bg-void')).toBe(surfaceTokens('graphite', 'pink')['--bg-void'])
+    expect(screen.getByText('Neutral grey, no tint.')).toBeInTheDocument()
+    expect(reset).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Light' }))
+    expect(root.dataset.theme).toBe('light')
+    expect(screen.getByText('Applies to dark mode.')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Graphite' })).toBeDisabled()
+
+    fireEvent.click(reset)
+    expect({ ...root.dataset }).toEqual({ theme: 'dark', accent: 'cyan', surface: 'cyber' })
   })
 })

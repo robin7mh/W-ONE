@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { FileChange } from '@shared/types/agents'
 
 function coded(code: string, message: string): Error {
@@ -20,6 +21,10 @@ function git(cwd: string, args: string[], input?: string): Promise<string> {
     child.stdin.end(input)
   })
 }
+
+/** A network call that only checks something: never asks for credentials, gives up after 15 s. */
+const quietGit = (cwd: string, args: string[]) =>
+  promisify(execFile)('git', args, { cwd, timeout: 15_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
 
 const lines = (s: string) => s.split('\n').filter(Boolean)
 
@@ -62,6 +67,38 @@ export class GitService {
   /** The repo's page on GitHub (or GitLab, …) from `origin`; undefined without one. */
   async webUrl(cwd: string): Promise<string | undefined> {
     return git(cwd, ['remote', 'get-url', 'origin']).then(remoteWebUrl, () => undefined)
+  }
+
+  /** Whether `branch` is on origin (as of the last push or fetch). */
+  async pushed(cwd: string, branch: string): Promise<boolean> {
+    return git(cwd, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]).then(
+      () => true,
+      () => false
+    )
+  }
+
+  /**
+   * Whether the commits on `branch` since `base` have all reached origin's
+   * default branch — merged, fast-forwarded or rebased in. (A squash merge
+   * makes new commits; the pull request tells that one.) Fetches it first.
+   */
+  async landed(cwd: string, branch: string, base: string): Promise<boolean> {
+    try {
+      const main = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).then(
+        (out) => out.trim(),
+        () => git(cwd, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main']).then(() => 'origin/main', () => 'origin/master')
+      )
+      await quietGit(cwd, ['fetch', '--quiet', 'origin', main.slice('origin/'.length)]).catch(() => {})
+      const count = async (range: string) => Number((await git(cwd, ['rev-list', '--count', range])).trim())
+      return (await count(`${base}..${branch}`)) > 0 && (await count(`${main}..${branch}`)) === 0
+    } catch {
+      return false
+    }
+  }
+
+  /** How many files in a working folder are changed but not committed. */
+  async uncommitted(cwd: string, exclude: string[] = []): Promise<number> {
+    return lines(await git(cwd, ['status', '--porcelain', ...except(exclude)])).length
   }
 
   /**

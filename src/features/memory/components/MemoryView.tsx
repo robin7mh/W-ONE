@@ -4,6 +4,7 @@ import { isDesktop, onEvent } from '@shared/ipc/client'
 import { DEFAULT_GRAPH_STYLE } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { folderColors, useMemory } from '../store'
 import { GraphView } from './GraphView'
 import { GraphStyleControl } from './GraphStyleControl'
@@ -17,6 +18,7 @@ import { FolderPicker } from '@/components/ui/FolderPicker'
  * are the source of truth — this view follows them live via `memory:changed`.
  */
 export function MemoryView() {
+  const t = useT()
   const m = useMemory()
   const style = m.status?.graphStyle ?? DEFAULT_GRAPH_STYLE
   const folderSlots = useMemo(() => folderColors(m.notes), [m.notes])
@@ -44,14 +46,14 @@ export function MemoryView() {
           onClick={() => m.setView('graph')}
           className={cn(seg, m.view === 'graph' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
         >
-          <Network size={12} /> Graph
+          <Network size={12} /> {t.memory.graph}
         </button>
         <button
           type="button"
           onClick={() => m.setView('note')}
           className={cn(seg, m.view === 'note' ? 'bg-cyan/10 text-cyan' : 'text-text-muted hover:text-text-secondary')}
         >
-          <FileText size={12} /> Note
+          <FileText size={12} /> {t.memory.note}
         </button>
       </div>
       <button
@@ -60,18 +62,18 @@ export function MemoryView() {
         className="flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/[0.06] px-2.5 py-1 font-sans text-[12px] font-medium text-cyan transition-colors hover:bg-cyan/[0.12]"
       >
         <Plus size={14} strokeWidth={2} />
-        New note
+        {t.memory.newNote}
       </button>
     </div>
   ) : undefined
 
   return (
-    <Panel title="Memory" corners flush className="min-h-0 flex-1" headerRight={header} bodyClassName="flex min-h-0 flex-col">
+    <Panel title={t.memory.title} corners flush className="min-h-0 flex-1" headerRight={header} bodyClassName="flex min-h-0 flex-col">
       {m.error && (
         <div className="flex items-start gap-2 border-b border-danger/30 bg-danger/[0.06] px-3 py-2">
           <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{m.error}</span>
-          <button type="button" aria-label="Dismiss" onClick={m.clearError} className="text-text-muted hover:text-text-primary">
+          <button type="button" aria-label={t.common.dismiss} onClick={m.clearError} className="text-text-muted hover:text-text-primary">
             <X size={12} />
           </button>
         </div>
@@ -79,7 +81,7 @@ export function MemoryView() {
 
       {!m.status ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="font-mono text-[12px] text-text-muted">{m.loading ? 'Loading memory…' : ''}</p>
+          <p className="font-mono text-[12px] text-text-muted">{m.loading ? t.memory.loading : ''}</p>
         </div>
       ) : !m.status.exists ? (
         <VaultSetup
@@ -95,7 +97,7 @@ export function MemoryView() {
               <BrainCircuit size={14} className="shrink-0 text-cyan" />
               <span className="min-w-0 flex-1" title={m.status.root}>
                 <span className="block truncate font-sans text-[12.5px] font-semibold text-text-primary">
-                  {m.status.name} <span className="font-normal text-text-muted">· {m.status.noteCount} notes</span>
+                  {m.status.name} <span className="font-normal text-text-muted">· {t.memory.notes(m.status.noteCount)}</span>
                 </span>
                 <span className="block truncate font-mono text-[10px] text-text-muted">
                   {m.status.root.replace(/^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/i, '~')}
@@ -105,8 +107,8 @@ export function MemoryView() {
                 <button
                   type="button"
                   onClick={() => void m.reveal()}
-                  title="Show in Finder"
-                  aria-label="Show vault in Finder"
+                  title={t.memory.showInFinder}
+                  aria-label={t.memory.showVault}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
                 >
                   <FolderOpen size={14} />
@@ -115,8 +117,8 @@ export function MemoryView() {
               <button
                 type="button"
                 onClick={pick}
-                title="Open another vault…"
-                aria-label="Open another vault"
+                title={t.memory.openAnother}
+                aria-label={t.memory.openAnotherLabel}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
               >
                 <ArrowLeftRight size={13} />
@@ -170,7 +172,7 @@ export function MemoryView() {
               />
             ) : (
               <div className="flex h-full items-center justify-center">
-                <p className="font-mono text-[12px] text-text-muted">Select a note, or create one</p>
+                <p className="font-mono text-[12px] text-text-muted">{t.memory.selectNote}</p>
               </div>
             )}
           </div>
@@ -178,8 +180,8 @@ export function MemoryView() {
       )}
       {browsing && (
         <FolderPicker
-          title="Choose a vault folder"
-          confirmLabel="Use as vault"
+          title={t.settings.chooseVault}
+          confirmLabel={t.settings.useAsVault}
           onClose={() => setBrowsing(false)}
           onPick={(path) => {
             setBrowsing(false)
@@ -203,6 +205,7 @@ function VaultSetup({
   onCreate: () => void
   onPick: () => void
 }) {
+  const t = useT()
   return (
     <div className="flex flex-1 items-center justify-center p-6">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
@@ -210,11 +213,10 @@ function VaultSetup({
           <BrainCircuit size={28} strokeWidth={1.6} />
         </span>
         <div>
-          <h2 className="font-sans text-lg font-semibold text-text-primary">Your memory, as an Obsidian vault</h2>
+          <h2 className="font-sans text-lg font-semibold text-text-primary">{t.memory.setupTitle}</h2>
           <p className="mt-2 font-sans text-[13px] leading-relaxed text-text-muted">
-            Notes are plain Markdown files linked with <code className="font-mono text-cyan">[[wikilinks]]</code>.
-            Open the same folder in Obsidian any time — W-ONE follows every change. Your AI will read and write
-            here later.
+            {t.memory.setupBefore} <code className="font-mono text-cyan">[[wikilinks]]</code>
+            {t.memory.setupAfter}
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-2">
@@ -224,7 +226,7 @@ function VaultSetup({
             className="flex items-center gap-2 rounded-md border border-cyan/40 bg-cyan/[0.08] px-3.5 py-2 font-sans text-[13px] font-medium text-cyan transition-colors hover:bg-cyan/[0.14]"
           >
             <Sparkles size={14} />
-            Create W-ONE vault
+            {t.memory.createVault}
           </button>
           <button
             type="button"
@@ -232,16 +234,16 @@ function VaultSetup({
             className="flex items-center gap-2 rounded-md border border-hud/60 bg-surface/50 px-3.5 py-2 font-sans text-[13px] font-medium text-text-secondary transition-colors hover:border-cyan/40 hover:text-text-primary"
           >
             <FolderOpen size={14} />
-            Open existing vault…
+            {t.memory.openExisting}
           </button>
         </div>
         {missing && (
           <p className="flex items-start gap-1.5 font-mono text-[11px] text-amber">
             <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-            <span className="break-all">Vault not found: {missing}</span>
+            <span className="break-all">{t.memory.notFound(missing)}</span>
           </p>
         )}
-        <p className="break-all font-mono text-[11px] text-text-muted">New vault goes to {defaultRoot}</p>
+        <p className="break-all font-mono text-[11px] text-text-muted">{t.memory.newVaultAt(defaultRoot)}</p>
       </div>
     </div>
   )

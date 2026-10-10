@@ -4,6 +4,22 @@ import type { Transport } from '@shared/ipc/transport'
 
 type Route = (payload: never) => unknown
 
+/** A W-ONE account that may use the app (dev build: no license required). */
+export const OPEN_CLOUD = {
+  enforced: false,
+  allowed: true,
+  state: 'signed_out',
+  account: null,
+  license: null,
+  validUntil: null,
+  online: true,
+  webUrl: null,
+  error: null
+}
+
+/** Answers every test bridge gives unless a test routes the channel itself. */
+const DEFAULT_ROUTES: Record<string, Route> = { 'cloud:status': () => OPEN_CLOUD }
+
 /**
  * Installs a fake `window.wone` bridge. `routes` answer `invoke` per channel
  * (throwing → `{ ok: false }` like the real registry); `emit` pushes events.
@@ -15,7 +31,7 @@ export function installBridge(routes: Record<string, Route> = {}, platform: stri
     platform,
     routes,
     invoke: vi.fn(async (channel: string, payload?: unknown) => {
-      const fn = routes[channel]
+      const fn = routes[channel] ?? DEFAULT_ROUTES[channel]
       try {
         return { ok: true, data: fn ? await fn(payload as never) : undefined }
       } catch (err) {
@@ -70,7 +86,7 @@ export function installRemote(routes: Record<string, Route> = {}) {
     kind: 'remote' as const,
     routes,
     invoke: vi.fn(async (channel: string, payload?: unknown) => {
-      const fn = routes[channel]
+      const fn = routes[channel] ?? DEFAULT_ROUTES[channel]
       try {
         return { ok: true, data: fn ? await fn(payload as never) : undefined }
       } catch (err) {

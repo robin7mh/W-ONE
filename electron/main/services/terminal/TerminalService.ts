@@ -177,9 +177,14 @@ export class TerminalService {
     return info
   }
 
-  /** The Terminal module's tabs — agent PTYs live in the Agents module. */
+  /** The Terminal module's tabs — agent PTYs live in the Agents module — with what runs in them now. */
   list(): TerminalInfo[] {
-    return [...this.sessions.values()].map((s) => s.info).filter((i) => i.kind !== 'agent')
+    return [...this.sessions.values()]
+      .filter((s) => s.info.kind !== 'agent')
+      .map((s) => {
+        const running = this.foreground(s)
+        return running ? { ...s.info, running } : s.info
+      })
   }
 
   attach(id: string): TerminalAttach {
@@ -213,6 +218,17 @@ export class TerminalService {
       s.pty.kill()
     }
     this.sessions.clear()
+  }
+
+  /** The foreground program, unless it is the shell itself — then the shell waits at its prompt. */
+  private foreground(s: Session): string | undefined {
+    let name = ''
+    try {
+      name = s.pty.process.replace(/^-/, '').replace(/\.exe$/i, '')
+    } catch {
+      /* the PTY is closing */
+    }
+    return name && name !== s.info.shell ? name : undefined
   }
 
   private require(id: string): Session {

@@ -8,6 +8,8 @@ export interface GitInfo {
   behind?: number
   dirty?: boolean
   lastCommit?: { hash: string; subject: string; author: string; date: string }
+  /** The repo's page (GitHub, GitLab, …) from `origin`. */
+  webUrl?: string
 }
 
 export interface StackInfo {

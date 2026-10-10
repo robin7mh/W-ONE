@@ -177,7 +177,10 @@ describe('hook events → chat, status and plan', () => {
     s.status = 'working'
     expect(applyHook(s, { hook_event_name: 'Notification', notification_type: 'auth_success' }).attention).toBeUndefined()
     expect(s.status).toBe('working')
-    expect(applyHook(s, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }).attention).toBe('waiting')
+    // "Still waiting for your input" a minute after a turn: no news — no status, no notification.
+    expect(applyHook(s, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }).attention).toBeUndefined()
+    expect(s.status).toBe('working')
+    expect(applyHook(s, { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }).attention).toBe('waiting')
     expect(s.status).toBe('waiting')
     s.status = 'approval'
     applyHook(s, { hook_event_name: 'Notification', notification_type: 'agent_needs_input' })

@@ -18,6 +18,8 @@ import { useAgents } from '@/features/agents/sessions'
 import { useMemory } from '@/features/memory/store'
 import { SettingsView } from '@/features/settings/components/SettingsView'
 import { SystemView } from '@/features/system/components/SystemView'
+import { AccountView } from '@/features/account/components/AccountView'
+import { useT } from '@/lib/i18n'
 import { useSession } from '@/features/session/store'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
@@ -27,14 +29,15 @@ import type { ModuleId } from '@/types'
 
 /** Browser without remote shells: explain instead of failing. */
 function RemoteShellsOff() {
+  const t = useT()
   return (
-    <Panel title="Terminal" corners className="min-h-0 flex-1" bodyClassName="flex items-center justify-center">
+    <Panel title={t.nav.terminal} corners className="min-h-0 flex-1" bodyClassName="flex items-center justify-center">
       <div className="flex max-w-md flex-col items-center gap-3 p-6 text-center">
         <TerminalSquare size={28} className="text-text-muted" />
-        <p className="font-sans text-[14px] font-semibold text-text-primary">Remote shells are off</p>
+        <p className="font-sans text-[14px] font-semibold text-text-primary">{t.shell.shellsOffTitle}</p>
         <p className="font-sans text-[13px] text-text-secondary">
-          This W-ONE core does not let paired devices open terminals. Turn it on in the desktop app under Settings → Remote access,
-          or start the server with <code className="font-mono text-cyan">WONE_REMOTE_TERMINAL=1</code>.
+          {t.shell.shellsOffBefore} <code className="font-mono text-cyan">WONE_REMOTE_TERMINAL=1</code>
+          {t.shell.shellsOffAfter}
         </p>
       </div>
     </Panel>
@@ -98,11 +101,12 @@ export function AppShell() {
   }
 
   const renderMain = () => {
-    if (active === 'projects') return <ProjectsView />
+    if (active === 'projects') return <ProjectsView onNavigate={setActive} />
     if (active === 'memory') return <MemoryView />
     if (active === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => setActive('settings')} />
     if (active === 'system') return <SystemView />
     if (active === 'settings') return <SettingsView />
+    if (active === 'account') return <AccountView />
     if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
     if (active === 'editor') return null
     return <Dashboard onNavigate={setActive} />

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { errorMessage, ipc } from '@shared/ipc/client'
+import { errorMessage, ipc, isDesktop } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
 
 interface ProjectsState {
@@ -8,6 +8,8 @@ interface ProjectsState {
   loading: boolean
   busyId?: string // project currently being refreshed/opened/removed
   error?: string
+  /** GitHub Desktop's name when it is installed (desktop window only). */
+  githubDesktop?: string | null
 
   load: () => Promise<void>
   addViaPicker: () => Promise<void>
@@ -15,8 +17,10 @@ interface ProjectsState {
   addPath: (path: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: (id: string) => Promise<void>
+  /** `git pull --ff-only`; resolves to the error message, or undefined when it worked. */
+  pull: (id: string) => Promise<string | undefined>
   openEditor: (id: string) => Promise<void>
-  openTerminal: (id: string) => Promise<void>
+  openInGitHubDesktop: (id: string) => Promise<void>
   select: (id: string) => void
 }
 
@@ -28,9 +32,13 @@ export const useProjects = create<ProjectsState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: undefined })
     try {
-      const projects = await ipc('projects:list')
+      const [projects, githubDesktop] = await Promise.all([
+        ipc('projects:list'),
+        isDesktop() ? ipc('projects:githubDesktop').catch(() => null) : null
+      ])
       set((s) => ({
         projects,
+        githubDesktop,
         loading: false,
         selectedId: s.selectedId ?? projects[0]?.id
       }))
@@ -93,6 +101,19 @@ export const useProjects = create<ProjectsState>((set, get) => ({
     }
   },
 
+  pull: async (id) => {
+    set({ busyId: id, error: undefined })
+    try {
+      const updated = await ipc('projects:pull', { id })
+      set((s) => ({ projects: s.projects.map((p) => (p.id === id ? updated : p)), busyId: undefined }))
+      return undefined
+    } catch (err) {
+      const error = errorMessage(err)
+      set({ busyId: undefined, error })
+      return error
+    }
+  },
+
   openEditor: async (id) => {
     set({ error: undefined })
     try {
@@ -102,10 +123,10 @@ export const useProjects = create<ProjectsState>((set, get) => ({
     }
   },
 
-  openTerminal: async (id) => {
+  openInGitHubDesktop: async (id) => {
     set({ error: undefined })
     try {
-      await ipc('projects:openTerminal', { id })
+      await ipc('projects:openInGitHubDesktop', { id })
     } catch (err) {
       set({ error: errorMessage(err) })
     }

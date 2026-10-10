@@ -1,9 +1,11 @@
 import { motion } from 'framer-motion'
+import { UserRound } from 'lucide-react'
 import { NAV_ITEMS } from '@/data/navigation'
 import type { ModuleId } from '@/types'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { TechLabel } from '@/components/ui/TechLabel'
-import { useSession } from '@/features/session/store'
+import { useCloud } from '@/features/cloud/store'
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
@@ -17,20 +19,23 @@ export function SideNavigation({
   active: ModuleId
   onSelect: (id: ModuleId) => void
 }) {
-  const info = useSession((s) => s.info)
+  const t = useT()
+  const profileActive = active === 'account'
+  const account = useCloud((s) => s.status?.account)
   return (
     <nav className="flex h-full w-14 shrink-0 flex-col items-stretch gap-1 border-r border-hud/70 bg-surface/40 px-2 py-3 backdrop-blur-sm xl:w-52">
-      <TechLabel className="mb-2 hidden px-2 text-text-muted xl:block">Modules</TechLabel>
+      <TechLabel className="mb-2 hidden px-2 text-text-muted xl:block">{t.nav.modules}</TechLabel>
 
       {NAV_ITEMS.map((item) => {
         const isActive = item.id === active
         const Icon = item.icon
+        const label = t.nav[item.id]
         return (
           <button
             key={item.id}
             type="button"
             onClick={() => onSelect(item.id)}
-            title={item.label}
+            title={label}
             className={cn(
               'group relative flex items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
               isActive ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'
@@ -60,23 +65,40 @@ export function SideNavigation({
               )}
             />
             <span className="relative z-10 hidden flex-1 items-center justify-between xl:flex">
-              <span className="font-sans text-[13px] font-medium">{item.label}</span>
+              <span className="font-sans text-[13px] font-medium">{label}</span>
             </span>
           </button>
         )
       })}
 
-      <div className="mt-auto hidden px-2 xl:block">
-        <div className="rounded-md border border-hud/50 bg-surface/40 p-2.5">
-          <TechLabel className="text-text-muted">Core</TechLabel>
-          <div className="mt-1 font-mono text-[11px] text-text-secondary">
-            {info ? `${info.mode === 'desktop' ? 'DESKTOP' : 'SERVER'} · v${info.version}` : 'LINKING…'}
-          </div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
-            {info ? `${info.hostname} · db ${info.db.connected ? 'online' : 'offline'}` : '—'}
-          </div>
-        </div>
-      </div>
+      {/* Profile: the W-ONE account, licence and language */}
+      <button
+        type="button"
+        onClick={() => onSelect('account')}
+        title={t.nav.account}
+        aria-label={t.nav.account}
+        className={cn(
+          'mt-auto flex items-center gap-2.5 rounded-md border px-1.5 py-1.5 text-left transition-colors',
+          profileActive
+            ? 'border-cyan/40 bg-cyan/[0.07] text-text-primary'
+            : 'border-hud/50 bg-surface/40 text-text-muted hover:border-hud-strong/70 hover:text-text-secondary'
+        )}
+      >
+        <span
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border',
+            profileActive ? 'border-cyan/50 text-cyan' : 'border-hud/70'
+          )}
+        >
+          <UserRound size={15} strokeWidth={1.8} />
+        </span>
+        <span className="hidden min-w-0 flex-1 xl:block">
+          <span className="block truncate font-sans text-[13px] font-medium text-text-primary">
+            {account?.name ?? t.nav.account}
+          </span>
+          <span className="block truncate font-mono text-[10px] text-text-muted">{account?.email ?? t.nav.notSignedIn}</span>
+        </span>
+      </button>
     </nav>
   )
 }

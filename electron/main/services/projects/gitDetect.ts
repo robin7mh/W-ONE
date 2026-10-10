@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { GitInfo } from '@shared/types/project'
+import { remoteWebUrl } from '../git/GitService'
 
 const exec = promisify(execFile)
 
@@ -56,6 +57,13 @@ export async function detectGit(cwd: string): Promise<GitInfo> {
     }
   } catch {
     /* empty repo, no commits */
+  }
+
+  try {
+    const url = remoteWebUrl(await git(cwd, ['remote', 'get-url', 'origin']))
+    if (url) info.webUrl = url
+  } catch {
+    /* no origin */
   }
 
   return info

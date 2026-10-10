@@ -4,9 +4,10 @@ import { ChevronUp, LayoutGrid, ShieldAlert, Square } from 'lucide-react'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
-import { STATUS_LABEL } from '@/features/agents/components/SessionPane'
+import { STATUS_TONE } from '@/features/agents/components/SessionPane'
 import { ActivityTimeline } from '@/features/agents/components/ActivityTimeline'
 
 const STORAGE_KEY = 'wone.commandDeck.open'
@@ -40,6 +41,7 @@ export function BottomDashboard({
   onOpenConversation?: (id: string) => void
   onOpenSession?: (id: string) => void
 }) {
+  const t = useT()
   const [open, setOpen] = useState(readOpen)
   const sessions = useAgents((s) => s.sessions)
   const live = sessions.filter((s) => s.live)
@@ -67,16 +69,16 @@ export function BottomDashboard({
         className="group flex h-8 items-center gap-2 px-3 text-left"
       >
         <LayoutGrid size={13} className="text-cyan" />
-        <TechLabel className="text-text-secondary group-hover:text-text-primary">Command Deck</TechLabel>
+        <TechLabel className="text-text-secondary group-hover:text-text-primary">{t.deck.title}</TechLabel>
         {running.length + live.length > 0 && (
           <span className="flex items-center gap-1.5 font-mono text-[10px] text-cyan">
-            <StatusDot tone="cyan" /> {running.length + live.length} running
+            <StatusDot tone="cyan" /> {t.deck.running(running.length + live.length)}
           </span>
         )}
-        {needYou > 0 && <span className="font-mono text-[10px] text-amber">{needYou} need you</span>}
+        {needYou > 0 && <span className="font-mono text-[10px] text-amber">{t.deck.needYou(needYou)}</span>}
         {pending.length > 0 && (
           <span className="flex items-center gap-1 font-mono text-[10px] text-amber">
-            <ShieldAlert size={11} /> {pending.length} waiting for approval
+            <ShieldAlert size={11} /> {t.deck.waiting(pending.length)}
           </span>
         )}
         <ChevronUp
@@ -99,9 +101,9 @@ export function BottomDashboard({
           >
             <div className="grid h-40 grid-cols-1 gap-2 px-3 pb-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <div className="min-h-0 overflow-y-auto rounded-md border border-hud/50 bg-surface/40 p-2">
-                <TechLabel className="text-text-muted">Agents</TechLabel>
+                <TechLabel className="text-text-muted">{t.deck.agents}</TechLabel>
                 {running.length + live.length === 0 ? (
-                  <p className="mt-2 font-mono text-[11px] text-text-muted">No agent is running</p>
+                  <p className="mt-2 font-mono text-[11px] text-text-muted">{t.deck.noneRunning}</p>
                 ) : (
                   <ul className="mt-1.5 space-y-1">
                     {live.map((s) => (
@@ -112,11 +114,11 @@ export function BottomDashboard({
                           onClick={() => onOpenSession?.(s.id)}
                           className="min-w-0 flex-1 truncate text-left font-sans text-[12px] text-text-primary hover:text-cyan"
                         >
-                          {s.title} <span className={cn('font-mono text-[10px]', STATUS_LABEL[s.status].tone)}>· {STATUS_LABEL[s.status].text}</span>
+                          {s.title} <span className={cn('font-mono text-[10px]', STATUS_TONE[s.status])}>· {t.agents.status[s.status]}</span>
                         </button>
                         <button
                           type="button"
-                          aria-label={`End ${s.title}`}
+                          aria-label={t.deck.end(s.title)}
                           onClick={() => void useAgents.getState().stop(s.id)}
                           className="text-amber hover:text-danger"
                         >
@@ -136,7 +138,7 @@ export function BottomDashboard({
                         </button>
                         <button
                           type="button"
-                          aria-label={`Stop ${c.title}`}
+                          aria-label={t.deck.stop(c.title)}
                           onClick={() => void useAssistant.getState().stop(c.id)}
                           className="text-amber hover:text-danger"
                         >
@@ -147,11 +149,11 @@ export function BottomDashboard({
                   </ul>
                 )}
                 {pending.length > 0 && (
-                  <p className="mt-2 font-mono text-[11px] text-amber">{pending.length} action(s) wait for your approval</p>
+                  <p className="mt-2 font-mono text-[11px] text-amber">{t.deck.actionsWait(pending.length)}</p>
                 )}
               </div>
               <div className="min-h-0 overflow-y-auto rounded-md border border-hud/50 bg-surface/40 p-1.5">
-                <ActivityTimeline events={activity} compact max={30} empty="No agent activity yet" />
+                <ActivityTimeline events={activity} compact max={30} empty={t.deck.noActivity} />
               </div>
             </div>
           </motion.div>

@@ -14,6 +14,11 @@ export interface TerminalInfo {
   createdAt: string
   /** 'agent': a coding agent's PTY (Agents module) — not listed as a terminal tab. */
   kind?: 'agent'
+  /**
+   * `terminal:list` only: the program in the foreground when listed (e.g.
+   * `node`); absent while the shell waits at its prompt.
+   */
+  running?: string
 }
 
 /**

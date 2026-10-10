@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Folder, Home, Loader2, X } from 'lucide-react'
 import { errorMessage, ipc } from '@shared/ipc/client'
 import type { DirListing } from '@shared/types/server'
+import { useT } from '@/lib/i18n'
 import { TechLabel } from './TechLabel'
 
 /**
@@ -10,7 +11,7 @@ import { TechLabel } from './TechLabel'
  */
 export function FolderPicker({
   title,
-  confirmLabel = 'Select folder',
+  confirmLabel,
   onPick,
   onClose
 }: {
@@ -19,6 +20,7 @@ export function FolderPicker({
   onPick: (path: string) => void
   onClose: () => void
 }) {
+  const t = useT()
   const [listing, setListing] = useState<DirListing>()
   const [typed, setTyped] = useState('')
   const [loading, setLoading] = useState(false)
@@ -61,7 +63,7 @@ export function FolderPicker({
       <div className="panel flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden">
         <header className="flex h-10 shrink-0 items-center justify-between border-b border-hud/60 px-3">
           <TechLabel className="text-text-secondary">{title}</TechLabel>
-          <button type="button" aria-label="Close" onClick={onClose} className="text-text-muted hover:text-cyan">
+          <button type="button" aria-label={t.common.close} onClick={onClose} className="text-text-muted hover:text-cyan">
             <X size={15} />
           </button>
         </header>
@@ -75,7 +77,7 @@ export function FolderPicker({
         >
           <button
             type="button"
-            aria-label="Home folder"
+            aria-label={t.folderPicker.home}
             onClick={() => void open()}
             className="rounded-md border border-hud/60 px-2 text-text-muted hover:border-cyan/50 hover:text-cyan"
           >
@@ -83,7 +85,7 @@ export function FolderPicker({
           </button>
           <button
             type="button"
-            aria-label="Parent folder"
+            aria-label={t.folderPicker.parent}
             disabled={!listing?.parent}
             onClick={() => listing?.parent && void open(listing.parent)}
             className="rounded-md border border-hud/60 px-2 text-text-muted hover:border-cyan/50 hover:text-cyan disabled:opacity-30"
@@ -91,7 +93,7 @@ export function FolderPicker({
             <ArrowUp size={14} />
           </button>
           <input
-            aria-label="Folder path"
+            aria-label={t.folderPicker.path}
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             spellCheck={false}
@@ -102,12 +104,12 @@ export function FolderPicker({
         <div className="min-h-[200px] flex-1 overflow-y-auto p-1.5">
           {loading && (
             <p className="flex items-center gap-2 px-2 py-3 font-mono text-[11px] text-text-muted">
-              <Loader2 size={12} className="animate-spin" /> Loading…
+              <Loader2 size={12} className="animate-spin" /> {t.common.loading}
             </p>
           )}
           {error && <p className="px-2 py-3 font-mono text-[11px] text-danger">{error}</p>}
           {!loading && listing?.dirs.length === 0 && (
-            <p className="px-2 py-3 font-mono text-[11px] text-text-muted">No sub-folders</p>
+            <p className="px-2 py-3 font-mono text-[11px] text-text-muted">{t.folderPicker.noSubfolders}</p>
           )}
           {!loading &&
             listing?.dirs.map((name) => (
@@ -131,7 +133,7 @@ export function FolderPicker({
             onClick={() => listing && onPick(listing.path)}
             className="flex shrink-0 items-center gap-1.5 rounded-md border border-cyan/50 bg-cyan/[0.10] px-3 py-1.5 font-sans text-[12px] font-medium text-cyan hover:bg-cyan/[0.16] disabled:opacity-40"
           >
-            <Check size={13} /> {confirmLabel}
+            <Check size={13} /> {confirmLabel ?? t.folderPicker.select}
           </button>
         </footer>
       </div>

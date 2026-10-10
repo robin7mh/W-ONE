@@ -113,6 +113,45 @@ describe('GitService', () => {
     await expect(git.addWorktree(dir, join(await tempDir(), 'wt2'), 'wone/clash')).rejects.toMatchObject({ code: 'git' })
   })
 
+  it('a branch and origin: pushed, landed in the default branch (only once merged there), uncommitted files', async () => {
+    const lone = await repo()
+    expect(await git.landed(lone, 'main', 'HEAD')).toBe(false) // no origin at all
+    expect(await git.landed(lone, 'main', 'no-such-commit')).toBe(false) // git can't tell: not landed
+
+    const dir = await repo()
+    const origin = await tempDir('wone-origin-')
+    sh(origin, 'init', '-q', '--bare', '-b', 'main')
+    sh(dir, 'remote', 'add', 'origin', origin)
+    sh(dir, 'push', '-q', 'origin', 'main')
+    const wt = join(await tempDir(), 'wt')
+    await git.addWorktree(dir, wt, 'wone/pr')
+    const start = (await git.baseline(wt))!
+    expect(await git.pushed(wt, 'wone/pr')).toBe(false)
+    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(false) // no commits of its own yet
+
+    await writeFile(join(wt, 'a.txt'), 'one\ntwo\nthree\n')
+    sh(wt, 'commit', '-qam', 'agent work')
+    sh(wt, 'push', '-q', '-u', 'origin', 'wone/pr')
+    expect(await git.pushed(wt, 'wone/pr')).toBe(true)
+    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(false) // pushed, not merged
+
+    // The pull request is merged on the server: another clone merges and pushes main.
+    const other = join(await tempDir(), 'other')
+    execFileSync('git', ['clone', '-q', origin, other])
+    sh(other, 'config', 'user.email', 't@t')
+    sh(other, 'config', 'user.name', 'T')
+    sh(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request', 'origin/wone/pr')
+    sh(other, 'push', '-q', 'origin', 'main')
+    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(true) // fetched, and it is in origin/main
+    sh(dir, 'remote', 'set-head', 'origin', 'main') // origin/HEAD known: the same answer
+    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(true)
+
+    expect(await git.uncommitted(wt)).toBe(0)
+    await writeFile(join(wt, 'left.txt'), 'not committed\n')
+    await symlink(join(dir, 'a.txt'), join(wt, 'node_modules'))
+    expect(await git.uncommitted(wt, ['node_modules'])).toBe(1)
+  })
+
   it('the repo page from origin; none without a remote', async () => {
     const dir = await repo()
     expect(await git.webUrl(dir)).toBeUndefined()

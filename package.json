@@ -2,8 +2,8 @@
   "name": "w-one",
   "version": "0.1.0",
   "description": "W-ONE — a dark, futuristic Sci-Fi command-center desktop app.",
-  "author": "W-ONE",
-  "license": "MIT",
+  "author": "Robin Hinkelmann",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -36,7 +36,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build && npm run web:build && npm run server:build && npm run db:up && playwright test",
-    "test:all": "npm run typecheck && npm run test:coverage && npm run test:e2e"
+    "test:all": "npm run typecheck && npm run test:coverage && npm run test:e2e",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:mac:dir": "npm run build && electron-builder --mac --dir --publish never",
+    "release:mac": "npm run build && electron-builder --mac --publish always"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.7.0",
@@ -48,6 +51,7 @@
     "@xterm/xterm": "^5.5.0",
     "d3-force": "^3.0.0",
     "dompurify": "^3.4.16",
+    "electron-updater": "^6.8.9",
     "framer-motion": "^11.3.19",
     "ignore": "^5.3.2",
     "lucide-react": "^0.427.0",
@@ -80,6 +84,7 @@
     "@vitest/coverage-v8": "^3.2.7",
     "autoprefixer": "^10.4.19",
     "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "jsdom": "^26.1.0",
     "pg-mem": "^3.0.14",
@@ -88,5 +93,6 @@
     "typescript": "^5.5.4",
     "vite": "^5.3.5",
     "vitest": "^3.2.7"
-  }
+  },
+  "homepage": "https://github.com/robin7mh/W-ONE"
 }

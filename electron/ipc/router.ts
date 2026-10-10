@@ -26,14 +26,21 @@ function fail(code: string, message: string): IpcResult<never> {
 /**
  * The one dispatch point for every contract channel — used by the desktop IPC
  * bridge and by the HTTP API alike. Per call it checks, in order: the channel
- * exists, the caller's transport may use it (CHANNEL_ACCESS), the payload
+ * exists, W-ONE is licensed (or the channel is license-free), the caller's
+ * transport may use it (CHANNEL_ACCESS), the payload
  * matches its schema; then runs the handler and wraps the result in IpcResult.
  * Errors never escape as throws.
  */
+export interface RouterOptions {
+  remoteTerminal: () => boolean
+  /** License gate: false → the channel is refused until W-ONE is licensed. */
+  licensed?: (channel: IpcChannel) => boolean
+}
+
 export class Router {
   private readonly handlers = new Map<IpcChannel, AnyHandler>()
 
-  constructor(private readonly opts: { remoteTerminal: () => boolean } = { remoteTerminal: () => false }) {}
+  constructor(private readonly opts: RouterOptions = { remoteTerminal: () => false }) {}
 
   register<K extends IpcChannel>(channel: K, handler: Handler<K>): void {
     this.handlers.set(channel, handler as AnyHandler)
@@ -47,6 +54,10 @@ export class Router {
     const handler = this.handlers.get(channel as IpcChannel)
     if (!handler) return fail('unknown-channel', `Unknown channel: ${channel}`)
     const key = channel as IpcChannel
+
+    if (this.opts.licensed && !this.opts.licensed(key)) {
+      return fail('license-required', 'W-ONE needs a license — sign in under Profile')
+    }
 
     if (ctx.transport === 'remote') {
       const access = CHANNEL_ACCESS[key]

@@ -4,6 +4,7 @@ import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useSession } from '@/features/session/store'
 import type { ModuleId } from '@/types'
@@ -49,38 +50,39 @@ function Centered({ icon, title, children }: { icon: ReactNode; title: string; c
 
 /** What the editor area shows when the active tab has no text to edit. */
 function Placeholder({ tab, onExternal }: { tab?: EditorTab; onExternal?: () => void }) {
+  const t = useT()
   const key = isMac ? '⌘' : 'Ctrl+'
   if (!tab) {
     return (
-      <Centered icon={<Code2 size={28} className="text-text-muted" />} title="Open a file from the explorer">
+      <Centered icon={<Code2 size={28} className="text-text-muted" />} title={t.editor.openFromExplorer}>
         <p className="font-mono text-[11px] text-text-muted">
-          {key}S save · {key}F find · F1 all commands
+          {t.editor.shortcuts(key)}
         </p>
       </Centered>
     )
   }
-  if (tab.loading) return <Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title="Loading…" />
+  if (tab.loading) return <Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.common.loading} />
   const vsCode = onExternal && (
     <button type="button" onClick={onExternal} className={quiet}>
-      <ExternalLink size={13} /> Open in VS Code
+      <ExternalLink size={13} /> {t.editor.openInVsCode}
     </button>
   )
   if (tab.unsupported) {
     return (
       <Centered
         icon={<FileWarning size={28} className="text-text-muted" />}
-        title={tab.unsupported === 'binary' ? 'Binary file' : 'Larger than 5 MB'}
+        title={tab.unsupported === 'binary' ? t.editor.binary : t.editor.tooLarge}
       >
-        <p className="font-sans text-[13px] text-text-secondary">W-ONE only edits text files up to 5 MB.</p>
+        <p className="font-sans text-[13px] text-text-secondary">{t.editor.textOnly}</p>
         {vsCode}
       </Centered>
     )
   }
   return (
-    <Centered icon={<AlertTriangle size={26} className="text-danger" />} title="Couldn't open this file">
+    <Centered icon={<AlertTriangle size={26} className="text-danger" />} title={t.editor.cantOpen}>
       <p className="font-sans text-[13px] text-text-secondary">{tab.error}</p>
       <button type="button" onClick={() => void useEditor.getState().reload(tab.id)} className={quiet}>
-        <RefreshCw size={13} /> Try again
+        <RefreshCw size={13} /> {t.editor.tryAgain}
       </button>
     </Centered>
   )
@@ -93,11 +95,12 @@ function Placeholder({ tab, onExternal }: { tab?: EditorTab; onExternal?: () => 
  * VS Code) flow into clean tabs, and conflicting ones ask first.
  */
 export function EditorView({ active, onNavigate }: { active: boolean; onNavigate: (id: ModuleId) => void }) {
+  const t = useT()
   const projects = useProjects((s) => s.projects)
   const [projectsLoaded, setProjectsLoaded] = useState(projects.length > 0)
   const { projectId, tabs, activeId, closing } = useEditor()
-  const tab = tabs.find((t) => t.id === activeId)
-  const closingTab = tabs.find((t) => t.id === closing)
+  const tab = tabs.find((x) => x.id === activeId)
+  const closingTab = tabs.find((x) => x.id === closing)
   const info = useSession((s) => s.info)
   const desktop = isDesktop()
   // Writing project files can run code (hooks, scripts) — remote clients may
@@ -143,7 +146,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // Unsaved edits veto closing the window; the desktop app then asks (main.ts).
   useEffect(() => {
     const guard = (e: BeforeUnloadEvent) => {
-      if (!useEditor.getState().tabs.some((t) => t.dirty)) return
+      if (!useEditor.getState().tabs.some((x) => x.dirty)) return
       e.preventDefault()
       e.returnValue = ''
     }
@@ -162,12 +165,12 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   if (!projects.length) {
     return (
-      <Panel title="Editor" corners className="min-h-0 flex-1" bodyClassName="relative">
+      <Panel title={t.editor.title} corners className="min-h-0 flex-1" bodyClassName="relative">
         {projectsLoaded && (
-          <Centered icon={<FolderGit2 size={28} className="text-text-muted" />} title="No projects yet">
-            <p className="font-sans text-[13px] text-text-secondary">The editor opens the files of your projects.</p>
+          <Centered icon={<FolderGit2 size={28} className="text-text-muted" />} title={t.editor.noProjects}>
+            <p className="font-sans text-[13px] text-text-secondary">{t.editor.opensProjectFiles}</p>
             <button type="button" onClick={() => onNavigate('projects')} className={primary}>
-              Add a project
+              {t.editor.addProject}
             </button>
           </Centered>
         )}
@@ -179,14 +182,14 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   return (
     <Panel
-      title="Editor"
+      title={t.editor.title}
       corners
       flush
       className="min-h-0 flex-1"
       bodyClassName="flex"
       headerRight={
         openExternal && (
-          <button type="button" onClick={openExternal} className={quiet} title="Open in VS Code">
+          <button type="button" onClick={openExternal} className={quiet} title={t.editor.openInVsCode}>
             <ExternalLink size={13} /> VS Code
           </button>
         )
@@ -196,7 +199,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       <aside className="flex w-64 shrink-0 flex-col border-r border-hud/60">
         <div className="flex items-center gap-1.5 p-2">
           <select
-            aria-label="Project"
+            aria-label={t.editor.project}
             value={projectId ?? ''}
             onChange={(e) => void useEditor.getState().selectProject(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-hud/60 bg-surface/50 px-2 py-1.5 font-sans text-[12.5px] text-text-primary outline-none focus:border-cyan/50"
@@ -209,7 +212,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           </select>
           <button
             type="button"
-            aria-label="Refresh files"
+            aria-label={t.editor.refreshFiles}
             onClick={() => void useEditor.getState().refreshTree()}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated/60 hover:text-cyan"
           >
@@ -225,29 +228,29 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
         {closingTab ? (
           <Banner tone="warn">
-            <span className="mr-auto">Save changes to {closingTab.name} before closing?</span>
+            <span className="mr-auto">{t.editor.saveBeforeClose(closingTab.name)}</span>
             <button type="button" onClick={() => void useEditor.getState().saveAndClose(closingTab.id)} className={primary} disabled={readOnly}>
-              Save
+              {t.common.save}
             </button>
             <button type="button" onClick={() => useEditor.getState().close(closingTab.id)} className={quiet}>
-              Don't save
+              {t.editor.dontSave}
             </button>
             <button type="button" onClick={() => useEditor.getState().cancelClose()} className={quiet}>
-              Cancel
+              {t.common.cancel}
             </button>
           </Banner>
         ) : tab?.conflict ? (
           <Banner tone="warn">
-            <span className="mr-auto">{tab.name} changed on disk while you were editing.</span>
+            <span className="mr-auto">{t.editor.changedOnDisk(tab.name)}</span>
             <button type="button" onClick={() => void useEditor.getState().reload(tab.id)} className={quiet}>
-              Load disk version
+              {t.editor.loadDisk}
             </button>
             <button type="button" onClick={() => void useEditor.getState().save(tab.id, { force: true })} className={primary} disabled={readOnly}>
-              Keep mine
+              {t.editor.keepMine}
             </button>
           </Banner>
         ) : tab?.deleted ? (
-          <Banner tone="info">{tab.name} was deleted on disk — saving creates it again.</Banner>
+          <Banner tone="info">{t.editor.deletedOnDisk(tab.name)}</Banner>
         ) : tab?.error && hasText ? (
           <Banner tone="warn">
             <AlertTriangle size={13} className="text-danger" /> {tab.error}
@@ -255,7 +258,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         ) : null}
 
         <div className="relative min-h-0 flex-1">
-          <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title="Starting the editor…" />}>
+          <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
             <CodeEditor tab={tab} readOnly={readOnly} onCursor={setCursor} />
           </Suspense>
           {!hasText && (
@@ -271,17 +274,15 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               {names.get(tab.projectId)} › {tab.path.split('/').join(' › ')}
             </span>
             {readOnly && (
-              <span className="flex items-center gap-1" title="This W-ONE core does not allow remote edits (remote shells are off)">
-                <Lock size={11} /> Read-only
+              <span className="flex items-center gap-1" title={t.editor.readOnlyHint}>
+                <Lock size={11} /> {t.editor.readOnly}
               </span>
             )}
             {cursor && (
-              <span>
-                Ln {cursor.line}, Col {cursor.col}
-              </span>
+              <span>{t.editor.lineCol(cursor.line, cursor.col)}</span>
             )}
             {cursor && <span>{cursor.language}</span>}
-            <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? 'Saving…' : tab.dirty ? 'Unsaved' : 'Saved'}</span>
+            <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? t.editor.saving : tab.dirty ? t.editor.unsaved : t.editor.saved}</span>
           </footer>
         )}
       </section>

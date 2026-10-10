@@ -41,6 +41,18 @@ export interface FileChange {
   removed: number
 }
 
+/** An own working folder's branch, as far as git and GitHub tell. */
+export interface SessionBranch {
+  /** On origin (as of the last push or fetch). */
+  pushed: boolean
+  /** Its pull request on GitHub — known when the `gh` CLI is installed and signed in. */
+  pr?: { number: number; url: string; state: 'open' | 'merged' | 'closed' }
+  /** Its work is in origin's default branch: the pull request was merged, or its commits are there. */
+  merged: boolean
+  /** Files changed in the folder but not committed — cleaning it up loses them. */
+  uncommitted: number
+}
+
 export interface AgentSession {
   id: string
   kind: AgentKind

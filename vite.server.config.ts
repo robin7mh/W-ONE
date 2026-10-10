@@ -16,7 +16,12 @@ const external = [
 
 export default defineConfig({
   resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },
-  define: { __WONE_VERSION__: JSON.stringify(pkg.version) },
+  define: {
+    __WONE_VERSION__: JSON.stringify(pkg.version),
+    // Where W-ONE Cloud lives (see electron/main/services/cloud/config.ts).
+    __WONE_CLOUD_URL__: JSON.stringify(process.env.WONE_CLOUD_URL ?? ''),
+    __WONE_CLOUD_KEY__: JSON.stringify(process.env.WONE_CLOUD_KEY ?? '')
+  },
   build: {
     outDir: 'out/server',
     emptyOutDir: true,

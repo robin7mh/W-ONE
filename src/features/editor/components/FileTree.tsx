@@ -1,6 +1,7 @@
 import { ChevronRight, File, FileCode2, FileImage, FileJson, FileText, Folder, FolderOpen, type LucideIcon } from 'lucide-react'
 import type { FileEntry } from '@shared/types/files'
 import { cn } from '@/lib/cn'
+import { useT } from '@/lib/i18n'
 import { tabKey, useEditor } from '../store'
 
 const CODE = /\.(tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|swift|c|cc|cpp|h|hpp|cs|rb|php|sh|zsh|vue|svelte|css|scss|less|html?|sql|ya?ml|toml)$/i
@@ -82,14 +83,15 @@ function Level({ projectId, entries, depth }: { projectId: string; entries: File
  * Git-ignored entries are dimmed; `.git` itself never shows.
  */
 export function FileTree({ projectId }: { projectId: string }) {
+  const t = useT()
   const root = useEditor((s) => s.tree[tabKey(projectId, '')])
   const error = useEditor((s) => s.treeError)
 
   if (error) return <p className="px-3 py-2 font-sans text-[12px] text-danger">{error}</p>
-  if (!root) return <p className="px-3 py-2 font-sans text-[12px] text-text-muted">Loading…</p>
-  if (!root.length) return <p className="px-3 py-2 font-sans text-[12px] text-text-muted">This folder is empty.</p>
+  if (!root) return <p className="px-3 py-2 font-sans text-[12px] text-text-muted">{t.common.loading}</p>
+  if (!root.length) return <p className="px-3 py-2 font-sans text-[12px] text-text-muted">{t.editor.emptyFolder}</p>
   return (
-    <div role="tree" aria-label="Files" className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+    <div role="tree" aria-label={t.editor.files} className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
       <Level projectId={projectId} entries={root} depth={0} />
     </div>
   )

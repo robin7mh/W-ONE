@@ -9,10 +9,11 @@ export type ModuleId =
   | 'agents'
   | 'system'
   | 'settings'
+  | 'account'
 
 export interface NavItem {
-  id: ModuleId
-  label: string
+  /** Its label is `t.nav[id]`. */
+  id: Exclude<ModuleId, 'account'>
   icon: LucideIcon
 }
 

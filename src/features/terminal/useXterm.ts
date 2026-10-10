@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ipc, onEvent } from '@shared/ipc/client'
 import type { TerminalData } from '@shared/types/terminal'
+import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 import { themeFromTokens } from './theme'
 
 export interface XtermHooks {
@@ -106,7 +107,7 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
     const mo = new MutationObserver(() => {
       term.options.theme = themeFromTokens()
     })
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: APPEARANCE_ATTRIBUTES })
 
     return () => {
       offData()

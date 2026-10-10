@@ -33,11 +33,14 @@ vi.mock('node:child_process', () => {
 const electron = vi.hoisted(() => ({
   showOpenDialog: vi.fn(),
   openPath: vi.fn(async () => ''),
+  openExternal: vi.fn(async () => {}),
+  appForProtocol: vi.fn((_url: string) => ''),
   encryption: true
 }))
 vi.mock('electron', () => ({
+  app: { getApplicationNameForProtocol: electron.appForProtocol },
   dialog: { showOpenDialog: electron.showOpenDialog },
-  shell: { openPath: electron.openPath },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal },
   safeStorage: {
     isEncryptionAvailable: () => electron.encryption,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
@@ -100,6 +103,11 @@ describe('detectGit', () => {
       return 'HEAD'
     })
     expect(await detectGit('/x')).toEqual({ isRepo: true, branch: 'HEAD', dirty: false })
+  })
+
+  it('links the repo page from origin, without credentials', async () => {
+    proc.setResponder((_cmd, args) => (args[0] === 'remote' ? 'https://robin:token@github.com/robin7mh/testing-games.git' : 'true'))
+    expect((await detectGit('/x')).webUrl).toBe('https://github.com/robin7mh/testing-games')
   })
 })
 
@@ -322,40 +330,38 @@ describe('ProjectService', () => {
     })
   })
 
-  describe('openTerminal', () => {
-    const added = async () => {
-      const s = await setup()
-      proc.setResponder(() => new Error('no git'))
-      const { id } = await s.add(await tempDir())
-      proc.setResponder(() => '')
-      return { s, id }
-    }
+  it("pull: fast-forward only, then fresh detection; git's own reason when it fails", async () => {
+    const s = await setup()
+    proc.setResponder(() => new Error('no git'))
+    const { id } = await s.add(await tempDir())
+    proc.setResponder(() => '')
+    await s.pull(id)
+    expect(proc.calls.find((c) => c.args[0] === 'pull')).toMatchObject({ cmd: 'git', args: ['pull', '--ff-only', '--quiet'] })
+    proc.setResponder((_c, args) =>
+      args[0] === 'pull' ? Object.assign(new Error('Command failed: git pull'), { stderr: 'fatal: Not possible to fast-forward, aborting.\nmore' }) : ''
+    )
+    await expect(s.pull(id)).rejects.toMatchObject({ code: 'pull-failed', message: 'fatal: Not possible to fast-forward, aborting.' })
+    proc.setResponder((_c, args) => (args[0] === 'pull' ? new Error('spawn git ENOENT') : ''))
+    await expect(s.pull(id)).rejects.toMatchObject({ code: 'pull-failed', message: 'spawn git ENOENT' })
+  })
 
-    it('macOS: Terminal.app', async () => {
-      const { s, id } = await added()
-      setPlatform('darwin')
-      await s.openTerminal(id)
-      expect(proc.calls.at(-1)).toMatchObject({ cmd: 'open', args: ['-a', 'Terminal', expect.any(String)] })
-    })
+  it('GitHub Desktop: found by its link scheme, opens the project folder; absent on a headless host', async () => {
+    const s = await setup()
+    proc.setResponder(() => new Error('no git'))
+    const dir = await tempDir('my repo-')
+    const { id } = await s.add(dir)
 
-    it('Windows: Windows Terminal, else cmd', async () => {
-      const { s, id } = await added()
-      setPlatform('win32')
-      await s.openTerminal(id)
-      expect(proc.calls.at(-1)?.cmd).toBe('wt')
-      proc.setResponder((cmd) => (cmd === 'wt' ? new Error('no wt') : ''))
-      await s.openTerminal(id)
-      expect(proc.calls.at(-1)?.cmd).toBe('cmd')
-    })
+    expect(s.githubDesktop()).toBeNull()
+    electron.appForProtocol.mockReturnValueOnce('GitHub Desktop')
+    expect(s.githubDesktop()).toBe('GitHub Desktop')
+    expect(electron.appForProtocol).toHaveBeenLastCalledWith('x-github-client://')
+    await s.openInGitHubDesktop(id)
+    expect(electron.openExternal).toHaveBeenCalledWith(`x-github-client://openLocalRepo/${encodeURIComponent(s.getProjectPath(id)!)}`)
 
-    it('Linux: first available emulator, else an error', async () => {
-      const { s, id } = await added()
-      setPlatform('linux')
-      proc.setResponder((cmd) => (cmd === 'x-terminal-emulator' ? new Error('missing') : ''))
-      await s.openTerminal(id)
-      expect(proc.calls.at(-1)?.cmd).toBe('gnome-terminal')
-      proc.setResponder(() => new Error('missing'))
-      await expect(s.openTerminal(id)).rejects.toThrow('No terminal emulator found')
-    })
+    const headless = new ProjectService(new ProjectRegistry(await tempDir()), headlessPlatform)
+    await headless.init()
+    const other = await headless.add(dir)
+    expect(headless.githubDesktop()).toBeNull()
+    await expect(headless.openInGitHubDesktop(other.id)).rejects.toMatchObject({ code: 'desktop-only' })
   })
 })

@@ -11,7 +11,8 @@ import type {
   AgentSessionDetail,
   CreateSessionRequest,
   FileChange,
-  FileDiff
+  FileDiff,
+  SessionBranch
 } from '@shared/types/agents'
 import type { IpcEvents } from '@shared/ipc/contract'
 import type { TerminalInfo } from '@shared/types/terminal'
@@ -21,11 +22,11 @@ import type { LocalAgentServer } from './LocalAgentServer'
 import type { McpSessionContext } from './mcp'
 import { confine } from '../../lib/confine'
 import { claudeArgs, claudeEnv } from './claudeLaunch'
-import { detectAgents, type Probe } from './detect'
+import { detectAgents, loginShellProbe, type Probe } from './detect'
 import { applyHook, toolRisk, toolSummary, toolTitle, type Applied, type HookEvent } from './transcript'
 import { journalBody, journalTitle } from './journal'
 import { ACP_AGENTS, applyAcpUpdate, findAcpTool, kindRisk, openTurn, pickOption, type AcpKind, type AcpProcess } from './acp'
-import { shellCommand, shellEnv } from '../terminal/TerminalService'
+import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
 
 const AGENT_NAMES: Record<AgentKind, string> = { 'claude-code': 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' }
 /** Left out of an isolated session's diff: the link to the project's dependencies. */
@@ -59,6 +60,8 @@ interface Live extends Record_ {
   acp?: AcpLink
   /** A plain shell in the session's folder (ACP agents have no terminal of their own). */
   shellId?: string
+  /** Counts the agent's starts: only the current process's exit ends the session — not a late one from before a resume. */
+  run?: number
 }
 
 export interface AgentSessionDeps {
@@ -117,7 +120,12 @@ export class AgentSessionService {
   private writes = Promise.resolve()
   private disposed = false
 
-  constructor(private readonly deps: AgentSessionDeps) {}
+  /** Runs the user's own CLIs (`gh`) like their terminal would. */
+  private readonly probe: Probe
+
+  constructor(private readonly deps: AgentSessionDeps) {
+    this.probe = deps.probe ?? loginShellProbe
+  }
 
   /** Sessions from earlier runs: their processes are gone — they can be resumed. */
   async init(): Promise<void> {
@@ -304,6 +312,38 @@ export class AgentSessionService {
     return this.deps.git.changes(l.session.cwd, l.baseline, l.session.worktree ? LINKED : [])
   }
 
+  /**
+   * An own working folder's branch: pushed? its pull request? merged into the
+   * default branch? — so a merged PR shows as merged, not as changes to take over.
+   */
+  async branch(id: string): Promise<SessionBranch | null> {
+    const l = this.require(id)
+    const { worktree, repoUrl } = l.session
+    if (!worktree || !existsSync(worktree)) return null
+    // An own working folder always has its branch and its starting point.
+    const branch = l.session.branch!
+    const [pushed, pr, uncommitted] = await Promise.all([
+      this.deps.git.pushed(worktree, branch),
+      this.pullRequest(repoUrl, branch),
+      this.deps.git.uncommitted(worktree, LINKED)
+    ])
+    const merged = pr ? pr.state === 'merged' : await this.deps.git.landed(worktree, branch, l.baseline!.base)
+    return { pushed, ...(pr ? { pr } : {}), merged, uncommitted }
+  }
+
+  /** The branch's pull request on GitHub, through the user's own `gh` (absent without it). */
+  private async pullRequest(repoUrl: string | undefined, branch: string): Promise<SessionBranch['pr']> {
+    const repo = /^https:\/\/github\.com\/([^/]+\/[^/]+)$/.exec(repoUrl ?? '')?.[1]
+    if (!repo) return undefined
+    try {
+      const line = `gh pr list --repo ${shellQuote(repo)} --head ${shellQuote(branch)} --state all --json number,url,state --limit 1`
+      const [pr] = JSON.parse(await this.probe(line)) as { number: number; url: string; state: string }[]
+      return pr && { number: pr.number, url: pr.url, state: pr.state.toLowerCase() as NonNullable<SessionBranch['pr']>['state'] }
+    } catch {
+      return undefined
+    }
+  }
+
   async diff(id: string, path: string): Promise<FileDiff> {
     const l = this.require(id)
     const abs = await confine(l.session.cwd, path)
@@ -363,6 +403,7 @@ export class AgentSessionService {
 
   private async launch(l: Live, opts: { prompt?: string; resume?: boolean }): Promise<void> {
     const { session } = l
+    const run = (l.run = (l.run ?? 0) + 1)
     const token = this.deps.server.register(session.id)
     const hookUrl = this.deps.server.url('hooks', session.id)
     try {
@@ -385,7 +426,7 @@ export class AgentSessionService {
         projectId: session.projectId,
         cols: 120,
         rows: 36,
-        onExit: (code) => this.exited(session.id, code)
+        onExit: (code) => l.run === run && this.exited(session.id, code)
       })
       this.update(l, { terminalId: info.id, live: true, status: 'starting', error: undefined })
     } catch (err) {
@@ -421,6 +462,7 @@ export class AgentSessionService {
   private launchAcp(l: Live, prompt?: string): void {
     const { session } = l
     const kind = session.kind as AcpKind
+    const run = (l.run = (l.run ?? 0) + 1)
     const token = this.deps.server.register(session.id)
     const proc = this.deps.spawnAcp(ACP_AGENTS[kind], session.cwd, shellEnv())
     const link: AcpLink = { proc, abort: new AbortController() } as AcpLink
@@ -439,7 +481,7 @@ export class AgentSessionService {
       return (await link.conn.newSession({ cwd: session.cwd, mcpServers })).sessionId
     })()
     l.acp = link
-    proc.onExit((code) => this.exited(session.id, code))
+    proc.onExit((code) => l.run === run && this.exited(session.id, code))
     this.update(l, { live: true, status: 'starting', terminalId: undefined, error: undefined })
     link.ready.then(
       () => {
