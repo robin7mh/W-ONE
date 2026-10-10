@@ -37,7 +37,8 @@ describe('projects store', () => {
       'projects:remove': () => undefined,
       'projects:openInEditor': () => undefined,
       'projects:openInGitHubDesktop': () => undefined,
-      'projects:githubDesktop': () => 'GitHub Desktop'
+      'projects:githubDesktop': () => 'GitHub Desktop',
+      'projects:pull': ({ id }: { id: string }) => ({ ...project(id), name: 'pulled' })
     })
     const s = useProjects.getState()
     await s.load()
@@ -56,6 +57,8 @@ describe('projects store', () => {
 
     await s.refresh('b')
     expect(useProjects.getState().projects.find((p) => p.id === 'b')!.name).toBe('fresh')
+    expect(await s.pull('a')).toBeUndefined()
+    expect(useProjects.getState().projects.map((p) => p.name)).toEqual(['pulled', 'fresh', expect.any(String)])
 
     s.select('b')
     await s.remove('b')
@@ -74,7 +77,7 @@ describe('projects store', () => {
 
     installBridge(
       Object.fromEntries(
-        ['projects:list', 'projects:pickFolder', 'projects:remove', 'projects:refresh', 'projects:openInEditor', 'projects:openInGitHubDesktop'].map(
+        ['projects:list', 'projects:pickFolder', 'projects:remove', 'projects:refresh', 'projects:pull', 'projects:openInEditor', 'projects:openInGitHubDesktop'].map(
           (ch) => [ch, () => fail(`${ch} failed`)]
         )
       )
@@ -85,6 +88,7 @@ describe('projects store', () => {
       [() => s.addViaPicker(), 'projects:pickFolder'],
       [() => s.remove('x'), 'projects:remove'],
       [() => s.refresh('x'), 'projects:refresh'],
+      [() => s.pull('x'), 'projects:pull'],
       [() => s.openEditor('x'), 'projects:openInEditor'],
       [() => s.openInGitHubDesktop('x'), 'projects:openInGitHubDesktop']
     ] as const) {

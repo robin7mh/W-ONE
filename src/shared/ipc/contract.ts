@@ -25,6 +25,7 @@ import type {
   AgentSessionDetail,
   CreateSessionRequest,
   FileChange,
+  SessionBranch,
   FileDiff
 } from '@shared/types/agents'
 import type {
@@ -66,6 +67,8 @@ export interface IpcChannels {
   'projects:add': { request: { path: string }; response: Project }
   'projects:remove': { request: { id: string }; response: void }
   'projects:refresh': { request: { id: string }; response: Project }
+  /** `git pull --ff-only` in the project, then fresh detection. */
+  'projects:pull': { request: { id: string }; response: Project }
   'projects:openInEditor': { request: { id: string }; response: void }
   /** GitHub Desktop's name when it is installed on the desktop, else null. */
   'projects:githubDesktop': { request: void; response: string | null }
@@ -156,6 +159,7 @@ export interface IpcChannels {
   'agents:resume': { request: { id: string }; response: AgentSession }
   'agents:remove': { request: { id: string }; response: void }
   'agents:changes': { request: { id: string }; response: FileChange[] }
+  'agents:branch': { request: { id: string }; response: SessionBranch | null }
   'agents:diff': { request: { id: string; path: string }; response: FileDiff }
   'agents:accept': { request: { id: string }; response: { files: number } }
   'agents:discard': { request: { id: string }; response: void }
@@ -199,6 +203,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'projects:add': 'any',
   'projects:remove': 'any',
   'projects:refresh': 'any',
+  'projects:pull': 'terminal',
   'projects:openInEditor': 'desktop',
   'projects:githubDesktop': 'desktop',
   'projects:openInGitHubDesktop': 'desktop',
@@ -275,6 +280,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:resume': 'terminal',
   'agents:remove': 'terminal',
   'agents:changes': 'any',
+  'agents:branch': 'any',
   'agents:diff': 'any',
   'agents:accept': 'terminal',
   'agents:discard': 'terminal',

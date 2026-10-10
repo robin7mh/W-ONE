@@ -330,6 +330,21 @@ describe('ProjectService', () => {
     })
   })
 
+  it("pull: fast-forward only, then fresh detection; git's own reason when it fails", async () => {
+    const s = await setup()
+    proc.setResponder(() => new Error('no git'))
+    const { id } = await s.add(await tempDir())
+    proc.setResponder(() => '')
+    await s.pull(id)
+    expect(proc.calls.find((c) => c.args[0] === 'pull')).toMatchObject({ cmd: 'git', args: ['pull', '--ff-only', '--quiet'] })
+    proc.setResponder((_c, args) =>
+      args[0] === 'pull' ? Object.assign(new Error('Command failed: git pull'), { stderr: 'fatal: Not possible to fast-forward, aborting.\nmore' }) : ''
+    )
+    await expect(s.pull(id)).rejects.toMatchObject({ code: 'pull-failed', message: 'fatal: Not possible to fast-forward, aborting.' })
+    proc.setResponder((_c, args) => (args[0] === 'pull' ? new Error('spawn git ENOENT') : ''))
+    await expect(s.pull(id)).rejects.toMatchObject({ code: 'pull-failed', message: 'spawn git ENOENT' })
+  })
+
   it('GitHub Desktop: found by its link scheme, opens the project folder; absent on a headless host', async () => {
     const s = await setup()
     proc.setResponder(() => new Error('no git'))

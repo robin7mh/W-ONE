@@ -23,7 +23,7 @@ async function gitProject(): Promise<string> {
 
 
 /** Everything around the service, faked at its seams; git is real. */
-async function setup(opts: { projectPath?: string; projectName?: string } = {}) {
+async function setup(opts: { projectPath?: string; projectName?: string; probe?: AgentSessionDeps['probe'] } = {}) {
   const dir = await tempDir('wone-agents-')
   const projectPath = opts.projectPath ?? (await gitProject())
   const exits = new Map<string, (code: number) => void>()
@@ -74,7 +74,8 @@ async function setup(opts: { projectPath?: string; projectName?: string } = {}) 
     }),
     journal,
     notify: vi.fn(),
-    spawnAcp: vi.fn()
+    spawnAcp: vi.fn(),
+    ...(opts.probe ? { probe: opts.probe } : {})
   }
   const svc = new AgentSessionService(deps)
   track(svc)
@@ -142,6 +143,8 @@ describe('AgentSessionService: sessions', () => {
     expect(resumed).toMatchObject({ status: 'starting', terminalId: 'pty-2' })
     expect(t.terminal.spawned[1].command.args.slice(0, 2)).toEqual(['--resume', s.id])
     expect(await t.svc.resume(s.id)).toBe(t.svc.list()[0]) // already running
+    t.terminal.spawned[0].onExit!(0) // the old PTY reports its end late: the resumed agent keeps running
+    expect(t.svc.get(s.id)).toMatchObject({ status: 'starting', live: true, terminalId: 'pty-2' })
     vi.useRealTimers()
   })
 
@@ -216,12 +219,12 @@ describe('AgentSessionService: sessions', () => {
     expect(t.deps.notify).toHaveBeenCalledWith('Claude Code · Login fix', 'Done — your turn', s.id)
     await vi.advanceTimersByTimeAsync(1500)
     vi.useRealTimers()
-    await tick(50) // the journal reads the changes (real git)
+    // The journal reads the changes (real git): wait for it, however busy the machine is.
+    await vi.waitFor(() => expect(t.svc.get(s.id).journal).toBeDefined())
     expect(t.journal).toHaveBeenCalledTimes(1)
     const note = t.svc.get(s.id).journal
     t.svc.rename(s.id, 'Auth fix')
-    await tick(50)
-    expect(t.journal).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(t.journal).toHaveBeenCalledTimes(2))
     expect(t.journal.mock.calls[1][1]).toContain('Auth fix')
     expect(t.journal.mock.calls[1][2]).toBe(note) // the same note, rewritten
   })
@@ -325,15 +328,13 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
 
     await vi.advanceTimersByTimeAsync(1500)
     vi.useRealTimers()
-    await tick(50)
+    await vi.waitFor(() => expect(t.svc.get(s.id).journal).toMatch(/^Agents\/Demo App\//))
     expect(t.journal).toHaveBeenCalledWith('Agents/Demo App', expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{4} Add a greeting$/), undefined, expect.stringContaining('`hello.ts` (neu)'))
-    expect(t.svc.get(s.id).journal).toMatch(/^Agents\/Demo App\//)
 
     // a second turn rewrites the same note
     await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'more' })
     t.svc.stop(s.id) // the exit writes it right away
-    await tick(50)
-    expect(t.journal).toHaveBeenLastCalledWith('Agents/Demo App', expect.any(String), t.svc.get(s.id).journal, expect.any(String))
+    await vi.waitFor(() => expect(t.journal).toHaveBeenLastCalledWith('Agents/Demo App', expect.any(String), t.svc.get(s.id).journal, expect.any(String)))
   })
 
   it('journal: nothing before the first prompt; failures are logged', async () => {
@@ -346,14 +347,14 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
     await t.hook(s2.id, { hook_event_name: 'UserPromptSubmit', prompt: 'x' })
     t.journal.mockRejectedValueOnce(new Error('vault gone'))
     t.svc.stop(s2.id)
-    await tick(30)
-    expect(warn).toHaveBeenCalledWith('[agents] journal not written:', 'vault gone')
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('[agents] journal not written:', 'vault gone'))
     // no vault: the session simply has no journal
     const s3 = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
     await t.hook(s3.id, { hook_event_name: 'UserPromptSubmit', prompt: 'x' })
     t.journal.mockResolvedValueOnce(undefined as unknown as string)
     t.svc.stop(s3.id)
-    await tick(30)
+    await vi.waitFor(() => expect(t.journal).toHaveBeenCalledTimes(2))
+    await tick()
     expect(t.svc.get(s3.id).journal).toBeUndefined()
   })
 
@@ -400,7 +401,7 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
     await t.hook(s.id, { hook_event_name: 'SessionEnd', reason: 'other' })
     expect(t.deps.server.unregister).toHaveBeenCalledWith(s.id)
     expect(t.svc.get(s.id).status).toBe('ended')
-    await t.hook(s.id, { hook_event_name: 'Notification', notification_type: 'idle_prompt' })
+    await t.hook(s.id, { hook_event_name: 'Notification', notification_type: 'agent_needs_input' })
     expect(t.deps.notify).toHaveBeenLastCalledWith(expect.any(String), 'Waiting for your answer', s.id)
   })
 
@@ -482,6 +483,58 @@ describe('AgentSessionService: changes and own working folders', () => {
     const third = await t.svc.create({ kind: 'claude-code', projectId: 'p1', isolated: true, title: 'x' })
     await t.svc.remove(third.id)
     expect(existsSync(third.worktree!)).toBe(false)
+  })
+
+  it('the branch of an own working folder: pushed, its pull request (gh), merged — none for a plain session', async () => {
+    let gh: () => string = () => '[]'
+    const probe = vi.fn(async (_line: string) => gh())
+    const t = await setup({ probe })
+    const origin = await tempDir('wone-origin-')
+    sh(origin, 'init', '-q', '--bare', '-b', 'main')
+    sh(t.projectPath, 'remote', 'add', 'origin', 'git@github.com:me/demo.git')
+
+    const plain = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    expect(await t.svc.branch(plain.id)).toBeNull()
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', isolated: true })
+    expect(s.repoUrl).toBe('https://github.com/me/demo')
+    sh(t.projectPath, 'remote', 'set-url', 'origin', origin) // the "GitHub" of this test
+    sh(t.projectPath, 'push', '-q', 'origin', 'main')
+
+    expect(await t.svc.branch(s.id)).toEqual({ pushed: false, merged: false, uncommitted: 0 })
+    expect(probe).toHaveBeenLastCalledWith(`gh pr list --repo me/demo --head ${s.branch} --state all --json number,url,state --limit 1`)
+
+    const wt = s.worktree!
+    await writeFile(join(wt, 'app.ts'), 'export const a = 2\n')
+    sh(wt, 'commit', '-qam', 'agent work')
+    sh(wt, 'push', '-q', '-u', 'origin', s.branch!)
+    gh = () => JSON.stringify([{ number: 7, url: 'https://github.com/me/demo/pull/7', state: 'OPEN' }])
+    expect(await t.svc.branch(s.id)).toEqual({ pushed: true, pr: { number: 7, url: 'https://github.com/me/demo/pull/7', state: 'open' }, merged: false, uncommitted: 0 })
+
+    gh = () => JSON.stringify([{ number: 7, url: 'https://github.com/me/demo/pull/7', state: 'MERGED' }])
+    await writeFile(join(wt, 'left.txt'), 'x\n')
+    expect(await t.svc.branch(s.id)).toMatchObject({ pr: { state: 'merged' }, merged: true, uncommitted: 1 })
+
+    // Without gh: merged is read from origin's main.
+    gh = () => {
+      throw new Error('gh: command not found')
+    }
+    expect((await t.svc.branch(s.id))!.merged).toBe(false)
+    const other = join(await tempDir(), 'other')
+    execFileSync('git', ['clone', '-q', origin, other])
+    sh(other, 'config', 'user.email', 't@t')
+    sh(other, 'config', 'user.name', 'T')
+    sh(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request', `origin/${s.branch}`)
+    sh(other, 'push', '-q', 'origin', 'main')
+    expect(await t.svc.branch(s.id)).toEqual({ pushed: true, merged: true, uncommitted: 1 })
+
+    // No GitHub remote: no gh at all.
+    probe.mockClear()
+    const local = await t.svc.create({ kind: 'claude-code', projectId: 'p1', isolated: true })
+    expect((await t.svc.branch(local.id))!.pr).toBeUndefined()
+    expect(probe).not.toHaveBeenCalled()
+
+    sh(t.projectPath, 'worktree', 'remove', '--force', wt) // the folder is gone: nothing to tell
+    expect(await t.svc.branch(s.id)).toBeNull()
   })
 
   it('isolated without node_modules in the project: no link; a worktree that can\'t be removed is tolerated on remove', async () => {

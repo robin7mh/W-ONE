@@ -17,6 +17,8 @@ interface ProjectsState {
   addPath: (path: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: (id: string) => Promise<void>
+  /** `git pull --ff-only`; resolves to the error message, or undefined when it worked. */
+  pull: (id: string) => Promise<string | undefined>
   openEditor: (id: string) => Promise<void>
   openInGitHubDesktop: (id: string) => Promise<void>
   select: (id: string) => void
@@ -96,6 +98,19 @@ export const useProjects = create<ProjectsState>((set, get) => ({
       }))
     } catch (err) {
       set({ busyId: undefined, error: errorMessage(err) })
+    }
+  },
+
+  pull: async (id) => {
+    set({ busyId: id, error: undefined })
+    try {
+      const updated = await ipc('projects:pull', { id })
+      set((s) => ({ projects: s.projects.map((p) => (p.id === id ? updated : p)), busyId: undefined }))
+      return undefined
+    } catch (err) {
+      const error = errorMessage(err)
+      set({ busyId: undefined, error })
+      return error
     }
   },
 

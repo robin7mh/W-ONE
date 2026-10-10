@@ -145,6 +145,7 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['projects:add', { path: '/x' }, 'add', ['/x']],
         ['projects:remove', { id: 'i' }, 'remove', ['i']],
         ['projects:refresh', { id: 'i' }, 'refresh', ['i']],
+        ['projects:pull', { id: 'i' }, 'pull', ['i']],
         ['projects:openInEditor', { id: 'i' }, 'openInEditor', ['i']],
         ['projects:githubDesktop', undefined, 'githubDesktop', []],
         ['projects:openInGitHubDesktop', { id: 'i' }, 'openInGitHubDesktop', ['i']],
@@ -228,6 +229,7 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['agents:resume', { id: 'i' }, 'resume', ['i']],
         ['agents:remove', { id: 'i' }, 'remove', ['i']],
         ['agents:changes', { id: 'i' }, 'changes', ['i']],
+        ['agents:branch', { id: 'i' }, 'branch', ['i']],
         ['agents:diff', { id: 'i', path: 'a.ts' }, 'diff', ['i', 'a.ts']],
         ['agents:accept', { id: 'i' }, 'accept', ['i']],
         ['agents:discard', { id: 'i' }, 'discard', ['i']]

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { errorMessage, ipc, onEvent } from '@shared/ipc/client'
 import type { ChatMessage } from '@shared/types/ai'
-import type { AgentAvailability, AgentSession, CreateSessionRequest, FileChange, FileDiff } from '@shared/types/agents'
+import type { AgentAvailability, AgentSession, CreateSessionRequest, FileChange, FileDiff, SessionBranch } from '@shared/types/agents'
 import { upsertMessage } from './store'
 
 /** What the center of the Agents module shows. */
@@ -15,6 +15,8 @@ interface AgentsState {
   activeId?: string
   messages: Record<string, ChatMessage[]>
   changes: Record<string, FileChange[]>
+  /** Own working folders: their branch on GitHub (pushed, pull request, merged). */
+  branches: Record<string, SessionBranch | null>
   diff?: FileDiff
   /** "New chat" dialog — optionally with a first message (e.g. from the dashboard). */
   dialog?: { prompt?: string }
@@ -40,6 +42,7 @@ interface AgentsState {
   openShell: (id: string) => Promise<string | undefined>
   openInEditor: (id: string) => Promise<void>
   loadChanges: (id?: string) => Promise<void>
+  loadBranch: (id?: string) => Promise<void>
   showDiff: (path: string) => Promise<void>
   closeDiff: () => void
   accept: () => Promise<void>
@@ -76,6 +79,7 @@ export const useAgents = create<AgentsState>((set, get) => {
     view: 'empty',
     messages: {},
     changes: {},
+    branches: {},
     busy: false,
 
     connect: () => {
@@ -207,6 +211,12 @@ export const useAgents = create<AgentsState>((set, get) => {
       act(async (x) => {
         const changes = await ipc('agents:changes', { id: x })
         set((s) => ({ changes: { ...s.changes, [x]: changes } }))
+      }, id),
+
+    loadBranch: (id) =>
+      act(async (x) => {
+        const branch = await ipc('agents:branch', { id: x })
+        set((s) => ({ branches: { ...s.branches, [x]: branch } }))
       }, id),
 
     showDiff: (path) => act(async (id) => set({ diff: await ipc('agents:diff', { id, path }) })),

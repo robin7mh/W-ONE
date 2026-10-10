@@ -192,7 +192,9 @@ export function applyHook(state: SessionState, e: HookEvent): Applied {
       break
     }
     case 'Notification':
-      if (e.notification_type === 'idle_prompt' || e.notification_type === 'agent_needs_input' || e.notification_type === 'elicitation_dialog') {
+      // A question or dialog only the agent's terminal shows. `idle_prompt` ("still waiting for
+      // your input", a minute after a finished turn) is no news: Stop already said so.
+      if (e.notification_type === 'agent_needs_input' || e.notification_type === 'elicitation_dialog') {
         if (state.status !== 'approval') state.status = 'waiting'
         attention = 'waiting'
       }

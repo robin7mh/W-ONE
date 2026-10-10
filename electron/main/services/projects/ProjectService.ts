@@ -106,6 +106,18 @@ export class ProjectService {
     await this.openPath(target)
   }
 
+  /** `git pull --ff-only`: new commits from the remote, never a merge commit — then fresh detection. */
+  async pull(id: string): Promise<Project> {
+    const { path } = this.requireProject(id)
+    try {
+      await exec('git', ['pull', '--ff-only', '--quiet'], { cwd: path, timeout: 60_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+    } catch (err) {
+      const why = (err as { stderr?: string }).stderr?.trim().split('\n')[0]
+      throw Object.assign(new Error(why || (err as Error).message), { code: 'pull-failed' })
+    }
+    return this.refresh(id)
+  }
+
   /** GitHub Desktop's name when it is installed here, else null. */
   githubDesktop(): string | null {
     return this.platform.appForUrl?.(GITHUB_DESKTOP) || null

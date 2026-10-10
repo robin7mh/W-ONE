@@ -254,6 +254,7 @@ describe('ProjectDetailPanel', () => {
       'projects:refresh': () => new Promise(() => {}),
       'projects:openInEditor': () => undefined,
       'projects:openInGitHubDesktop': () => undefined,
+      'projects:pull': () => undefined,
       'terminal:list': () => [],
       'terminal:create': () => shell
     })
@@ -298,6 +299,7 @@ describe('ProjectDetailPanel', () => {
     expect(bridge.invoke).toHaveBeenCalledWith('projects:openInGitHubDesktop', { id: 'a' })
 
     expect(screen.getByText('Refreshing…').closest('button')).toBeDisabled()
+    expect(screen.getByText('Pull').closest('button')).toBeDisabled() // with an upstream; busy while re-detecting
     expect(screen.getByText('Remove').closest('button')).toBeDisabled()
   })
 
@@ -355,17 +357,26 @@ describe('ProjectDetailPanel', () => {
   })
 
   it('dirty repo without upstream, no repo and no stack; remove', async () => {
-    const bridge = installBridge({ 'projects:remove': () => undefined, 'projects:refresh': ({ id }: { id: string }) => proj(id) })
+    const bridge = installBridge({
+      'projects:remove': () => undefined,
+      'projects:refresh': ({ id }: { id: string }) => proj(id),
+      'projects:pull': ({ id }: { id: string }) => proj(id)
+    })
     useProjects.setState({ githubDesktop: 'GitHub Desktop' })
     const { rerender } = render(<ProjectDetailPanel project={proj('d', { git: { isRepo: true, behind: 1, dirty: true } })} onNavigate={vi.fn()} />)
     expect(screen.getByText('dirty')).toBeInTheDocument()
     expect(screen.getByText('detached')).toBeInTheDocument()
     expect(screen.getByText('1')).toBeInTheDocument()
+    await act(settle)
+    fireEvent.click(screen.getByText('Pull'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('projects:pull', { id: 'd' })
 
     expect(screen.queryByText('GitHub')).toBeNull() // no origin → no repo link
     rerender(<ProjectDetailPanel project={proj('n', { stack: { languages: [], frameworks: [], hasReadme: false, packageJson: { scripts: [] } } })} onNavigate={vi.fn()} />)
     expect(screen.getByText('no repo')).toBeInTheDocument()
     expect(screen.queryByText('GitHub Desktop')).toBeNull() // not a repo
+    expect(screen.queryByText('Pull')).toBeNull() // no upstream
     expect(screen.queryByText('Branch')).toBeNull()
     expect(screen.getByText('—')).toBeInTheDocument()
     expect(screen.getByText('none')).toBeInTheDocument()

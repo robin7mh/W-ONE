@@ -177,6 +177,7 @@ describe('useAgents store', () => {
       'agents:stop': route('agents:stop', undefined),
       'agents:resume': route('agents:resume', session()),
       'agents:changes': route('agents:changes', [{ path: 'a.ts', status: 'modified', added: 1, removed: 0 }]),
+      'agents:branch': route('agents:branch', { pushed: true, merged: false, uncommitted: 0 }),
       'agents:diff': route('agents:diff', { path: 'a.ts', original: 'a', modified: 'b' }),
       'agents:accept': route('agents:accept', { files: 1 }),
       'agents:discard': route('agents:discard', undefined),
@@ -197,6 +198,8 @@ describe('useAgents store', () => {
     await ag().resume('other')
     await ag().loadChanges()
     expect(ag().changes.s9).toHaveLength(1)
+    await ag().loadBranch()
+    expect(ag().branches.s9).toEqual({ pushed: true, merged: false, uncommitted: 0 })
     await ag().showDiff('a.ts')
     expect(ag().diff).toEqual({ path: 'a.ts', original: 'a', modified: 'b' })
     ag().closeDiff()
@@ -213,6 +216,7 @@ describe('useAgents store', () => {
       'agents:stop',
       'agents:resume',
       'agents:changes',
+      'agents:branch',
       'agents:diff',
       'agents:accept',
       'agents:discard'
@@ -551,11 +555,13 @@ describe('SessionPane: a shell for agents without a terminal', () => {
 describe('SessionSide and diffs', () => {
   it('changes with diffs; own working folder: take over or (after asking) discard', async () => {
     const loadChanges = vi.fn(async () => {})
+    const loadBranch = vi.fn(async () => {})
     const showDiff = vi.fn(async () => {})
     const accept = vi.fn(async () => {})
     const discard = vi.fn(async () => {})
     useAgents.setState({
       loadChanges,
+      loadBranch,
       showDiff,
       accept,
       discard,
@@ -569,9 +575,14 @@ describe('SessionSide and diffs', () => {
     })
     const { rerender } = render(<SessionSide session={session({ worktree: '/wt', branch: 'wone/x' })} onOpenNote={vi.fn()} />)
     expect(loadChanges).toHaveBeenCalledWith('s1')
+    expect(loadBranch).toHaveBeenCalledWith('s1')
     expect(screen.getByText('In its own working folder')).toBeInTheDocument()
     expect(screen.getByText('/wt')).toBeInTheDocument()
     expect(screen.getByText(/not on GitHub/)).toBeInTheDocument()
+    act(() => useAgents.setState({ branches: { s1: { pushed: true, merged: false, uncommitted: 0 } } }))
+    expect(screen.getByText(/also on GitHub/)).toBeInTheDocument()
+    act(() => useAgents.setState({ branches: { s1: { pushed: true, pr: { number: 7, url: 'https://github.com/me/web/pull/7', state: 'open' }, merged: false, uncommitted: 0 } } }))
+    expect(screen.getByText('— PR #7 open.').closest('a')).toHaveAttribute('href', 'https://github.com/me/web/pull/7')
     expect(screen.getByText(/commit and push them as usual/)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Changes 3' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getAllByText(/^[AMD]$/).map((n) => n.textContent)).toEqual(['M', 'A', 'D'])
@@ -596,6 +607,59 @@ describe('SessionSide and diffs', () => {
     expect(loadChanges).toHaveBeenCalledTimes(3) // a new step finished
     expect(screen.getByText('Since the session started')).toBeInTheDocument()
     expect(screen.queryByText('Take over')).toBeNull()
+  })
+
+  it('a merged pull request: update the project and clean up (asking first when files would be lost); fresh on focus and every minute', async () => {
+    const loadChanges = vi.fn(async () => {})
+    const loadBranch = vi.fn(async () => {})
+    const discard = vi.fn(async () => {})
+    let finish: (error?: string) => void = () => {}
+    const pull = vi.fn((_id: string) => new Promise<string | undefined>((r) => (finish = r)))
+    useProjects.setState({ pull })
+    useAgents.setState({
+      loadChanges,
+      loadBranch,
+      discard,
+      changes: { s1: [{ path: 'a.ts', status: 'modified', added: 1, removed: 0 }] },
+      branches: { s1: { pushed: true, pr: { number: 1, url: 'https://github.com/me/web/pull/1', state: 'merged' }, merged: true, uncommitted: 0 } }
+    })
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { rerender, unmount } = render(<SessionSide session={session({ worktree: '/wt', branch: 'wone/x' })} onOpenNote={vi.fn()} />)
+    expect(screen.getByText('Merged on GitHub')).toBeInTheDocument()
+    expect(screen.getByText('— PR #1 merged.').closest('a')).toHaveAttribute('href', 'https://github.com/me/web/pull/1')
+    expect(screen.queryByText('Take over')).toBeNull() // the work is in main already
+
+    fireEvent.click(screen.getByText('Update project'))
+    expect(pull).toHaveBeenCalledWith('p1')
+    expect(screen.getByText('Update project').closest('button')).toBeDisabled()
+    await act(async () => finish())
+    expect(screen.getByText('The project is up to date.')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Update project'))
+    await act(async () => finish('fatal: Not possible to fast-forward'))
+    expect(screen.getByText('fatal: Not possible to fast-forward')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Clean up')) // nothing uncommitted: no question
+    expect(discard).toHaveBeenCalledTimes(1)
+    act(() => useAgents.setState({ branches: { s1: { pushed: true, merged: true, uncommitted: 2 } } }))
+    expect(screen.getByText(/2 files here are not committed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Clean up'))
+    fireEvent.click(screen.getByText('Keep'))
+    fireEvent.click(screen.getByText('Clean up'))
+    fireEvent.click(screen.getByText('Discard'))
+    expect(discard).toHaveBeenCalledTimes(2)
+
+    // Fresh when you come back to the window, and once a minute.
+    const before = loadBranch.mock.calls.length
+    act(() => void window.dispatchEvent(new Event('focus')))
+    act(() => void vi.advanceTimersByTime(60_000))
+    expect(loadBranch.mock.calls.length).toBe(before + 2)
+    rerender(<SessionSide session={session({ id: 's2', worktree: '/wt2', branch: 'wone/y' })} onOpenNote={vi.fn()} />)
+    expect(screen.queryByText(/Not possible to fast-forward/)).toBeNull() // that was another session's
+    unmount()
+    const after = loadBranch.mock.calls.length
+    act(() => void vi.advanceTimersByTime(60_000))
+    expect(loadBranch.mock.calls.length).toBe(after) // gone with the panel
+    vi.useRealTimers()
   })
 
   it('plan and memory tabs; empty states', () => {
