@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, settle } from './bridge'
+import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentInfo, AiStatus, ChatMessage, Conversation, ConversationSummary, PermissionRequest } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
 import { applyDelta, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
@@ -430,10 +430,10 @@ describe('Composer', () => {
     await act(settle)
     expect(box).toHaveValue('Keep')
 
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: 'p1' } })
+    choose('Project context', 'demo')
     expect(p.onProject).toHaveBeenCalledWith('p1')
     rerender(<Composer {...p} projectId="p1" />)
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: '' } })
+    choose('Project context', 'No project')
     expect(p.onProject).toHaveBeenLastCalledWith(undefined)
 
     rerender(<Composer {...p} running />)

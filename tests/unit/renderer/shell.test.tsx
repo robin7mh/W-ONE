@@ -64,9 +64,10 @@ describe('ui primitives', () => {
 })
 
 describe('shell pieces', () => {
-  it('GlowBackground', () => {
+  it('GlowBackground: the plain background color, nothing on top', () => {
     const { container } = render(<GlowBackground />)
-    expect(container.querySelector('.hud-grid')).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass('bg-void')
+    expect(container.firstElementChild!.children).toHaveLength(0)
   })
 
   it('SideNavigation marks the active item and selects', () => {

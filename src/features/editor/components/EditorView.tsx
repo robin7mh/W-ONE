@@ -4,6 +4,7 @@ import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
 import { cn } from '@/lib/cn'
+import { Select } from '@/components/ui/Select'
 import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useSession } from '@/features/session/store'
@@ -198,18 +199,14 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       {/* Explorer */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-hud/60">
         <div className="flex items-center gap-1.5 p-2">
-          <select
-            aria-label={t.editor.project}
+          <Select
+            label={t.editor.project}
+            icon={FolderGit2}
             value={projectId ?? ''}
-            onChange={(e) => void useEditor.getState().selectProject(e.target.value)}
-            className="min-w-0 flex-1 rounded-md border border-hud/60 bg-surface/50 px-2 py-1.5 font-sans text-[12.5px] text-text-primary outline-none focus:border-cyan/50"
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => void useEditor.getState().selectProject(id)}
+            options={projects.map((p) => ({ value: p.id, label: p.name, hint: p.path }))}
+            className="flex-1"
+          />
           <button
             type="button"
             aria-label={t.editor.refreshFiles}

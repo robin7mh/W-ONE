@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { UserRound } from 'lucide-react'
 import { NAV_ITEMS } from '@/data/navigation'
 import type { ModuleId } from '@/types'
@@ -9,8 +8,8 @@ import { useCloud } from '@/features/cloud/store'
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
- * the `xl:` breakpoint). Active state is visual-only in this phase; the sliding
- * indicator uses a shared layoutId so it animates between items.
+ * the `xl:` breakpoint). The active item is marked in place — nothing slides
+ * when you switch modules.
  */
 export function SideNavigation({
   active,
@@ -42,17 +41,15 @@ export function SideNavigation({
             )}
           >
             {isActive && (
-              <motion.span
-                layoutId="nav-active"
+              <span
                 className="absolute inset-0 rounded-md border border-cyan/40 bg-cyan/[0.07]"
                 style={{ boxShadow: 'inset 0 0 18px rgb(var(--accent-cyan) / 0.10)' }}
-                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}
             {/* left accent tick */}
             <span
               className={cn(
-                'absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full transition-all',
+                'absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full',
                 isActive ? 'bg-cyan opacity-100' : 'bg-transparent opacity-0'
               )}
             />

@@ -261,14 +261,6 @@
   .md-prose img {
     @apply max-w-full rounded;
   }
-
-  /* Faint HUD grid used by the background. */
-  .hud-grid {
-    background-image:
-      linear-gradient(rgb(var(--border-hud) / 0.2) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(var(--border-hud) / 0.2) 1px, transparent 1px);
-    background-size: 44px 44px;
-  }
 }
 
 @layer utilities {

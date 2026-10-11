@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { FolderPicker } from '@/components/ui/FolderPicker'
 import { cn } from '@/lib/cn'
+import { Select } from '@/components/ui/Select'
 import { useSession } from '@/features/session/store'
 import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
@@ -118,26 +119,24 @@ function AiCard() {
         </div>
       )}
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <TechLabel className="text-text-muted">{t.settings.model}</TechLabel>
-          <select aria-label={t.settings.model} className={input} value={status?.settings.model ?? MODELS[0].id} onChange={(e) => void configure({ model: e.target.value })}>
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {m.note}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
+          <Select
+            label={t.settings.model}
+            value={status?.settings.model ?? MODELS[0].id}
+            onChange={(model) => void configure({ model })}
+            options={MODELS.map((m) => ({ value: m.id, label: m.label, hint: m.note }))}
+          />
+        </div>
+        <div className="flex min-w-0 flex-col gap-1">
           <TechLabel className="text-text-muted">{t.settings.effort}</TechLabel>
-          <select aria-label={t.settings.effort} className={input} value={status?.settings.effort ?? 'high'} onChange={(e) => void configure({ effort: e.target.value as Effort })}>
-            {EFFORTS.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select
+            label={t.settings.effort}
+            value={status?.settings.effort ?? 'high'}
+            onChange={(effort) => void configure({ effort: effort as Effort })}
+            options={EFFORTS.map((e) => ({ value: e, label: e }))}
+          />
+        </div>
       </div>
       <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.settings.effortHint}</p>
     </Card>

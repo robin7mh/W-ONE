@@ -1,4 +1,5 @@
 import { vi } from 'vitest'
+import { fireEvent, screen } from '@testing-library/react'
 import { setTransport } from '@shared/ipc/client'
 import type { Transport } from '@shared/ipc/transport'
 
@@ -103,4 +104,10 @@ export function installRemote(routes: Record<string, Route> = {}) {
   }
   setTransport(transport as unknown as Transport)
   return transport
+}
+
+/** Picks `option` in the W-ONE Select named `label`, the way a user does: open it, click the entry. */
+export function choose(label: string, option: string | RegExp): void {
+  fireEvent.click(screen.getByRole('combobox', { name: label }))
+  fireEvent.click(screen.getByRole('option', { name: option }))
 }

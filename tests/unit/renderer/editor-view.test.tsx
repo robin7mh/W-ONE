@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, installRemote, settle } from './bridge'
+import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { Project } from '@shared/types/project'
 import type { CursorInfo } from '@/features/editor/components/CodeEditor'
 import type { EditorTab } from '@/features/editor/store'
@@ -180,7 +180,7 @@ describe('EditorView', () => {
     expect(e().projectId).toBe('q')
     expect(screen.getByRole('treeitem', { name: 'q-file.ts' })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p' } })
+    choose('Project', /^Alpha/)
     await act(settle)
     expect(screen.getByRole('treeitem', { name: 'p-file.ts' })).toBeInTheDocument()
     bridge.invoke.mockClear()

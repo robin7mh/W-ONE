@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, settle } from './bridge'
+import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentAvailability, AgentSession } from '@shared/types/agents'
 import type { ChatMessage, PermissionRequest } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
@@ -308,7 +308,7 @@ describe('NewChatDialog', () => {
     expect(screen.getByText(/Another agent works in this project/)).toBeInTheDocument()
     expect(screen.getByLabelText('First message')).toHaveValue('Fix the login')
 
-    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p2' } })
+    choose('Project', /^Site/)
     expect(screen.getByLabelText('Own working folder')).not.toBeChecked()
     fireEvent.click(screen.getByLabelText('Own working folder'))
     fireEvent.click(screen.getByText('Start'))
@@ -330,7 +330,7 @@ describe('NewChatDialog', () => {
     expect(screen.getByRole('button', { name: /W-ONE Assistant/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Sign in once: claude auth login')).toBeInTheDocument()
     expect(screen.queryByLabelText('Own working folder')).toBeNull()
-    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '' } }) // "No project" exists for the assistant
+    choose('Project', 'No project') // "No project" exists for the assistant
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
     expect(a.newChat).toHaveBeenCalledWith('assistant')
@@ -850,7 +850,7 @@ describe('AssistantPane', () => {
     expect(screen.getByText('Question')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Stop'))
     expect(a.cancel).toHaveBeenCalled()
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: 'p1' } })
+    choose('Project context', 'Demo')
     expect(a.setProject).toHaveBeenCalledWith('p1')
 
     act(() => useAssistant.setState({ status: undefined, agents: [], agentId: 'ghost', activeId: undefined, messages: {} }))

@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Check, GitBranch, Loader2, Sparkles, TerminalSquare, X } from 'lucide-react'
+import { Check, FolderGit2, GitBranch, Loader2, Sparkles, TerminalSquare, X } from 'lucide-react'
 import type { AgentAvailability, AgentKind } from '@shared/types/agents'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
+import { Select } from '@/components/ui/Select'
 import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
 import { useAssistant } from '../store'
@@ -122,23 +123,17 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
           )}
         </div>
 
-        <label className="space-y-1.5">
+        <div className="space-y-1.5">
           <TechLabel className="text-text-muted">{t.agents.project}</TechLabel>
-          <select
-            aria-label={t.agents.project}
+          <Select
+            label={t.agents.project}
+            icon={FolderGit2}
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="w-full rounded-md border border-hud/60 bg-surface/50 px-2 py-1.5 font-sans text-[12.5px] text-text-primary outline-none focus:border-cyan/50"
-          >
-            {choice === 'assistant' && <option value="">{t.agents.noProject}</option>}
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            onChange={setProjectId}
+            options={[...(choice === 'assistant' ? [{ value: '', label: t.agents.noProject }] : []), ...projects.map((p) => ({ value: p.id, label: p.name, hint: p.path }))]}
+          />
           {!projects.length && <span className="block font-sans text-[11.5px] text-text-muted">{t.agents.addProjectFirst}</span>}
-        </label>
+        </div>
 
         {isAgent && (
           <label className="flex items-start gap-2">

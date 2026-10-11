@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, installRemote, settle } from './bridge'
+import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { ServerStatus } from '@shared/types/server'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext } from '@shared/types/context'
@@ -219,10 +219,10 @@ describe('SettingsView', () => {
     await act(settle)
     expect(screen.getByText('Anthropic key stored · …NEW1')).toBeInTheDocument()
     expect(screen.getByLabelText('New API key')).toHaveValue('')
-    fireEvent.change(screen.getByLabelText('Effort'), { target: { value: 'low' } })
+    choose('Effort', 'low')
     await act(settle)
     expect(useAssistant.getState().status?.settings.effort).toBe('low')
-    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'claude-sonnet-5-5' } })
+    choose('Model', /^Claude Sonnet 5\.5/)
     await act(settle)
     fireEvent.click(screen.getByLabelText('Remove key'))
     await act(settle)
