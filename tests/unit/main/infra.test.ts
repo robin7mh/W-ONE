@@ -48,6 +48,7 @@ import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
 import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
+import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -211,6 +212,29 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['files:stat', { projectId: 'p', paths: ['a.ts'] }, 'stat', ['p', ['a.ts']]],
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
+      ]
+    ],
+    [
+      'scm',
+      registerScmIpc,
+      [
+        ['scm:status', { projectId: 'p' }, 'status', ['p']],
+        ['scm:init', { projectId: 'p' }, 'init', ['p']],
+        ['scm:stage', { projectId: 'p', paths: ['a'] }, 'stage', ['p', ['a']]],
+        ['scm:unstage', { projectId: 'p', paths: ['a'] }, 'unstage', ['p', ['a']]],
+        ['scm:discard', { projectId: 'p', paths: ['a'] }, 'discard', ['p', ['a']]],
+        ['scm:commit', { projectId: 'p', message: 'm', amend: true, all: false }, 'commit', ['p', 'm', { amend: true, all: false }]],
+        ['scm:fetch', { projectId: 'p' }, 'fetch', ['p']],
+        ['scm:pull', { projectId: 'p' }, 'pull', ['p']],
+        ['scm:push', { projectId: 'p' }, 'push', ['p']],
+        ['scm:branches', { projectId: 'p' }, 'branches', ['p']],
+        ['scm:checkout', { projectId: 'p', name: 'main' }, 'checkout', ['p', 'main']],
+        ['scm:createBranch', { projectId: 'p', name: 'x' }, 'createBranch', ['p', 'x']],
+        ['scm:log', { projectId: 'p', limit: 5 }, 'log', ['p', 5]],
+        ['scm:show', { projectId: 'p', hash: 'abcd' }, 'show', ['p', 'abcd']],
+        ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
+        ['scm:files', { projectId: 'p' }, 'files', ['p']],
+        ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
       ]
     ],
     [

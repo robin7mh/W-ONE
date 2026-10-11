@@ -18,6 +18,7 @@ import type {
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
+import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
 import type {
   AgentAvailability,
   AgentMessageUpdate,
@@ -118,6 +119,26 @@ export interface IpcChannels {
     request: { projectId: string; path: string; content: string; expectedMtime?: number }
     response: FileStat
   }
+
+  'scm:status': { request: { projectId: string }; response: ScmStatus }
+  'scm:init': { request: { projectId: string }; response: ScmStatus }
+  'scm:stage': { request: { projectId: string; paths: string[] }; response: void }
+  'scm:unstage': { request: { projectId: string; paths: string[] }; response: void }
+  /** Untracked files are deleted — the UI asks first. */
+  'scm:discard': { request: { projectId: string; paths: string[] }; response: void }
+  'scm:commit': { request: { projectId: string; message: string; amend?: boolean; all?: boolean }; response: void }
+  'scm:fetch': { request: { projectId: string }; response: void }
+  'scm:pull': { request: { projectId: string }; response: void }
+  'scm:push': { request: { projectId: string }; response: void }
+  'scm:branches': { request: { projectId: string }; response: ScmBranch[] }
+  'scm:checkout': { request: { projectId: string; name: string }; response: void }
+  'scm:createBranch': { request: { projectId: string; name: string }; response: void }
+  'scm:log': { request: { projectId: string; limit?: number }; response: ScmCommit[] }
+  'scm:show': { request: { projectId: string; hash: string }; response: ScmCommitDetail }
+  'scm:diff': { request: { projectId: string; path: string; target: ScmDiffTarget }; response: FileDiff }
+  /** Every file of the project, for quick open (⌘P). */
+  'scm:files': { request: { projectId: string }; response: string[] }
+  'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
 
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
@@ -245,6 +266,23 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'files:read': 'any',
   'files:stat': 'any',
   'files:write': 'terminal',
+  'scm:status': 'any',
+  'scm:init': 'terminal',
+  'scm:stage': 'terminal',
+  'scm:unstage': 'terminal',
+  'scm:discard': 'terminal',
+  'scm:commit': 'terminal',
+  'scm:fetch': 'terminal',
+  'scm:pull': 'terminal',
+  'scm:push': 'terminal',
+  'scm:branches': 'any',
+  'scm:checkout': 'terminal',
+  'scm:createBranch': 'terminal',
+  'scm:log': 'any',
+  'scm:show': 'any',
+  'scm:diff': 'any',
+  'scm:files': 'any',
+  'scm:search': 'any',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',

@@ -76,6 +76,32 @@ export const REQUEST_SCHEMAS: Schemas = {
   'files:stat': z.object({ projectId: id, paths: z.array(path).max(200) }),
   'files:write': z.object({ projectId: id, path, content: text(6 * 1024 * 1024), expectedMtime: z.number().optional() }),
 
+  'scm:status': z.object({ projectId: id }),
+  'scm:init': z.object({ projectId: id }),
+  'scm:stage': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:unstage': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:discard': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:commit': z.object({ projectId: id, message: text(20_000), amend: z.boolean().optional(), all: z.boolean().optional() }),
+  'scm:fetch': z.object({ projectId: id }),
+  'scm:pull': z.object({ projectId: id }),
+  'scm:push': z.object({ projectId: id }),
+  'scm:branches': z.object({ projectId: id }),
+  'scm:checkout': z.object({ projectId: id, name: z.string().min(1).max(250) }),
+  'scm:createBranch': z.object({ projectId: id, name: z.string().min(1).max(250) }),
+  'scm:log': z.object({ projectId: id, limit: z.number().int().min(1).max(2000).optional() }),
+  'scm:show': z.object({ projectId: id, hash: z.string().regex(/^[0-9a-f]{4,40}$/i) }),
+  'scm:diff': z.object({
+    projectId: id,
+    path,
+    target: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unstaged') }),
+      z.object({ kind: z.literal('staged') }),
+      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() })
+    ])
+  }),
+  'scm:files': z.object({ projectId: id }),
+  'scm:search': z.object({ projectId: id, query: text(500), regex: z.boolean().optional(), caseSensitive: z.boolean().optional() }),
+
   'app:info': none,
   'fs:dirs': z
     .object({ path: path.optional() })

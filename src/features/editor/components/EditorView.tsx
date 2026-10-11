@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, Code2, ExternalLink, FileWarning, FolderGit2, Lock, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
@@ -10,12 +10,56 @@ import { useProjects } from '@/features/projects/store'
 import { useSession } from '@/features/session/store'
 import type { ModuleId } from '@/types'
 import { useEditor, type EditorTab } from '../store'
+import { useScm, type EditorPane } from '../scm'
 import { FileTree } from './FileTree'
 import { EditorTabs } from './EditorTabs'
+import { DiffHeader, ScmPanel } from './ScmPanel'
+import { QuickOpen, SearchPanel } from './SearchPanel'
+import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
 
 // Monaco is a few MB — it loads the first time the Editor module opens.
 const CodeEditor = lazy(() => import('./CodeEditor'))
+const DiffView = lazy(() => import('./DiffView'))
+
+const PANES: { id: EditorPane; icon: LucideIcon }[] = [
+  { id: 'files', icon: Files },
+  { id: 'search', icon: Search },
+  { id: 'scm', icon: GitBranch },
+  { id: 'graph', icon: GraphIcon }
+]
+
+/** VS Code's activity bar: explorer, search, source control (with the change count) and the git graph. */
+function ActivityBar() {
+  const t = useT()
+  const pane = useScm((s) => s.pane)
+  const changes = useScm((s) => s.status?.files.length ?? 0)
+  return (
+    <nav aria-label={t.editor.title} className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-hud/60 py-2">
+      {PANES.map(({ id, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          aria-label={t.scm.panes[id]}
+          title={t.scm.panes[id]}
+          aria-pressed={pane === id}
+          onClick={() => useScm.getState().setPane(id)}
+          className={cn(
+            'relative flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+            pane === id ? 'bg-cyan/[0.1] text-cyan' : 'text-text-muted hover:bg-elevated/60 hover:text-text-primary'
+          )}
+        >
+          <Icon size={17} />
+          {id === 'scm' && changes > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 min-w-[16px] rounded-full bg-cyan px-1 text-center font-mono text-[9.5px] font-semibold leading-4 text-void">
+              {changes > 99 ? '99+' : changes}
+            </span>
+          )}
+        </button>
+      ))}
+    </nav>
+  )
+}
 
 /** How often open files are compared with the disk while the editor is visible. */
 const DISK_POLL_MS = 3000
@@ -109,6 +153,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const readOnly = !desktop && info?.remoteTerminal === false
   const [cursor, setCursor] = useState<CursorInfo>()
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
+  const { pane, diff, quickOpen, status, busy, error: scmError } = useScm()
 
   useEffect(() => {
     void useProjects
@@ -127,11 +172,21 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // While visible: follow the disk, and ⌘S / Ctrl+S saves.
   useEffect(() => {
     if (!active) return
-    const check = () => void useEditor.getState().checkDisk()
+    // Disk and git both follow edits made elsewhere (agents, terminals, other editors).
+    const check = () => {
+      void useEditor.getState().checkDisk()
+      void useScm.getState().refresh()
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 's') return
+      if (!(e.metaKey || e.ctrlKey)) return
+      const key = e.key.toLowerCase()
+      const scm = useScm.getState()
+      if (key === 's') void useEditor.getState().save()
+      else if (key === 'p' && !e.shiftKey) scm.setQuickOpen(true)
+      else if (key === 'f' && e.shiftKey) scm.setPane('search')
+      else if (key === 'g' && e.shiftKey) scm.setPane('scm')
+      else return
       e.preventDefault()
-      void useEditor.getState().save()
     }
     check()
     const timer = window.setInterval(check, DISK_POLL_MS)
@@ -196,7 +251,9 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         )
       }
     >
-      {/* Explorer */}
+      <ActivityBar />
+
+      {/* Sidebar: explorer, search or source control */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-hud/60">
         <div className="flex items-center gap-1.5 p-2">
           <Select
@@ -216,73 +273,125 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
             <RefreshCw size={13} />
           </button>
         </div>
-        {projectId && <FileTree projectId={projectId} />}
+        {pane === 'search' ? <SearchPanel /> : pane === 'scm' || pane === 'graph' ? <ScmPanel /> : projectId && <FileTree projectId={projectId} />}
       </aside>
 
-      {/* Tabs · banners · Monaco · status */}
+      {/* Tabs · banners · Monaco (or a diff, or the graph) · status */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <EditorTabs projectNames={names} />
-
-        {closingTab ? (
+        {scmError && (
           <Banner tone="warn">
-            <span className="mr-auto">{t.editor.saveBeforeClose(closingTab.name)}</span>
-            <button type="button" onClick={() => void useEditor.getState().saveAndClose(closingTab.id)} className={primary} disabled={readOnly}>
-              {t.common.save}
-            </button>
-            <button type="button" onClick={() => useEditor.getState().close(closingTab.id)} className={quiet}>
-              {t.editor.dontSave}
-            </button>
-            <button type="button" onClick={() => useEditor.getState().cancelClose()} className={quiet}>
-              {t.common.cancel}
+            <AlertTriangle size={13} className="shrink-0 text-danger" />
+            <span className="mr-auto whitespace-pre-wrap font-mono text-[11.5px]">{scmError}</span>
+            <button type="button" aria-label={t.common.dismiss} onClick={() => useScm.getState().clearError()} className="text-text-muted hover:text-text-primary">
+              <X size={13} />
             </button>
           </Banner>
-        ) : tab?.conflict ? (
-          <Banner tone="warn">
-            <span className="mr-auto">{t.editor.changedOnDisk(tab.name)}</span>
-            <button type="button" onClick={() => void useEditor.getState().reload(tab.id)} className={quiet}>
-              {t.editor.loadDisk}
-            </button>
-            <button type="button" onClick={() => void useEditor.getState().save(tab.id, { force: true })} className={primary} disabled={readOnly}>
-              {t.editor.keepMine}
-            </button>
-          </Banner>
-        ) : tab?.deleted ? (
-          <Banner tone="info">{t.editor.deletedOnDisk(tab.name)}</Banner>
-        ) : tab?.error && hasText ? (
-          <Banner tone="warn">
-            <AlertTriangle size={13} className="text-danger" /> {tab.error}
-          </Banner>
-        ) : null}
-
-        <div className="relative min-h-0 flex-1">
-          <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
-            <CodeEditor tab={tab} readOnly={readOnly} onCursor={setCursor} />
-          </Suspense>
-          {!hasText && (
-            <div className="absolute inset-0 bg-panel/80">
-              <Placeholder tab={tab} onExternal={openExternal} />
+        )}
+        {diff ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <DiffHeader title={diff.title} onClose={() => useScm.getState().closeDiff()} />
+            <div className="relative min-h-0 flex-1">
+              <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
+                <DiffView path={diff.path} original={diff.original} modified={diff.modified} />
+              </Suspense>
             </div>
-          )}
+          </div>
+        ) : pane === 'graph' ? (
+          <div className="min-h-0 flex-1">
+            <GitGraph />
+          </div>
+        ) : null}
+        <div className={cn('flex min-h-0 flex-1 flex-col', (diff || pane === 'graph') && 'hidden')}>
+          <EditorTabs projectNames={names} />
+
+          {closingTab ? (
+            <Banner tone="warn">
+              <span className="mr-auto">{t.editor.saveBeforeClose(closingTab.name)}</span>
+              <button type="button" onClick={() => void useEditor.getState().saveAndClose(closingTab.id)} className={primary} disabled={readOnly}>
+                {t.common.save}
+              </button>
+              <button type="button" onClick={() => useEditor.getState().close(closingTab.id)} className={quiet}>
+                {t.editor.dontSave}
+              </button>
+              <button type="button" onClick={() => useEditor.getState().cancelClose()} className={quiet}>
+                {t.common.cancel}
+              </button>
+            </Banner>
+          ) : tab?.conflict ? (
+            <Banner tone="warn">
+              <span className="mr-auto">{t.editor.changedOnDisk(tab.name)}</span>
+              <button type="button" onClick={() => void useEditor.getState().reload(tab.id)} className={quiet}>
+                {t.editor.loadDisk}
+              </button>
+              <button type="button" onClick={() => void useEditor.getState().save(tab.id, { force: true })} className={primary} disabled={readOnly}>
+                {t.editor.keepMine}
+              </button>
+            </Banner>
+          ) : tab?.deleted ? (
+            <Banner tone="info">{t.editor.deletedOnDisk(tab.name)}</Banner>
+          ) : tab?.error && hasText ? (
+            <Banner tone="warn">
+              <AlertTriangle size={13} className="text-danger" /> {tab.error}
+            </Banner>
+          ) : null}
+
+          <div className="relative min-h-0 flex-1">
+            <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
+              <CodeEditor tab={tab} readOnly={readOnly} onCursor={setCursor} />
+            </Suspense>
+            {!hasText && (
+              <div className="absolute inset-0 bg-panel/80">
+                <Placeholder tab={tab} onExternal={openExternal} />
+              </div>
+            )}
+          </div>
+
         </div>
 
-        {tab && hasText && (
-          <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-hud/60 px-3 font-mono text-[11px] text-text-muted">
-            <span className="min-w-0 flex-1 truncate">
-              {names.get(tab.projectId)} › {tab.path.split('/').join(' › ')}
+        <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-hud/60 px-3 font-mono text-[11px] text-text-muted">
+          {status?.repo && (
+            <span className="flex shrink-0 items-center gap-3">
+              <button type="button" onClick={() => useScm.getState().setPane('scm')} title={t.scm.panes.scm} className="flex items-center gap-1 hover:text-text-primary">
+                <GitBranch size={12} /> {status.branch ?? `${status.head} (${t.scm.detached})`}
+              </button>
+              {status.upstream ? (
+                <button
+                  type="button"
+                  aria-label={t.scm.sync(status.behind, status.ahead)}
+                  title={t.scm.sync(status.behind, status.ahead)}
+                  disabled={!!busy}
+                  onClick={() => void useScm.getState().sync()}
+                  className="flex items-center gap-1 hover:text-text-primary disabled:opacity-50"
+                >
+                  <RefreshCcw size={11} className={cn(busy && 'animate-spin')} /> {status.behind}↓ {status.ahead}↑
+                </button>
+              ) : (
+                <button type="button" aria-label={t.scm.publish} title={t.scm.publish} disabled={!!busy} onClick={() => void useScm.getState().push()} className="flex items-center gap-1 hover:text-text-primary disabled:opacity-50">
+                  <ArrowUpFromLine size={11} /> {t.scm.publish}
+                </button>
+              )}
             </span>
-            {readOnly && (
-              <span className="flex items-center gap-1" title={t.editor.readOnlyHint}>
-                <Lock size={11} /> {t.editor.readOnly}
+          )}
+          {tab && hasText && (
+            <>
+              <span className="min-w-0 flex-1 truncate">
+                {names.get(tab.projectId)} › {tab.path.split('/').join(' › ')}
               </span>
-            )}
-            {cursor && (
-              <span>{t.editor.lineCol(cursor.line, cursor.col)}</span>
-            )}
-            {cursor && <span>{cursor.language}</span>}
-            <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? t.editor.saving : tab.dirty ? t.editor.unsaved : t.editor.saved}</span>
-          </footer>
-        )}
+              {readOnly && (
+                <span className="flex items-center gap-1" title={t.editor.readOnlyHint}>
+                  <Lock size={11} /> {t.editor.readOnly}
+                </span>
+              )}
+              {cursor && (
+                <span>{t.editor.lineCol(cursor.line, cursor.col)}</span>
+              )}
+              {cursor && <span>{cursor.language}</span>}
+              <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? t.editor.saving : tab.dirty ? t.editor.unsaved : t.editor.saved}</span>
+            </>
+          )}
+        </footer>
       </section>
+      {quickOpen && <QuickOpen />}
     </Panel>
   )
 }

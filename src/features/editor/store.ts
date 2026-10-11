@@ -56,6 +56,8 @@ interface EditorState {
   activeId?: string
   /** Dirty tab waiting for "save before closing?". */
   closing?: string
+  /** A line to scroll to once its tab shows (search results); the view clears it. */
+  reveal?: { id: string; line: number }
 
   selectProject: (id: string) => Promise<void>
   loadDir: (dir: string) => Promise<void>
@@ -63,6 +65,8 @@ interface EditorState {
   /** Re-list the root and every open folder of the current project. */
   refreshTree: () => Promise<void>
   open: (path: string) => Promise<void>
+  /** Open a file and put the cursor on `line` (1-based). */
+  openAt: (path: string, line: number) => Promise<void>
   setActive: (id: string) => void
   setDirty: (id: string, dirty: boolean) => void
   /** Write the buffer to disk. `force` overwrites a newer disk copy. Resolves true when saved. */
@@ -157,6 +161,11 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     set((s) => ({ tabs: [...s.tabs, tab], activeId: id }))
     await get().reload(id)
+  },
+
+  openAt: async (path, line) => {
+    await get().open(path)
+    set({ reveal: { id: tabKey(get().projectId!, path), line } })
   },
 
   setActive: (id) => set({ activeId: id }),

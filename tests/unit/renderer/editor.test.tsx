@@ -67,6 +67,8 @@ const mon = vi.hoisted(() => {
     modelChange = new Emitter()
     focus = vi.fn()
     restoreViewState = vi.fn()
+    revealLineInCenter = vi.fn()
+    setPosition = vi.fn()
     disposed = false
     constructor(
       public el: HTMLElement,
@@ -521,6 +523,14 @@ describe('CodeEditor (Monaco view)', () => {
     rerender(view(e().tabs[0])) // back: restored
     expect(editor().restoreViewState).toHaveBeenLastCalledWith({ of: '/p/a.ts' })
     expect(mon.state.models).toHaveLength(2) // reused, not recreated
+
+    // a search result: scroll to its line once the tab shows (not before, not for another tab)
+    act(() => useEditor.setState({ reveal: { id: 'p:b.md', line: 9 } }))
+    expect(editor().revealLineInCenter).not.toHaveBeenCalled()
+    act(() => useEditor.setState({ reveal: { id: 'p:a.ts', line: 9 } }))
+    expect(editor().revealLineInCenter).toHaveBeenCalledWith(9)
+    expect(editor().setPosition).toHaveBeenCalledWith({ lineNumber: 9, column: 1 })
+    expect(e().reveal).toBeUndefined()
 
     rerender(view(e().tabs[2])) // still loading → no buffer shown
     expect(editor().model).toBeNull()

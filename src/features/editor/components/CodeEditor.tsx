@@ -153,5 +153,16 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     if (switched) editor.focus()
   }, [buffers, tab?.id, tab?.revision, text === undefined])
 
+  // A search result asked for a line: scroll there once its tab is on screen.
+  const reveal = useEditor((s) => s.reveal)
+  useEffect(() => {
+    if (!reveal || reveal.id !== shown.current) return
+    const editor = editorRef.current!
+    editor.revealLineInCenter(reveal.line)
+    editor.setPosition({ lineNumber: reveal.line, column: 1 })
+    editor.focus()
+    useEditor.setState({ reveal: undefined })
+  }, [reveal, tab?.id, text === undefined])
+
   return <div ref={hostRef} className="absolute inset-0" />
 }
