@@ -98,7 +98,6 @@ describe('message helpers', () => {
       ['permission.granted', { tool: 't', decision: 'always' }, 'Approved (always): t', 'ok'],
       ['permission.granted', { tool: 't', decision: 'once' }, 'Approved (once): t', 'ok'],
       ['permission.denied', { tool: 't' }, 'Denied: t', 'error'],
-      ['db.migrated', {}, 'Database schema updated', 'muted'],
       ['app.started', {}, 'app.started', 'muted']
     ]
     for (const [type, payload, text, tone] of cases) expect(describeEvent(event('e', type, payload))).toEqual({ text, tone })

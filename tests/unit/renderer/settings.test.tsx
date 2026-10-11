@@ -208,7 +208,7 @@ describe('SettingsView', () => {
     installBridge(settingsCore())
     localStorage.setItem('wone.deviceId', 'd2')
     useAssistant.setState({ status: { configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high' } } })
-    useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false, db: { connected: true, schema: 1 } } })
+    useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false } })
     render(<SettingsView />)
     await act(settle)
 
@@ -272,7 +272,7 @@ describe('SettingsView', () => {
 
     // about
     expect(screen.getByText('Desktop app')).toBeInTheDocument()
-    expect(screen.getByText('Postgres · schema v1')).toBeInTheDocument()
+    expect(screen.queryByText('Database')).toBeNull() // the core keeps files, no database
     expect(screen.getByText('Desktop window')).toBeInTheDocument()
     useSession.setState({ info: undefined })
   })
@@ -286,7 +286,7 @@ describe('SettingsView', () => {
       })
     )
     useAssistant.setState({ status: { configured: true, source: 'env', keyHint: '9999', settings: { model: 'claude-opus-5-5', effort: 'high' } }, error: 'ai problem' })
-    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true, db: { connected: false } } })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } })
     render(<SettingsView />)
     await act(settle)
     expect(screen.getByText('Anthropic key from the environment · …9999')).toBeInTheDocument()
@@ -299,7 +299,6 @@ describe('SettingsView', () => {
     expect(screen.getByText('No devices paired')).toBeInTheDocument()
     expect(screen.getByText('Pair a device').closest('button')).toBeDisabled()
     expect(screen.getByText('Server')).toBeInTheDocument()
-    expect(screen.getByText('not connected — npm run db:up')).toBeInTheDocument()
     expect(screen.getByText('Browser (paired)')).toBeInTheDocument()
 
     expect(screen.getByText('ai problem')).toBeInTheDocument()

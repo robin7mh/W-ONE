@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, resolve } from 'node:path'
 import { expect, test } from './fixtures'
 
-test('boots into the Command Center and connects to the Docker database', async ({ page, mainLog }) => {
+test('boots into the Command Center without any database; the activity log is a file', async ({ page, home }) => {
   await expect(page.getByText('Command Center').first()).toBeVisible()
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening|night)/)
-  await expect.poll(mainLog).toMatch(/\[db\] connected — schema v\d+/)
+  const log = join(home, 'data', 'events.jsonl')
+  await expect.poll(() => (existsSync(log) ? readFileSync(log, 'utf8') : '')).toContain('"app.started"')
 })
 
 test('navigates every module', async ({ page }) => {

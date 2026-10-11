@@ -255,7 +255,7 @@ const sessionFetch = (opts: { health?: boolean; pair?: 'ok' | 'bad'; info?: numb
     if (url.endsWith('/api/rpc/app:info')) {
       if (opts.info === 401) return { status: 401, body: { ok: false, error: { code: 'unauthorized', message: 'nope' } } }
       if (opts.info === 0) return { status: 0, throws: new Error('ECONNREFUSED') }
-      return { status: 200, body: { ok: true, data: { mode: 'server', version: '1', hostname: 'nas', platform: 'linux', remoteTerminal: false, db: { connected: false } } } }
+      return { status: 200, body: { ok: true, data: { mode: 'server', version: '1', hostname: 'nas', platform: 'linux', remoteTerminal: false } } }
     }
     if (url.endsWith('/api/rpc/server:revokeDevice')) return { status: 200, body: { ok: true } }
     return { status: 404, body: { ok: false, error: { code: 'nf', message: 'nf' } } }
@@ -556,7 +556,7 @@ describe('projects in a browser', () => {
     const { rerender } = render(<ProjectDetailPanel project={{ ...project, git: { isRepo: true } }} onNavigate={vi.fn()} />)
     expect(screen.queryByText('Terminal')).toBeNull()
     expect(screen.queryByText('GitHub Desktop')).toBeNull() // host apps: desktop window only
-    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true, db: { connected: true } } })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } })
     rerender(<ProjectDetailPanel project={project} onNavigate={vi.fn()} />)
     expect(screen.getByText('Terminal')).toBeInTheDocument()
     await act(settle)

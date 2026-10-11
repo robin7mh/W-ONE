@@ -58,8 +58,6 @@ export function describeEvent(e: WoneEvent): { text: string; tone: Tone } {
       return { text: t.granted(p.decision === 'always', String(p.tool)), tone: 'ok' }
     case 'permission.denied':
       return { text: t.denied(String(p.tool)), tone: 'error' }
-    case 'db.migrated':
-      return { text: t.migrated, tone: 'muted' }
     case 'session.started':
       return { text: t.started(p.agent ?? t.agent, p.title ?? ''), tone: 'cyan' }
     case 'session.ended':

@@ -1,58 +1,29 @@
-# W-ONE in Docker.
-#   npm run db:up          the database only (desktop development)
-#   npm run docker:up      database + the W-ONE core (API + web UI on :7420)
+# The W-ONE core in Docker — for a home server or NAS, used from a browser or the app.
+#   npm run docker:up      build and start the core (API + web UI on :7420)
 #   npm run docker:pair    print a one-time pairing code for a browser / phone
-#   npm run db:backup      dump the database to ~/W-ONE/backups/
+# Everything it keeps is plain files in the wone-data volume — no database.
 # Ports are bound to 127.0.0.1 only. To reach the core from your phone on the
 # same network, set WONE_BIND=0.0.0.0 in .env (pairing still protects it).
 # Settings come from .env (see .env.example); the defaults match the app's.
 name: w-one
 
 services:
-  db:
-    image: postgres:18-alpine
-    container_name: w-one-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${WONE_DB_USER:-wone}
-      POSTGRES_PASSWORD: ${WONE_DB_PASSWORD:-wone}
-      POSTGRES_DB: ${WONE_DB_NAME:-wone}
-    ports:
-      - '127.0.0.1:${WONE_DB_PORT:-54329}:5432'
-    volumes:
-      # Postgres 18 images keep their data under /var/lib/postgresql/<major>/.
-      - wone-pgdata:/var/lib/postgresql
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  # The W-ONE core (see Dockerfile). Only with `--profile core`, so
-  # `npm run db:up` keeps starting just the database.
   core:
-    profiles: ['core']
     build: .
     image: ghcr.io/robin7mh/w-one:local
     container_name: w-one-core
     restart: unless-stopped
     environment:
-      WONE_DB_URL: postgres://${WONE_DB_USER:-wone}:${WONE_DB_PASSWORD:-wone}@db:5432/${WONE_DB_NAME:-wone}
       WONE_REMOTE_TERMINAL: ${WONE_REMOTE_TERMINAL:-0}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - '${WONE_BIND:-127.0.0.1}:${WONE_CORE_PORT:-7420}:7420'
     volumes:
-      # Settings, paired devices, project registry and the vault live here.
+      # Settings, paired devices, project registry, history and the vault live here.
       - wone-data:/data
       # Folders the core may add as projects (inside the container: /projects).
       - ${WONE_PROJECTS_DIR:-./}:/projects:ro
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
-  wone-pgdata:
-    name: wone-pgdata
   wone-data:
     name: wone-data

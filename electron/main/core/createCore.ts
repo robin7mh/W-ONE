@@ -24,8 +24,6 @@ import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
 import { AuthService } from '../services/auth/AuthService'
-import { DbService, createPool, databaseUrl } from '../services/db/DbService'
-import { MIGRATIONS } from '../services/db/migrations'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
@@ -82,8 +80,6 @@ export interface Core {
   assistant: AssistantService
   agents: AgentSessionService
   cloud: CloudService
-  /** Settles once the background database connection attempt is over. */
-  dbReady: Promise<void>
   info(): AppInfo
   dispose(): Promise<void>
 }
@@ -102,14 +98,14 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   await settings.init()
 
   const hub = new EventHub()
-  let db: DbService | null = null
-  let dbSchema: number | undefined
 
-  // Every WoneEvent: kept in the EventLog (memory ring + Postgres once
-  // connected) and pushed live to every client for the activity timeline.
-  const eventLog = new EventLog()
+  // Every WoneEvent: kept in the EventLog (the newest in memory and in a file
+  // in the data folder) and pushed live to every client for the activity timeline.
+  const eventLog = new EventLog(paths.eventsFile)
+  await eventLog.load()
   const events = new EventBus({ sink: eventLog, broadcast: (event) => hub.publish('events:event', event) })
-  const runs = new RunStore()
+  const runs = new RunStore(paths.runsFile)
+  await runs.load()
 
   const projects = new ProjectService(new ProjectRegistry(paths.dataDir), platform)
   await projects.init()
@@ -169,8 +165,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     version: opts.version,
     platform: process.platform,
     hostname: hostname(),
-    remoteTerminal: controller.remoteTerminal(),
-    db: { connected: !!db, schema: dbSchema }
+    remoteTerminal: controller.remoteTerminal()
   })
 
   // The assistant: provider, context engine, tools behind the permission gate.
@@ -286,28 +281,6 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('cloud:forgotPassword', (req) => cloud.forgotPassword(req))
   router.register('cloud:checkout', () => cloud.checkout())
 
-  // Postgres runs in Docker (docker-compose.yml). Connected in the background:
-  // a stopped container never delays startup — W-ONE stays usable without it.
-  const connecting = (async () => {
-    const url = databaseUrl()
-    const candidate = new DbService(createPool(url))
-    try {
-      await candidate.ping()
-      const result = await candidate.migrate(MIGRATIONS)
-      db = candidate
-      dbSchema = result.to
-      eventLog.attach(candidate)
-      runs.attach(candidate)
-      if (result.applied.length) events.emit('db.migrated', { payload: result })
-      console.log(`[db] connected — schema v${result.to}`)
-    } catch (err) {
-      await candidate.close().catch(() => {})
-      console.warn(
-        `[db] Postgres not reachable at ${url.replace(/\/\/([^:@/]+):[^@/]*@/, '//$1:***@')} — start it with: npm run db:up\n  ${(err as Error).message}`
-      )
-    }
-  })()
-
   events.emit('app.started', { payload: { version: opts.version, mode: opts.mode } })
 
   return {
@@ -323,7 +296,6 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     assistant,
     agents,
     cloud,
-    dbReady: connecting,
     info,
     async dispose() {
       cloud.dispose()
@@ -334,12 +306,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       vault.dispose()
       terminal.killAll()
       await controller.stop()
-      await connecting
-      const open = db
-      db = null
-      eventLog.attach(null)
-      runs.attach(null)
-      await open?.close().catch(() => {})
+      await eventLog.flush()
     }
   }
 }

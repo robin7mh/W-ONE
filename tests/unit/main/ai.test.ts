@@ -3,7 +3,6 @@ import { chmod, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/pro
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
-import { newDb } from 'pg-mem'
 import { tempDir, tick } from './helpers'
 import { AnthropicProvider, fromApiContent, toApiMessage } from '../../../electron/main/services/ai/AnthropicProvider'
 import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
@@ -20,8 +19,6 @@ import { aiError, type LlmProvider, type LlmRequest, type LlmTurn } from '../../
 import { EventBus } from '../../../electron/main/services/events/EventBus'
 import { EventLog } from '../../../electron/main/services/events/EventLog'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
-import { DbService } from '../../../electron/main/services/db/DbService'
-import { MIGRATIONS } from '../../../electron/main/services/db/migrations'
 import type { Project } from '@shared/types/project'
 import type { ProjectContext } from '@shared/types/context'
 import type { AgentRun } from '@shared/types/ai'
@@ -676,14 +673,6 @@ describe('ConversationStore', () => {
   })
 })
 
-const memDb = async () => {
-  const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg()
-  const db = new DbService(new Pool() as never)
-  await db.migrate(MIGRATIONS)
-  return db
-}
-const brokenDb = { query: vi.fn(async () => Promise.reject(new Error('db down'))) }
-
 describe('EventLog', () => {
   const ev = (id: string, conversationId?: string): WoneEvent => ({
     id,
@@ -696,36 +685,41 @@ describe('EventLog', () => {
     payload: { n: id }
   })
 
-  it('keeps a bounded ring without a database', async () => {
-    const log = new EventLog(3)
+  it('keeps a bounded ring; without a file it is memory only', async () => {
+    const log = new EventLog(undefined, 3)
+    await log.load()
     for (const id of ['e1', 'e2', 'e3', 'e4']) log.persist(ev(id, id === 'e4' ? 'c' : undefined), 'activity')
+    await log.flush()
     expect((await log.recent()).map((e) => e.id)).toEqual(['e4', 'e3', 'e2'])
     expect((await log.recent({ limit: 1 })).map((e) => e.id)).toEqual(['e4'])
     expect((await log.recent({ conversationId: 'c' })).map((e) => e.id)).toEqual(['e4'])
     expect((await log.recent({ limit: 0 })).length).toBe(1)
   })
 
-  it('writes to and reads from Postgres; falls back to memory when it fails', async () => {
-    const db = await memDb()
-    const log = new EventLog()
-    log.attach(db)
-    log.persist(ev('e1', 'c'), 'audit')
-    log.persist({ ...ev('e2'), actor: { kind: 'system' }, subject: undefined, projectId: undefined }, 'activity')
-    await tick(30)
-    const all = await log.recent()
-    expect(all.map((e) => e.id)).toEqual(['e2', 'e1'])
-    expect(all[1]).toEqual(ev('e1', 'c'))
-    expect(all[0]).toEqual({ id: 'e2', type: 'tool.completed', ts: ev('e2').ts, actor: { kind: 'system' }, payload: { n: 'e2' } })
-    expect((await log.recent({ conversationId: 'c' })).map((e) => e.id)).toEqual(['e1'])
-    expect((await db.query('SELECT class FROM events WHERE id = $1', ['e1']))[0].class).toBe('audit')
+  it('a file in the data folder keeps the history across restarts; it is compacted, damaged lines are skipped', async () => {
+    const file = join(await tempDir(), 'events.jsonl')
+    const log = new EventLog(file, 2)
+    await log.load() // no file yet
+    for (const id of ['e1', 'e2', 'e3', 'e4']) log.persist(ev(id), 'activity')
+    await log.flush()
+    expect((await readFile(file, 'utf8')).trim().split('\n')).toHaveLength(4)
+    log.persist(ev('e5', 'c'), 'audit') // past twice the capacity: rewritten with the newest
+    await log.flush()
+    expect((await readFile(file, 'utf8')).trim().split('\n').map((l) => JSON.parse(l).id)).toEqual(['e4', 'e5'])
+
+    await writeFile(file, `${await readFile(file, 'utf8')}not json\n\n`)
+    const again = new EventLog(file, 2)
+    await again.load()
+    expect((await again.recent()).map((e) => e.id)).toEqual(['e5', 'e4'])
+    expect(await again.recent({ conversationId: 'c' })).toEqual([ev('e5', 'c')])
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    log.attach(brokenDb)
-    log.persist(ev('e3'), 'activity')
-    await tick(10)
+    const broken = new EventLog(join(file, 'not-a-folder', 'events.jsonl'))
+    broken.persist(ev('e6'), 'activity')
+    await broken.flush()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not store tool.completed'))
-    expect((await log.recent()).map((e) => e.id)).toEqual(['e3', 'e2', 'e1'])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('history query failed'))
+    expect((await broken.recent()).map((e) => e.id)).toEqual(['e6']) // memory still has it
+    warn.mockRestore()
   })
 })
 
@@ -744,31 +738,44 @@ describe('RunStore', () => {
     ...over
   })
 
-  it('keeps recent runs in memory and upserts them into Postgres', async () => {
-    const mem = new RunStore(2)
+  it('keeps recent runs in memory; without a file nothing is written', async () => {
+    const mem = new RunStore(undefined, 2)
+    await mem.load()
     await mem.save(runOf('r1'))
     await mem.save(runOf('r2'))
     await mem.save(runOf('r1', { status: 'completed' })) // update moves to newest
     await mem.save(runOf('r3'))
     expect((await mem.list()).map((r) => `${r.id}:${r.status}`)).toEqual(['r3:running', 'r1:completed'])
     expect(await mem.list(0)).toHaveLength(1)
+  })
 
-    const db = await memDb()
-    const store = new RunStore()
-    store.attach(db)
+  it('a file in the data folder keeps them across restarts; damaged or unwritable files never break a run', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'runs.json')
+    const store = new RunStore(file)
+    await store.load() // no file yet
+    const failed = runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' })
     await store.save(runOf('r1', { projectId: 'p' }))
-    await store.save(runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' }))
+    await store.save(failed)
     await store.save(runOf('r2'))
-    const rows = await store.list()
-    expect(rows.map((r) => r.id)).toEqual(['r2', 'r1'])
-    expect(rows[1]).toEqual(runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' }))
-    expect(rows[0]).toEqual(runOf('r2'))
+    const again = new RunStore(file)
+    await again.load()
+    expect(await again.list()).toEqual([runOf('r2'), failed])
+
+    await writeFile(file, '{"version":1}')
+    const empty = new RunStore(file)
+    await empty.load()
+    expect(await empty.list()).toEqual([])
+    await writeFile(file, 'not json')
+    await empty.load()
+    expect(await empty.list()).toEqual([])
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    store.attach(brokenDb)
-    await store.save(runOf('r9'))
+    const broken = new RunStore(join(file, 'not-a-folder', 'runs.json'))
+    await broken.save(runOf('r9'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not store run r9'))
-    expect((await store.list()).map((r) => r.id)).toContain('r9')
+    expect((await broken.list()).map((r) => r.id)).toEqual(['r9'])
+    warn.mockRestore()
   })
 })
 

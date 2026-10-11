@@ -1,10 +1,8 @@
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { newDb } from 'pg-mem'
 import { tempDir } from './helpers'
 
 const h = vi.hoisted(() => ({
-  pool: undefined as unknown,
   ptyData: undefined as undefined | ((d: string) => void),
   ptyEnv: undefined as undefined | Record<string, string>,
   ptyArgs: [] as string[]
@@ -27,10 +25,6 @@ vi.mock('../../../electron/main/services/system/collectors', () => ({
 }))
 // Never start the real VS Code from a test.
 vi.mock('../../../electron/main/lib/openInVsCode', () => ({ openInVsCode: vi.fn(async () => {}) }))
-vi.mock('../../../electron/main/services/db/DbService', async (orig) => ({
-  ...(await orig<typeof import('../../../electron/main/services/db/DbService')>()),
-  createPool: () => h.pool
-}))
 
 import { createCore, type Core } from '../../../electron/main/core/createCore'
 import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
@@ -38,15 +32,6 @@ import { headlessPlatform } from '../../../electron/main/platform/headless'
 import { wonePaths } from '../../../electron/main/lib/paths'
 import { run, serverConfigFromEnv } from '../../../server/main'
 
-const memPool = () => {
-  const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg()
-  return new Pool()
-}
-const deadPool = () => ({
-  query: vi.fn(async () => Promise.reject(new Error('ECONNREFUSED'))),
-  connect: vi.fn(),
-  end: vi.fn(async () => Promise.reject(new Error('already closed')))
-})
 
 const cores: Core[] = []
 let savedHome: string | undefined
@@ -69,13 +54,11 @@ async function core(opts: Partial<Parameters<typeof createCore>[0]> = {}) {
 }
 
 describe('createCore', () => {
-  it('wires every service onto one router; info reflects the database', async () => {
-    h.pool = memPool()
+  it('wires every service onto one router', async () => {
     const c = await core({ serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false } })
-    await c.dbReady
     expect(await c.router.dispatch('app:info', undefined, { transport: 'ipc' })).toMatchObject({
       ok: true,
-      data: { mode: 'server', version: '1.2.3', remoteTerminal: false, db: { connected: true, schema: 1 } }
+      data: { mode: 'server', version: '1.2.3', remoteTerminal: false }
     })
     for (const [channel, req] of [
       ['projects:list', undefined],
@@ -145,12 +128,9 @@ describe('createCore', () => {
     expect(pushed).toEqual(expect.arrayContaining(['context:progress', 'terminal:data', 'system:tick']))
   })
 
-  it('desktop mode keeps the server config in settings; a dead database is only a warning', async () => {
-    h.pool = deadPool()
+  it('desktop mode keeps the server config in settings; history is kept as files in the data folder', async () => {
     const c = await core({ mode: 'desktop' })
-    await c.dbReady
-    expect(c.info().db).toEqual({ connected: false, schema: undefined })
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Postgres not reachable'))
+    expect(c.info()).not.toHaveProperty('db')
     const status = await c.router.dispatch('server:configure', { remoteTerminal: true }, { transport: 'ipc' })
     expect(status).toMatchObject({ ok: true, data: { config: { remoteTerminal: true } } })
     expect(c.info().remoteTerminal).toBe(true)
@@ -160,7 +140,6 @@ describe('createCore', () => {
 
 describe('createCore — W-ONE license', () => {
   it('a licensed core refuses work until its account may run W-ONE; signing in stays possible', async () => {
-    h.pool = deadPool()
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'invalid_credentials' } }), { status: 401 }))
     const c = await core({ cloud: { url: 'http://cloud.test', enforced: true, fetch: fetch as unknown as typeof globalThis.fetch } })
     const ipcCall = (channel: string, payload?: unknown) => c.router.dispatch(channel, payload, { transport: 'ipc' })
@@ -188,7 +167,6 @@ describe('createCore — assistant end to end (scripted model)', () => {
   it('runs an agent through the router: context, tools, permission round-trip, push events', async () => {
     const saved = process.env.ANTHROPIC_API_KEY
     process.env.ANTHROPIC_API_KEY = 'sk-test-key'
-    h.pool = deadPool()
     const steps = [
       { blocks: [{ type: 'tool_call', id: 't1', name: 'memory_create_note', input: { title: 'Plan', body: 'b', reason: 'remember' } }], stopReason: 'tool_use' },
       { blocks: [{ type: 'tool_call', id: 't2', name: 'shell_run', input: { command: 'ls', reason: 'look' } }], stopReason: 'tool_use' },
@@ -209,7 +187,6 @@ describe('createCore — assistant end to end (scripted model)', () => {
         serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false },
         providerFactory: { create: () => provider as never }
       })
-      await c.dbReady
       await c.router.dispatch('memory:createVault', undefined, { transport: 'ipc' })
       const pushed: string[] = []
       let pending: string | undefined
@@ -294,7 +271,6 @@ describe('standalone server entry', () => {
   })
 
   it('starts, prints a pairing code while no device is paired, serves the API', async () => {
-    h.pool = deadPool()
     const c = (await run([], { WONE_PORT: '0', WONE_WEB_ROOT: join(process.env.WONE_HOME!, 'web') }))!
     cores.push(c)
     expect(c.server.status().running).toBe(true)
@@ -311,7 +287,6 @@ describe('standalone server entry', () => {
   })
 
   it('fails loudly when the port is taken', async () => {
-    h.pool = deadPool()
     const first = (await run([], { WONE_PORT: '0' }))!
     cores.push(first)
     const port = String(first.server.status().urls[0].split(':').pop())

@@ -18,13 +18,13 @@ eines bestehenden Tools.
 ## Stack
 
 Electron (rahmenlos) · React 18 · TypeScript · Vite (über **electron-vite**) · Tailwind CSS ·
-Framer Motion · **Monaco** · **xterm.js** + node-pty · PostgreSQL (Docker) · Agent Client
+Framer Motion · **Monaco** · **xterm.js** + node-pty · Agent Client
 Protocol · Anthropic SDK · Zod · `ws` · Vitest + Testing Library · Playwright. Die Schriften
 (Inter, JetBrains Mono) sind lokal eingebunden.
 
 ## Loslegen
 
-Voraussetzungen: Node 22, Docker (Docker Desktop unter macOS/Windows).
+Voraussetzungen: Node 22. Docker nur für das optionale Server-Image (`npm run docker:up`).
 
 ```bash
 git clone https://github.com/robin7mh/W-ONE.git
@@ -36,9 +36,9 @@ W-ONE ist ein **Core** (alle Dienste), den du auf drei Arten startest:
 
 | | Befehl | Was du bekommst |
 |---|---|---|
-| **Desktop-App** | `npm run dev` | Electron-Fenster; startet vorher den Datenbank-Container (im Dev-Modus mit HMR) |
+| **Desktop-App** | `npm run dev` | Electron-Fenster (im Dev-Modus mit HMR) |
 | **Web-UI + API, ohne Docker** | `npm run web` | baut Web-UI und Core-Server und stellt beides unter `http://127.0.0.1:7420` bereit |
-| **Docker** | `npm run docker:up` | Datenbank und Core in Containern unter `http://127.0.0.1:7420` |
+| **Docker** | `npm run docker:up` | der Core als Container unter `http://127.0.0.1:7420` (Heimserver, NAS) |
 
 **Zugriff aus dem Browser wird gekoppelt.** Öffne die Adresse und gib den Einmal-Code ein. Den
 Code bekommst du auf einem dieser Wege:
@@ -98,18 +98,12 @@ Standardmäßig nutzt er `claude-opus-5-5`, alternativ ist Sonnet 5.5 wählbar. 
 geprüft und nur im Core gespeichert (auf dem Desktop verschlüsselt über den Schlüsselbund des
 Betriebssystems); an Clients geht er nie.
 
-### Datenbank
+### Daten
 
-PostgreSQL läuft in Docker (`docker-compose.yml`, gebunden an `127.0.0.1:54329`), und
-`npm run dev` startet sie. W-ONE funktioniert auch ohne; Agent-Läufe und der Aktivitätsverlauf
-liegen dann nur im Arbeitsspeicher.
-
-```bash
-npm run db:up      # Datenbank starten (wartet, bis sie bereit ist)
-npm run db:down    # stoppen (die Daten bleiben im Volume "wone-pgdata")
-npm run db:psql    # SQL-Shell
-npm run db:backup  # pg_dump → ~/W-ONE/backups/
-```
+Der Core braucht keine Datenbank. Alles, was er behält, sind Dateien unter `~/W-ONE`:
+Einstellungen, Projekte, Agent-Sitzungen, das Aktivitätsprotokoll (`data/events.jsonl`),
+Assistenten-Läufe (`data/runs.json`) und das Gedächtnis als Markdown (`vault/`). Ein Backup
+ist eine Kopie dieses Ordners. Die einzige Datenbank im System hat W-ONE Cloud.
 
 Weitere Skripte:
 
@@ -136,7 +130,7 @@ Um Docker-Ports oder Bind-Adressen zu ändern, kopiere `.env.example` nach `.env
 npm test                 # Unit-Tests (Vitest): Main-Prozess in Node, Renderer in jsdom
 npm run test:coverage    # dasselbe mit Abdeckung; schlägt unter 100 % fehl
 open coverage/index.html # der Abdeckungsbericht
-npm run test:e2e         # Build + Datenbank + Playwright gegen die echte Electron-App
+npm run test:e2e         # Build + Playwright gegen die echte Electron-App
 npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pull Request ausführt
 ```
 
@@ -145,7 +139,7 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
   Ausgenommen sind nur reine Typ-Module (`vitest.config.ts`).
 - **E2E** (`tests/e2e`): Jeder Test läuft mit einem Wegwerf-`WONE_HOME`, dein echtes `~/W-ONE`
   wird nie angefasst.
-  - *electron*: die gebaute Desktop-App. Geprüft werden Start und Datenbank, jedes Modul, eine
+  - *electron*: die gebaute Desktop-App. Geprüft werden der Start, jedes Modul, eine
     echte Shell, eine Vault-Notiz auf der Platte, ein Projekt, der Editor, der eingebettete
     API-Server und der Theme-Schalter. Dazu kommt eine Agent-Sitzung gegen einen Stellvertreter
     für Claude Code (`tests/e2e/fake-claude.mjs`, kein Konto nötig): Chat, Freigabe, Diff,
@@ -161,7 +155,7 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
 
 | Workflow | Läuft bei | Macht |
 | --- | --- | --- |
-| `ci.yml` | jedem Pull Request (und manuell) | Typecheck · Unit-Tests mit 100-%-Schwelle (Bericht als Artefakt) · E2E (Electron + Docker-Datenbank, Web-UI + Core) · Docker-Image-Build |
+| `ci.yml` | jedem Pull Request (und manuell) | Typecheck · Unit-Tests mit 100-%-Schwelle (Bericht als Artefakt) · E2E (Electron, Web-UI + Core) · Docker-Image-Build |
 | `cd.yml` | Push auf `main`/`develop` (Merges), Tags `v*` (Releases) | **keine Tests**: baut das Core-Image (API + Web-UI) und pusht es nach `ghcr.io/robin7mh/w-one` (`:develop`, `:main`, `:sha-…`; bei einem Tag zusätzlich `:1.2.3` und `:latest`); ein Tag erstellt außerdem ein GitHub-Release mit dem Web-Bundle |
 
 Release: `git tag v0.2.0 && git push origin v0.2.0`.
@@ -255,7 +249,7 @@ tests/
   unit/main      Vitest (node): Dienste, Core, API-Server, Agent-Laufzeit, main.ts
   unit/renderer  Vitest (jsdom): Stores, Hooks, jede Komponente
   e2e            Playwright: die gebaute Electron-App und die Web-UI gegen den Core
-docker-compose.yml · Dockerfile            Datenbank und Core-Image (API + Web-UI)
+docker-compose.yml · Dockerfile            Core-Image (API + Web-UI) für Heimserver
 .github/workflows/                          ci.yml (PR-Tests) · cd.yml (Image + Release)
 ```
 
@@ -283,13 +277,13 @@ your coding agents and your knowledge. It follows the *principle* of sci-fi term
 ## Stack
 
 Electron (frameless) · React 18 · TypeScript · Vite (via **electron-vite**) · Tailwind CSS ·
-Framer Motion · **Monaco** · **xterm.js** + node-pty · PostgreSQL (Docker) · Agent Client
+Framer Motion · **Monaco** · **xterm.js** + node-pty · Agent Client
 Protocol · Anthropic SDK · Zod · `ws` · Vitest + Testing Library · Playwright. The fonts (Inter,
 JetBrains Mono) are bundled locally.
 
 ## Getting started
 
-Requirements: Node 22, Docker (Docker Desktop on macOS/Windows).
+Requirements: Node 22. Docker only for the optional server image (`npm run docker:up`).
 
 ```bash
 git clone https://github.com/robin7mh/W-ONE.git
@@ -301,9 +295,9 @@ W-ONE is one **core** (all services) with three ways to run it:
 
 | | Command | What you get |
 |---|---|---|
-| **Desktop app** | `npm run dev` | Electron window; starts the database container first (HMR in dev) |
+| **Desktop app** | `npm run dev` | Electron window (HMR in dev) |
 | **Web UI + API, no Docker** | `npm run web` | builds the web UI and the core server and serves both on `http://127.0.0.1:7420` |
-| **Docker** | `npm run docker:up` | the database and the core in containers on `http://127.0.0.1:7420` |
+| **Docker** | `npm run docker:up` | the core as a container on `http://127.0.0.1:7420` (home server, NAS) |
 
 **Browser access is paired.** Open the address and enter the one-time code. You get the code in
 one of these ways:
@@ -358,18 +352,12 @@ files, open items). The next agent, from any vendor, can pick up from there.
 the core, or paste the key in Settings. The key is verified once and stored on the core only
 (encrypted by the OS keychain on the desktop); it is never sent to any client.
 
-### Database
+### Data
 
-PostgreSQL runs in Docker (`docker-compose.yml`, bound to `127.0.0.1:54329`), and `npm run dev`
-starts it. W-ONE still works without it; agent runs and the activity history then live in memory
-only.
-
-```bash
-npm run db:up      # start the database (waits until healthy)
-npm run db:down    # stop it (data stays in the "wone-pgdata" volume)
-npm run db:psql    # SQL shell
-npm run db:backup  # pg_dump → ~/W-ONE/backups/
-```
+The core needs no database. Everything it keeps is files under `~/W-ONE`: settings, projects,
+agent sessions, the activity log (`data/events.jsonl`), assistant runs (`data/runs.json`) and the
+memory as Markdown (`vault/`). A backup is a copy of that folder. The only database in the
+system belongs to W-ONE Cloud.
 
 Other scripts:
 
@@ -396,7 +384,7 @@ To change Docker ports or bind addresses, copy `.env.example` to `.env`.
 npm test                 # unit tests (Vitest): main process in Node, renderer in jsdom
 npm run test:coverage    # the same, with coverage; fails below 100 %
 open coverage/index.html # the coverage report
-npm run test:e2e         # build + database + Playwright against the real Electron app
+npm run test:e2e         # build + Playwright against the real Electron app
 npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull request
 ```
 
@@ -405,7 +393,7 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
   modules are excluded (`vitest.config.ts`).
 - **E2E** (`tests/e2e`): every test runs with a throwaway `WONE_HOME`, so your real `~/W-ONE` is
   never touched.
-  - *electron*: the built desktop app. It covers boot and the database, every module, a real
+  - *electron*: the built desktop app. It covers boot, every module, a real
     shell, a vault note written to disk, a project, the editor, the embedded API server and the
     theme toggle. It also runs a coding agent session against a stand-in for Claude Code
     (`tests/e2e/fake-claude.mjs`, no account needed): chat, approval, diff, rename and journal.
@@ -420,7 +408,7 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
 
 | Workflow | Runs on | Does |
 | --- | --- | --- |
-| `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E (Electron + Docker database, web UI + core) · Docker image build |
+| `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E (Electron, web UI + core) · Docker image build |
 | `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests**: builds the core image (API + web UI) and pushes it to `ghcr.io/robin7mh/w-one` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
 
 To release: `git tag v0.2.0 && git push origin v0.2.0`.
@@ -514,7 +502,7 @@ tests/
   unit/main      Vitest (node): services, core, API server, agent runtime, main.ts
   unit/renderer  Vitest (jsdom): stores, hooks, every component
   e2e            Playwright: the built Electron app, and the web UI against the core
-docker-compose.yml · Dockerfile            the database and the core image (API + web UI)
+docker-compose.yml · Dockerfile            the core image (API + web UI) for a home server
 .github/workflows/                          ci.yml (PR tests) · cd.yml (image + release)
 ```
 

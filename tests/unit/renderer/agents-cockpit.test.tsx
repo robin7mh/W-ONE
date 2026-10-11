@@ -776,7 +776,7 @@ describe('AgentsView', () => {
       activeId: 'c1',
       activity: [
         { id: 'e1', type: 'agent.cancelled', ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload: {}, conversationId: 'c1' },
-        { id: 'e2', type: 'db.migrated', ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'system' }, payload: {} }
+        { id: 'e2', type: 'app.started', ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'system' }, payload: {} }
       ] as WoneEvent[]
     })
     const { rerender } = view()
@@ -788,11 +788,11 @@ describe('AgentsView', () => {
     rerender(<AgentsView onOpenNote={vi.fn()} onOpenSettings={vi.fn()} />)
     expect(screen.getByText('Run activity')).toBeInTheDocument()
     expect(screen.getByText('Run cancelled')).toBeInTheDocument()
-    expect(screen.queryByText('Database schema updated')).toBeNull()
+    expect(screen.queryByText('app.started')).toBeNull()
 
     act(() => useAgents.setState({ view: 'session', activeId: 'gone' })) // a session that isn't loaded (yet)
     expect(screen.getByText('Your agents, in one place')).toBeInTheDocument()
-    expect(screen.getByText('Database schema updated')).toBeInTheDocument()
+    expect(screen.getByText('app.started')).toBeInTheDocument()
   })
 })
 

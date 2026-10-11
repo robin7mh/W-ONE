@@ -13,7 +13,6 @@ export interface AppInfo {
   hostname: string
   /** Whether remote clients may open shells (opt-in). */
   remoteTerminal: boolean
-  db: { connected: boolean; schema?: number }
 }
 
 /** Embedded/standalone API server settings. */

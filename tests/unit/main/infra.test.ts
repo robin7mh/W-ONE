@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { newDb } from 'pg-mem'
 import { tempDir } from './helpers'
 
 // --- electron double -------------------------------------------------------
@@ -50,7 +49,6 @@ import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
-import { DbService, DEFAULT_DB_URL, createPool, databaseUrl, type DbPool } from '../../../electron/main/services/db/DbService'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
 const call = (channel: string, req?: unknown) => electron.handlers.get(channel)!({}, req)
@@ -245,62 +243,6 @@ describe('ipc handler modules bind every channel to its service', () => {
   })
 })
 
-describe('DbService', () => {
-  const memPool = (): DbPool => {
-    // noAstCoverageCheck: pg-mem refuses re-running CREATE TABLE IF NOT EXISTS otherwise
-    const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg()
-    return new Pool() as unknown as DbPool
-  }
-
-  it('pings, reports version 0, migrates in order and is idempotent', async () => {
-    const db = new DbService(memPool())
-    await db.ping()
-    expect(await db.version()).toBe(0)
-
-    const migrations = [
-      { version: 2, name: 'second', up: 'CREATE TABLE b (id TEXT PRIMARY KEY)' },
-      { version: 1, name: 'first', up: 'CREATE TABLE a (id TEXT PRIMARY KEY)' }
-    ]
-    expect(await db.migrate(migrations)).toEqual({ from: 0, to: 2, applied: ['1_first', '2_second'] })
-    expect(await db.migrate(migrations)).toEqual({ from: 2, to: 2, applied: [] })
-    expect(await db.version()).toBe(2)
-    await db.close()
-  })
-
-  it('rolls a failing migration back and rethrows', async () => {
-    const pool = memPool()
-    const db = new DbService(pool)
-    await expect(
-      db.migrate([{ version: 1, name: 'bad', up: 'CREATE TABLE ok_t (id TEXT); SELECT * FROM missing_table' }])
-    ).rejects.toThrow()
-    expect(await db.version()).toBe(0)
-  })
-
-  it('treats an empty ledger result as version 0', async () => {
-    const pool: DbPool = {
-      query: vi.fn(async () => ({ rows: [] })),
-      connect: vi.fn(),
-      end: vi.fn(async () => {})
-    }
-    expect(await new DbService(pool).version()).toBe(0)
-  })
-
-  it('reads the URL from WONE_DB_URL, else the docker-compose default', () => {
-    expect(databaseUrl({})).toBe(DEFAULT_DB_URL)
-    expect(databaseUrl({ WONE_DB_URL: 'postgres://x' })).toBe('postgres://x')
-    expect(databaseUrl()).toBe(process.env.WONE_DB_URL || DEFAULT_DB_URL)
-  })
-
-  it('creates a real pg pool lazily (no connection until the first query)', async () => {
-    const pool = createPool('postgres://u:p@127.0.0.1:1/db', { max: 1 }) as unknown as { options: Record<string, unknown>; end(): Promise<void> }
-    expect(pool.options).toMatchObject({ connectionString: 'postgres://u:p@127.0.0.1:1/db', max: 1, connectionTimeoutMillis: 3000 })
-    await pool.end()
-    const defaults = createPool('postgres://u:p@127.0.0.1:1/db') as unknown as { options: Record<string, unknown>; end(): Promise<void> }
-    expect(defaults.options).toMatchObject({ max: 5 })
-    await defaults.end()
-  })
-})
-
 describe('paths', () => {
   it('puts everything under ~/W-ONE unless WONE_HOME overrides it', () => {
     const saved = process.env.WONE_HOME
@@ -315,6 +257,8 @@ describe('paths', () => {
         secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
         cloudFile: join(homedir(), 'W-ONE', 'data', 'cloud.json'),
         grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
+        eventsFile: join(homedir(), 'W-ONE', 'data', 'events.jsonl'),
+        runsFile: join(homedir(), 'W-ONE', 'data', 'runs.json'),
         agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
         worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
       })

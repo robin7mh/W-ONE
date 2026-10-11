@@ -2,7 +2,6 @@ import { Languages, LogOut, RefreshCw, Server, ShoppingCart, UserRound } from 'l
 import type { CloudLicense, CloudStatus } from '@shared/types/cloud'
 import { Panel } from '@/components/ui/Panel'
 import { Card } from '@/components/ui/Card'
-import { StatusDot } from '@/components/ui/StatusDot'
 import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
 import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
@@ -133,8 +132,7 @@ export function AccountView() {
     ? [
         [t.account.mode, info.mode === 'desktop' ? t.account.desktop : t.account.server],
         [t.account.version, `v${info.version}`],
-        [t.account.host, info.hostname],
-        [t.account.database, info.db.connected ? t.account.dbOnline : t.account.dbOffline]
+        [t.account.host, info.hostname]
       ]
     : []
   return (
@@ -156,7 +154,6 @@ export function AccountView() {
                 <div key={k} className="flex gap-3">
                   <dt className="w-24 shrink-0 font-mono text-[11px] uppercase tracking-wider text-text-muted">{k}</dt>
                   <dd className="flex min-w-0 items-center gap-1.5 break-words font-mono text-[12px] text-text-secondary">
-                    {k === t.account.database && <StatusDot tone={info.db.connected ? 'ok' : 'warn'} pulse={false} />}
                     {v}
                   </dd>
                 </div>

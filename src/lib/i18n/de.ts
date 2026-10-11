@@ -40,9 +40,6 @@ export const de: Dict = {
     server: 'Server',
     version: 'Version',
     host: 'Host',
-    database: 'Datenbank',
-    dbOnline: 'online',
-    dbOffline: 'offline',
     linking: 'Verbinde …'
   },
 
@@ -377,7 +374,6 @@ agents: {
       requested: (what) => `Freigabe angefragt: ${what}`,
       granted: (always, tool) => `Freigegeben (${always ? 'immer' : 'einmal'}): ${tool}`,
       denied: (tool) => `Abgelehnt: ${tool}`,
-      migrated: 'Datenbankschema aktualisiert',
       ended: (code) => `Sitzung beendet${code ? ` (Exit-Code ${code})` : ''}`
     }
   },
@@ -635,12 +631,9 @@ agents: {
     version: 'Version',
     core: 'Core',
     host: 'Host',
-    database: 'Datenbank',
     client: 'Client',
     desktopApp: 'Desktop-App',
     server: 'Server',
-    dbConnected: (schema) => `Postgres · Schema v${schema}`,
-    dbMissing: 'nicht verbunden — npm run db:up',
     desktopWindow: 'Desktop-Fenster',
     pairedBrowser: 'Browser (gekoppelt)'
   }

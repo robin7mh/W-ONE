@@ -339,7 +339,7 @@ describe('EditorView', () => {
 
   it('in a browser: no VS Code; read-only when the core does not allow remote edits', async () => {
     installRemote({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
-    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: true } } })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false } })
     useProjects.setState({ projects: [project('p')] })
     useEditor.setState({
       tabs: [tab('a.ts', { conflict: true, dirty: true }), tab('b.png', { content: undefined, unsupported: 'binary' })],
@@ -355,7 +355,7 @@ describe('EditorView', () => {
     expect(screen.getByText('Binary file')).toBeInTheDocument()
     expect(screen.queryByText('Open in VS Code')).toBeNull()
 
-    act(() => useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true, db: { connected: true } } }))
+    act(() => useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } }))
     act(() => useEditor.setState({ activeId: 'p:a.ts' }))
     expect(screen.getByTestId('monaco')).toHaveTextContent(/^p:a\.ts$/)
   })

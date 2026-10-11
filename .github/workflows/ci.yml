@@ -62,8 +62,6 @@ jobs:
         run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run web:build && npm run server:build
-      - name: Start the database (docker-compose.yml)
-        run: npm run db:up
       - name: Run Playwright
         run: xvfb-run -a npx playwright test
       - name: Upload Playwright report

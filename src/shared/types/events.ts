@@ -7,7 +7,6 @@ import type { EntityRef } from './entity'
 /** Grows additively as phases land (project.*, memory.*, agent.*, tool.*, …). */
 export type WoneEventType =
   | 'app.started'
-  | 'db.migrated'
   | 'agent.started'
   | 'agent.status.updated'
   | 'agent.completed'
@@ -36,7 +35,6 @@ export type EventPersistence = 'ephemeral' | 'activity' | 'audit'
  */
 export const EVENT_CATALOG: Record<WoneEventType, EventPersistence> = {
   'app.started': 'activity',
-  'db.migrated': 'activity',
   'agent.started': 'activity',
   'agent.status.updated': 'ephemeral',
   'agent.completed': 'activity',

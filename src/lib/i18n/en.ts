@@ -42,9 +42,6 @@ export const en = {
     server: 'Server',
     version: 'Version',
     host: 'Host',
-    database: 'Database',
-    dbOnline: 'online',
-    dbOffline: 'offline',
     linking: 'Connecting…'
   },
 
@@ -387,7 +384,6 @@ agents: {
       requested: (what: string) => `Approval requested: ${what}`,
       granted: (always: boolean, tool: string) => `Approved (${always ? 'always' : 'once'}): ${tool}`,
       denied: (tool: string) => `Denied: ${tool}`,
-      migrated: 'Database schema updated',
       ended: (code?: number) => `Session ended${code ? ` (exit code ${code})` : ''}`
     }
   },
@@ -649,12 +645,9 @@ agents: {
     version: 'Version',
     core: 'Core',
     host: 'Host',
-    database: 'Database',
     client: 'Client',
     desktopApp: 'Desktop app',
     server: 'Server',
-    dbConnected: (schema?: number) => `Postgres · schema v${schema}`,
-    dbMissing: 'not connected — npm run db:up',
     desktopWindow: 'Desktop window',
     pairedBrowser: 'Browser (paired)'
   }

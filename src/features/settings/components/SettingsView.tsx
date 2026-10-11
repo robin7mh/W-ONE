@@ -346,7 +346,6 @@ function AboutCard() {
         [t.settings.version, info.version],
         [t.settings.core, info.mode === 'desktop' ? t.settings.desktopApp : t.settings.server],
         [t.settings.host, `${info.hostname} (${info.platform})`],
-        [t.settings.database, info.db.connected ? t.settings.dbConnected(info.db.schema) : t.settings.dbMissing],
         [t.settings.client, isDesktop() ? t.settings.desktopWindow : t.settings.pairedBrowser]
       ]
     : []

@@ -102,7 +102,7 @@ describe('LanguageSwitch', () => {
 })
 
 describe('AccountView', () => {
-  const info = { mode: 'desktop' as const, version: '1.0.0', platform: 'darwin', hostname: 'mac', remoteTerminal: false, db: { connected: true } }
+  const info = { mode: 'desktop' as const, version: '1.0.0', platform: 'darwin', hostname: 'mac', remoteTerminal: false }
 
   it('shows the account state, the language switch and the linked core', () => {
     act(() => useSession.setState({ info: undefined }))
@@ -116,15 +116,14 @@ describe('AccountView', () => {
     expect(screen.getByText('Desktop app')).toBeInTheDocument()
     expect(screen.getByText('v1.0.0')).toBeInTheDocument()
     expect(screen.getByText('mac')).toBeInTheDocument()
-    expect(screen.getByText('online')).toBeInTheDocument()
+    expect(screen.queryByText('Database')).toBeNull() // the core keeps files, no database
 
-    act(() => useSession.setState({ info: { ...info, mode: 'server', db: { connected: false } } }))
+    act(() => useSession.setState({ info: { ...info, mode: 'server' } }))
     expect(screen.getByText('Server')).toBeInTheDocument()
-    expect(screen.getByText('offline')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('radio', { name: 'Deutsch' }))
     expect(screen.getByRole('button', { name: 'Anmelden' })).toBeInTheDocument()
-    expect(screen.getByText('Datenbank')).toBeInTheDocument()
+    expect(screen.getByText('Modus')).toBeInTheDocument()
     act(() => useSession.setState({ info: undefined }))
     act(() => useCloud.setState({ status: null }))
   })

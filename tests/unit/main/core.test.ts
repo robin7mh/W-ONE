@@ -5,7 +5,6 @@ import { EventBus, NoopEventSink, type EventSink } from '../../../electron/main/
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
 import { ProjectRegistry } from '../../../electron/main/services/projects/registry'
 import { ContextStore } from '../../../electron/main/services/context/contextStore'
-import { MIGRATIONS } from '../../../electron/main/services/db/migrations'
 import { EVENT_CATALOG } from '@shared/types/events'
 import type { Project } from '@shared/types/project'
 import type { ProjectContext } from '@shared/types/context'
@@ -32,7 +31,7 @@ describe('EventBus', () => {
 
   it('keeps explicit input and works without a broadcast hook', () => {
     const bus = new EventBus({ sink: new NoopEventSink() })
-    const event = bus.emit('db.migrated', {
+    const event = bus.emit('app.started', {
       actor: { kind: 'user', id: 'u1' },
       subject: { kind: 'project', id: 'p1' },
       projectId: 'p1',
@@ -165,13 +164,5 @@ describe('ContextStore', () => {
     expect(await store.save(ctx)).toBe(ctx)
     expect(await store.get('p1')).toEqual(ctx)
     await mkdir(join(dir, 'context'), { recursive: true })
-  })
-})
-
-describe('migrations', () => {
-  it('are ordered, unique and start with the event log (P2B)', () => {
-    expect(MIGRATIONS.map((m) => m.version)).toEqual([1])
-    expect(MIGRATIONS[0]).toMatchObject({ name: 'events_and_agent_runs' })
-    expect(MIGRATIONS[0].up).toContain('CREATE TABLE events')
   })
 })

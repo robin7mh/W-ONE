@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 export interface WonePaths {
   /** ~/W-ONE — the one user-visible home of everything W-ONE keeps. */
   homeDir: string
-  /** ~/W-ONE/data — project registry, settings, caches (the database runs in Docker). */
+  /** ~/W-ONE/data — project registry, settings, history, caches: plain files, no database. */
   dataDir: string
   /** Typed app settings (JSON, atomic writes). */
   settingsFile: string
@@ -20,6 +20,10 @@ export interface WonePaths {
   cloudFile: string
   /** Persisted "Always allow" permission grants for agent tools. */
   grantsFile: string
+  /** The activity log (JSON lines, newest events). */
+  eventsFile: string
+  /** The assistant's recent runs (model, tokens, outcome). */
+  runsFile: string
   /** Agent cockpit sessions (Claude Code & co.): list + one transcript file each. */
   agentsDir: string
   /** Isolated git worktrees for agents working in parallel — visible, so nothing hides. */
@@ -43,6 +47,8 @@ export function wonePaths(): WonePaths {
     secretsFile: join(dataDir, 'secrets.json'),
     cloudFile: join(dataDir, 'cloud.json'),
     grantsFile: join(dataDir, 'grants.json'),
+    eventsFile: join(dataDir, 'events.jsonl'),
+    runsFile: join(dataDir, 'runs.json'),
     agentsDir: join(dataDir, 'agents'),
     worktreesDir: join(homeDir, 'worktrees')
   }

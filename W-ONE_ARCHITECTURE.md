@@ -8,7 +8,7 @@ W-ONE evolves from a sci-fi command-center UI into a **modular, local-first pers
 Guiding doctrine (unchanged from the masterplan, restated because everything below depends on it):
 
 1. **All privileged operations live in the W-ONE core** — the Electron main process, or the same core running headless as a server (§12.4). Clients (desktop renderer, browser, mobile app) never get Node access.
-2. **Markdown is the source of truth for knowledge; the database (PostgreSQL in Docker since 2026-10-02, §11.5) is a rebuildable index plus structured data.** No ORM.
+2. **Markdown is the source of truth for knowledge; everything else the core keeps is plain JSON files — no database on the user's machine (since 2026-10-11, §11.5).** The only database is W-ONE Cloud's.
 3. **Local-first.** Cloud LLM APIs are called from main; data stays on disk in open formats.
 4. **Policy is code, never a model.** Permission decisions are made by a deterministic engine and the user — an LLM can request, never grant.
 5. **No speculative architecture.** Interfaces are introduced when the first real consumer lands; schemas grow by additive migration.
@@ -459,13 +459,13 @@ Consumers:
 
 ### 11.1 What lives where
 
-Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. The database is not in this folder — it runs in Docker (§11.5).
+Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. There is no database: the core keeps files only (§11.5).
 
 | Store | Location | Content | Rebuildable? |
 |---|---|---|---|
 | Markdown vault | `~/W-ONE/vault` (default; configurable via settings) | the memory notes, Obsidian-compatible (§12.3) | **is** the source of truth |
-| PostgreSQL `wone` | Docker volume `wone-pgdata` (§11.5) | memories, entities, links, events, knowledge index, full-text tables; later: conversations, runs, grants | knowledge index: yes; rest: primary data |
-| JSON | `~/W-ONE/data/` | `settings.json`, `projects.json`, `context/<id>.json` | context cache: yes |
+| JSON | `~/W-ONE/data/` | `settings.json`, `projects.json`, `context/<id>.json`, `agents/`, `conversations/`, `grants.json`, `runs.json` | context cache: yes |
+| JSON lines | `~/W-ONE/data/events.jsonl` | the activity log, newest 1000 events (compacted at 2000) | no — history |
 | safeStorage | OS keychain | LLM API keys (P6) | — |
 
 ### 11.2 Vault & Obsidian compatibility
@@ -504,17 +504,16 @@ The `RetrievalService` is where ranking lives: it blends FTS scores, embeddings 
 
 ### 11.4 Migration policy
 
-Ledger table `schema_migrations`; migrations are TypeScript modules exporting SQL strings, forward-only, one transaction each (transactional DDL — a failed migration rolls back completely; `npm run db:backup` dumps the data on demand, §11.5). Anything whose source of truth is files (knowledge index, FTS) can always be dropped and rebuilt.
+Files carry a `version` field where their shape may change; readers accept older shapes and fill defaults. Anything whose source of truth is the vault (knowledge index, full-text) can always be dropped and rebuilt.
 
-### 11.5 Database: PostgreSQL in Docker (changed 2026-10-02)
+### 11.5 No database on the user's machine (changed 2026-10-11)
 
-User decision: the database runs in Docker so the same setup carries over to a server deploy later. It replaces the embedded SQLite file (better-sqlite3) from P2A, which had no consumers yet, so no data had to move.
+User decision: W-ONE Cloud is the one backend with a database (Postgres, accounts and licenses). The core on the user's machine keeps plain files only — a customer installs a Mac app, never Docker.
 
-- **Where:** `docker-compose.yml` → service `db` (`postgres:18-alpine`, container `w-one-db`, volume `wone-pgdata`), bound to `127.0.0.1:54329` only. `npm run dev` starts it (`predev`); `npm run db:up|down|logs|psql|backup`.
-- **Connection:** `pg` pool in the main process, URL from `WONE_DB_URL` (default matches the compose file, see `.env.example`). The app connects in the background and stays fully usable without the database — P2B is its first consumer.
-- **Migrations:** `DbService.migrate()` — forward-only, one transaction per migration (Postgres DDL is transactional, so a failed migration leaves no trace), ledger table `schema_migrations`. Backups on demand: `npm run db:backup` (`pg_dump` → `~/W-ONE/backups/`).
-- **Mapping of the plan below:** SQLite FTS5 → Postgres full-text search (`tsvector` + GIN, `ts_rank`); `sqlite-vec` (P13) → `pgvector`; `user_version` → `schema_migrations`. Where §4/§5/§12 still say SQLite, read Postgres.
-- **Server image:** `Dockerfile` builds the W-ONE core (API + web UI, §12.4); `npm run docker:up` starts it next to the database; CD publishes it to GHCR. The Electron app itself stays a desktop app (and can embed the same server).
+- **History:** the activity log is `~/W-ONE/data/events.jsonl` (`EventLog`: the newest 1000 events in memory, appended per event, rewritten with the newest once it reaches 2000 lines). Assistant runs are `~/W-ONE/data/runs.json` (`RunStore`, newest 200).
+- **Writes:** `lib/writeAtomic` — temp file + rename, one write at a time per file.
+- **History of this decision:** from 2026-10-02 to 2026-10-11 the core used an optional Postgres in Docker (`w-one-db`) for exactly these two things; it was removed before the launch. Where §4/§5/§12 still mention SQLite or Postgres for the core, read "files"; a future full-text index would be rebuildable from the vault.
+- **Server image:** `Dockerfile` builds the W-ONE core (API + web UI, §12.4) for a home server; `npm run docker:up` starts it; its data is the `wone-data` volume. The Electron app itself stays a desktop app (and can embed the same server).
 
 ---
 
@@ -579,7 +578,7 @@ User decision: W-ONE gets a React Native app, and the Docker deploy must be a wo
 - **One Router:** `electron/ipc/router.ts` is the single dispatch point for desktop IPC and the network API. Per call: channel exists → caller may use it (`CHANNEL_ACCESS`: `any` / `desktop` = native UI or host apps / `terminal` = remote shells, opt-in) → Zod schema (`src/shared/ipc/schemas.ts`) → handler → `IpcResult`.
 - **Network API** (`electron/main/server/HttpServer.ts`, reference: [`docs/API.md`](docs/API.md)): `POST /api/rpc/<channel>`, `WS /api/events`, `POST /api/pair`, `GET /api/health`, plus the built web UI at `/`. Devices pair with one-time codes (10 min, rate-limited) and get bearer tokens; only SHA-256 hashes are stored. No cookies, no CORS. Desktop: opt-in in Settings, 127.0.0.1 unless LAN is switched on. Standalone: always on, configured by environment.
 - **Clients:** `src/shared/ipc/transport.ts` (bridge | HTTP + WebSocket, only `fetch`/`WebSocket` — the mobile app reuses it unchanged together with `contract.ts`, `schemas.ts` and `types/`).
-- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
+- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected — since 2026-10-11 to `~/W-ONE/data/events.jsonl` instead (§11.5) — (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
 - **P6:** `LLMProvider` (provider-neutral, the model's own blocks replayed unchanged) + Anthropic adapter (streaming, `claude-opus-5-5` default, effort, adaptive thinking, cached system prompt, server-side refusal fallback). Key from `ANTHROPIC_API_KEY` or the secret store (OS keychain on desktop, 0600 file on a server), verified before saving, never returned. Context engine = time, user, active project, matching vault notes under a budget, sent as a `<context>` block in the user turn (cache-friendly).
 - **P7:** `ToolRegistry` (Zod → JSON Schema) with memory, project (confined to the project root), shell and system tools; `PermissionService` = read runs, write asks (Allow once / Always — persisted per agent + tool / Deny), execute always asks; remote devices only run commands with remote shells enabled; unanswered requests are denied after 10 minutes.
 - **P8:** `AssistantService` — controlled loop, per-agent iteration and time limits, cancellation, append-only transcript (dangling tool calls are closed as interrupted), structured `agent.*`/`tool.*`/`permission.*` events, no reasoning stored. Agents are data (`agents.ts`: Assistant, Coding, Research with web search/fetch, Chat).
