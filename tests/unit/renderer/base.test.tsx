@@ -215,7 +215,10 @@ describe('data & shared constants', () => {
       'debug:session',
       'debug:output',
       'lsp:diagnostics',
-      'tools:progress'
+      'tools:progress',
+      'liveServer:changed',
+      'sftp:progress',
+      'remote:changed'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })

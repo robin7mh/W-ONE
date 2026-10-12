@@ -51,7 +51,8 @@ vi.mock('@/features/editor/monaco/setup', () => ({ monaco: mon.monaco }))
 import { eventKey, matchesStroke, parseKeybinding } from '@/features/editor/keys'
 import { monacoOptions, useEditorPrefs } from '@/features/editor/prefs'
 import { useLanguages } from '@/features/editor/languages'
-import { editorRules, monacoKey, setupUserPrefs, snippetSuggestions } from '@/features/editor/monaco/userPrefs'
+import { editorRules, missingImports, monacoKey, setupUserPrefs, snippetSuggestions } from '@/features/editor/monaco/userPrefs'
+import { MUI_SNIPPETS } from '@/features/editor/snippets/mui'
 
 beforeEach(() => {
   useEditorPrefs.setState({ settings: {}, snippets: [] })
@@ -187,6 +188,22 @@ describe('editor settings and snippets', () => {
     ])
   })
 
+  it('snippets bring the imports they need — only the missing ones', () => {
+    const imports = { from: '@mui/material', names: ['Button', 'Box', 'Stack'] }
+    expect(missingImports('', imports)).toEqual(['Button', 'Box', 'Stack'])
+    expect(missingImports("import { Button, Box as B } from '@mui/material'\nimport { Stack } from 'other'\nimport type { Stack as S } from \"@mui/material\"", imports)).toEqual([])
+    expect(missingImports("import { Button } from '@mui/material'", imports)).toEqual(['Box', 'Stack'])
+    const range = new mon.monaco.Range(3, 1, 3, 4) as never
+    const [withImport] = snippetSuggestions([{ name: 'b', language: 'typescript', prefix: 'muiButton', body: '<Button />', imports: { from: '@mui/material', names: ['Button'] } }], 'typescript', range, '')
+    expect(withImport.additionalTextEdits).toEqual([{ range: new mon.monaco.Range(1, 1, 1, 1), text: "import { Button } from '@mui/material'\n" }])
+    const [already] = snippetSuggestions([{ name: 'b', language: 'typescript', prefix: 'muiButton', body: '<Button />', imports: { from: '@mui/material', names: ['Button'] } }], 'typescript', range, "import { Button } from '@mui/material'")
+    expect(already.additionalTextEdits).toBeUndefined()
+    // Every MUI snippet in both languages, each with what it imports.
+    expect(MUI_SNIPPETS).toHaveLength(126)
+    expect(new Set(MUI_SNIPPETS.map((m) => m.prefix)).size).toBe(63)
+    expect(MUI_SNIPPETS.every((m) => m.imports!.names.length > 0)).toBe(true)
+  })
+
   it('setup applies keybindings now and when they change; one snippet provider per language', () => {
     useEditorPrefs.setState({ settings: { keybindings: [{ key: 'cmd+d', command: 'editor.action.x' }] } })
     setupUserPrefs()
@@ -202,10 +219,11 @@ describe('editor settings and snippets', () => {
     expect(mon.state.rules.at(-1)).toEqual([])
 
     const { provider } = mon.state.providers[0]
-    const model = { getWordUntilPosition: () => ({ startColumn: 1, endColumn: 3 }), getLanguageId: () => 'javascript' }
-    expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 })).toEqual({ suggestions: [] })
+    const model = { getWordUntilPosition: () => ({ startColumn: 1, endColumn: 3 }), getLanguageId: () => 'javascript', getValue: () => '' }
+    // W-ONE's own MUI snippets are always there for JavaScript / TypeScript.
+    expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 }).suggestions).toHaveLength(MUI_SNIPPETS.length / 2)
     act(() => useEditorPrefs.setState({ snippets: [{ name: 'Log', language: 'javascript', prefix: 'log', body: 'x' }] }))
-    expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 }).suggestions).toHaveLength(1)
+    expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 }).suggestions).toHaveLength(MUI_SNIPPETS.length / 2 + 1)
   })
 })
 

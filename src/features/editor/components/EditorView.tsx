@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Database, Radio, Paintbrush, Server, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
@@ -20,11 +20,21 @@ import { buildCommands } from '../commands'
 import { projectProblems, useProblems } from '../problems'
 import { useDebug } from '../debug'
 import { useLanguages } from '../languages'
+import { isSassFile, useLive } from '../live'
 import { LANGUAGES } from '@shared/types/languages'
 import { WORKBENCH_COMMANDS } from '@shared/types/migrate'
 import { useEditorPrefs } from '../prefs'
 import { matchesStroke, parseKeybinding } from '../keys'
 import { DebugConsole, DebugPanel } from './DebugPanel'
+import { RemotePanel } from './RemotePanel'
+import { useSftp } from '../sftp'
+import { PullsPanel } from './PullsPanel'
+import { PullDetail } from './PullDetail'
+import { useGitHub } from '../github'
+import { MongoPanel } from './MongoPanel'
+import { MongoView } from './MongoView'
+import { useMongo } from '../mongo'
+import { useRemote } from '@/features/remote/store'
 import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
@@ -38,7 +48,12 @@ const PANES: { id: EditorPane; icon: LucideIcon }[] = [
   { id: 'search', icon: Search },
   { id: 'scm', icon: GitBranch },
   { id: 'graph', icon: GraphIcon },
-  { id: 'debug', icon: Bug }
+  { id: 'debug', icon: Bug },
+  // Only for git repositories.
+  { id: 'prs', icon: GitPullRequest },
+  { id: 'mongo', icon: Database },
+  // Only for projects with a .vscode/sftp.json.
+  { id: 'remote', icon: Server }
 ]
 
 /** VS Code's activity bar: explorer, search, source control (with the change count) and the git graph. */
@@ -46,9 +61,12 @@ function ActivityBar() {
   const t = useT()
   const pane = useScm((s) => s.pane)
   const changes = useScm((s) => s.status?.files.length ?? 0)
+  const sftp = useSftp((s) => s.targets.length > 0)
+  const repo = useScm((s) => !!s.status?.repo)
+  const shown = (id: EditorPane) => (id === 'remote' ? sftp : id === 'prs' ? repo : true)
   return (
     <nav aria-label={t.editor.title} className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-hud/60 py-2">
-      {PANES.map(({ id, icon: Icon }) => (
+      {PANES.filter((p) => shown(p.id)).map(({ id, icon: Icon }) => (
         <button
           key={id}
           type="button"
@@ -71,6 +89,37 @@ function ActivityBar() {
       ))}
     </nav>
   )
+}
+
+/** Live Server and the Sass watcher in the command palette. */
+function liveCommands(t: ReturnType<typeof useT>): PickItem[] {
+  const live = () => useLive.getState()
+  const shown = () => useEditor.getState().tabs.find((x) => x.id === useEditor.getState().activeId)
+  return [
+    { id: 'live.start', label: `Live Server: ${t.live.goLive}`, run: () => live().start(shown()?.path.match(/\.html?$/i) ? shown()!.path : undefined) },
+    { id: 'live.stop', label: `Live Server: ${t.live.stop}`, run: () => live().stop() },
+    { id: 'sass.watch', label: `Sass: ${t.live.toggleSass}`, run: () => live().toggleSass() }
+  ]
+}
+
+/** Remote-SSH and Dev Containers in the command palette (desktop app). */
+function remoteCommands(t: ReturnType<typeof useT>): PickItem[] {
+  const remote = () => useRemote.getState()
+  return [
+    {
+      id: 'remote.ssh',
+      label: t.remote.paletteSsh,
+      run: async () => {
+        await remote().loadHosts()
+        useScm.getState().openPick({
+          placeholder: t.remote.pickHost,
+          items: remote().hosts.map((h) => ({ id: h.name, label: h.name, detail: h.hostName && `${h.user ? `${h.user}@` : ''}${h.hostName}`, run: () => remote().ssh(h.name) })),
+          onText: (target) => remote().ssh(target)
+        })
+      }
+    },
+    { id: 'remote.container', label: t.remote.paletteContainer, run: () => remote().container(useEditor.getState().projectId!) }
+  ]
 }
 
 /** The debugger in the command palette. */
@@ -224,16 +273,25 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   cursorLine = cursor?.line ?? 1
   const session = useDebug((s) => s.session)
   const fileLanguage = useLanguages((s) => (tab ? s.files[tab.id] : undefined))
+  const live = useLive()
+  const server = live.servers.find((x) => x.projectId === projectId)
+  const sassOn = !!(projectId && live.sassWatching[projectId])
   const missingServer = fileLanguage && !fileLanguage.available ? LANGUAGES.find((l) => l.id === fileLanguage.language) : undefined
   const consoleOpen = useDebug((s) => s.consoleOpen)
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
   const { pane, diff, quickOpen, quickQuery, pick, status, busy, error: scmError } = useScm()
+  const ghError = useGitHub((s) => s.error)
+  // A pull request takes the editor area while its pane is open.
+  const pullOpen = useGitHub((s) => !!s.detail) && pane === 'prs'
+  // So does a MongoDB collection while the databases pane is open.
+  const mongoOpen = useMongo((s) => !!s.open) && pane === 'mongo'
+  const mongoError = useMongo((s) => s.error)
   const commands = useRef<() => PickItem[]>()
   commands.current = () =>
     buildCommands(t, {
       onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : debugCommands(t)), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
     })
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
@@ -309,6 +367,13 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   // The debugger follows the core's session events while the editor is mounted.
   useEffect(() => useDebug.getState().connect(), [])
+  // Live Server and the Sass watcher follow the core.
+  useEffect(() => useLive.getState().connect(), [])
+  // SFTP: the project's targets, upload on save.
+  useEffect(() => {
+    void useSftp.getState().load()
+    return useSftp.getState().connect()
+  }, [])
   // Settings, keybindings and snippets taken over from VS Code / Cursor.
   useEffect(() => void useEditorPrefs.getState().load(), [])
 
@@ -390,6 +455,12 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           <SearchPanel />
         ) : pane === 'scm' || pane === 'graph' ? (
           <ScmPanel />
+        ) : pane === 'remote' ? (
+          <RemotePanel />
+        ) : pane === 'prs' ? (
+          <PullsPanel />
+        ) : pane === 'mongo' ? (
+          <MongoPanel />
         ) : pane === 'debug' ? (
           projectId && <DebugPanel />
         ) : (
@@ -399,6 +470,33 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
       {/* Tabs · banners · Monaco (or a diff, or the graph) · status */}
       <section className="flex min-w-0 flex-1 flex-col">
+        {live.error && (
+          <Banner tone="warn">
+            <AlertTriangle size={13} className="shrink-0 text-danger" />
+            <span className="mr-auto whitespace-pre-wrap font-mono text-[11.5px]">{live.error}</span>
+            <button type="button" aria-label={t.common.dismiss} onClick={() => useLive.getState().clearError()} className="text-text-muted hover:text-text-primary">
+              <X size={13} />
+            </button>
+          </Banner>
+        )}
+        {mongoError && (
+          <Banner tone="warn">
+            <AlertTriangle size={13} className="shrink-0 text-danger" />
+            <span className="mr-auto whitespace-pre-wrap font-mono text-[11.5px]">{mongoError}</span>
+            <button type="button" aria-label={t.common.dismiss} onClick={() => useMongo.getState().clearError()} className="text-text-muted hover:text-text-primary">
+              <X size={13} />
+            </button>
+          </Banner>
+        )}
+        {ghError && (
+          <Banner tone="warn">
+            <AlertTriangle size={13} className="shrink-0 text-danger" />
+            <span className="mr-auto whitespace-pre-wrap font-mono text-[11.5px]">{ghError}</span>
+            <button type="button" aria-label={t.common.dismiss} onClick={() => useGitHub.getState().clearError()} className="text-text-muted hover:text-text-primary">
+              <X size={13} />
+            </button>
+          </Banner>
+        )}
         {scmError && (
           <Banner tone="warn">
             <AlertTriangle size={13} className="shrink-0 text-danger" />
@@ -421,8 +519,12 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           <div className="min-h-0 flex-1">
             <GitGraph />
           </div>
+        ) : pullOpen ? (
+          <PullDetail />
+        ) : mongoOpen ? (
+          <MongoView />
         ) : null}
-        <div className={cn('flex min-h-0 flex-1 flex-col', (diff || pane === 'graph') && 'hidden')}>
+        <div className={cn('flex min-h-0 flex-1 flex-col', (diff || pane === 'graph' || pullOpen || mongoOpen) && 'hidden')}>
           <EditorTabs projectNames={names} />
 
           {closingTab ? (
@@ -506,6 +608,26 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
                 </button>
               )}
             </span>
+          )}
+          {!readOnly && (server || tab?.path.match(/\.html?$/i)) && (
+            <button
+              type="button"
+              title={server ? t.live.stopServer(server.url) : t.live.goLive}
+              onClick={() => void (server ? useLive.getState().stop() : useLive.getState().start(tab?.path))}
+              className={cn('flex shrink-0 items-center gap-1 hover:text-text-primary', server && 'text-cyan')}
+            >
+              <Radio size={11} /> {server ? t.live.port(server.port) : t.live.goLive}
+            </button>
+          )}
+          {!readOnly && (sassOn || (tab && isSassFile(tab.path))) && (
+            <button
+              type="button"
+              title={sassOn && live.sass?.projectId === projectId && live.sass.written.length ? t.live.compiled(live.sass.written.join(', ')) : t.live.watchSassHint}
+              onClick={() => void useLive.getState().toggleSass()}
+              className={cn('flex shrink-0 items-center gap-1 hover:text-text-primary', sassOn && 'text-cyan')}
+            >
+              <Paintbrush size={11} /> {sassOn ? t.live.watchingSass : t.live.watchSass}
+            </button>
           )}
           {problems.length > 0 && (
             <button type="button" onClick={showProblems} title={t.problems.title} className="flex shrink-0 items-center gap-2 hover:text-text-primary">

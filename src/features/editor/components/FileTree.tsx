@@ -13,6 +13,9 @@ import {
   FolderOpen,
   FolderPlus,
   Pencil,
+  Radio,
+  Upload,
+  Download,
   Trash2,
   X,
   type LucideIcon
@@ -22,6 +25,13 @@ import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { isMac } from '@/lib/platform'
 import { tabKey, useEditor } from '../store'
+import { useLive } from '../live'
+import { useSftp } from '../sftp'
+
+/** A project path as the server sees it: relative to the SFTP context. */
+const remotePath = (path: string, context: string) => (context ? path.slice(context.length + 1) : path)
+/** Only what lies inside the target's local folder goes to / comes from its server. */
+const inContext = (path: string, context: string) => !context || path === context || path.startsWith(`${context}/`)
 
 const CODE = /\.(tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|swift|c|cc|cpp|h|hpp|cs|rb|php|sh|zsh|vue|svelte|css|scss|less|html?|sql|ya?ml|toml)$/i
 const ICONS: [RegExp, LucideIcon, string][] = [
@@ -199,6 +209,9 @@ function ContextMenu({ menu, onClose, readOnly }: { menu: Menu; onClose: () => v
     }
   }, [onClose])
 
+  // SFTP (a .vscode/sftp.json): send to / fetch from the selected server.
+  const sftpTarget = useSftp((s) => s.targets.find((x) => x.name === s.target))
+  const noSftp = readOnly || !target || !sftpTarget || !inContext(target.path, sftpTarget.context)
   const run = (fn: () => unknown) => () => {
     onClose()
     void fn()
@@ -208,6 +221,14 @@ function ContextMenu({ menu, onClose, readOnly }: { menu: Menu; onClose: () => v
     { label: t.explorer.newFolder, icon: FolderPlus, action: run(() => useEditor.getState().startNaming('dir', target)), hidden: readOnly },
     { label: t.explorer.rename, icon: Pencil, hint: 'F2', action: run(() => useEditor.getState().startNaming('rename', target)), hidden: readOnly || !target },
     { label: t.explorer.copyPath, icon: Copy, action: run(() => navigator.clipboard?.writeText(target!.path)), hidden: !target },
+    { label: t.sftp.uploadTo(sftpTarget?.host ?? ''), icon: Upload, action: run(() => useSftp.getState().upload([target!.path])), hidden: noSftp },
+    {
+      label: t.sftp.downloadFrom(sftpTarget?.host ?? ''),
+      icon: Download,
+      action: run(() => useSftp.getState().download([remotePath(target!.path, sftpTarget!.context)])),
+      hidden: noSftp
+    },
+    { label: t.live.openWithLiveServer, icon: Radio, action: run(() => useLive.getState().start(target!.path)), hidden: readOnly || !target || !/\.html?$/i.test(target.path) },
     { label: t.explorer.delete, icon: Trash2, hint: isMac ? '⌘⌫' : 'Entf', action: run(() => useEditor.getState().requestDelete(target!.path)), hidden: readOnly || !target, danger: true }
   ]
 

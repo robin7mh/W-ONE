@@ -3,6 +3,7 @@ import { isMac } from '@/lib/platform'
 import { monaco } from './setup'
 import { parseKeybinding, type KeyStroke } from '../keys'
 import { useEditorPrefs } from '../prefs'
+import { MUI_SNIPPETS } from '../snippets/mui'
 
 const K = monaco.KeyCode
 const KEYS: Record<string, monaco.KeyCode> = {
@@ -68,19 +69,33 @@ export function editorRules(bindings: EditorKeybinding[], mac = isMac): monaco.e
   })
 }
 
-/** Snippet suggestions for a language (its own and the global ones). */
-export function snippetSuggestions(snippets: Snippet[], language: string, range: monaco.IRange): monaco.languages.CompletionItem[] {
+/** Names a snippet needs that the file doesn't import from that module yet. */
+export function missingImports(text: string, imports: NonNullable<Snippet['imports']>): string[] {
+  const have = new Set<string>()
+  for (const m of text.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    if (m[2] !== imports.from) continue
+    for (const part of m[1].split(',')) have.add(part.trim().split(/\s+as\s+/)[0])
+  }
+  return imports.names.filter((n) => !have.has(n))
+}
+
+/** Snippet suggestions for a language (its own and the global ones); imports a snippet needs come along. */
+export function snippetSuggestions(snippets: Snippet[], language: string, range: monaco.IRange, text = ''): monaco.languages.CompletionItem[] {
   return snippets
     .filter((s) => s.language === language || s.language === '*')
-    .map((s) => ({
-      label: { label: s.prefix, description: s.description ?? s.name },
-      kind: monaco.languages.CompletionItemKind.Snippet,
-      insertText: s.body,
-      insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-      documentation: { value: `\`\`\`\n${s.body}\n\`\`\`` },
-      detail: s.name,
-      range
-    }))
+    .map((s) => {
+      const missing = s.imports ? missingImports(text, s.imports) : []
+      return {
+        label: { label: s.prefix, description: s.description ?? s.name },
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: s.body,
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        documentation: { value: `\`\`\`\n${s.body}\n\`\`\`` },
+        detail: s.name,
+        range,
+        additionalTextEdits: missing.length ? [{ range: new monaco.Range(1, 1, 1, 1), text: `import { ${missing.join(', ')} } from '${s.imports!.from}'\n` }] : undefined
+      }
+    })
 }
 
 let applied: monaco.IDisposable | undefined
@@ -104,11 +119,11 @@ export function setupUserPrefs(): void {
   // One provider per language: Monaco doesn't ask providers registered for '*'.
   const provider: monaco.languages.CompletionItemProvider = {
     provideCompletionItems(model, position) {
-      const snippets = useEditorPrefs.getState().snippets
-      if (!snippets.length) return { suggestions: [] }
+      // The user's snippets, and the ones W-ONE brings (MUI).
+      const snippets = [...useEditorPrefs.getState().snippets, ...MUI_SNIPPETS]
       const word = model.getWordUntilPosition(position)
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
-      return { suggestions: snippetSuggestions(snippets, model.getLanguageId(), range) }
+      return { suggestions: snippetSuggestions(snippets, model.getLanguageId(), range, model.getValue()) }
     }
   }
   for (const { id } of monaco.languages.getLanguages()) monaco.languages.registerCompletionItemProvider(id, provider)

@@ -110,19 +110,23 @@ const SURFACE_TOKENS = Object.keys(CYBER)
 const pick = <T extends string>(value: unknown, options: readonly T[], fallback: T): T =>
   options.includes(value as T) ? (value as T) : fallback
 
+/** An appearance from storage or elsewhere (Settings Sync); unknown or missing fields fall back to the defaults. */
+export function toAppearance(value: unknown): Appearance {
+  const d = DEFAULT_APPEARANCE
+  const v = (value && typeof value === 'object' ? value : {}) as Partial<Record<keyof Appearance, unknown>>
+  return {
+    mode: pick(v.mode, MODES, d.mode),
+    accent: pick(v.accent, Object.keys(ACCENTS) as Accent[], d.accent),
+    surface: pick(v.surface, SURFACES, d.surface)
+  }
+}
+
 /** The saved appearance; unknown or missing fields fall back to the defaults. Never throws. */
 export function loadAppearance(): Appearance {
   const d = DEFAULT_APPEARANCE
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) {
-      const v = JSON.parse(raw) as Partial<Record<keyof Appearance, unknown>> | null
-      return {
-        mode: pick(v?.mode, MODES, d.mode),
-        accent: pick(v?.accent, Object.keys(ACCENTS) as Accent[], d.accent),
-        surface: pick(v?.surface, SURFACES, d.surface)
-      }
-    }
+    if (raw) return toAppearance(JSON.parse(raw))
     const legacy = localStorage.getItem(LEGACY_KEY)
     if (legacy === 'dark' || legacy === 'light') return { ...d, mode: legacy }
   } catch {

@@ -15,7 +15,7 @@ import type {
   LspSignature,
   LspTextEdit
 } from '@shared/types/lsp'
-import { languageOf, type LanguageInfo } from '@shared/types/languages'
+import { LANGUAGES, languageOf, type LanguageInfo } from '@shared/types/languages'
 import { confine } from '../../lib/confine'
 import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
 import { shellArgs } from '../../lib/shellArgs'
@@ -315,6 +315,14 @@ export class GenericBackend {
     return (actions ?? []).flatMap((a) => ('edit' in a && a.edit ? [{ title: a.title, files: this.workspaceEdit(found.session, a.edit) }] : []))
   }
 
+  /** A server command (`workspace/executeCommand`) — jdtls starts Java debug sessions this way. Starts the server if needed. */
+  async executeCommand(projectId: string, languageId: string, command: string, args: unknown[]): Promise<unknown> {
+    const lang = LANGUAGES.find((l) => l.id === languageId)!
+    const session = await this.session(projectId, lang)
+    if (!session) throw coded('server-missing', `No ${lang.name} language server installed — Settings → Languages`)
+    return session.client.request('workspace/executeCommand', { command, arguments: args }, INITIALIZE_TIMEOUT_MS)
+  }
+
   async dispose(): Promise<void> {
     const all = [...this.sessions.values()]
     this.sessions.clear()
@@ -397,7 +405,8 @@ export class GenericBackend {
           rootUri: uri(root),
           rootPath: root,
           workspaceFolders: [{ uri: uri(root), name: basename(root) }],
-          capabilities: CAPABILITIES
+          capabilities: CAPABILITIES,
+          initializationOptions: spec.initializationOptions?.({ root, tools: this.opts.tools.dir })
         },
         INITIALIZE_TIMEOUT_MS
       )

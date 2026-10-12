@@ -1,14 +1,14 @@
 import { EventEmitter } from 'node:events'
 import { createServer, type Server } from 'node:net'
-import { writeFile } from 'node:fs/promises'
+import { realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './helpers'
 import { FrameReader, frame } from '../../../electron/main/services/lsp/LspClient'
 import { DapClient, DapSession, type DapTransport } from '../../../electron/main/services/debug/Dap'
 import { socketTransport, spawnInShell, startAdapter, stdioTransport, type Spawn } from '../../../electron/main/services/debug/adapters'
-import { DebugService } from '../../../electron/main/services/debug/DebugService'
+import { DebugService, MAC_DEBUG_HINT, MAC_HINT_MS } from '../../../electron/main/services/debug/DebugService'
 import type { DebugOutput, DebugSession } from '@shared/types/debug'
 
 type Req = { seq: number; type: string; command: string; arguments?: Record<string, unknown> }
@@ -416,5 +416,199 @@ describe('DebugService: Python and Go through their debuggers', () => {
     await t.svc.start({ projectId: 'p', program: 'app.py', breakpoints: [] })
     await tick(40)
     expect(t.last()).toMatchObject({ status: 'exited', error: 'cannot run' })
+  })
+})
+
+describe('starting debug adapters: LLDB, PHP, Java, Kotlin', () => {
+  const servers: Server[] = []
+  afterEach(() => servers.splice(0).forEach((s) => s.close()))
+  const base = { root: '/r', args: ['a b', 'c', 'say "hi"'], debugger: '/dbg', output: () => {} }
+
+  it('C, C++, Rust, Swift and built programs: lldb-dap over stdio, its stderr as output', async () => {
+    for (const language of ['cpp', 'rust', 'swift', 'native']) {
+      const proc = new FakeProc()
+      const out: string[] = []
+      const calls: Parameters<Spawn>[] = []
+      const { launch } = await startAdapter(language, { ...base, program: '/r/.w-one/build/app', output: (s, t) => out.push(`${s}:${t}`) }, (...a) => (calls.push(a), proc as never))
+      expect(calls[0]).toEqual(['/dbg', [], '/r'])
+      expect(launch).toMatchObject({ adapterID: 'lldb-dap', arguments: { program: '/r/.w-one/build/app', args: base.args, cwd: '/r' } })
+      proc.stderr.write('warning: no dSYM\n')
+      await tick()
+      expect(out).toEqual(['stderr:warning: no dSYM\n'])
+      launch.kill()
+      expect(proc.killed).toBe(1)
+    }
+  })
+
+  it('PHP: Xdebug’s adapter on W-ONE’s own Node; php gets Xdebug pointed at the adapter’s port', async () => {
+    const proc = new FakeProc()
+    const calls: Parameters<Spawn>[] = []
+    const { launch } = await startAdapter('php', { ...base, program: '/r/index.php', debugger: '/tools/php-debug/extension/out/phpDebug.js' }, (...a) => (calls.push(a), proc as never))
+    expect(calls[0]).toEqual([process.execPath, ['/tools/php-debug/extension/out/phpDebug.js'], '/r', { ELECTRON_RUN_AS_NODE: '1' }])
+    expect(launch.arguments).toMatchObject({ type: 'php', program: '/r/index.php', port: 0, runtimeArgs: ['-dxdebug.mode=debug', '-dxdebug.start_with_request=yes', '-dxdebug.client_port=${port}'] })
+    launch.kill()
+    expect(proc.killed).toBe(1)
+  })
+
+  it('Java: jdtls resolves the main class and classpath, then opens the DAP port', async () => {
+    const server = createServer((socket) => socket.on('data', (d) => socket.write(d)))
+    servers.push(server)
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    const asked: [string, unknown[]][] = []
+    const command = async (cmd: string, args: unknown[]) => {
+      asked.push([cmd, args])
+      if (cmd === 'vscode.java.resolveMainClass') return [{ mainClass: 'demo.Other', projectName: 'demo' }, { mainClass: 'demo.App', projectName: 'demo', filePath: '/r/src/App.java' }]
+      if (cmd === 'vscode.java.resolveClasspath') return [['/m'], ['/r/bin']]
+      return port
+    }
+    const { transport, launch } = await startAdapter('java', { ...base, program: '/r/src/App.java', command }, () => new FakeProc() as never)
+    expect(asked.map((a) => a[0])).toEqual(['vscode.java.resolveMainClass', 'vscode.java.resolveClasspath', 'vscode.java.startDebugSession'])
+    expect(asked[0][1]).toEqual(['file:///r'])
+    expect(asked[1][1]).toEqual(['demo.App', 'demo'])
+    expect(launch.arguments).toMatchObject({ type: 'java', mainClass: 'demo.App', projectName: 'demo', modulePaths: ['/m'], classPaths: ['/r/bin'], args: '"a b" c "say \\"hi\\""', console: 'internalConsole' })
+    const echoed = new Promise<string>((r) => transport.onData((d) => r(d.toString())))
+    transport.write(Buffer.from('ping'))
+    expect(await echoed).toBe('ping')
+    launch.kill()
+
+    // Another file: the first main class; none at all: say why.
+    const first = await startAdapter('java', { ...base, args: [], program: '/r/src/Util.java', command: async (cmd) => (cmd === 'vscode.java.resolveMainClass' ? [{ mainClass: 'demo.Other' }] : cmd === 'vscode.java.resolveClasspath' ? [[], []] : port) }, () => new FakeProc() as never)
+    expect(first.launch.arguments).toMatchObject({ mainClass: 'demo.Other', args: '' })
+    first.launch.kill()
+    await expect(startAdapter('java', { ...base, program: '/r/A.java', command: async () => null }, () => new FakeProc() as never)).rejects.toMatchObject({ code: 'debug-program' })
+  })
+
+  it('Kotlin: the adapter runs the file’s class (package + FileKt)', async () => {
+    const root = await tempDir()
+    await writeFile(join(root, 'main.kt'), '// demo\npackage com.example.app\n\nfun main() {}\n')
+    await writeFile(join(root, 'Tool.kt'), 'fun main() {}\n')
+    const proc = new FakeProc()
+    const calls: Parameters<Spawn>[] = []
+    const { launch } = await startAdapter('kotlin', { ...base, root, program: join(root, 'main.kt'), debugger: '/k/bin/kotlin-debug-adapter' }, (...a) => (calls.push(a), proc as never))
+    expect(calls[0]).toEqual(['/k/bin/kotlin-debug-adapter', [], root])
+    expect(launch.arguments).toMatchObject({ type: 'kotlin', projectRoot: root, mainClass: 'com.example.app.MainKt' })
+    launch.kill()
+    expect(proc.killed).toBe(1)
+    const plain = await startAdapter('kotlin', { ...base, root, program: join(root, 'Tool.kt') }, () => new FakeProc() as never)
+    expect(plain.launch.arguments).toMatchObject({ mainClass: 'ToolKt' })
+  })
+})
+
+describe('DebugService: compiled languages, the build step, other languages', () => {
+  async function setup(files: Record<string, string>, opts: { build?: (ctx: Parameters<NonNullable<ConstructorParameters<typeof DebugService>[0]['build']>>[0]) => Promise<string>; locate?: string } = {}) {
+    const root = await realpath(await tempDir())
+    for (const [f, text] of Object.entries(files)) await writeFile(join(root, f), text)
+    const sessions: DebugSession[] = []
+    const output: DebugOutput[] = []
+    const adapters: { language: string; program: string; command?: unknown }[] = []
+    const executed: unknown[][] = []
+    const svc = new DebugService({
+      resolveRoot: () => root,
+      publish: (c, p) => (c === 'debug:session' ? sessions.push(p as DebugSession) : output.push(p as DebugOutput)),
+      tools: { locate: async (language) => (opts.locate === undefined ? `/dbg/${language}` : opts.locate || undefined) },
+      build: opts.build,
+      lsp: { executeCommand: async (...a) => (executed.push(a), 'ok') },
+      adapter: async (language, ctx) => {
+        adapters.push({ language, program: ctx.program, command: await ctx.command!('x', [1]) })
+        const fake = new FakeAdapter({ launch: (_a, ad) => (setTimeout(() => ad.event('initialized'), 5), {}) })
+        return { transport: fake.transport, launch: { adapterID: language, arguments: {}, kill: () => {} } }
+      },
+      launch: () => new FakeProc() as never
+    })
+    return { svc, root, sessions, output, adapters, executed }
+  }
+
+  it('C: built first (its output in the session), then LLDB runs the result; the session keeps its id', async () => {
+    const t = await setup({ 'main.c': 'int main(){}' }, {
+      build: async (ctx) => {
+        ctx.output('stderr', 'compiling\n')
+        expect(ctx).toMatchObject({ language: 'cpp', command: undefined })
+        return join(ctx.root, '.w-one/build/main')
+      }
+    })
+    const started = await t.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
+    expect(t.sessions[0]).toMatchObject({ id: started.id, status: 'starting', program: 'main.c' })
+    expect(t.output[0]).toEqual({ sessionId: started.id, stream: 'stderr', text: 'compiling\n' })
+    expect(t.adapters[0]).toMatchObject({ language: 'cpp', program: join(t.root, '.w-one/build/main'), command: 'ok' })
+    expect(t.executed[0]).toEqual(['p', 'cpp', 'x', [1]])
+    t.svc.dispose()
+  })
+
+  it('a program without a language is a built one (LLDB, the C / C++ debugger); the build step runs for any language', async () => {
+    const t = await setup({ app: '', 'run.py': '' }, { build: async (ctx) => (ctx.command ? `${ctx.program}-built` : ctx.program) })
+    await t.svc.start({ projectId: 'p', program: 'app', breakpoints: [] })
+    expect(t.adapters[0]).toMatchObject({ language: 'native', program: join(t.root, 'app') })
+    await t.svc.start({ projectId: 'p', program: 'run.py', breakpoints: [], build: ' make ' })
+    expect(t.adapters[1]).toMatchObject({ language: 'python', program: `${join(t.root, 'run.py')}-built` })
+    // Without a build step Python starts right away.
+    await t.svc.start({ projectId: 'p', program: 'run.py', breakpoints: [], build: '  ' })
+    expect(t.adapters[2].program).toBe(join(t.root, 'run.py'))
+    t.svc.dispose()
+    const none = await setup({ app: '' }, { locate: '' })
+    await expect(none.svc.start({ projectId: 'p', program: 'app', breakpoints: [] })).rejects.toMatchObject({ code: 'debugger-missing', message: expect.stringContaining('C / C++') })
+  })
+
+  it('a failed build ends the session with the reason; stopping during the build ends it quietly', async () => {
+    const failing = await setup({ 'main.c': '' }, { build: async () => Promise.reject(Object.assign(new Error('Build failed: clang (exit 1)'), { code: 'build-failed' })) })
+    expect(await failing.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })).toMatchObject({ status: 'exited', error: 'Build failed: clang (exit 1)' })
+    expect(failing.adapters).toEqual([])
+
+    let finish!: (v: string) => void
+    let signal!: AbortSignal
+    const slow = await setup({ 'main.c': '' }, { build: (ctx) => ((signal = ctx.signal), new Promise((r) => (finish = r))) })
+    const starting = slow.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
+    await tick()
+    expect(slow.svc.session()).toMatchObject({ status: 'starting' })
+    await slow.svc.stop()
+    expect(signal.aborted).toBe(true)
+    finish('/built')
+    expect(await starting).toMatchObject({ status: 'exited', error: undefined })
+    expect(slow.adapters).toEqual([])
+
+    // A build that throws because it was stopped: also quiet.
+    let fail!: (e: Error) => void
+    const killed = await setup({ 'main.c': '' }, { build: () => new Promise((_r, reject) => (fail = reject)) })
+    const run = killed.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
+    await tick()
+    await killed.svc.stop()
+    fail(new Error('Build failed: clang (exit 1)'))
+    expect(await run).toMatchObject({ status: 'exited', error: undefined })
+  })
+
+  it('a built program goes to LLDB as it is (nothing to compile)', async () => {
+    const t = await setup({ app: '' })
+    await t.svc.start({ projectId: 'p', program: 'app', breakpoints: [] })
+    expect(t.adapters[0]).toMatchObject({ language: 'native', program: join(t.root, 'app') })
+    t.svc.dispose()
+  })
+
+  it('languages without a debugger say so', async () => {
+    const t = await setup({ 'run.sh': '' })
+    await expect(t.svc.start({ projectId: 'p', program: 'run.sh', breakpoints: [] })).rejects.toMatchObject({ code: 'debug-unsupported', message: "W-ONE can't debug Shell programs yet" })
+  })
+
+  it('on macOS a native program that doesn’t start soon gets the permission hint', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      const t = await setup({ 'main.c': '' }, { build: async () => '/built' })
+      const s = await t.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
+      vi.advanceTimersByTime(MAC_HINT_MS)
+      expect(t.output.map((o) => o.text)).toContain(MAC_DEBUG_HINT)
+      expect(t.output[0].sessionId).toBe(s.id)
+      // Once it runs there is nothing to say.
+      const quick = await setup({ 'main.c': '' }, { build: async () => '/built' })
+      await quick.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
+      await vi.advanceTimersByTimeAsync(10)
+      vi.advanceTimersByTime(MAC_HINT_MS)
+      expect(quick.output.map((o) => o.text)).not.toContain(MAC_DEBUG_HINT)
+      t.svc.dispose()
+      quick.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+      Object.defineProperty(process, 'platform', platform)
+    }
   })
 })

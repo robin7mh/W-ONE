@@ -7,7 +7,12 @@ import { attachGutter } from '../monaco/gutter'
 import { setupLsp } from '../monaco/lsp'
 import { attachBreakpoints } from '../monaco/breakpoints'
 import { setupUserPrefs } from '../monaco/userPrefs'
-import { monacoOptions, useEditorPrefs } from '../prefs'
+import { monacoOptions, settingsFor, useEditorPrefs } from '../prefs'
+import { addEditorActions, replaceText, setupExtras } from '../monaco/extras'
+import { tidyBlankLines } from '../text'
+
+/** Formatting before a save gives up after this long (a slow formatter never blocks saving). */
+const FORMAT_TIMEOUT_MS = 2000
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 
 export interface CursorInfo {
@@ -103,10 +108,14 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
     setupLsp()
     setupUserPrefs()
-    // The user's editor settings (moved over from VS Code / Cursor), now and when they change.
-    editor.updateOptions(monacoOptions(useEditorPrefs.getState().settings))
+    setupExtras()
+    const actions = addEditorActions(editor)
+    // The user's editor settings (moved over from VS Code / Cursor) for the file's language — now, on a switch, on a change.
+    const applyPrefs = () => editor.updateOptions(monacoOptions(settingsFor(useEditorPrefs.getState().settings, editor.getModel()?.getLanguageId())))
+    applyPrefs()
+    subs.push(editor.onDidChangeModel(applyPrefs))
     const unsubscribePrefs = useEditorPrefs.subscribe((s, prev) => {
-      if (s.settings !== prev.settings) editor.updateOptions(monacoOptions(s.settings))
+      if (s.settings !== prev.settings) applyPrefs()
     })
     const shownTab = () => useEditor.getState().tabs.find((t) => t.id === shown.current)
     const detachGutter = attachGutter(editor, shownTab)
@@ -120,6 +129,15 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     })
 
     setBufferHost({
+      // Before a save: tidy blank lines, format the document — as the user's settings for the language say.
+      prepare: async (id) => {
+        const b = buffers.get(id)
+        if (!b) return
+        const prefs = settingsFor(useEditorPrefs.getState().settings, b.model.getLanguageId())
+        if (prefs.blankLines?.onSave) replaceText(b.model, tidyBlankLines(b.model.getValue(), prefs.blankLines.keepOne))
+        const format = prefs.formatOnSave && shown.current === id ? editor.getAction('editor.action.formatDocument') : null
+        if (format) await Promise.race([format.run(), new Promise((r) => setTimeout(r, FORMAT_TIMEOUT_MS))]).catch(() => {})
+      },
       snapshot: (id) => {
         const b = buffers.get(id)
         return b && { text: b.model.getValue(), version: b.model.getAlternativeVersionId() }
@@ -169,6 +187,7 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     return () => {
       setBufferHost(null)
       setEditorActions(null)
+      actions.forEach((a) => a.dispose())
       detachGutter()
       detachBreakpoints()
       unsubscribePrefs()

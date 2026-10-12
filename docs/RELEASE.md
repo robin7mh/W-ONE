@@ -32,6 +32,14 @@ npm run release:mac
 This creates a GitHub release with the DMGs, ZIPs and `latest-mac.yml`. Installed apps find it within four hours (or via Profile → *Check for updates*) and offer *Restart & update*.
 
 4. Check once on a second Mac (or a fresh user account): download the DMG from the website, open it — no Gatekeeper warning — and sign in.
+5. **Remote-SSH / Dev Containers:** build the Linux server packages (Docker; x64 runs emulated on Apple silicon and takes a while) with the same `WONE_CLOUD_URL` / `WONE_CLOUD_KEY`, and attach them to the same GitHub release:
+
+```bash
+npm run remote:bundle
+gh release upload v<version> out/remote/wone-server-<version>-linux-x64.tar.gz out/remote/wone-server-<version>-linux-arm64.tar.gz
+```
+
+The app downloads the package for the remote machine's architecture from `releases/download/v<version>/` the first time it connects there (kept in `~/W-ONE/data/remote/`), and installs it in `~/.w-one-server/<version>` on the remote side.
 
 ## What the build bakes in
 

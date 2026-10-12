@@ -57,7 +57,8 @@ describe('ToolsService', () => {
     expect(byId.cpp.server.state).toBe('ready')
     expect(byId.java.server).toMatchObject({ state: 'toolchain', requires: 'brew' })
     expect(byId.swift.server).toEqual({ name: 'SourceKit-LSP', state: 'manual' })
-    expect(byId.rust.debugger).toBeUndefined()
+    expect(byId.rust.debugger).toMatchObject({ name: 'lldb-dap', state: 'toolchain', requires: 'brew' })
+    expect(byId.lua.debugger).toBeUndefined()
     // What status() found is what locate() answers — no second shell.
     expect(await tools.locate('python', 'server')).toBe('/t/npm/node_modules/.bin/pyright-langserver')
     expect(await tools.locate('python', 'debugger')).toBeUndefined()
@@ -106,7 +107,7 @@ describe('ToolsService', () => {
     const quiet = new ToolsService({ dir, run: async () => 2 })
     await expect(quiet.install('yaml', 'server')).rejects.toMatchObject({ message: 'YAML Language Server: exit 2' })
     await expect(tools.install('swift', 'server')).rejects.toMatchObject({ code: 'not-installable' })
-    await expect(tools.install('rust', 'debugger')).rejects.toMatchObject({ code: 'not-installable' })
+    await expect(tools.install('lua', 'debugger')).rejects.toMatchObject({ code: 'not-installable' })
     await expect(tools.install('cobol', 'server')).rejects.toMatchObject({ code: 'not-installable' })
 
     exit = 0
@@ -176,6 +177,14 @@ describe('moving over from VS Code / Cursor', () => {
   "editor.wordWrapColumn": 100,
   "editor.cursorStyle.bogus": 1,
   "editor.fontSize.x": "y",
+  "editor.formatOnSave": true,
+  "liveServer.settings.port": 5501,
+  "liveSassCompile.settings.generateMap": true,
+  "blankLine.keepOneEmptyLine": false,
+  "[python]": { "editor.tabSize": 4, "editor.formatOnSave": false },
+  "[javascript][typescriptreact]": { "editor.tabSize": 2 },
+  "[markdown]": { "markdown.preview": true },
+  "[go]": "not settings",
   "workbench.colorTheme": "One Dark Pro", /* themes stay */
   "url": "https://example.com/a//b",
   "quote": "say \\"hi\\" // not a comment",
@@ -216,6 +225,7 @@ describe('moving over from VS Code / Cursor', () => {
     await extension('mhutchie.git-graph-1', { publisher: 'mhutchie', name: 'git-graph' })
     await extension('mhutchie.git-graph-2', { publisher: 'mhutchie', name: 'git-graph' }) // two versions side by side
     await extension('random.tool-1', { publisher: 'random', name: 'tool', main: './x.js' })
+    await extension('ctf0.blank-line-organizer-0', { publisher: 'ctf0', name: 'blank-line-organizer', main: './x.js' })
     await extension('broken-1', { name: 'no-publisher' })
     await mkdir(join(ext, 'empty-1'))
     // Cursor installed too, with one setting; VSCodium with settings W-ONE can't use.
@@ -239,7 +249,8 @@ describe('moving over from VS Code / Cursor', () => {
       'editor.rulers': 'eighty',
       'editor.stickyScroll.enabled': 'on',
       'editor.smoothScrolling': null,
-      'editor.bracketPairColorization.enabled': 'true'
+      'editor.bracketPairColorization.enabled': 'true',
+      'editor.formatOnSave': 'yes'
     }
     await writeFile(join(appData, 'VSCodium', 'User', 'settings.json'), JSON.stringify(invalid))
     // Windsurf installed, never configured.
@@ -257,8 +268,9 @@ describe('moving over from VS Code / Cursor', () => {
     const [code, cursor, codium, windsurf] = await service.scan()
     expect(windsurf).toMatchObject({ app: 'Windsurf', settings: 0, keybindings: 0 })
     expect(codium).toMatchObject({ app: 'VSCodium', settings: 0 }) // nothing W-ONE could use
-    expect(code).toMatchObject({ app: 'Code', name: 'Visual Studio Code', settings: 17, keybindings: 3, snippets: 6 })
+    expect(code).toMatchObject({ app: 'Code', name: 'Visual Studio Code', settings: 24, keybindings: 3, snippets: 6 })
     expect(code.extensions.map((e) => `${e.id}|${e.name}|${e.fate}|${e.language ?? ''}`)).toEqual([
+      'ctf0.blank-line-organizer|blank-line-organizer|built-in|',
       'dsznajder.es7|ES7 snippets|snippets|',
       'mhutchie.git-graph|git-graph|built-in|',
       'ms-python.python|Python|language|python',
@@ -272,7 +284,7 @@ describe('moving over from VS Code / Cursor', () => {
 
   it('takes settings, the keybindings W-ONE can honor and every snippet over', async () => {
     const { service, settings, data } = await machine()
-    expect(await service.apply('Code')).toEqual({ settings: 17, keybindings: 2, snippets: 6 })
+    expect(await service.apply('Code')).toEqual({ settings: 24, keybindings: 2, snippets: 6 })
     const editor = settings.get().editor!
     expect(editor).toMatchObject({
       fontSize: 15,
@@ -284,6 +296,10 @@ describe('moving over from VS Code / Cursor', () => {
       lineNumbers: 'relative',
       rulers: [80, 120],
       bracketPairColorization: false,
+      formatOnSave: true,
+      // The Blank Line Organizer was installed: it ran on save, and kept no blank lines.
+      blankLines: { onSave: true, keepOne: false },
+      languages: { python: { tabSize: 4, formatOnSave: false }, javascript: { tabSize: 2 }, typescript: { tabSize: 2 } },
       importedFrom: { app: 'Code', at: expect.any(String) }
     })
     expect(editor.keybindings).toEqual([

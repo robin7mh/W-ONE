@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle } from './bridge'
 import { FileTree } from '@/features/editor/components/FileTree'
 import { setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
+import { useLive } from '@/features/editor/live'
 
 const flags = vi.hoisted(() => ({ mac: true }))
 vi.mock('@/lib/platform', () => ({
@@ -385,4 +386,17 @@ describe('explorer view', () => {
     expect(screen.queryByText('This folder is empty.')).toBeNull()
     expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument()
   })
+
+  it('an HTML file opens with Live Server from its menu', () => {
+    const start = vi.spyOn(useLive.getState(), 'start').mockResolvedValue()
+    useEditor.setState({ tree: { 'p:': [entry('index.html'), entry('a.ts')] } })
+    render(<FileTree projectId="p" />)
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'a.ts' }))
+    expect(screen.queryByRole('menuitem', { name: 'Open with Live Server' })).toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'index.html' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open with Live Server' }))
+    expect(start).toHaveBeenCalledWith('index.html')
+  })
+
 })

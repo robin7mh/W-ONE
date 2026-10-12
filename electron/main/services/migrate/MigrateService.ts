@@ -7,6 +7,10 @@ import {
   KNOWN_EXTENSIONS,
   type EditorKeybinding,
   type EditorSettings,
+  type LanguageSettings,
+  type LiveServerSettings,
+  type SassFormat,
+  type SassSettings,
   type MigrationExtension,
   type MigrationResult,
   type MigrationSource,
@@ -96,8 +100,61 @@ const SETTINGS: [string, keyof EditorSettings, (v: unknown) => unknown][] = [
   ],
   ['editor.stickyScroll.enabled', 'stickyScroll', (v) => (typeof v === 'boolean' ? v : undefined)],
   ['editor.smoothScrolling', 'smoothScrolling', (v) => (typeof v === 'boolean' ? v : undefined)],
-  ['editor.bracketPairColorization.enabled', 'bracketPairColorization', (v) => (typeof v === 'boolean' ? v : undefined)]
+  ['editor.bracketPairColorization.enabled', 'bracketPairColorization', (v) => (typeof v === 'boolean' ? v : undefined)],
+  ['editor.formatOnSave', 'formatOnSave', (v) => (typeof v === 'boolean' ? v : undefined)]
 ]
+
+/** The editor settings W-ONE understands in a VS Code settings object, and how many. */
+function mapSettings(raw: Record<string, unknown>): { settings: LanguageSettings; count: number } {
+  const settings: LanguageSettings = {}
+  let count = 0
+  for (const [from, to, check] of SETTINGS) {
+    const value = from in raw ? check(raw[from]) : undefined
+    if (value === undefined) continue
+    ;(settings as Record<string, unknown>)[to] = value
+    count += 1
+  }
+  return { settings, count }
+}
+
+const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined)
+const defined = <T extends object>(o: T): T | undefined => {
+  const kept = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
+  return Object.keys(kept).length ? kept : undefined
+}
+
+/** liveServer.settings.* → W-ONE's Live Server settings. */
+export function liveServerSettings(raw: Record<string, unknown>): LiveServerSettings | undefined {
+  const get = (k: string) => raw[`liveServer.settings.${k}`]
+  const port = get('port')
+  const root = get('root')
+  return defined<LiveServerSettings>({
+    port: typeof port === 'number' && port > 0 && port < 65536 ? port : undefined,
+    root: typeof root === 'string' && root.trim() ? root : undefined,
+    noBrowser: typeof get('NoBrowser') === 'boolean' ? (get('NoBrowser') as boolean) : undefined,
+    fullReload: typeof get('fullReload') === 'boolean' ? (get('fullReload') as boolean) : undefined,
+    ignore: strings(get('ignoreFiles')),
+    wait: typeof get('wait') === 'number' && (get('wait') as number) >= 0 ? (get('wait') as number) : undefined
+  })
+}
+
+/** liveSassCompile.settings.* → W-ONE's Sass settings. */
+export function sassSettings(raw: Record<string, unknown>): SassSettings | undefined {
+  const get = (k: string) => raw[`liveSassCompile.settings.${k}`]
+  const formats = Array.isArray(get('formats'))
+    ? (get('formats') as Record<string, unknown>[]).flatMap((f): SassFormat[] =>
+        f && (f.format === 'expanded' || f.format === 'compressed') && typeof f.extensionName === 'string'
+          ? [{ format: f.format, extensionName: f.extensionName, savePath: typeof f.savePath === 'string' ? f.savePath : null }]
+          : []
+      )
+    : undefined
+  return defined<SassSettings>({
+    formats: formats?.length ? formats : undefined,
+    generateMap: typeof get('generateMap') === 'boolean' ? (get('generateMap') as boolean) : undefined,
+    exclude: strings(get('excludeList')),
+    watchOnLaunch: typeof get('watchOnLaunch') === 'boolean' ? (get('watchOnLaunch') as boolean) : undefined
+  })
+}
 
 /** VS Code's language ids → Monaco's (React flavors share their language's id there). */
 const LANGUAGE_IDS: Record<string, string> = { typescriptreact: 'typescript', javascriptreact: 'javascript', shellscript: 'shell', global: '*' }
@@ -180,13 +237,17 @@ export class MigrateService {
   private async read(app: string): Promise<Found> {
     const dir = this.userDir(app)
     const raw = ((await readJsonc(join(dir, 'settings.json'))) ?? {}) as Record<string, unknown>
-    const settings: EditorSettings = {}
-    let settingsCount = 0
-    for (const [from, to, check] of SETTINGS) {
-      const value = from in raw ? check(raw[from]) : undefined
-      if (value === undefined) continue
-      ;(settings as Record<string, unknown>)[to] = value
-      settingsCount += 1
+    const mapped = mapSettings(raw)
+    const settings: EditorSettings = mapped.settings
+    let settingsCount = mapped.count
+    // Language overrides: "[python]": { … }, also for several at once: "[javascript][typescript]".
+    for (const [key, value] of Object.entries(raw)) {
+      const ids = key.match(/\[([^\]]+)\]/g)
+      if (!ids || key.replace(/\[[^\]]+\]/g, '') !== '' || !value || typeof value !== 'object') continue
+      const override = mapSettings(value as Record<string, unknown>)
+      if (!override.count) continue
+      for (const id of ids.map((i) => monacoLanguage(i.slice(1, -1)))) settings.languages = { ...settings.languages, [id]: { ...settings.languages?.[id], ...override.settings } }
+      settingsCount += override.count
     }
 
     const bindings = await readJsonc(join(dir, 'keybindings.json'))
@@ -211,6 +272,22 @@ export class MigrateService {
       if (extensions.some((e) => e.id === id)) continue // older versions side by side
       const fate = await this.fate(id, pkg, join(extDir, folder), snippets)
       extensions.push({ id, name: await this.displayName(pkg, join(extDir, folder)), ...fate })
+    }
+    // Live Server and Live Sass Compiler: their settings come along.
+    const liveServer = liveServerSettings(raw)
+    if (liveServer) {
+      settings.liveServer = liveServer
+      settingsCount += Object.keys(liveServer).length
+    }
+    const sass = sassSettings(raw)
+    if (sass) {
+      settings.sass = sass
+      settingsCount += Object.keys(sass).length
+    }
+    // Blank Line Organizer installed: it ran on every save — so does W-ONE's.
+    if (extensions.some((e) => e.id === 'ctf0.blank-line-organizer')) {
+      settings.blankLines = { onSave: true, keepOne: raw['blankLine.keepOneEmptyLine'] !== false }
+      settingsCount += 1
     }
     // React flavors map onto their language — the same snippet often comes twice.
     const seen = new Set<string>()

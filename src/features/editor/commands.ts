@@ -2,6 +2,7 @@ import type { Dict } from '@/lib/i18n/en'
 import type { ModuleId } from '@/types'
 import { useEditor } from './store'
 import { useScm, type PickItem } from './scm'
+import { useGitHub } from './github'
 import { editorActions } from './actions'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
@@ -16,7 +17,8 @@ const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string]
   ['editor.foldAll', 'foldAll'],
   ['editor.unfoldAll', 'unfoldAll'],
   ['actions.find', 'find', '⌘F'],
-  ['editor.action.startFindReplaceAction', 'replace', '⌥⌘F']
+  ['editor.action.startFindReplaceAction', 'replace', '⌥⌘F'],
+  ['wone.tidyBlankLines', 'tidy']
 ]
 
 /** Monaco actions the palette leaves out: its own palette, and duplicates of ours. */
@@ -50,7 +52,7 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
   const repo = !!status?.repo
   const actions = editorActions()
 
-  const pane = (id: 'files' | 'search' | 'scm' | 'graph', label: string, keys?: string): PickItem => ({ id: `view.${id}`, label: `${p.view}: ${label}`, keys, run: () => scm().setPane(id) })
+  const pane = (id: 'files' | 'search' | 'scm' | 'graph' | 'prs', label: string, keys?: string): PickItem => ({ id: `view.${id}`, label: `${p.view}: ${label}`, keys, run: () => scm().setPane(id) })
 
   const git: PickItem[] = !status
     ? []
@@ -83,9 +85,18 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
               id: 'git.branch',
               label: `Git: ${p.createBranch}`,
               run: () => scm().openPick({ placeholder: t.scm.branchName, items: [], onText: (name) => scm().createBranch(name) })
+            },
+            {
+              id: 'github.create',
+              label: `GitHub: ${t.github.create}`,
+              run: () => {
+                scm().setPane('prs')
+                useGitHub.getState().setCreating(true)
+              }
             }
           ]),
-          pane('graph', t.scm.panes.graph)
+          pane('graph', t.scm.panes.graph),
+          pane('prs', t.scm.panes.prs)
         ]
 
   const editorItems: PickItem[] = !actions

@@ -40,6 +40,8 @@ export interface CloudServiceOptions {
   onStatus: (status: CloudStatus) => void
   fetch?: typeof fetch
   now?: () => number
+  /** A core run by the desktop app elsewhere: no sign-in of its own, it adopts the desktop's entitlement. */
+  follower?: boolean
 }
 
 interface Persisted {
@@ -127,6 +129,7 @@ export class CloudService {
   private lastAttempt = 0
   private lastSuccess = 0
   private remoteClients = 0
+  private remoteSessions = 0
   private beating: Promise<void> | null = null
   private timer?: ReturnType<typeof setInterval>
   private lastEmitted = ''
@@ -147,6 +150,8 @@ export class CloudService {
     }
     this.key = this.publicKey()
     this.claims = this.data.entitlement && this.key ? verifyEntitlement(this.data.entitlement, this.key) : null
+    // A follower only ever hears from the desktop (cloud:adopt).
+    if (this.opts.follower) return this.emit()
     this.timer = setInterval(() => void this.tick(), TICK_MS)
     this.timer.unref?.()
     void this.tick()
@@ -161,7 +166,8 @@ export class CloudService {
       signedIn: !!this.data.account,
       claims: this.claims,
       now: this.now(),
-      online: this.online
+      // A follower never hears from the cloud: an entitlement that ran out locks it until the desktop hands over a new one.
+      online: this.online && !this.opts.follower
     })
     return {
       enforced: this.opts.enforced,
@@ -181,9 +187,14 @@ export class CloudService {
     this.remoteClients = count
   }
 
-  /** Someone is using W-ONE: at this machine, or through a connected device. */
+  /** Remote windows (SSH, Dev Containers) open right now — W-ONE is in use there, on this license. */
+  setRemoteSessions(count: number): void {
+    this.remoteSessions = count
+  }
+
+  /** Someone is using W-ONE: at this machine, through a connected device, or in a remote window. */
   private inUse(): boolean {
-    return this.remoteClients > 0 || (this.opts.isUserActive?.() ?? false)
+    return this.remoteClients > 0 || this.remoteSessions > 0 || (this.opts.isUserActive?.() ?? false)
   }
 
   /** May W-ONE be used right now? (The Router asks before every licensed call.) */
@@ -234,6 +245,36 @@ export class CloudService {
   }
 
   /** A Stripe Checkout for this account; the client opens the URL in a browser. */
+  /** The entitlement a follower core (Remote-SSH, Dev Container) takes over — none while it isn't valid. */
+  entitlement(): { token: string; account: CloudAccount } | null {
+    const { entitlement, account } = this.data
+    return entitlement && account && this.claims?.active && this.claims.exp * 1000 > this.now() ? { token: entitlement, account } : null
+  }
+
+  /** Follower: take the desktop's entitlement over (it must verify with W-ONE Cloud's key). */
+  async adopt(token: string, account: CloudAccount): Promise<CloudStatus> {
+    if (!this.opts.follower) throw coded('not-follower', 'This core signs in itself')
+    if (!this.key) await this.ensureMeta().catch(() => {})
+    const claims = this.key ? verifyEntitlement(token, this.key) : null
+    if (!claims) throw coded('bad-entitlement', 'This entitlement cannot be verified')
+    this.claims = claims
+    this.data = { ...this.data, account, entitlement: token, license: null }
+    this.error = null
+    await this.save()
+    this.emit()
+    return this.status()
+  }
+
+  /** Signed in to a W-ONE account (the session may still turn out expired). */
+  isSignedIn(): boolean {
+    return !!this.data.account
+  }
+
+  /** An authenticated request to W-ONE Cloud's API (Settings Sync …). */
+  api<T = unknown>(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: object): Promise<T> {
+    return this.call<T>(method, path, body)
+  }
+
   async checkout(): Promise<{ url: string }> {
     const res = await this.call<{ url: string }>('POST', '/v1/billing/checkout', {})
     return { url: res.url }
@@ -344,7 +385,7 @@ export class CloudService {
     await this.save()
   }
 
-  private async call<T = unknown>(method: 'GET' | 'POST', path: string, body?: object, auth = true): Promise<T> {
+  private async call<T = unknown>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: object, auth = true): Promise<T> {
     const headers: Record<string, string> = {}
     if (body) headers['content-type'] = 'application/json'
     if (auth) {

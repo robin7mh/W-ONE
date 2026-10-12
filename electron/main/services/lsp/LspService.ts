@@ -51,6 +51,11 @@ export class LspService {
     return isTypeScriptFile(path) ? this.ts.close(projectId, path) : this.generic.close(projectId, path)
   }
 
+  /** A language server's own command (jdtls: start a Java debug session …). */
+  executeCommand(projectId: string, languageId: string, command: string, args: unknown[]): Promise<unknown> {
+    return this.generic.executeCommand(projectId, languageId, command, args)
+  }
+
   async diagnostics(projectId: string, paths: string[]): Promise<Record<string, LspDiagnostic[]>> {
     const [ts, other] = await Promise.all([
       this.ts.diagnostics(projectId, paths.filter(isTypeScriptFile)),

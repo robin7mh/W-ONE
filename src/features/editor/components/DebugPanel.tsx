@@ -74,7 +74,7 @@ export function DebugPanel() {
   const d = t.debug
   const projectId = useEditor((s) => s.projectId)!
   const shown = useEditor((s) => s.tabs.find((x) => x.id === s.activeId))
-  const { session, frame, breakpoints, program, args, watches, watchValues, stopOnEntry, error } = useDebug()
+  const { session, frame, breakpoints, program, args, build, watches, watchValues, stopOnEntry, error } = useDebug()
   const [watchInput, setWatchInput] = useState('')
   const [showInternal, setShowInternal] = useState(false)
   const debug = useDebug.getState()
@@ -126,6 +126,10 @@ export function DebugPanel() {
             <label className="block space-y-0.5">
               <span className="font-sans text-[11px] text-text-secondary">{d.args}</span>
               <input aria-label={d.args} placeholder="--port 3000" value={args[projectId] ?? ''} onChange={(e) => debug.setArgs(projectId, e.target.value)} className={field} />
+            </label>
+            <label className="block space-y-0.5">
+              <span className="font-sans text-[11px] text-text-secondary">{d.build}</span>
+              <input aria-label={d.build} placeholder={d.buildHint} value={build[projectId] ?? ''} onChange={(e) => debug.setBuild(projectId, e.target.value)} className={cn(field, 'font-mono')} />
             </label>
             <label className="flex items-center gap-1.5 font-sans text-[11.5px] text-text-secondary">
               <input type="checkbox" checked={stopOnEntry} onChange={(e) => debug.setStopOnEntry(e.target.checked)} className="accent-cyan" />

@@ -51,6 +51,8 @@ function git(cwd: string, args: string[], timeout = LOCAL_MS): Promise<string> {
       (err, stdout, stderr) => {
         if (!err) return resolve(stdout)
         const exit = (err as { code?: number | string }).code
+        // spawn ENOENT: no git — unless the folder itself is gone.
+        if (exit === 'ENOENT' && existsSync(cwd)) return reject(Object.assign(coded('git-missing', 'Git is not installed on this machine'), { exit }))
         const why = String(stderr).trim().split('\n').filter(Boolean).slice(-3).join('\n')
         reject(Object.assign(coded('git', why || err.message), { exit }))
       }

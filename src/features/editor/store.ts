@@ -37,6 +37,8 @@ export interface BufferHost {
   markClean(id: string, version: number): void
   /** The tab closed — free its buffer. */
   drop(id: string): void
+  /** Get the buffer ready to be written (format, tidy — the user's save settings). */
+  prepare?(id: string): Promise<void>
   /** The file was renamed — carry the buffer (unsaved edits included) over to its new id. */
   rekey(id: string, next: { id: string; projectId: string; path: string }): void
 }
@@ -47,6 +49,14 @@ export function setBufferHost(next: BufferHost | null): void {
 }
 
 export const tabKey = (projectId: string, path: string): string => `${projectId}:${path}`
+
+/** Runs after every successful save (Live Sass compiles, SFTP uploads). */
+type SavedListener = (file: { projectId: string; path: string }) => void
+const savedListeners = new Set<SavedListener>()
+export function onSaved(listener: SavedListener): () => void {
+  savedListeners.add(listener)
+  return () => savedListeners.delete(listener)
+}
 
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')))
 const under = (path: string, root: string) => path === root || path.startsWith(`${root}/`)
@@ -210,6 +220,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   save: async (id = get().activeId, opts = {}) => {
+    // Like VS Code: a save of edited text first formats / tidies it (the user's settings) — then reads it.
+    const before = get().tabs.find((t) => t.id === id)
+    const prepare = host?.prepare
+    if (prepare && before?.content !== undefined && !before.saving && (before.dirty || before.deleted)) await prepare(before.id)
     const tab = get().tabs.find((t) => t.id === id)
     const buffers = host
     const snap = tab && tab.content !== undefined && !tab.saving ? buffers?.snapshot(tab.id) : undefined
@@ -225,6 +239,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       })
       set(update(tab.id, { saving: false, content: snap.text, mtimeMs: saved.mtimeMs, conflict: false, deleted: false, error: undefined }))
       buffers!.markClean(tab.id, snap.version)
+      for (const listener of savedListeners) listener({ projectId: tab.projectId, path: tab.path })
       return true
     } catch (err) {
       const conflict = err instanceof IpcError && err.code === 'conflict'

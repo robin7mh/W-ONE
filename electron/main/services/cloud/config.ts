@@ -13,6 +13,11 @@ export interface CloudConfig {
   publicKey?: string
   /** Whether W-ONE needs a license to run here. */
   enforced: boolean
+  /**
+   * A core the desktop app runs on another machine (Remote-SSH, Dev Container):
+   * it doesn't sign in itself but takes the desktop's signed entitlement over.
+   */
+  follower?: boolean
 }
 
 export function bakedCloud(): { url?: string; key?: string } {
@@ -35,6 +40,7 @@ export function cloudConfig(release: boolean, env: NodeJS.ProcessEnv = process.e
   return {
     url: url.replace(/\/+$/, ''),
     ...(publicKey ? { publicKey } : {}),
-    enforced: release || env.WONE_LICENSE === 'required'
+    enforced: release || env.WONE_LICENSE === 'required' || env.WONE_LICENSE === 'follower',
+    ...(env.WONE_LICENSE === 'follower' ? { follower: true } : {})
   }
 }

@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './helpers'
@@ -134,6 +134,40 @@ describe('createCore', () => {
     expect(await c.router.dispatch('debug:start', { projectId, program: 'run.js', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { status: 'starting' } })
     expect(pushed).toContain('debug:session')
     expect(await c.router.dispatch('debug:stop', undefined, { transport: 'ipc' })).toEqual({ ok: true })
+
+    // Live Server and Sass find the project and the user's settings.
+    await writeFile(join(process.env.WONE_HOME!, 'a.scss'), 'a { b: c }')
+    const served = await c.router.dispatch('liveServer:start', { projectId }, { transport: 'ipc' })
+    expect(served).toMatchObject({ ok: true, data: { projectId } })
+    expect(pushed).toContain('liveServer:changed')
+    expect(await c.router.dispatch('liveServer:stop', { projectId }, { transport: 'ipc' })).toEqual({ ok: true })
+    expect(await c.router.dispatch('sass:compile', { projectId, path: 'a.scss' }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { written: ['a.css'] } })
+    // With the user's settings (moved over from VS Code) both follow them.
+    await c.settings.update({ editor: { liveServer: { noBrowser: true }, sass: { formats: [{ format: 'compressed', extensionName: '.min.css' }] } } })
+    expect(await c.router.dispatch('sass:compile', { projectId, path: 'a.scss' }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { written: ['a.min.css'] } })
+    expect(await c.router.dispatch('liveServer:start', { projectId }, { transport: 'ipc' })).toMatchObject({ ok: true })
+    expect(await c.router.dispatch('liveServer:stop', { projectId }, { transport: 'ipc' })).toEqual({ ok: true })
+    // SFTP reads the project's .vscode/sftp.json.
+    expect(await c.router.dispatch('sftp:targets', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    await mkdir(join(process.env.WONE_HOME!, '.vscode'), { recursive: true })
+    await writeFile(join(process.env.WONE_HOME!, '.vscode/sftp.json'), JSON.stringify({ name: 'T', host: '127.0.0.1', port: 1, connectTimeout: 300 }))
+    expect(await c.router.dispatch('sftp:list', { projectId, target: 'T' }, { transport: 'ipc' })).toMatchObject({ error: {} })
+    // Pull requests go through gh, for known projects only.
+    expect(await c.router.dispatch('github:view', { projectId: 'none', number: 1 }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    // MongoDB keeps its connections in the secret store.
+    expect(await c.router.dispatch('mongo:connections', undefined, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    // Settings Sync works through the account (signed out here).
+    expect(await c.router.dispatch('cloud:syncStatus', undefined, { transport: 'ipc' })).toEqual({ ok: true, data: { signedIn: false, remote: null, local: null } })
+    expect(await c.router.dispatch('cloud:syncPush', { force: true }, { transport: 'ipc' })).toMatchObject({ error: { code: 'session_expired' } })
+    expect(await c.router.dispatch('cloud:syncPull', undefined, { transport: 'ipc' })).toMatchObject({ error: { code: 'session_expired' } })
+    // Remote: none yet; an unknown project has no container; the follower channel refuses a core that signs in itself.
+    expect(await c.router.dispatch('remote:list', undefined, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    // The user's ssh, nobody listening: the connection fails (and the license knows no remote window is open).
+    expect(await c.router.dispatch('remote:ssh', { target: 'nobody@127.0.0.1:1' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'remote-unreachable' } })
+    expect(pushed).toContain('remote:changed')
+    expect(await c.router.dispatch('remote:hasContainer', { projectId: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    expect(await c.router.dispatch('remote:hasContainer', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: false })
+    expect(await c.router.dispatch('cloud:adopt', { token: 'wone1.x.y.zzzz', account: { email: 'a@b', name: null } }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-follower' } })
   })
 
   it('desktop mode keeps the server config in settings; history is kept as files in the data folder', async () => {

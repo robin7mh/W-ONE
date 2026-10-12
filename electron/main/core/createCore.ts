@@ -17,6 +17,19 @@ import { registerLspIpc } from '../../ipc/lsp.ipc'
 import { registerDebugIpc } from '../../ipc/debug.ipc'
 import { registerToolsIpc } from '../../ipc/tools.ipc'
 import { registerMigrateIpc } from '../../ipc/migrate.ipc'
+import { registerLiveIpc } from '../../ipc/live.ipc'
+import { registerSftpIpc } from '../../ipc/sftp.ipc'
+import { SftpService } from '../services/sftp/SftpService'
+import { registerGitHubIpc } from '../../ipc/github.ipc'
+import { GitHubService, loginShellGh } from '../services/github/GitHubService'
+import { registerMongoIpc } from '../../ipc/mongo.ipc'
+import { MongoService } from '../services/mongo/MongoService'
+import { SyncService } from '../services/cloud/SyncService'
+import { registerRemoteIpc } from '../../ipc/remote.ipc'
+import { RemoteService } from '../services/remote/RemoteService'
+import { bundleSource } from '../services/remote/bundle'
+import { LiveServerService } from '../services/live/LiveServerService'
+import { SassService } from '../services/live/SassService'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
@@ -161,7 +174,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const debug = new DebugService({
     resolveRoot: (id) => projects.getProjectPath(id),
     publish: (channel, payload) => hub.publish(channel, payload as never),
-    tools: devTools
+    tools: devTools,
+    lsp
   })
   const auth = new AuthService(paths.devicesFile)
 
@@ -207,6 +221,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     baseUrl: cloudCfg.url,
     publicKey: cloudCfg.publicKey,
     enforced: cloudCfg.enforced,
+    follower: cloudCfg.follower,
     client: opts.mode,
     version: opts.version,
     deviceName: hostname(),
@@ -280,6 +295,18 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)
   registerMigrateIpc(router, new MigrateService({ home: homedir(), appData: appDataDir(), settings, snippetsFile: join(paths.dataDir, 'snippets.json') }))
+  const editorSettings = () => settings.get().editor
+  const liveServer = new LiveServerService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    settings: () => editorSettings()?.liveServer,
+    open: platform.openExternal,
+    publish: hub.publish.bind(hub, 'liveServer:changed')
+  })
+  registerSftpIpc(router, new SftpService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'sftp:progress') }))
+  registerGitHubIpc(router, new GitHubService({ resolveRoot: (id) => projects.getProjectPath(id), gh: loginShellGh }))
+  const mongo = new MongoService({ secrets })
+  registerMongoIpc(router, mongo)
+  registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
   registerAgentsIpc(router, agents)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
@@ -313,6 +340,28 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('cloud:resendVerification', () => cloud.resendVerification())
   router.register('cloud:forgotPassword', (req) => cloud.forgotPassword(req))
   router.register('cloud:checkout', () => cloud.checkout())
+  router.register('cloud:adopt', ({ token, account }) => cloud.adopt(token, account))
+  // Settings Sync: the account keeps one copy of the editor settings, snippets, look and language.
+  const sync = new SyncService({ cloud, settings, snippetsFile: join(paths.dataDir, 'snippets.json') })
+  router.register('cloud:syncStatus', () => sync.status())
+  router.register('cloud:syncPush', ({ force, ...ui }) => sync.push(ui, force))
+  router.register('cloud:syncPull', () => sync.pull())
+  // Remote-SSH and Dev Containers: this core starts W-ONE elsewhere and opens a window on it.
+  const remote = new RemoteService({
+    version: opts.version,
+    licensed: cloudCfg.enforced,
+    deviceName: hostname(),
+    bundle: bundleSource({ version: opts.version, dir: join(paths.dataDir, 'remote'), devDir: join(__dirname, '..', 'remote') }),
+    secrets,
+    entitlement: cloud.entitlement.bind(cloud),
+    openWindow: opts.platform.openRemoteWindow,
+    publish: (list) => {
+      hub.publish('remote:changed', list)
+      cloud.setRemoteSessions(list.filter((c) => c.state === 'ready').length)
+    },
+    sshConfig: process.env.WONE_SSH_CONFIG || undefined
+  })
+  registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
 
   events.emit('app.started', { payload: { version: opts.version, mode: opts.mode } })
 
@@ -338,7 +387,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       system.dispose()
       vault.dispose()
       lsp.dispose()
+      liveServer.dispose()
       debug.dispose()
+      await mongo.dispose()
+      remote.dispose()
       terminal.killAll()
       await controller.stop()
       await eventLog.flush()

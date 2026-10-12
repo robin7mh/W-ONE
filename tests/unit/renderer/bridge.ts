@@ -19,7 +19,7 @@ export const OPEN_CLOUD = {
 }
 
 /** Answers every test bridge gives unless a test routes the channel itself. */
-const DEFAULT_ROUTES: Record<string, Route> = { 'cloud:status': () => OPEN_CLOUD }
+const DEFAULT_ROUTES: Record<string, Route> = { 'cloud:status': () => OPEN_CLOUD, 'sftp:targets': () => [], 'remote:list': () => [] }
 
 /**
  * Installs a fake `window.wone` bridge. `routes` answer `invoke` per channel

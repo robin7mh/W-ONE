@@ -31,6 +31,12 @@ import type {
 } from '@shared/types/lsp'
 import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
 import type { LanguageStatus, ToolProgress } from '@shared/types/languages'
+import type { LiveServerStatus, SassResult } from '@shared/types/live'
+import type { SftpEntry, SftpProgress, SftpTarget } from '@shared/types/sftp'
+import type { SyncStatus, SyncUi } from '@shared/types/sync'
+import type { RemoteConnection, SshHost } from '@shared/types/remote'
+import type { MongoCollection, MongoConnection, MongoDatabase, MongoDocuments, MongoIndex, MongoQuery } from '@shared/types/mongo'
+import type { GitHubStatus, MergeMethod, PullCreate, PullDetail, PullFileDiff, PullFilter, PullListState, PullSummary, ReviewAction } from '@shared/types/github'
 import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
 import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
 import type {
@@ -68,7 +74,7 @@ import type {
   ToolInfo
 } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
-import type { CloudStatus } from '@shared/types/cloud'
+import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
 
 /** A position in a project file, for the lsp:* queries. */
 export interface LspAt {
@@ -183,9 +189,9 @@ export interface IpcChannels {
   'lsp:signature': { request: LspAt; response: LspSignature | null }
   'lsp:codeFixes': { request: { projectId: string; path: string; range: LspRange; errorCodes: number[] }; response: LspCodeFix[] }
 
-  /** Run & Debug: a Node program under the inspector (one session at a time). */
+  /** Run & Debug: a program under Node's inspector or its language's debug adapter (one session at a time); `build` runs first. */
   'debug:start': {
-    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] }
+    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[]; build?: string }
     response: DebugSession
   }
   'debug:stop': { request: void; response: void }
@@ -204,6 +210,52 @@ export interface IpcChannels {
   'migrate:apply': { request: { app: string }; response: MigrationResult }
   /** The editor's preferences, keybindings and snippets. */
   'editor:settings': { request: void; response: { settings: EditorSettings; snippets: Snippet[] } }
+
+  /** Live Server: a project served on 127.0.0.1 with reload on change; `page` opens in the browser. */
+  'liveServer:status': { request: void; response: LiveServerStatus[] }
+  'liveServer:start': { request: { projectId: string; page?: string }; response: LiveServerStatus }
+  'liveServer:stop': { request: { projectId: string }; response: void }
+  /** Live Sass Compiler: a saved .scss / .sass file (a partial: every file), or all of them. */
+  'sass:compile': { request: { projectId: string; path: string }; response: SassResult }
+  'sass:compileAll': { request: { projectId: string }; response: SassResult }
+
+  /** SFTP as configured in .vscode/sftp.json. */
+  'sftp:targets': { request: { projectId: string }; response: SftpTarget[] }
+  'sftp:list': { request: { projectId: string; target: string; dir?: string }; response: SftpEntry[] }
+  'sftp:upload': { request: { projectId: string; target: string; paths: string[] }; response: number }
+  'sftp:download': { request: { projectId: string; target: string; paths: string[] }; response: string[] }
+  'sftp:sync': { request: { projectId: string; target: string; direction: 'up' | 'down' }; response: number }
+  /** GitHub pull requests through the user's gh CLI. */
+  'github:status': { request: { projectId: string }; response: GitHubStatus }
+  'github:list': { request: { projectId: string; filter?: PullFilter; state?: PullListState }; response: PullSummary[] }
+  'github:view': { request: { projectId: string; number: number }; response: PullDetail }
+  'github:fileDiff': { request: { projectId: string; number: number; path: string }; response: PullFileDiff }
+  'github:checkout': { request: { projectId: string; number: number }; response: void }
+  'github:create': { request: { projectId: string } & PullCreate; response: { number: number; url: string } }
+  'github:merge': { request: { projectId: string; number: number; method: MergeMethod; deleteBranch?: boolean }; response: void }
+  'github:comment': { request: { projectId: string; number: number; body: string }; response: void }
+  'github:review': { request: { projectId: string; number: number; action: ReviewAction; body?: string }; response: void }
+  /** MongoDB: saved connections (strings stay in the core), databases, collections, documents as Extended JSON. */
+  'mongo:connections': { request: void; response: MongoConnection[] }
+  'mongo:add': { request: { name: string; uri: string }; response: MongoConnection }
+  'mongo:remove': { request: { id: string }; response: void }
+  'mongo:databases': { request: { id: string }; response: MongoDatabase[] }
+  'mongo:collections': { request: { id: string; db: string }; response: MongoCollection[] }
+  'mongo:createCollection': { request: { id: string; db: string; name: string }; response: void }
+  'mongo:dropCollection': { request: { id: string; db: string; name: string }; response: void }
+  'mongo:find': { request: { id: string; db: string; collection: string; query?: MongoQuery }; response: MongoDocuments }
+  'mongo:insert': { request: { id: string; db: string; collection: string; document: string }; response: string }
+  'mongo:replace': { request: { id: string; db: string; collection: string; docId: string; document: string }; response: void }
+  'mongo:delete': { request: { id: string; db: string; collection: string; docId: string }; response: void }
+  'mongo:aggregate': { request: { id: string; db: string; collection: string; pipeline: string }; response: string[] }
+  'mongo:indexes': { request: { id: string; db: string; collection: string }; response: MongoIndex[] }
+  /** Remote-SSH and Dev Containers: W-ONE's core on another machine / in a container, in a window of its own. */
+  'remote:hosts': { request: void; response: SshHost[] }
+  'remote:list': { request: void; response: RemoteConnection[] }
+  'remote:ssh': { request: { target: string }; response: RemoteConnection }
+  'remote:container': { request: { projectId: string }; response: RemoteConnection }
+  'remote:hasContainer': { request: { projectId: string }; response: boolean }
+  'remote:disconnect': { request: { id: string }; response: void }
 
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
@@ -264,6 +316,12 @@ export interface IpcChannels {
   'cloud:resendVerification': { request: void; response: void }
   'cloud:forgotPassword': { request: { email: string }; response: void }
   'cloud:checkout': { request: void; response: { url: string } }
+  /** Settings Sync through the account (Profile): status, save to the account (force: over a newer copy), load from it. */
+  /** A follower core (Remote-SSH, Dev Container) takes the desktop's entitlement over. */
+  'cloud:adopt': { request: { token: string; account: CloudAccount }; response: CloudStatus }
+  'cloud:syncStatus': { request: void; response: SyncStatus }
+  'cloud:syncPush': { request: SyncUi & { force?: boolean }; response: SyncStatus }
+  'cloud:syncPull': { request: void; response: SyncUi }
 
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
@@ -380,6 +438,49 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'migrate:scan': 'desktop',
   'migrate:apply': 'desktop',
   'editor:settings': 'any',
+  'liveServer:status': 'any',
+  // Serving and compiling write / expose project files on the core's machine.
+  'liveServer:start': 'terminal',
+  'liveServer:stop': 'terminal',
+  'sass:compile': 'terminal',
+  'sass:compileAll': 'terminal',
+  'sftp:targets': 'any',
+  // Talking to servers with the project's credentials, writing files: a shell's power.
+  'sftp:list': 'terminal',
+  'sftp:upload': 'terminal',
+  'sftp:download': 'terminal',
+  'sftp:sync': 'terminal',
+  // Reading pull requests is harmless; acting on them (checkout changes files, the rest writes to GitHub) needs remote shells.
+  'github:status': 'any',
+  'github:list': 'any',
+  'github:view': 'any',
+  'github:fileDiff': 'any',
+  'github:checkout': 'terminal',
+  'github:create': 'terminal',
+  'github:merge': 'terminal',
+  'github:comment': 'terminal',
+  'github:review': 'terminal',
+  // Reading a database is like reading files; changing it (and saving connections) needs remote shells.
+  'mongo:connections': 'any',
+  'mongo:databases': 'any',
+  'mongo:collections': 'any',
+  'mongo:find': 'any',
+  'mongo:indexes': 'any',
+  'mongo:add': 'terminal',
+  'mongo:remove': 'terminal',
+  'mongo:createCollection': 'terminal',
+  'mongo:dropCollection': 'terminal',
+  'mongo:insert': 'terminal',
+  'mongo:replace': 'terminal',
+  'mongo:delete': 'terminal',
+  'mongo:aggregate': 'terminal',
+  // Opening windows and ssh / docker on this machine: the desktop app only.
+  'remote:hosts': 'desktop',
+  'remote:list': 'desktop',
+  'remote:ssh': 'desktop',
+  'remote:container': 'desktop',
+  'remote:hasContainer': 'desktop',
+  'remote:disconnect': 'desktop',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',
@@ -431,6 +532,10 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'cloud:resendVerification': 'any',
   'cloud:forgotPassword': 'any',
   'cloud:checkout': 'any',
+  'cloud:adopt': 'any',
+  'cloud:syncStatus': 'any',
+  'cloud:syncPush': 'any',
+  'cloud:syncPull': 'any',
   // The desktop app updates itself; nothing a remote client should trigger.
   'update:status': 'desktop',
   'update:check': 'desktop',
@@ -462,6 +567,9 @@ export interface IpcEvents {
   /** A language server published new diagnostics — the editor asks for them again. */
   'lsp:diagnostics': { projectId: string }
   'tools:progress': ToolProgress
+  'liveServer:changed': LiveServerStatus[]
+  'sftp:progress': SftpProgress
+  'remote:changed': RemoteConnection[]
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -486,7 +594,10 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'debug:session',
   'debug:output',
   'lsp:diagnostics',
-  'tools:progress'
+  'tools:progress',
+  'liveServer:changed',
+  'sftp:progress',
+  'remote:changed'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

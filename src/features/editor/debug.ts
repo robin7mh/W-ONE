@@ -2,10 +2,16 @@ import { create } from 'zustand'
 import { errorMessage, ipc, onEvent } from '@shared/ipc/client'
 import type { DebugAction, DebugBreakpoint, DebugSession, DebugVariable } from '@shared/types/debug'
 import { useEditor } from './store'
-import { languageOf } from '@shared/types/languages'
+import { isTypeScriptFile, languageOf } from '@shared/types/languages'
 
-/** The program that runs a file, as the console's first line says. */
-export const runnerOf = (program: string): string => ({ python: 'python', go: 'go run' })[languageOf(program)?.id ?? ''] ?? 'node'
+const RUNNERS: Record<string, string> = { python: 'python', go: 'go run', cpp: 'lldb', rust: 'lldb', swift: 'lldb', php: 'php', java: 'java', kotlin: 'kotlin' }
+
+/** The program that runs a file, as the console's first line says (a built program: LLDB). */
+export const runnerOf = (program: string): string => {
+  const language = languageOf(program)?.id
+  if (language) return RUNNERS[language] ?? language
+  return isTypeScriptFile(program) ? 'node' : 'lldb'
+}
 
 export interface ConsoleLine {
   id: number
@@ -18,6 +24,8 @@ interface Saved {
   breakpoints: Record<string, DebugBreakpoint[]>
   program: Record<string, string>
   args: Record<string, string>
+  /** The build step per project (make, …), run before each start. */
+  build: Record<string, string>
   watches: string[]
 }
 
@@ -25,7 +33,7 @@ const KEY = 'wone.debug'
 const MAX_LINES = 2000
 
 function load(): Saved {
-  const empty: Saved = { breakpoints: {}, program: {}, args: {}, watches: [] }
+  const empty: Saved = { breakpoints: {}, program: {}, args: {}, build: {}, watches: [] }
   try {
     return { ...empty, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Saved>) }
   } catch {
@@ -35,7 +43,7 @@ function load(): Saved {
 
 function save(s: Saved): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ breakpoints: s.breakpoints, program: s.program, args: s.args, watches: s.watches }))
+    localStorage.setItem(KEY, JSON.stringify({ breakpoints: s.breakpoints, program: s.program, args: s.args, build: s.build, watches: s.watches }))
   } catch {
     /* storage unavailable: kept for this run only */
   }
@@ -67,6 +75,7 @@ interface DebugState extends Saved {
   clearBreakpoints: (projectId: string) => void
   setProgram: (projectId: string, program: string) => void
   setArgs: (projectId: string, args: string) => void
+  setBuild: (projectId: string, build: string) => void
   setStopOnEntry: (on: boolean) => void
   /** Debug the program chosen for the editor's project (else the file on screen). */
   start: () => Promise<void>
@@ -168,6 +177,10 @@ export const useDebug = create<DebugState>((set, get) => {
       set((s) => ({ args: { ...s.args, [projectId]: args } }))
       persist()
     },
+    setBuild: (projectId, build) => {
+      set((s) => ({ build: { ...s.build, [projectId]: build } }))
+      persist()
+    },
 
     setStopOnEntry: (stopOnEntry) => set({ stopOnEntry }),
 
@@ -187,7 +200,8 @@ export const useDebug = create<DebugState>((set, get) => {
           program,
           args: splitArgs(get().args[projectId] ?? ''),
           stopOnEntry: get().stopOnEntry,
-          breakpoints: get().breakpoints[projectId] ?? []
+          breakpoints: get().breakpoints[projectId] ?? [],
+          build: get().build[projectId]?.trim() || undefined
         })
         onSession(session)
       } catch (err) {

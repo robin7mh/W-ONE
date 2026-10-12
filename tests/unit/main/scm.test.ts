@@ -94,6 +94,14 @@ describe('ScmService', () => {
     await expect(service(join(plain, 'missing')).status('p')).rejects.toMatchObject({ code: 'git' })
     const s = service(plain)
     expect(await s.init('p')).toMatchObject({ repo: true, files: [] })
+    // A machine without git (a slim container): said plainly.
+    const path = process.env.PATH
+    process.env.PATH = ''
+    try {
+      await expect(service(plain).status('p')).rejects.toMatchObject({ code: 'git-missing', message: 'Git is not installed on this machine' })
+    } finally {
+      process.env.PATH = path
+    }
   })
 
   it('stages, unstages (also before the first commit), discards and commits', async () => {

@@ -1,15 +1,45 @@
 import { create } from 'zustand'
 import { ipc } from '@shared/ipc/client'
-import type { EditorSettings, Snippet } from '@shared/types/migrate'
+import type { EditorSettings, LanguageSettings, Snippet } from '@shared/types/migrate'
 
 /** The editor's own font always stays as the fallback. */
 const FONT = "'JetBrains Mono', ui-monospace, monospace"
+
+/**
+ * W-ONE's own editor defaults for every setting a user (or a language) can
+ * change — so switching from a file with an override back to one without
+ * restores them.
+ */
+export const DEFAULTS: Required<Omit<LanguageSettings, 'fontFamily'>> = {
+  fontSize: 13,
+  fontLigatures: false,
+  lineHeight: 20,
+  tabSize: 4,
+  insertSpaces: true,
+  wordWrap: 'off',
+  wordWrapColumn: 80,
+  minimap: true,
+  lineNumbers: 'on',
+  renderWhitespace: 'selection',
+  cursorStyle: 'line',
+  cursorBlinking: 'blink',
+  rulers: [],
+  stickyScroll: true,
+  smoothScrolling: true,
+  bracketPairColorization: true,
+  formatOnSave: false
+}
+
+/** The settings for a file of this language: W-ONE's defaults, the user's, the language's overrides. */
+export function settingsFor(settings: EditorSettings, language?: string): EditorSettings {
+  return { ...DEFAULTS, fontFamily: '', ...settings, ...(language ? settings.languages?.[language] : undefined) }
+}
 
 /** Monaco options for the user's editor settings (only what was set — the rest keeps W-ONE's defaults). */
 export function monacoOptions(s: EditorSettings): Record<string, unknown> {
   const o: Record<string, unknown> = {}
   if (s.fontSize !== undefined) o.fontSize = s.fontSize
-  if (s.fontFamily !== undefined) o.fontFamily = `${s.fontFamily}, ${FONT}`
+  if (s.fontFamily !== undefined) o.fontFamily = s.fontFamily ? `${s.fontFamily}, ${FONT}` : FONT
   if (s.fontLigatures !== undefined) o.fontLigatures = s.fontLigatures
   if (s.lineHeight !== undefined) o.lineHeight = s.lineHeight
   if (s.tabSize !== undefined) o.tabSize = s.tabSize

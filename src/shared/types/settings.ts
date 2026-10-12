@@ -20,4 +20,6 @@ export interface AppSettings {
   ai?: AiSettings
   /** Editor preferences and keybindings (taken over from VS Code / Cursor, or set here). */
   editor?: EditorSettings
+  /** Settings Sync: the account copy's version this core last saved or loaded. */
+  sync?: { version: number; syncedAt: string }
 }

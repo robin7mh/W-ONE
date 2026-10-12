@@ -10,6 +10,7 @@ import { documentLanguage, GenericBackend, markdown, spawnServer } from '../../.
 import { LspService } from '../../../electron/main/services/lsp/LspService'
 import { LANGUAGES, languageOf, isTypeScriptFile } from '@shared/types/languages'
 import { shellArgs } from '../../../electron/main/lib/shellArgs'
+import { CATALOG, javaDebugJar } from '../../../electron/main/services/tools/catalog'
 
 const FAKE_LSP = join(__dirname, 'fixtures', 'fake-lsp.mjs')
 
@@ -471,6 +472,35 @@ describe('GenericBackend', () => {
   })
 })
 
+describe('server commands and initialization options', () => {
+  it('runs a server’s own command (starting the server first); none installed says so', async () => {
+    const { backend, servers } = await setup({ 'workspace/executeCommand': (p: { command: string; arguments: unknown[] }) => ({ ran: p.command, with: p.arguments }) }, { languages: ['python'] })
+    expect(await backend.executeCommand('p', 'python', 'pyright.organizeimports', ['x'])).toEqual({ ran: 'pyright.organizeimports', with: ['x'] })
+    expect(servers).toHaveLength(1)
+    await expect(backend.executeCommand('p', 'go', 'gopls.tidy', [])).rejects.toMatchObject({ code: 'server-missing', message: 'No Go language server installed — Settings → Languages' })
+  })
+
+  it('jdtls gets the Java debug plugin as a bundle once it is installed', async () => {
+    const tools = await tempDir('wone-tools-')
+    expect(CATALOG.java.server.initializationOptions!({ root: '/r', tools })).toEqual({ bundles: [] })
+    expect(javaDebugJar(tools)).toBeUndefined()
+    const server = join(tools, 'java-debug', 'extension', 'server')
+    await mkdir(server, { recursive: true })
+    await writeFile(join(server, 'readme.txt'), '')
+    expect(javaDebugJar(tools)).toBeUndefined()
+    await writeFile(join(server, 'com.microsoft.java.debug.plugin-0.53.2.jar'), '')
+    expect(CATALOG.java.server.initializationOptions!({ root: '/r', tools })).toEqual({ bundles: [join(server, 'com.microsoft.java.debug.plugin-0.53.2.jar')] })
+
+    const { backend, servers } = await setup({}, { languages: ['java'] })
+    await backend.executeCommand('p', 'java', 'noop', [])
+    const init = servers[0].received.find((m) => m.method === 'initialize')!.params as { initializationOptions: unknown }
+    expect(init.initializationOptions).toEqual({ bundles: [] })
+    const py = await setup({}, { languages: ['python'] })
+    await py.backend.open('p', 'src/a.py', '')
+    expect((py.servers[0].received.find((m) => m.method === 'initialize')!.params as Record<string, unknown>).initializationOptions).toBeUndefined()
+  })
+})
+
 describe('LspService routes each file to its backend', () => {
   it('TypeScript to tsserver, the rest to language servers; diagnostics merged', async () => {
     const { root } = await setup()
@@ -511,6 +541,7 @@ describe('LspService routes each file to its backend', () => {
     expect(await lsp.signature('p', 'src/a.py', 1, 1)).toBeNull()
     expect(await lsp.codeFixes('p', 'src/a.py', range(1, 1, 1, 1), [])).toEqual([])
     expect(await lsp.codeFixes('p', 'a.ts', range(1, 1, 1, 1), [1])).toEqual([])
+    expect(await lsp.executeCommand('p', 'python', 'x', [])).toBeNull()
     await lsp.close('p', 'src/a.py')
     await lsp.close('p', 'a.ts')
     lsp.dispose()

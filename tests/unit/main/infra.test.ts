@@ -53,6 +53,11 @@ import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
 import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
 import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
 import { registerMigrateIpc } from '../../../electron/ipc/migrate.ipc'
+import { registerLiveIpc } from '../../../electron/ipc/live.ipc'
+import { registerSftpIpc } from '../../../electron/ipc/sftp.ipc'
+import { registerGitHubIpc } from '../../../electron/ipc/github.ipc'
+import { registerMongoIpc } from '../../../electron/ipc/mongo.ipc'
+import { registerRemoteIpc } from '../../../electron/ipc/remote.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -283,6 +288,74 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['migrate:scan', undefined, 'scan', []],
         ['migrate:apply', { app: 'Code' }, 'apply', ['Code']],
         ['editor:settings', undefined, 'editor', []]
+      ]
+    ],
+    [
+      'live',
+      (router: Router, svc: never) => registerLiveIpc(router, svc, svc),
+      [
+        ['liveServer:status', undefined, 'status', []],
+        ['liveServer:start', { projectId: 'p', page: 'index.html' }, 'start', ['p', 'index.html']],
+        ['liveServer:stop', { projectId: 'p' }, 'stop', ['p']],
+        ['sass:compile', { projectId: 'p', path: 'a.scss' }, 'compile', ['p', 'a.scss']],
+        ['sass:compileAll', { projectId: 'p' }, 'compileAll', ['p']]
+      ]
+    ],
+    [
+      'sftp',
+      registerSftpIpc,
+      [
+        ['sftp:targets', { projectId: 'p' }, 'targets', ['p']],
+        ['sftp:list', { projectId: 'p', target: 'T', dir: 'css' }, 'list', ['p', 'T', 'css']],
+        ['sftp:upload', { projectId: 'p', target: 'T', paths: ['a'] }, 'upload', ['p', 'T', ['a']]],
+        ['sftp:download', { projectId: 'p', target: 'T', paths: ['a'] }, 'download', ['p', 'T', ['a']]],
+        ['sftp:sync', { projectId: 'p', target: 'T', direction: 'up' }, 'sync', ['p', 'T', 'up']]
+      ]
+    ],
+    [
+      'github',
+      registerGitHubIpc,
+      [
+        ['github:status', { projectId: 'p' }, 'status', ['p']],
+        ['github:list', { projectId: 'p', filter: 'mine', state: 'all' }, 'list', ['p', 'mine', 'all']],
+        ['github:view', { projectId: 'p', number: 8 }, 'view', ['p', 8]],
+        ['github:fileDiff', { projectId: 'p', number: 8, path: 'a.ts' }, 'fileDiff', ['p', 8, 'a.ts']],
+        ['github:checkout', { projectId: 'p', number: 8 }, 'checkout', ['p', 8]],
+        ['github:create', { projectId: 'p', title: 'T', body: 'B', base: 'main', draft: true }, 'create', ['p', { title: 'T', body: 'B', base: 'main', draft: true }]],
+        ['github:merge', { projectId: 'p', number: 8, method: 'squash', deleteBranch: true }, 'merge', ['p', 8, 'squash', true]],
+        ['github:comment', { projectId: 'p', number: 8, body: 'hi' }, 'comment', ['p', 8, 'hi']],
+        ['github:review', { projectId: 'p', number: 8, action: 'approve', body: '' }, 'review', ['p', 8, 'approve', '']]
+      ]
+    ],
+    [
+      'mongo',
+      registerMongoIpc,
+      [
+        ['mongo:connections', undefined, 'connections', []],
+        ['mongo:add', { name: 'N', uri: 'mongodb://localhost' }, 'add', ['N', 'mongodb://localhost']],
+        ['mongo:remove', { id: 'c' }, 'remove', ['c']],
+        ['mongo:databases', { id: 'c' }, 'databases', ['c']],
+        ['mongo:collections', { id: 'c', db: 'd' }, 'collections', ['c', 'd']],
+        ['mongo:createCollection', { id: 'c', db: 'd', name: 'n' }, 'createCollection', ['c', 'd', 'n']],
+        ['mongo:dropCollection', { id: 'c', db: 'd', name: 'n' }, 'dropCollection', ['c', 'd', 'n']],
+        ['mongo:find', { id: 'c', db: 'd', collection: 'u', query: { limit: 5 } }, 'find', ['c', 'd', 'u', { limit: 5 }]],
+        ['mongo:insert', { id: 'c', db: 'd', collection: 'u', document: '{}' }, 'insert', ['c', 'd', 'u', '{}']],
+        ['mongo:replace', { id: 'c', db: 'd', collection: 'u', docId: '1', document: '{}' }, 'replace', ['c', 'd', 'u', '1', '{}']],
+        ['mongo:delete', { id: 'c', db: 'd', collection: 'u', docId: '1' }, 'delete', ['c', 'd', 'u', '1']],
+        ['mongo:aggregate', { id: 'c', db: 'd', collection: 'u', pipeline: '[]' }, 'aggregate', ['c', 'd', 'u', '[]']],
+        ['mongo:indexes', { id: 'c', db: 'd', collection: 'u' }, 'indexes', ['c', 'd', 'u']]
+      ]
+    ],
+    [
+      'remote',
+      (router: Router, svc: never) => registerRemoteIpc(router, svc, (id) => (id === 'p' ? '/p' : undefined)),
+      [
+        ['remote:hosts', undefined, 'hosts', []],
+        ['remote:list', undefined, 'list', []],
+        ['remote:ssh', { target: 'robin@box:2222' }, 'ssh', ['robin@box:2222']],
+        ['remote:container', { projectId: 'p' }, 'container', ['/p']],
+        ['remote:hasContainer', { projectId: 'p' }, 'hasContainer', ['/p']],
+        ['remote:disconnect', { id: 'ssh:box' }, 'disconnect', ['ssh:box']]
       ]
     ],
     [

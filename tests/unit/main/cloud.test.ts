@@ -196,6 +196,11 @@ describe('cloud config', () => {
     expect(cloudConfig(true, {}, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
     expect(cloudConfig(false).enforced).toBe(false)
   })
+
+  it('a core the desktop runs elsewhere follows its license (also in release builds)', () => {
+    expect(cloudConfig(false, { WONE_LICENSE: 'follower' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true, follower: true })
+    expect(cloudConfig(true, { WONE_LICENSE: 'follower' }, { key: 'K' })).toEqual({ url: DEV_CLOUD_URL, publicKey: 'K', enforced: true, follower: true })
+  })
 })
 
 describe('router license gate', () => {
@@ -453,6 +458,69 @@ describe('CloudService', () => {
     t.cloud.s.fail['/v1/billing/checkout'] = { status: 502 }
     await expect(t.svc.checkout()).rejects.toMatchObject({ code: 'http-502', message: 'Broken' })
     expect(t.svc.status().state).toBe('active')
+  })
+
+  it('authenticated API calls for other features (Settings Sync): any method, signed in only', async () => {
+    const t = await setup()
+    expect(t.svc.isSignedIn()).toBe(false)
+    await t.signIn()
+    expect(t.svc.isSignedIn()).toBe(true)
+    await t.svc.api('PUT', '/v1/me/sync', { data: {}, baseVersion: 0 })
+    expect(t.cloud.last('/v1/me/sync')).toMatchObject({ method: 'PUT', auth: 'Bearer ws_secret', body: { data: {}, baseVersion: 0 } })
+    await t.svc.api('DELETE', '/v1/me/sync')
+    expect(t.cloud.last('/v1/me/sync')).toMatchObject({ method: 'DELETE', body: undefined })
+    t.cloud.s.fail['/v1/me/sync'] = { status: 409, body: { error: { code: 'sync_conflict', message: 'Settings were changed on another device' } } }
+    await expect(t.svc.api('PUT', '/v1/me/sync', {})).rejects.toMatchObject({ code: 'sync_conflict' })
+  })
+
+  it('remote windows keep a trial lease going like a user at this machine', async () => {
+    const t = await setup()
+    await t.signIn()
+    t.setUserActive(false)
+    const beats = () => t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
+    const before = beats()
+    t.advance(60)
+    await t.svc.tick()
+    expect(beats()).toBe(before)
+    t.svc.setRemoteSessions(1)
+    await t.svc.tick()
+    expect(beats()).toBe(before + 1)
+  })
+
+  it('hands its entitlement to follower cores only while it is valid', async () => {
+    const t = await setup()
+    expect(t.svc.entitlement()).toBeNull()
+    await t.signIn()
+    expect(t.svc.entitlement()).toEqual({ token: expect.stringMatching(/^wone1\./), account: { email: 'robin@w-one.test', name: null } })
+    t.advance(120) // the trial lease ran out
+    expect(t.svc.entitlement()).toBeNull()
+    t.cloud.s.active = false
+    t.cloud.s.reason = 'trial_expired'
+    t.advance(-120)
+    await t.svc.refresh()
+    expect(t.svc.entitlement()).toBeNull()
+  })
+
+  it('a follower never signs in itself: it adopts the desktop’s entitlement (verified with the cloud’s key)', async () => {
+    const leader = await setup()
+    await leader.signIn()
+    const { token, account } = leader.svc.entitlement()!
+    const follower = await setup({ follower: true, publicKey: leader.cloud.k.pem })
+    expect(follower.cloud.s.calls).toEqual([]) // no heartbeat, nothing
+    expect(follower.svc.status()).toMatchObject({ state: 'signed_out', allowed: false })
+    expect(await follower.svc.adopt(token, account)).toMatchObject({ state: 'active', allowed: true, account })
+    await expect(follower.svc.adopt('wone1.forged.sig', account)).rejects.toMatchObject({ code: 'bad-entitlement' })
+    expect(follower.svc.status().state).toBe('active')
+    follower.advance(120)
+    expect(follower.svc.status()).toMatchObject({ allowed: false, state: 'offline' }) // until the desktop hands a fresh one over
+    // Without a built-in key it asks the cloud for it (and can't verify without it).
+    const keyless = await setup({ follower: true })
+    await expect(keyless.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement' }) // its cloud's key isn't the leader's
+    expect(keyless.cloud.s.calls.map((c) => c.path)).toEqual(['/v1/meta'])
+    const offline = await setup({ follower: true, offline: true })
+    await expect(offline.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement' })
+    // A core that signs in itself doesn't adopt.
+    await expect(leader.svc.adopt(token, account)).rejects.toMatchObject({ code: 'not-follower' })
   })
 
   it('remembers the account across restarts — a lifetime license even without the cloud', async () => {

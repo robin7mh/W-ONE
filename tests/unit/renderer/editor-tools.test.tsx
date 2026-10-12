@@ -9,7 +9,7 @@ vi.mock('@/features/editor/components/DiffView', () => ({ default: () => <div da
 
 import { en } from '@/lib/i18n/en'
 import { de } from '@/lib/i18n/de'
-import { tabKey, useEditor } from '@/features/editor/store'
+import { setBufferHost, tabKey, useEditor } from '@/features/editor/store'
 import { useScm, type PickItem } from '@/features/editor/scm'
 import { buildCommands } from '@/features/editor/commands'
 import { editorActions, setEditorActions } from '@/features/editor/actions'
@@ -17,6 +17,9 @@ import { projectProblems, useProblems } from '@/features/editor/problems'
 import { runnerOf, splitArgs, useDebug } from '@/features/editor/debug'
 import { useEditorPrefs } from '@/features/editor/prefs'
 import { useLanguages } from '@/features/editor/languages'
+import { isSassFile, useLive } from '@/features/editor/live'
+import { useGitHub } from '@/features/editor/github'
+import { onSaved } from '@/features/editor/store'
 import { QuickOpen } from '@/features/editor/components/QuickOpen'
 import { DebugConsole, DebugPanel } from '@/features/editor/components/DebugPanel'
 import { EditorView } from '@/features/editor/components/EditorView'
@@ -42,13 +45,18 @@ const tab = (path: string, over: Partial<EditorTab> = {}): EditorTab => ({
   deleted: false,
   ...over
 })
+/** A buffer host whose snapshot is the tab's text (saving works without Monaco). */
+function setBufferHostFor(path: string) {
+  setBufferHost({ snapshot: () => ({ text: `<${path}>`, version: 2 }), markClean: () => {}, drop: () => {}, rekey: () => {} })
+}
+
 const frame = (over: Partial<DebugFrame> = {}): DebugFrame => ({ id: 'f0', name: 'add', path: 'src/a.js', url: 'file:///x/p/src/a.js', line: 2, column: 1, scopes: [{ type: 'local', name: 'add', objectId: 'L' }, { type: 'global', objectId: 'G' }], ...over })
 const session = (over: Partial<DebugSession> = {}): DebugSession => ({ id: 's1', projectId: 'p', program: 'src/a.js', status: 'paused', reason: 'breakpoint', frames: [frame()], ...over })
 
 beforeEach(() => {
   useEditor.setState(initialEditor, true)
   useScm.setState(initialScm, true)
-  useDebug.setState({ ...initialDebug, breakpoints: {}, program: {}, args: {}, watches: [] }, true)
+  useDebug.setState({ ...initialDebug, breakpoints: {}, program: {}, args: {}, build: {}, watches: [] }, true)
   useProblems.setState({ byFile: {} })
   useEditor.setState({ projectId: 'p' })
   setEditorActions(null)
@@ -78,11 +86,14 @@ describe('command palette: commands', () => {
       'Git: Fetch',
       'Git: Sync (pull, then push)',
       'Git: Checkout to…',
-      'Git: Create Branch…'
+      'Git: Create Branch…',
+      'GitHub: Create pull request'
     ])
     const readOnly = labels(buildCommands(en, { onNavigate, readOnly: true }))
     expect(readOnly).not.toContain('File: Save')
+    expect(readOnly).not.toContain('GitHub: Create pull request')
     expect(readOnly).toContain('View: Git Graph')
+    expect(readOnly).toContain('View: Pull requests')
     expect(labels(buildCommands(en, { onNavigate, readOnly: false, extra: [{ id: 'x', label: 'Debug: X', run: () => {} }] }))).toContain('Debug: X')
   })
 
@@ -165,6 +176,10 @@ describe('command palette: commands', () => {
     run('git.branch')
     await useScm.getState().pick!.onText!('feature/x')
     expect(createBranch).toHaveBeenCalledWith('feature/x')
+    run('github.create')
+    expect(useScm.getState().pane).toBe('prs')
+    expect(useGitHub.getState().creating).toBe(true)
+    useGitHub.setState({ creating: false })
 
     const init = vi.spyOn(useScm.getState(), 'init').mockResolvedValue()
     useScm.setState({ status: { repo: false, ahead: 0, behind: 0, merging: false, files: [] } })
@@ -241,6 +256,102 @@ describe('debug texts', () => {
   })
 })
 
+describe('Live Server and the Sass watcher', () => {
+  const status = { projectId: 'p', url: 'http://127.0.0.1:5500', port: 5500, root: '' }
+  beforeEach(() => useLive.setState({ servers: [], sassWatching: {}, sass: undefined, error: undefined }))
+
+  it('follows the core, compiles Sass on save when watched, reports problems', async () => {
+    const bridge = installBridge({
+      'liveServer:status': () => [status],
+      'sass:compile': ({ path }: { path: string }) => (path === 'bad.scss' ? Promise.reject(new Error('sass crashed')) : { written: ['a.css'], errors: { 'a.scss': [] } })
+    })
+    const stop = useLive.getState().connect()
+    await settle()
+    expect(useLive.getState().servers).toEqual([status])
+    act(() => bridge.emit('liveServer:changed', []))
+    expect(useLive.getState().servers).toEqual([])
+
+    // A listener that unsubscribed hears nothing.
+    const heard: string[] = []
+    onSaved((file) => heard.push(file.path))()
+    // Not watched: nothing compiles.
+    useEditor.setState({ tabs: [tab('a.scss', { dirty: true })], activeId: 'p:a.scss' })
+    setBufferHostFor('a.scss')
+    installBridge({ ...bridge.routes, 'files:write': () => ({ mtimeMs: 2, size: 1 }) } as never)
+    await useEditor.getState().save('p:a.scss')
+    expect(bridge.invoke).not.toHaveBeenCalledWith('sass:compile', expect.anything())
+    expect(heard).toEqual([])
+    stop()
+  })
+
+  it('compiles on save when watched; other files and other projects are left alone', async () => {
+    const compiled: string[] = []
+    installBridge({
+      'liveServer:status': () => [],
+      'files:write': () => ({ mtimeMs: 2, size: 1 }),
+      'sass:compile': ({ path }: { path: string }) => (compiled.push(path), path === 'bad.scss' ? Promise.reject(new Error('sass crashed')) : { written: ['a.css'], errors: { 'a.scss': [] } })
+    })
+    const stop = useLive.getState().connect()
+    useLive.setState({ sassWatching: { p: true } })
+    for (const path of ['a.scss', 'b.ts', 'bad.scss']) {
+      useEditor.setState({ tabs: [tab(path, { dirty: true })], activeId: `p:${path}` })
+      setBufferHostFor(path)
+      await act(() => useEditor.getState().save(`p:${path}`))
+      await act(settle)
+    }
+    expect(compiled).toEqual(['a.scss', 'bad.scss'])
+    expect(useLive.getState()).toMatchObject({ sass: { projectId: 'p', written: ['a.css'] }, error: 'sass crashed' })
+    stop()
+  })
+
+  it('start and stop the server, toggle the watcher (a full compile first)', async () => {
+    const bridge = installBridge({
+      'liveServer:start': ({ page }: { page?: string }) => (page === 'boom.html' ? Promise.reject(new Error('port taken')) : status),
+      'liveServer:stop': () => undefined,
+      'sass:compileAll': () => ({ written: ['main.css'], errors: { 'broken.scss': [{ range: { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, message: 'oops', severity: 'error' }] } })
+    })
+    useEditor.setState({ projectId: undefined })
+    await useLive.getState().start()
+    await useLive.getState().stop()
+    await useLive.getState().toggleSass()
+    expect(bridge.invoke).not.toHaveBeenCalled()
+    useEditor.setState({ projectId: 'p' })
+    await useLive.getState().start('index.html')
+    expect(bridge.invoke).toHaveBeenCalledWith('liveServer:start', { projectId: 'p', page: 'index.html' })
+    expect(useLive.getState().servers).toEqual([status])
+    await useLive.getState().start('boom.html')
+    expect(useLive.getState().error).toBe('port taken')
+    useLive.getState().clearError()
+    await useLive.getState().stop()
+    expect(useLive.getState().servers).toEqual([])
+
+    await useLive.getState().toggleSass()
+    expect(useLive.getState().sassWatching).toEqual({ p: true })
+    expect(JSON.parse(localStorage.getItem('wone.sassWatch')!)).toEqual({ p: true })
+    expect(useProblems.getState().byFile['p:broken.scss'][0].message).toBe('oops')
+    await useLive.getState().toggleSass()
+    expect(useLive.getState().sassWatching).toEqual({ p: false })
+
+    installBridge({ 'sass:compileAll': () => Promise.reject(new Error('no sass')) })
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('full')
+    })
+    await useLive.getState().toggleSass()
+    expect(useLive.getState().error).toBe('no sass')
+    set.mockRestore()
+    expect(isSassFile('a.SASS')).toBe(true)
+  })
+
+  it('remembers watched projects; broken storage watches none', async () => {
+    localStorage.setItem('wone.sassWatch', JSON.stringify({ p: true }))
+    vi.resetModules()
+    expect((await import('@/features/editor/live')).useLive.getState().sassWatching).toEqual({ p: true })
+    localStorage.setItem('wone.sassWatch', '{broken')
+    vi.resetModules()
+    expect((await import('@/features/editor/live')).useLive.getState().sassWatching).toEqual({})
+  })
+})
+
 describe('problems', () => {
   it('keeps errors and warnings per file, sorted errors first; closed files leave', () => {
     const r = (l: number, severity: 'error' | 'warning' | 'suggestion') => ({ range: { start: { line: l, offset: 2 }, end: { line: l, offset: 3 } }, message: `${severity}${l}`, severity, code: 1 })
@@ -254,7 +365,7 @@ describe('problems', () => {
 
 describe('debug store', () => {
   it('names what runs a program', () => {
-    expect([runnerOf('a.py'), runnerOf('cmd/main.go'), runnerOf('a.ts'), runnerOf('x')]).toEqual(['python', 'go run', 'node', 'node'])
+    expect(['a.py', 'cmd/main.go', 'a.ts', 'build/app', 'main.c', 'src/main.rs', 'index.php', 'App.java', 'Main.kt', 'run.sh'].map(runnerOf)).toEqual(['python', 'go run', 'node', 'lldb', 'lldb', 'lldb', 'php', 'java', 'kotlin', 'shell'])
   })
 
   it('splits arguments like a shell', () => {
@@ -291,8 +402,9 @@ describe('debug store', () => {
   it('remembers program, arguments and watches; survives storage that refuses', async () => {
     d().setProgram('p', 'src/main.ts')
     d().setArgs('p', '--x 1')
+    d().setBuild('p', 'make')
     d().setStopOnEntry(true)
-    expect(JSON.parse(localStorage.getItem('wone.debug')!)).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' } })
+    expect(JSON.parse(localStorage.getItem('wone.debug')!)).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' }, build: { p: 'make' } })
     vi.resetModules()
     const fresh = (await import('@/features/editor/debug')).useDebug.getState()
     expect(fresh).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' }, breakpoints: {} })
@@ -336,6 +448,10 @@ describe('debug store', () => {
     useEditor.setState({ tabs: [] })
     await d().start()
     expect(bridge.invoke).toHaveBeenLastCalledWith('debug:start', expect.objectContaining({ program: 'server.js' }))
+    d().setBuild('p', ' make ')
+    await d().start()
+    expect(bridge.invoke).toHaveBeenLastCalledWith('debug:start', expect.objectContaining({ build: 'make' }))
+    d().setBuild('p', '')
     d().setArgs('p', '')
     useDebug.setState({ args: {} })
     await d().start()
@@ -477,8 +593,10 @@ describe('debug panel', () => {
     expect(d().program.p).toBe('src/a.js')
     fireEvent.change(screen.getByLabelText('Program'), { target: { value: 'server.js' } })
     fireEvent.change(screen.getByLabelText('Arguments'), { target: { value: '--x' } })
+    expect(screen.getByLabelText('Build command')).toHaveAttribute('placeholder', 'e.g. make — runs before every start')
+    fireEvent.change(screen.getByLabelText('Build command'), { target: { value: 'make' } })
     fireEvent.click(screen.getByLabelText('Stop on the first line'))
-    expect(d()).toMatchObject({ program: { p: 'server.js' }, args: { p: '--x' }, stopOnEntry: true })
+    expect(d()).toMatchObject({ program: { p: 'server.js' }, args: { p: '--x' }, build: { p: 'make' }, stopOnEntry: true })
     fireEvent.click(screen.getByRole('button', { name: /Start Debugging/ }))
     expect(start).toHaveBeenCalled()
     expect(screen.getByText('Click left of a line number to set one.')).toBeInTheDocument()
@@ -639,6 +757,7 @@ describe('EditorView: palette, problems, debugging', () => {
       'debug:control': () => undefined,
       'debug:stop': () => undefined,
       'debug:start': () => session({ status: 'starting', frames: [] }),
+      'liveServer:status': () => [],
       ...over
     })
   const show = () => {
@@ -849,6 +968,62 @@ describe('EditorView: palette, problems, debugging', () => {
     )
     fireEvent.click(within(document.querySelector('footer')!).getByRole('button', { name: /1\s*0/ }))
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['⛔ bad typeapp.py:3 · Pyright reportX'])
+  })
+
+
+  it('the status bar: Go Live on an HTML file, the port while it runs; the Sass watcher; their errors', async () => {
+    routes({ 'liveServer:status': () => [], 'liveServer:start': () => ({ projectId: 'p', url: 'http://127.0.0.1:5500', port: 5500, root: '' }), 'liveServer:stop': () => undefined, 'sass:compileAll': () => ({ written: ['main.css'], errors: {} }) })
+    useEditor.setState({ tabs: [tab('index.html'), tab('main.scss'), tab('a.ts')], activeId: 'p:index.html' })
+    show()
+    await act(settle)
+    const footer = within(document.querySelector('footer')!)
+    fireEvent.click(footer.getByRole('button', { name: /Go Live/ }))
+    await act(settle)
+    fireEvent.click(footer.getByRole('button', { name: /Port 5500/ }))
+    await act(settle)
+    expect(useLive.getState().servers).toEqual([])
+    expect(footer.queryByRole('button', { name: /Watch Sass/ })).toBeNull()
+
+    act(() => useEditor.setState({ activeId: 'p:main.scss' }))
+    expect(footer.queryByRole('button', { name: /Go Live/ })).toBeNull()
+    fireEvent.click(footer.getByRole('button', { name: /Watch Sass/ }))
+    await act(settle)
+    const watching = footer.getByRole('button', { name: /Watching Sass/ })
+    expect(watching).toHaveAttribute('title', 'Compiled: main.css')
+    act(() => useEditor.setState({ activeId: 'p:a.ts' }))
+    expect(footer.getByRole('button', { name: /Watching Sass/ })).toHaveAttribute('title', 'Compiled: main.css') // stays while on
+    act(() => useLive.setState({ sass: undefined }))
+    expect(footer.getByRole('button', { name: /Watching Sass/ })).toHaveAttribute('title', 'Compile .scss / .sass to CSS on every save')
+
+    act(() => useLive.setState({ error: 'port taken' }))
+    expect(screen.getByText('port taken')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByLabelText('Dismiss')[0])
+    expect(useLive.getState().error).toBeUndefined()
+  })
+
+  it('palette: Live Server and Sass commands', async () => {
+    routes({ 'liveServer:status': () => [] })
+    useEditor.setState({ tabs: [tab('index.html'), tab('a.ts')], activeId: 'p:index.html' })
+    show()
+    await act(settle)
+    const live = useLive.getState()
+    const start = vi.spyOn(live, 'start').mockResolvedValue()
+    const stop = vi.spyOn(live, 'stop').mockResolvedValue()
+    const toggle = vi.spyOn(live, 'toggleSass').mockResolvedValue()
+    const run = (label: string) => {
+      fireEvent.keyDown(window, { key: 'p', metaKey: true, shiftKey: true })
+      fireEvent.change(screen.getByRole('dialog').querySelector('input')!, { target: { value: `>${label}` } })
+      fireEvent.click(screen.getAllByRole('option')[0])
+    }
+    run('Live Server: Go Live')
+    expect(start).toHaveBeenLastCalledWith('index.html')
+    act(() => useEditor.setState({ activeId: 'p:a.ts' }))
+    run('Live Server: Go Live')
+    expect(start).toHaveBeenLastCalledWith(undefined)
+    run('Live Server: Stop')
+    run('Sass: Watch')
+    expect(stop).toHaveBeenCalled()
+    expect(toggle).toHaveBeenCalled()
   })
 
 })

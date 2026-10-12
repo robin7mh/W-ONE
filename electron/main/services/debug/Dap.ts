@@ -27,6 +27,8 @@ interface Message {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000
+/** Launching may wait for the user (macOS asks before a debugger may control a program). */
+const LAUNCH_TIMEOUT_MS = 180_000
 
 /**
  * The Debug Adapter Protocol — what VS Code speaks with every debugger
@@ -122,6 +124,8 @@ const SCOPED_FRAMES = 20
 const MAX_VARIABLES = 500
 
 export interface DapSessionOptions {
+  /** The session's id (the build before it already used it); a new one otherwise. */
+  id?: string
   projectId: string
   program: string
   root: string
@@ -143,7 +147,7 @@ export class DapSession {
     private readonly launch: DapLaunch,
     private readonly opts: DapSessionOptions
   ) {
-    this.session = { id: randomUUID(), projectId: opts.projectId, program: opts.program, status: 'starting', frames: [] }
+    this.session = { id: opts.id ?? randomUUID(), projectId: opts.projectId, program: opts.program, status: 'starting', frames: [] }
   }
 
   /** initialize → launch → (initialized) breakpoints, exception filters → configurationDone. */
@@ -170,8 +174,9 @@ export class DapSession {
       supportsRunInTerminalRequest: false
     })
     const initialized = new Promise<void>((resolve) => c.on('initialized', () => resolve()))
-    const launched = c.request('launch', { ...this.launch.arguments, stopOnEntry })
-    launched.catch((err: Error) => this.update({ status: 'exited', error: err.message, frames: [] }))
+    const launched = c.request('launch', { ...this.launch.arguments, stopOnEntry }, LAUNCH_TIMEOUT_MS)
+    // A refused launch ends the session — and the adapter with it.
+    launched.catch((err: Error) => this.fail(err.message))
     await Promise.race([initialized, launched])
     await this.setBreakpoints(breakpoints)
     await c.request('setExceptionBreakpoints', { filters: (caps.exceptionBreakpointFilters ?? []).filter((f) => f.default).map((f) => f.filter) })

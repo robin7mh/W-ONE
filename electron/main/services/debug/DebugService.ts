@@ -8,9 +8,15 @@ import type { DebugAction, DebugBreakpoint, DebugFrame, DebugOutput, DebugSessio
 import { confine } from '../../lib/confine'
 import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
 import { shellArgs } from '../../lib/shellArgs'
-import { LANGUAGES, languageOf } from '@shared/types/languages'
+import { LANGUAGES, isTypeScriptFile, languageOf } from '@shared/types/languages'
 import { DapClient, DapSession, type DapLaunch, type DapTransport } from './Dap'
-import { DAP_LANGUAGES, startAdapter, type AdapterContext } from './adapters'
+import { DAP_LANGUAGES, NATIVE_LANGUAGES, startAdapter, type AdapterContext } from './adapters'
+import { buildProgram, type BuildContext } from './build'
+
+/** How long a native program may take to start before the macOS permission hint shows. */
+export const MAC_HINT_MS = 6000
+export const MAC_DEBUG_HINT =
+  'macOS asks for permission to debug (Developer Tools access) — confirm the system dialog, or allow it once in a terminal: sudo DevToolsSecurity -enable\n'
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
@@ -114,6 +120,20 @@ export interface DebugOptions {
   tools?: { locate: (language: string, part: 'debugger') => Promise<string | undefined> }
   /** Start a language's debug adapter (tests script one). */
   adapter?: (language: string, ctx: AdapterContext) => Promise<{ transport: DapTransport; launch: DapLaunch }>
+  /** Build what runs (compiled languages, the user's build step). */
+  build?: (ctx: BuildContext) => Promise<string>
+  /** Language server commands (jdtls starts Java debug sessions). */
+  lsp?: { executeCommand: (projectId: string, languageId: string, command: string, args: unknown[]) => Promise<unknown> }
+}
+
+/** Starting a debug session: the program, its arguments, the user's build step. */
+export interface DebugStart {
+  projectId: string
+  program: string
+  args?: string[]
+  stopOnEntry?: boolean
+  breakpoints: DebugBreakpoint[]
+  build?: string
 }
 
 /**
@@ -125,23 +145,28 @@ export interface DebugOptions {
  */
 export class DebugService {
   private current?: Running
-  /** A Python / Go program under its debug adapter (instead of `current`). */
+  /** A program under its language's debug adapter (instead of `current`). */
   private dap?: DapSession
+  /** A session being built (compiling before the debugger starts). */
+  private building?: { session: DebugSession; abort: AbortController }
 
   constructor(private readonly opts: DebugOptions) {}
 
   session(): DebugSession | null {
-    return this.dap?.session ?? this.current?.session ?? null
+    return this.building?.session ?? this.dap?.session ?? this.current?.session ?? null
   }
 
-  async start(req: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] }): Promise<DebugSession> {
+  async start(req: DebugStart): Promise<DebugSession> {
     await this.stop()
     const configured = this.opts.resolveRoot(req.projectId)
     if (!configured) throw coded('not-found', `Unknown project: ${req.projectId}`)
     const root = await realpath(configured)
     const program = await confine(root, req.program)
-    const language = languageOf(req.program)?.id
-    if (language && DAP_LANGUAGES.includes(language)) return this.startDap(language, req, root, program)
+    const known = languageOf(req.program)
+    // Anything that isn't JavaScript / TypeScript and has no language is a built program (LLDB runs it).
+    const language = known?.id ?? (isTypeScriptFile(req.program) ? undefined : 'native')
+    if (language && DAP_LANGUAGES.concat('native').includes(language)) return this.startDap(language, req, root, program)
+    if (known) throw coded('debug-unsupported', `W-ONE can't debug ${known.name} programs yet`)
     this.dap = undefined
     // TypeScript runs as is: Node strips the types (positions stay, so breakpoints match). Default from Node 22.18 on.
     const ts = /\.[cm]?ts$/.test(program) ? ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] : []
@@ -184,6 +209,7 @@ export class DebugService {
   }
 
   async stop(): Promise<void> {
+    this.building?.abort.abort()
     if (this.dap) return this.dap.stop()
     const run = this.current
     if (!run || run.session.status === 'exited') return
@@ -248,30 +274,56 @@ export class DebugService {
 
   // --- helpers ---
 
-  /** Python / Go: the language's debugger from Settings → Languages, through its debug adapter. */
-  private async startDap(
-    language: string,
-    req: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] },
-    root: string,
-    program: string
-  ): Promise<DebugSession> {
-    const debuggerPath = await this.opts.tools?.locate(language, 'debugger')
-    const name = LANGUAGES.find((l) => l.id === language)!.name
+  /** Every other language: its debugger from Settings → Languages, through its debug adapter — compiled first where it must be. */
+  private async startDap(language: string, req: DebugStart, root: string, program: string): Promise<DebugSession> {
+    const tool = language === 'native' ? 'cpp' : language
+    const debuggerPath = await this.opts.tools?.locate(tool, 'debugger')
+    const name = LANGUAGES.find((l) => l.id === tool)!.name
     if (!debuggerPath) throw coded('debugger-missing', `No ${name} debugger installed — Settings → Languages`)
     this.current = undefined
+    this.dap = undefined
+    const id = randomUUID()
+    const output = (stream: DebugOutput['stream'], text: string) => this.opts.publish('debug:output', { sessionId: id, stream, text })
+    let target = program
+    if (req.build?.trim() || NATIVE_LANGUAGES.includes(language)) {
+      const session: DebugSession = { id, projectId: req.projectId, program: req.program, status: 'starting', frames: [] }
+      const build = { session, abort: new AbortController() }
+      this.building = build
+      this.opts.publish('debug:session', session)
+      try {
+        target = await (this.opts.build ?? buildProgram)({ root, program, language, command: req.build?.trim() || undefined, output, signal: build.abort.signal })
+      } catch (err) {
+        if (!build.abort.signal.aborted) return this.ended(build, (err as Error).message)
+      } finally {
+        if (this.building === build) this.building = undefined
+      }
+      if (build.abort.signal.aborted) return this.ended(build)
+    }
     let dap: DapSession | undefined
     const { transport, launch } = await (this.opts.adapter ?? startAdapter)(language, {
       root,
-      program,
+      program: target,
       args: req.args ?? [],
       debugger: debuggerPath,
-      output: (stream, text) => dap && this.opts.publish('debug:output', { sessionId: dap.session.id, stream, text })
+      output: (stream, text) => dap && output(stream, text),
+      command: (command, args) => this.opts.lsp!.executeCommand(req.projectId, language, command, args)
     })
-    dap = new DapSession(new DapClient(transport), launch, { projectId: req.projectId, program: req.program, root, publish: this.opts.publish })
+    dap = new DapSession(new DapClient(transport), launch, { id, projectId: req.projectId, program: req.program, root, publish: this.opts.publish })
     this.dap = dap
     this.opts.publish('debug:session', dap.session)
     void dap.start(req.breakpoints, !!req.stopOnEntry).catch((err: Error) => dap!.fail(err.message))
+    // The first time, macOS asks before LLDB may control a program — say so while it waits.
+    if (NATIVE_LANGUAGES.includes(language) && process.platform === 'darwin') {
+      setTimeout(() => dap!.session.status === 'starting' && output('info', MAC_DEBUG_HINT), MAC_HINT_MS).unref()
+    }
     return dap.session
+  }
+
+  /** A build that failed or was stopped: the session ends there. */
+  private ended(build: { session: DebugSession }, error?: string): DebugSession {
+    const session: DebugSession = { ...build.session, status: 'exited', error }
+    this.opts.publish('debug:session', session)
+    return session
   }
 
   private running(): DapSession {

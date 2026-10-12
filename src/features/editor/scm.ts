@@ -5,7 +5,7 @@ import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmFile, Scm
 import { useEditor } from './store'
 
 /** The editor's sidebar views — VS Code's activity bar. */
-export type EditorPane = 'files' | 'search' | 'scm' | 'graph' | 'debug'
+export type EditorPane = 'files' | 'search' | 'scm' | 'graph' | 'debug' | 'remote' | 'prs' | 'mongo'
 
 /** A git operation in flight (one at a time — git locks the repo anyway). */
 export type ScmOp = 'stage' | 'unstage' | 'discard' | 'commit' | 'fetch' | 'pull' | 'push' | 'sync' | 'checkout' | 'branch' | 'init'

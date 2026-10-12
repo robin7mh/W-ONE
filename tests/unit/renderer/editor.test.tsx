@@ -158,7 +158,7 @@ const mon = vi.hoisted(() => {
 })
 vi.mock('monaco-editor', () => mon.monaco)
 // Gutter, breakpoints and TypeScript have their own tests (monaco-features.test.ts); here: what the view hands them.
-const features = vi.hoisted(() => ({ gutter: [] as (() => unknown)[], breakpoints: [] as (() => unknown)[], detached: 0, lsp: 0, prefs: 0 }))
+const features = vi.hoisted(() => ({ gutter: [] as (() => unknown)[], breakpoints: [] as (() => unknown)[], detached: 0, lsp: 0, prefs: 0, actionsDisposed: 0 }))
 vi.mock('@/features/editor/monaco/gutter', () => ({
   attachGutter: (_editor: unknown, current: () => unknown) => {
     features.gutter.push(current)
@@ -173,6 +173,11 @@ vi.mock('@/features/editor/monaco/breakpoints', () => ({
 }))
 vi.mock('@/features/editor/monaco/lsp', () => ({ setupLsp: () => (features.lsp += 1) }))
 vi.mock('@/features/editor/monaco/userPrefs', () => ({ setupUserPrefs: () => (features.prefs += 1) }))
+vi.mock('@/features/editor/monaco/extras', () => ({
+  setupExtras: () => {},
+  addEditorActions: () => [{ dispose: () => (features.actionsDisposed += 1) }],
+  replaceText: (model: { getValue(): string; setValue(v: string): void }, text: string) => model.getValue() !== text && model.setValue(text)
+}))
 vi.mock('monaco-editor/editor/editor.worker.js?worker', () => ({ default: class { kind = 'editor' } }))
 vi.mock('monaco-editor/language/json/json.worker.js?worker', () => ({ default: class { kind = 'json' } }))
 vi.mock('monaco-editor/language/css/css.worker.js?worker', () => ({ default: class { kind = 'css' } }))
@@ -733,6 +738,40 @@ describe('CodeEditor (Monaco view)', () => {
     unmount()
     act(() => useEditorPrefs.setState({ settings: { fontSize: 30 } }))
     expect(editor().options.fontSize).toBe(12)
+  })
+
+
+  it('saving tidies blank lines and formats first — as the settings for the file’s language say', async () => {
+    const writes: string[] = []
+    installBridge({ 'files:write': (req: { content: string }) => (writes.push(req.content), { mtimeMs: 2, size: 1 }) })
+    useEditorPrefs.setState({ settings: { blankLines: { onSave: true, keepOne: true }, languages: { typescript: { formatOnSave: true, tabSize: 2 } } }, snippets: [] })
+    useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.md', { content: 'B' })], activeId: 'p:a.ts' })
+    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const { rerender } = render(view(e().tabs[1]))
+    expect(editor().options.tabSize).toBe(4) // Markdown: W-ONE's default
+    rerender(view(e().tabs[0]))
+    expect(editor().options.tabSize).toBe(2) // TypeScript's own setting
+
+    act(() => model('a.ts').type('\n\n\nx'))
+    expect(await act(() => e().save('p:a.ts'))).toBe(true)
+    expect(writes.at(-1)).toBe('A\n\nx')
+    expect(editor().ran).toEqual(['editor.action.formatDocument'])
+
+    // A file not on screen isn't formatted (its blank lines still are); a clean one isn't touched at all.
+    act(() => model('b.md').type('\n\n\ny'))
+    expect(await act(() => e().save('p:b.md'))).toBe(true)
+    expect(writes.at(-1)).toBe('B\n\ny')
+    expect(editor().ran).toHaveLength(1)
+    expect(await act(() => e().save('p:a.ts'))).toBe(true)
+    expect(writes).toHaveLength(2)
+
+    // A formatter that fails doesn't stop the save; tabs the editor never showed have nothing to prepare.
+    editor().getAction = () => ({ run: () => Promise.reject(new Error('no formatter')) }) as never
+    act(() => model('a.ts').type('!'))
+    expect(await act(() => e().save('p:a.ts'))).toBe(true)
+    useEditor.setState((st) => ({ tabs: [...st.tabs, tab('c.ts', { dirty: true })] }))
+    expect(await act(() => e().save('p:c.ts'))).toBe(false)
+    useEditorPrefs.setState({ settings: {} })
   })
 
 })

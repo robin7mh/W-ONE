@@ -29,10 +29,54 @@ export interface EditorSettings {
   stickyScroll?: boolean
   smoothScrolling?: boolean
   bracketPairColorization?: boolean
+  /** Format the document when saving (VS Code's editor.formatOnSave). */
+  formatOnSave?: boolean
+  /** Blank Line Organizer: on save, squeeze runs of blank lines — to one, or away entirely. */
+  blankLines?: { onSave: boolean; keepOne: boolean }
+  /** Live Server (ritwickdey.liveserver's settings). */
+  liveServer?: LiveServerSettings
+  /** Live Sass Compiler (glenn2223.live-sass's settings). */
+  sass?: SassSettings
+  /** Per language (Monaco id), VS Code's `"[python]": { … }`. */
+  languages?: Record<string, LanguageSettings>
   keybindings?: EditorKeybinding[]
   /** Where these came from, when. */
   importedFrom?: { app: string; at: string }
 }
+
+export interface LiveServerSettings {
+  /** First port to try (the next free one is taken). */
+  port?: number
+  /** Served folder, relative to the project ('/' = the project). */
+  root?: string
+  /** Don't open a browser. */
+  noBrowser?: boolean
+  /** Reload the page on CSS changes too (else styles swap in place). */
+  fullReload?: boolean
+  /** Changes to these (globs) don't reload. */
+  ignore?: string[]
+  /** Wait this long (ms) after a change before reloading. */
+  wait?: number
+}
+
+export interface SassFormat {
+  format: 'expanded' | 'compressed'
+  extensionName: string
+  /** null: next to the .scss; '/css': from the project root; '~/../css': from the .scss file's folder. */
+  savePath?: string | null
+}
+
+export interface SassSettings {
+  formats?: SassFormat[]
+  generateMap?: boolean
+  /** Folders / globs never compiled. */
+  exclude?: string[]
+  /** Start watching when a project opens. */
+  watchOnLaunch?: boolean
+}
+
+/** What a language may override. */
+export type LanguageSettings = Omit<EditorSettings, 'languages' | 'keybindings' | 'importedFrom' | 'blankLines' | 'liveServer' | 'sass'>
 
 export interface Snippet {
   name: string
@@ -42,6 +86,8 @@ export interface Snippet {
   /** VS Code snippet syntax ($1, ${2:name}, $0) — Monaco reads it as is. */
   body: string
   description?: string
+  /** Named imports the snippet needs (added at the top when missing), e.g. MUI components. */
+  imports?: { from: string; names: string[] }
 }
 
 export type ExtensionFate = 'built-in' | 'language' | 'snippets' | 'theme' | 'unsupported'
@@ -120,11 +166,16 @@ export const KNOWN_EXTENSIONS: Record<string, { fate: ExtensionFate; language?: 
   'ms-vscode.cpptools': { fate: 'language', language: 'cpp' },
   'ms-vscode.cpptools-extension-pack': { fate: 'language', language: 'cpp' },
   'llvm-vs-code-extensions.vscode-clangd': { fate: 'language', language: 'cpp' },
+  'vadimcn.vscode-lldb': { fate: 'language', language: 'cpp' },
+  'llvm-vs-code-extensions.lldb-dap': { fate: 'language', language: 'cpp' },
   'redhat.java': { fate: 'language', language: 'java' },
   'vscjava.vscode-java-pack': { fate: 'language', language: 'java' },
+  'vscjava.vscode-java-debug': { fate: 'language', language: 'java' },
   'ms-dotnettools.csharp': { fate: 'language', language: 'csharp' },
   'ms-dotnettools.csdevkit': { fate: 'language', language: 'csharp' },
   'bmewburn.vscode-intelephense-client': { fate: 'language', language: 'php' },
+  'xdebug.php-debug': { fate: 'language', language: 'php' },
+  'felixfbecker.php-debug': { fate: 'language', language: 'php' },
   'shopify.ruby-lsp': { fate: 'language', language: 'ruby' },
   'swiftlang.swift-vscode': { fate: 'language', language: 'swift' },
   'sswg.swift-lang': { fate: 'language', language: 'swift' },
@@ -139,5 +190,23 @@ export const KNOWN_EXTENSIONS: Record<string, { fate: ExtensionFate; language?: 
   'alefragnani.project-manager': { fate: 'built-in' },
   'anthropic.claude-code': { fate: 'built-in' },
   'openai.chatgpt': { fate: 'built-in' },
-  'ms-ceintl.vscode-language-pack-de': { fate: 'built-in' }
+  'ms-ceintl.vscode-language-pack-de': { fate: 'built-in' },
+  // Built into the editor: format on save (CSS / SCSS / LESS included), blank lines, PHP accessors, MUI snippets.
+  'aeschli.vscode-css-formatter': { fate: 'built-in' },
+  'ctf0.blank-line-organizer': { fate: 'built-in' },
+  'phproberto.vscode-php-getters-setters': { fate: 'built-in' },
+  'vscodeshift.mui-snippets': { fate: 'built-in' },
+  'ritwickdey.liveserver': { fate: 'built-in' },
+  'glenn2223.live-sass': { fate: 'built-in' },
+  'natizyskunk.sftp': { fate: 'built-in' },
+  'github.vscode-pull-request-github': { fate: 'built-in' },
+  'mongodb.mongodb-vscode': { fate: 'built-in' },
+  // Remote-SSH and Dev Containers (VS Code's and Cursor's).
+  'ms-vscode-remote.remote-ssh': { fate: 'built-in' },
+  'ms-vscode-remote.remote-ssh-edit': { fate: 'built-in' },
+  'ms-vscode.remote-explorer': { fate: 'built-in' },
+  'ms-vscode-remote.remote-containers': { fate: 'built-in' },
+  'anysphere.remote-ssh': { fate: 'built-in' },
+  'anysphere.remote-containers': { fate: 'built-in' },
+  'liximomo.sftp': { fate: 'built-in' }
 }

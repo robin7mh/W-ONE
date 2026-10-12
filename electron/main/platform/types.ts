@@ -16,6 +16,11 @@ export interface Platform {
   appForUrl?: (url: string) => string
   /** Move a file to a recoverable trash. `root` is the vault it belongs to. */
   trashItem: (path: string, root: string) => Promise<void>
+  /**
+   * A window on a remote core's web UI (Remote-SSH, Dev Container), signed in
+   * with its device token. Resolves once it is closed. Absent on a server.
+   */
+  openRemoteWindow?: (opts: { title: string; url: string; token: string; deviceId: string }) => { closed: Promise<void>; close: () => void }
 }
 
 function coded(code: string, message: string): Error {

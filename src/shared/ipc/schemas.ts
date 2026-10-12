@@ -13,6 +13,8 @@ const path = z.string().min(1).max(4096)
 const notePath = z.string().min(1).max(1024)
 const title = z.string().max(500)
 const text = (max: number) => z.string().max(max)
+const prNumber = z.number().int().positive()
+const mongoName = z.string().min(1).max(255)
 const none = z.void()
 const email = z.string().trim().min(3).max(254)
 
@@ -129,7 +131,8 @@ export const REQUEST_SCHEMAS: Schemas = {
     program: path,
     args: z.array(text(4096)).max(100).optional(),
     stopOnEntry: z.boolean().optional(),
-    breakpoints: z.array(breakpoint).max(1000)
+    breakpoints: z.array(breakpoint).max(1000),
+    build: text(4096).optional()
   }),
   'debug:stop': none,
   'debug:session': none,
@@ -144,6 +147,53 @@ export const REQUEST_SCHEMAS: Schemas = {
   'migrate:scan': none,
   'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
   'editor:settings': none,
+
+  'liveServer:status': none,
+  'liveServer:start': z.object({ projectId: id, page: path.optional() }),
+  'liveServer:stop': z.object({ projectId: id }),
+  'sass:compile': z.object({ projectId: id, path }),
+  'sass:compileAll': z.object({ projectId: id }),
+
+  'sftp:targets': z.object({ projectId: id }),
+  'sftp:list': z.object({ projectId: id, target: z.string().min(1).max(300), dir: text(4096).optional() }),
+  'sftp:upload': z.object({ projectId: id, target: z.string().min(1).max(300), paths: z.array(path).min(1).max(5000) }),
+  'sftp:download': z.object({ projectId: id, target: z.string().min(1).max(300), paths: z.array(text(4096)).min(1).max(5000) }),
+  'sftp:sync': z.object({ projectId: id, target: z.string().min(1).max(300), direction: z.enum(['up', 'down']) }),
+  'github:status': z.object({ projectId: id }),
+  'github:list': z.object({ projectId: id, filter: z.enum(['mine', 'review', 'all']).optional(), state: z.enum(['open', 'closed', 'merged', 'all']).optional() }),
+  'github:view': z.object({ projectId: id, number: prNumber }),
+  'github:fileDiff': z.object({ projectId: id, number: prNumber, path }),
+  'github:checkout': z.object({ projectId: id, number: prNumber }),
+  'github:create': z.object({ projectId: id, title: z.string().trim().min(1).max(256), body: text(65_536), base: z.string().min(1).max(255).optional(), draft: z.boolean().optional() }),
+  'github:merge': z.object({ projectId: id, number: prNumber, method: z.enum(['merge', 'squash', 'rebase']), deleteBranch: z.boolean().optional() }),
+  'github:comment': z.object({ projectId: id, number: prNumber, body: z.string().trim().min(1).max(65_536) }),
+  'github:review': z.object({ projectId: id, number: prNumber, action: z.enum(['approve', 'request-changes', 'comment']), body: text(65_536).optional() }),
+  'mongo:connections': none,
+  'mongo:add': z.object({ name: z.string().trim().max(200), uri: z.string().trim().min(10).max(4096) }),
+  'mongo:remove': z.object({ id }),
+  'mongo:databases': z.object({ id }),
+  'mongo:collections': z.object({ id, db: mongoName }),
+  'mongo:createCollection': z.object({ id, db: mongoName, name: mongoName }),
+  'mongo:dropCollection': z.object({ id, db: mongoName, name: mongoName }),
+  'mongo:find': z.object({
+    id,
+    db: mongoName,
+    collection: mongoName,
+    query: z
+      .object({ filter: text(100_000).optional(), sort: text(10_000).optional(), projection: text(10_000).optional(), limit: z.number().int().min(1).max(1000).optional(), skip: z.number().int().min(0).optional() })
+      .optional()
+  }),
+  'mongo:insert': z.object({ id, db: mongoName, collection: mongoName, document: text(16_000_000) }),
+  'mongo:replace': z.object({ id, db: mongoName, collection: mongoName, docId: text(10_000), document: text(16_000_000) }),
+  'mongo:delete': z.object({ id, db: mongoName, collection: mongoName, docId: text(10_000) }),
+  'mongo:aggregate': z.object({ id, db: mongoName, collection: mongoName, pipeline: text(100_000) }),
+  'mongo:indexes': z.object({ id, db: mongoName, collection: mongoName }),
+  'remote:hosts': none,
+  'remote:list': none,
+  'remote:ssh': z.object({ target: z.string().trim().min(1).max(300).regex(/^[\w.@:%+\-[\]]+$/, 'A host name, or user@host[:port]') }),
+  'remote:container': z.object({ projectId: id }),
+  'remote:hasContainer': z.object({ projectId: id }),
+  'remote:disconnect': z.object({ id: z.string().min(1).max(5000) }),
 
   'app:info': none,
   'fs:dirs': z
@@ -225,6 +275,10 @@ export const REQUEST_SCHEMAS: Schemas = {
   'cloud:resendVerification': none,
   'cloud:forgotPassword': z.object({ email }),
   'cloud:checkout': none,
+  'cloud:adopt': z.object({ token: z.string().min(10).max(10_000), account: z.object({ email: z.string().max(320), name: z.string().max(200).nullable() }) }),
+  'cloud:syncStatus': none,
+  'cloud:syncPush': z.object({ appearance: z.unknown().optional(), locale: z.enum(['de', 'en']).optional(), force: z.boolean().optional() }),
+  'cloud:syncPull': none,
 
   'update:status': none,
   'update:check': none,

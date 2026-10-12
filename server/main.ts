@@ -13,6 +13,9 @@
 //   WONE_DB_URL           Postgres (default matches docker-compose.yml)
 //   NODE_ENV=production   requires a W-ONE license (the Docker image); otherwise
 //                         only with WONE_LICENSE=required. Dev: WONE_CLOUD_URL.
+//   WONE_LICENSE=follower started by the desktop app (Remote-SSH, Dev Container):
+//                         the desktop hands its entitlement over (cloud:adopt)
+//   WONE_EXIT_WITH_STDIN=1  stop when stdin closes (the desktop's ssh / docker exec ended)
 
 import { join } from 'node:path'
 import { DEFAULT_SERVER_CONFIG, type ServerConfig } from '@shared/types/server'
@@ -86,12 +89,19 @@ if (require.main === module) {
   run(process.argv.slice(2)).then(
     (core) => {
       if (!core) return
+      let stopping = false
       const stop = () => {
+        if (stopping) return
+        stopping = true
         console.log('[server] shutting down')
         void core.dispose().finally(() => process.exit(0))
       }
       process.once('SIGINT', stop)
       process.once('SIGTERM', stop)
+      // Started by the desktop app over ssh / docker exec: its end is ours.
+      if (flag(process.env.WONE_EXIT_WITH_STDIN)) {
+        process.stdin.on('end', stop).on('close', stop).resume()
+      }
     },
     (err) => {
       console.error(err)

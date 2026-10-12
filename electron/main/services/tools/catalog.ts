@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { shellQuote } from '../terminal/TerminalService'
@@ -18,6 +18,8 @@ export interface ToolSpec {
 
 export interface ServerSpec extends ToolSpec {
   args: (ctx: { root: string; tools: string }) => string[]
+  /** The `initialize` request's initializationOptions (jdtls: its debug plugin). */
+  initializationOptions?: (ctx: { root: string; tools: string }) => unknown
   /** Answers to `workspace/configuration`, by section. */
   settings?: (root: string) => Record<string, unknown>
 }
@@ -43,6 +45,36 @@ const npm = (...packages: string[]): InstallSpec => ({
   command: (tools) => `npm install --prefix ${shellQuote(join(tools, 'npm'))} --no-audit --no-fund --loglevel=error ${packages.join(' ')}`
 })
 const brew = (formula: string): InstallSpec => ({ requires: 'brew', command: () => `brew install ${formula}` })
+
+/** A VS Code extension's files from Open VSX (MIT-licensed debug adapters), unpacked into `<tools>/<dir>/extension`. */
+const openVsx = (requires: string, extension: string, dir: string): InstallSpec => ({
+  requires,
+  command: (tools) => {
+    const d = shellQuote(join(tools, dir))
+    return [
+      `rm -rf ${d} && mkdir -p ${d}`,
+      `url=$(curl -fsSL https://open-vsx.org/api/${extension} | grep -o '"download":"[^"]*"' | head -1 | cut -d'"' -f4)`,
+      `curl -fsSL "$url" -o ${d}/ext.vsix`,
+      `unzip -oq ${d}/ext.vsix 'extension/*' -d ${d}`,
+      `rm ${d}/ext.vsix`
+    ].join(' && ')
+  }
+})
+
+/** LLDB's debug adapter — C, C++, Objective-C, Rust and Swift (Xcode's, Homebrew's LLVM, or the system's). */
+const lldbDap: ToolSpec = {
+  name: 'lldb-dap',
+  locate: () =>
+    `{ command -v lldb-dap 2>/dev/null || xcrun --find lldb-dap 2>/dev/null || command -v lldb-vscode 2>/dev/null || { for p in /opt/homebrew/opt/llvm/bin/lldb-dap /usr/local/opt/llvm/bin/lldb-dap; do [ -x "$p" ] && echo "$p" && break; done; }; true; }`,
+  install: brew('llvm')
+}
+
+/** Microsoft's Java debug plugin for jdtls (from the Java Debugger extension). */
+export function javaDebugJar(tools: string): string | undefined {
+  const dir = join(tools, 'java-debug', 'extension', 'server')
+  const jar = existsSync(dir) ? readdirSync(dir).filter((f) => /^com\.microsoft\.java\.debug\.plugin-.*\.jar$/.test(f)).sort().pop() : undefined
+  return jar && join(dir, jar)
+}
 
 /** A Python interpreter: the project's virtualenv, else python3. */
 export function pythonFor(root: string): string {
@@ -97,7 +129,8 @@ export const CATALOG: Record<string, CatalogEntry> = {
       locate: () => `{ command -v rust-analyzer 2>/dev/null || rustup which rust-analyzer 2>/dev/null; true; }`,
       args: () => [],
       install: { requires: 'rustup', command: () => 'rustup component add rust-analyzer' }
-    }
+    },
+    debugger: lldbDap
   },
   cpp: {
     server: {
@@ -105,7 +138,8 @@ export const CATALOG: Record<string, CatalogEntry> = {
       locate: () => which('clangd', ['/opt/homebrew/opt/llvm/bin/clangd', '/usr/local/opt/llvm/bin/clangd']),
       args: () => ['--background-index'],
       install: brew('llvm')
-    }
+    },
+    debugger: lldbDap
   },
   java: {
     server: {
@@ -113,7 +147,17 @@ export const CATALOG: Record<string, CatalogEntry> = {
       locate: () => which('jdtls'),
       // jdtls keeps its index per workspace — one folder per project.
       args: ({ root, tools }) => ['-data', join(tools, 'jdtls', createHash('sha1').update(root).digest('hex').slice(0, 12))],
+      // The debug plugin rides along when it is installed (Run & Debug starts sessions through jdtls).
+      initializationOptions: ({ tools }) => {
+        const jar = javaDebugJar(tools)
+        return { bundles: jar ? [jar] : [] }
+      },
       install: brew('jdtls')
+    },
+    debugger: {
+      name: 'Java Debug',
+      locate: (tools) => `{ ls ${shellQuote(join(tools, 'java-debug', 'extension', 'server'))}/com.microsoft.java.debug.plugin-*.jar 2>/dev/null | tail -1; true; }`,
+      install: openVsx('java', 'vscjava/vscode-java-debug', 'java-debug')
     }
   },
   csharp: {
@@ -125,7 +169,16 @@ export const CATALOG: Record<string, CatalogEntry> = {
     }
   },
   php: {
-    server: { name: 'Intelephense', locate: npmBin('intelephense'), args: () => ['--stdio'], install: npm('intelephense') }
+    server: { name: 'Intelephense', locate: npmBin('intelephense'), args: () => ['--stdio'], install: npm('intelephense') },
+    // Xdebug's own adapter; the program needs php with the Xdebug extension.
+    debugger: {
+      name: 'PHP Debug (Xdebug)',
+      locate: (tools) => {
+        const js = shellQuote(join(tools, 'php-debug', 'extension', 'out', 'phpDebug.js'))
+        return `{ [ -f ${js} ] && echo ${js}; true; }`
+      },
+      install: openVsx('php', 'xdebug/php-debug', 'php-debug')
+    }
   },
   ruby: {
     server: {
@@ -137,10 +190,25 @@ export const CATALOG: Record<string, CatalogEntry> = {
   },
   swift: {
     // Comes with Xcode / the Swift toolchain.
-    server: { name: 'SourceKit-LSP', locate: () => `{ command -v sourcekit-lsp 2>/dev/null || xcrun --find sourcekit-lsp 2>/dev/null; true; }`, args: () => [] }
+    server: { name: 'SourceKit-LSP', locate: () => `{ command -v sourcekit-lsp 2>/dev/null || xcrun --find sourcekit-lsp 2>/dev/null; true; }`, args: () => [] },
+    debugger: lldbDap
   },
   kotlin: {
-    server: { name: 'Kotlin Language Server', locate: () => which('kotlin-language-server'), args: () => [], install: brew('kotlin-language-server') }
+    server: { name: 'Kotlin Language Server', locate: () => which('kotlin-language-server'), args: () => [], install: brew('kotlin-language-server') },
+    debugger: {
+      name: 'Kotlin Debug Adapter',
+      locate: (tools) => {
+        const bin = shellQuote(join(tools, 'kotlin-debug', 'adapter', 'bin', 'kotlin-debug-adapter'))
+        return `{ [ -x ${bin} ] && echo ${bin}; true; }`
+      },
+      install: {
+        requires: 'java',
+        command: (tools) => {
+          const d = shellQuote(join(tools, 'kotlin-debug'))
+          return `rm -rf ${d} && mkdir -p ${d} && curl -fsSL https://github.com/fwcd/kotlin-debug-adapter/releases/latest/download/adapter.zip -o ${d}/adapter.zip && unzip -oq ${d}/adapter.zip -d ${d} && rm ${d}/adapter.zip && chmod +x ${d}/adapter/bin/kotlin-debug-adapter`
+        }
+      }
+    }
   },
   lua: {
     server: { name: 'Lua Language Server', locate: () => which('lua-language-server'), args: () => [], install: brew('lua-language-server') }

@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, Check, FileCode2, GitBranch, GitBranchPlus, Loader2, Minus, Plus, RefreshCcw, Undo2, X } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Check, FileCode2, GitBranch, GitBranchPlus, GitPullRequestCreate, Loader2, Minus, Plus, RefreshCcw, Undo2, X } from 'lucide-react'
 import type { ScmChange, ScmFile } from '@shared/types/scm'
 import { Select } from '@/components/ui/Select'
 import { TechLabel } from '@/components/ui/TechLabel'
@@ -7,6 +7,7 @@ import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { useEditor } from '../store'
 import { useScm } from '../scm'
+import { useGitHub } from '../github'
 
 const LETTER: Record<ScmChange, string> = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R', copied: 'C', untracked: 'U', conflicted: '!' }
 const TONE: Record<ScmChange, string> = {
@@ -192,6 +193,20 @@ export function ScmPanel() {
           <button type="button" aria-label={t.scm.fetch} title={t.scm.fetch} className={cn(syncButton, 'flex-none px-2')} disabled={!!busy} onClick={() => void scm.fetch()}>
             <RefreshCcw size={12} className={cn(busy === 'fetch' && 'animate-spin')} />
           </button>
+          {status.branch && (
+            <button
+              type="button"
+              aria-label={t.github.create}
+              title={t.github.create}
+              className={cn(syncButton, 'flex-none px-2')}
+              onClick={() => {
+                scm.setPane('prs')
+                useGitHub.getState().setCreating(true)
+              }}
+            >
+              <GitPullRequestCreate size={12} />
+            </button>
+          )}
         </div>
       </div>
 
