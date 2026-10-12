@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import ignore from 'ignore'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
@@ -27,7 +27,11 @@ const isMissing = (err: unknown) => (err as { code?: string }).code === 'ENOENT'
  * silently overwriting.
  */
 export class FilesService {
-  constructor(private readonly resolveRoot: (projectId: string) => string | undefined) {}
+  constructor(
+    private readonly resolveRoot: (projectId: string) => string | undefined,
+    /** Takes a deleted file or folder somewhere recoverable (desktop: the OS trash). */
+    private readonly trash: (abs: string) => Promise<void> = (abs) => rm(abs, { recursive: true })
+  ) {}
 
   async list(projectId: string, dir = ''): Promise<FileEntry[]> {
     const root = this.root(projectId)
@@ -97,7 +101,50 @@ export class FilesService {
     return { mtimeMs: info.mtimeMs, size: info.size }
   }
 
+  /** A new empty file or folder (parents included); refuses when the name is taken. */
+  async create(projectId: string, path: string, kind: FileEntry['kind']): Promise<void> {
+    const abs = await this.entry(projectId, path)
+    if (await this.exists(abs)) throw coded('exists', `${path} already exists`)
+    if (kind === 'dir') return void (await mkdir(abs, { recursive: true }))
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, '', { flag: 'wx' })
+  }
+
+  /** Rename or move inside the project — never over another entry (a case-only rename is fine). */
+  async rename(projectId: string, from: string, to: string): Promise<void> {
+    const src = await this.entry(projectId, from)
+    const dest = await this.entry(projectId, to)
+    const [a, b] = await Promise.all([lstat(src).catch(() => null), lstat(dest).catch(() => null)])
+    if (!a) throw coded('not-found', `${from} does not exist`)
+    if (b && !(b.ino === a.ino && b.dev === a.dev)) throw coded('exists', `${to} already exists`)
+    if (dest.startsWith(src + sep)) throw coded('bad-input', `${from} cannot move into itself`)
+    await mkdir(dirname(dest), { recursive: true })
+    await rename(src, dest)
+  }
+
+  /** Delete a file or folder — into the trash, so it stays recoverable. */
+  async remove(projectId: string, path: string): Promise<void> {
+    const abs = await this.entry(projectId, path)
+    if (!(await this.exists(abs))) throw coded('not-found', `${path} does not exist`)
+    await this.trash(abs)
+  }
+
   // --- helpers ---
+
+  /** A path inside the project that names an entry — never the project folder itself. */
+  private async entry(projectId: string, path: string): Promise<string> {
+    const root = this.root(projectId)
+    const abs = await confine(root, path)
+    if (abs === (await realpath(root))) throw coded('bad-input', 'The project folder itself cannot be changed')
+    return abs
+  }
+
+  private exists(abs: string): Promise<boolean> {
+    return lstat(abs).then(
+      () => true,
+      () => false
+    )
+  }
 
   private root(projectId: string): string {
     const root = this.resolveRoot(projectId)

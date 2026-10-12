@@ -49,6 +49,8 @@ import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
+import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
+import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -211,7 +213,10 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['files:read', { projectId: 'p', path: 'a.ts' }, 'read', ['p', 'a.ts']],
         ['files:stat', { projectId: 'p', paths: ['a.ts'] }, 'stat', ['p', ['a.ts']]],
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
-        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]],
+        ['files:create', { projectId: 'p', path: 'a', kind: 'dir' }, 'create', ['p', 'a', 'dir']],
+        ['files:rename', { projectId: 'p', from: 'a', to: 'b' }, 'rename', ['p', 'a', 'b']],
+        ['files:delete', { projectId: 'p', path: 'a' }, 'remove', ['p', 'a']]
       ]
     ],
     [
@@ -233,8 +238,45 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['scm:log', { projectId: 'p', limit: 5 }, 'log', ['p', 5]],
         ['scm:show', { projectId: 'p', hash: 'abcd' }, 'show', ['p', 'abcd']],
         ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
+        ['scm:original', { projectId: 'p', path: 'a' }, 'original', ['p', 'a']],
         ['scm:files', { projectId: 'p' }, 'files', ['p']],
         ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
+      ]
+    ],
+    [
+      'lsp',
+      registerLspIpc,
+      [
+        ['lsp:open', { projectId: 'p', path: 'a.ts', text: 'x' }, 'open', ['p', 'a.ts', 'x']],
+        ['lsp:change', { projectId: 'p', path: 'a.ts', text: 'x' }, 'change', ['p', 'a.ts', 'x']],
+        ['lsp:close', { projectId: 'p', path: 'a.ts' }, 'close', ['p', 'a.ts']],
+        ['lsp:diagnostics', { projectId: 'p', paths: ['a.ts'] }, 'diagnostics', ['p', ['a.ts']]],
+        ['lsp:hover', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'hover', ['p', 'a.ts', 1, 2]],
+        ['lsp:completions', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, trigger: '.' }, 'completions', ['p', 'a.ts', 1, 2, '.']],
+        ['lsp:completionDetails', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, name: 'n', source: 's', data: { d: 1 } }, 'completionDetails', ['p', 'a.ts', 1, 2, 'n', 's', { d: 1 }]],
+        ['lsp:definition', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'definition', ['p', 'a.ts', 1, 2]],
+        ['lsp:references', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'references', ['p', 'a.ts', 1, 2]],
+        ['lsp:rename', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, newName: 'b' }, 'rename', ['p', 'a.ts', 1, 2, 'b']],
+        ['lsp:signature', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'signature', ['p', 'a.ts', 1, 2]],
+        [
+          'lsp:codeFixes',
+          { projectId: 'p', path: 'a.ts', range: { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, errorCodes: [2304] },
+          'codeFixes',
+          ['p', 'a.ts', { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, [2304]]
+        ]
+      ]
+    ],
+    [
+      'debug',
+      registerDebugIpc,
+      [
+        ['debug:start', { projectId: 'p', program: 'a.js', breakpoints: [] }, 'start', [{ projectId: 'p', program: 'a.js', breakpoints: [] }]],
+        ['debug:stop', undefined, 'stop', []],
+        ['debug:session', undefined, 'session', []],
+        ['debug:control', { action: 'stepOver' }, 'control', ['stepOver']],
+        ['debug:setBreakpoints', { projectId: 'p', breakpoints: [{ path: 'a.js', line: 2 }] }, 'setBreakpoints', ['p', [{ path: 'a.js', line: 2 }]]],
+        ['debug:variables', { objectId: 'o' }, 'variables', ['o']],
+        ['debug:evaluate', { expression: 'x', frameId: 'f' }, 'evaluate', ['x', 'f']]
       ]
     ],
     [

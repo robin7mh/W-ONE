@@ -1,0 +1,87 @@
+// Language intelligence for the editor: TypeScript / JavaScript through the
+// project's own tsserver (what VS Code runs), positions 1-based like both
+// tsserver and Monaco. Paths are relative to the project root.
+// Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
+
+export interface LspPosition {
+  line: number
+  offset: number
+}
+
+export interface LspRange {
+  start: LspPosition
+  end: LspPosition
+}
+
+export interface LspTextEdit {
+  range: LspRange
+  newText: string
+}
+
+/** Edits to one file of the project. */
+export interface LspFileEdits {
+  path: string
+  edits: LspTextEdit[]
+}
+
+export interface LspLocation {
+  path: string
+  range: LspRange
+}
+
+export interface LspDiagnostic {
+  range: LspRange
+  message: string
+  severity: 'error' | 'warning' | 'suggestion' | 'info'
+  code?: number
+  /** Unused code (shown faded). */
+  unnecessary?: boolean
+  deprecated?: boolean
+}
+
+export interface LspHover {
+  /** The symbol's signature, as TypeScript prints it. */
+  display: string
+  /** Its documentation (markdown), JSDoc tags included. */
+  documentation: string
+  range: LspRange
+}
+
+export interface LspCompletion {
+  name: string
+  /** tsserver's ScriptElementKind (`function`, `property`, …). */
+  kind: string
+  sortText: string
+  insertText?: string
+  snippet?: boolean
+  /** The span the completion replaces (else the word at the cursor). */
+  replacement?: LspRange
+  /** Module an auto-import would come from. */
+  source?: string
+  /** Opaque data the details request needs back. */
+  data?: unknown
+}
+
+export interface LspCompletionDetails {
+  detail: string
+  documentation: string
+  /** Extra edits in the same file (the import an auto-import completion adds). */
+  edits: LspTextEdit[]
+}
+
+export interface LspSignature {
+  items: { label: string; documentation: string; parameters: { label: string; documentation: string }[] }[]
+  active: number
+  activeParameter: number
+}
+
+export interface LspCodeFix {
+  title: string
+  files: LspFileEdits[]
+}
+
+export interface LspRename {
+  /** Why the symbol can't be renamed. */
+  error?: string
+  files: LspFileEdits[]
+}

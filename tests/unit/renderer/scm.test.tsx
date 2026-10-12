@@ -14,7 +14,8 @@ import { useScm } from '@/features/editor/scm'
 import { useEditor } from '@/features/editor/store'
 import { useProjects } from '@/features/projects/store'
 import { DiffHeader, ScmPanel } from '@/features/editor/components/ScmPanel'
-import { fuzzyScore, QuickOpen, SearchPanel } from '@/features/editor/components/SearchPanel'
+import { SearchPanel } from '@/features/editor/components/SearchPanel'
+import { fuzzyScore, QuickOpen } from '@/features/editor/components/QuickOpen'
 import { GitGraph, layoutGraph } from '@/features/editor/components/GitGraph'
 import { EditorView } from '@/features/editor/components/EditorView'
 
@@ -381,7 +382,7 @@ describe('search and quick open', () => {
   it('⌘P: type, move, open with Enter or a click; Escape and outside clicks close', async () => {
     installBridge({ 'scm:files': () => ['src/app.ts', 'src/util/apply.ts', 'README.md'], 'files:read': () => ({ path: 'x', content: 'x', mtimeMs: 1, size: 1 }) })
     useScm.setState({ files: ['src/app.ts', 'src/util/apply.ts', 'README.md'], quickOpen: true })
-    const { rerender } = render(<QuickOpen />)
+    const { rerender } = render(<QuickOpen commands={[]} />)
     const input = screen.getByLabelText('Go to file by name…', { selector: 'input' })
     fireEvent.change(input, { target: { value: 'ap' } })
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['app.tssrc/', 'apply.tssrc/util/'])
@@ -395,7 +396,7 @@ describe('search and quick open', () => {
     expect(useEditor.getState().activeId).toBe('p:src/util/apply.ts')
     expect(useScm.getState().quickOpen).toBe(false)
 
-    rerender(<QuickOpen />)
+    rerender(<QuickOpen commands={[]} />)
     fireEvent.change(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { target: { value: '' } })
     fireEvent.mouseEnter(screen.getAllByRole('option')[2])
     fireEvent.click(screen.getAllByRole('option')[2])
@@ -403,7 +404,7 @@ describe('search and quick open', () => {
     expect(useEditor.getState().activeId).toBe('p:README.md')
 
     act(() => useScm.setState({ quickOpen: true }))
-    rerender(<QuickOpen />)
+    rerender(<QuickOpen commands={[]} />)
     fireEvent.change(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { target: { value: 'zzz' } })
     expect(screen.getByText('No matching files')).toBeInTheDocument()
     fireEvent.keyDown(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { key: 'Enter' }) // nothing to open

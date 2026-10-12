@@ -5,7 +5,7 @@ import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmFile, Scm
 import { useEditor } from './store'
 
 /** The editor's sidebar views — VS Code's activity bar. */
-export type EditorPane = 'files' | 'search' | 'scm' | 'graph'
+export type EditorPane = 'files' | 'search' | 'scm' | 'graph' | 'debug'
 
 /** A git operation in flight (one at a time — git locks the repo anyway). */
 export type ScmOp = 'stage' | 'unstage' | 'discard' | 'commit' | 'fetch' | 'pull' | 'push' | 'sync' | 'checkout' | 'branch' | 'init'
@@ -29,6 +29,10 @@ interface ScmState {
   selected?: string
   detail?: ScmCommitDetail
   quickOpen: boolean
+  /** What quick open starts with: '' files, '>' commands, ':' go to line. */
+  quickQuery: string
+  /** A list to choose from instead (branches, …) — quick open shows it until closed. */
+  pick?: QuickPick
   /** Every file of the current project (for quick open), loaded when it opens. */
   files: string[]
   search: { query: string; regex: boolean; caseSensitive: boolean; result?: SearchResult; searching: boolean }
@@ -55,10 +59,29 @@ interface ScmState {
   closeDiff: () => void
   loadLog: () => Promise<void>
   select: (hash: string) => Promise<void>
-  setQuickOpen: (open: boolean) => void
+  setQuickOpen: (open: boolean, query?: string) => void
+  /** Ask the user to choose (or, with `onText`, to type) — in the quick open box. */
+  openPick: (pick: QuickPick) => void
   setSearch: (patch: Partial<{ query: string; regex: boolean; caseSensitive: boolean }>) => void
   runSearch: () => Promise<void>
   clearError: () => void
+}
+
+export interface PickItem {
+  id: string
+  label: string
+  /** Shown dimmed after the label (a path, a branch's upstream, …). */
+  detail?: string
+  /** A shortcut hint, right-aligned. */
+  keys?: string
+  run: () => unknown
+}
+
+export interface QuickPick {
+  placeholder: string
+  items: PickItem[]
+  /** Free text instead of a choice: Enter hands over what was typed (a new branch name, …). */
+  onText?: (text: string) => unknown
 }
 
 const NO_SEARCH = { query: '', regex: false, caseSensitive: false, searching: false }
@@ -94,6 +117,7 @@ export const useScm = create<ScmState>((set, get) => {
     amend: false,
     log: [],
     quickOpen: false,
+    quickQuery: '',
     files: [],
     search: NO_SEARCH,
 
@@ -178,8 +202,8 @@ export const useScm = create<ScmState>((set, get) => {
       }
     },
 
-    setQuickOpen: (open) => {
-      set({ quickOpen: open })
+    setQuickOpen: (open, query = '') => {
+      set({ quickOpen: open, quickQuery: query, pick: undefined })
       const projectId = project()
       if (!open || !projectId) return
       ipc('scm:files', { projectId }).then(
@@ -187,6 +211,8 @@ export const useScm = create<ScmState>((set, get) => {
         (err: unknown) => set({ error: errorMessage(err) })
       )
     },
+
+    openPick: (pick) => set({ quickOpen: true, quickQuery: '', pick }),
 
     setSearch: (patch) => set((s) => ({ search: { ...s.search, ...patch } })),
 

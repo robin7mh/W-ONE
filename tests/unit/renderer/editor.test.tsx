@@ -36,6 +36,11 @@ const mon = vi.hoisted(() => {
     getFullModelRange() {
       return 'full'
     }
+    setValue(value: string) {
+      this.value = value
+      this.version += 1
+      this.change.fire()
+    }
     onDidChangeContent(fn: Fn) {
       return this.change.event(fn)
     }
@@ -69,7 +74,19 @@ const mon = vi.hoisted(() => {
     restoreViewState = vi.fn()
     revealLineInCenter = vi.fn()
     setPosition = vi.fn()
+    commands: { keys: number; run: () => void }[] = []
+    ran: string[] = []
     disposed = false
+    addCommand(keys: number, run: () => void) {
+      this.commands.push({ keys, run })
+      return null
+    }
+    getSupportedActions() {
+      return [{ id: 'editor.action.formatDocument', label: 'Format Document' }]
+    }
+    getAction(id: string) {
+      return id === 'missing' ? null : { run: async () => void this.ran.push(id) }
+    }
     constructor(
       public el: HTMLElement,
       public options: Record<string, unknown>
@@ -101,8 +118,9 @@ const mon = vi.hoisted(() => {
     }
   }
   // Plain recorders: setup.ts configures these at import time, before restoreMocks would reset a vi.fn.
-  const configured: { diagnostics: unknown[]; compiler: unknown[] } = { diagnostics: [], compiler: [] }
+  const configured: { diagnostics: unknown[]; compiler: unknown[]; modes: unknown[] } = { diagnostics: [], compiler: [], modes: [] }
   const defaults = () => ({
+    setModeConfiguration: (o: unknown) => configured.modes.push(o),
     setDiagnosticsOptions: (o: unknown) => configured.diagnostics.push(o),
     setCompilerOptions: (o: unknown) => configured.compiler.push(o),
     getCompilerOptions: () => ({ strict: true })
@@ -115,6 +133,7 @@ const mon = vi.hoisted(() => {
         state.editors.push(e)
         return e
       },
+      getModel: (uri: { path: string }) => state.models.find((m) => !m.disposed && m.uri.path === uri.path) ?? null,
       createModel: (value: string, _lang: unknown, uri: { path: string }) => {
         const m = new FakeModel(value, uri)
         state.models.push(m)
@@ -125,6 +144,8 @@ const mon = vi.hoisted(() => {
       remeasureFonts: vi.fn()
     },
     Uri: { file: (path: string) => ({ path }) },
+    KeyCode: { F1: 59, KeyG: 37 },
+    KeyMod: { WinCtrl: 256 },
     languages: { getLanguages: () => [{ id: 'typescript', aliases: ['TypeScript', 'ts'] }, { id: 'bare' }] },
     typescript: {
       typescriptDefaults: defaults(),
@@ -136,6 +157,21 @@ const mon = vi.hoisted(() => {
   return { state, monaco }
 })
 vi.mock('monaco-editor', () => mon.monaco)
+// Gutter, breakpoints and TypeScript have their own tests (monaco-features.test.ts); here: what the view hands them.
+const features = vi.hoisted(() => ({ gutter: [] as (() => unknown)[], breakpoints: [] as (() => unknown)[], detached: 0, lsp: 0 }))
+vi.mock('@/features/editor/monaco/gutter', () => ({
+  attachGutter: (_editor: unknown, current: () => unknown) => {
+    features.gutter.push(current)
+    return () => (features.detached += 1)
+  }
+}))
+vi.mock('@/features/editor/monaco/breakpoints', () => ({
+  attachBreakpoints: (_editor: unknown, current: () => unknown) => {
+    features.breakpoints.push(current)
+    return () => (features.detached += 1)
+  }
+}))
+vi.mock('@/features/editor/monaco/lsp', () => ({ setupLsp: () => (features.lsp += 1) }))
 vi.mock('monaco-editor/editor/editor.worker.js?worker', () => ({ default: class { kind = 'editor' } }))
 vi.mock('monaco-editor/language/json/json.worker.js?worker', () => ({ default: class { kind = 'json' } }))
 vi.mock('monaco-editor/language/css/css.worker.js?worker', () => ({ default: class { kind = 'css' } }))
@@ -146,6 +182,8 @@ import { setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } fro
 import { applyMonacoTheme, languageName } from '@/features/editor/monaco/setup'
 import { monacoTheme } from '@/features/editor/monaco/theme'
 import CodeEditor from '@/features/editor/components/CodeEditor'
+import { editorActions } from '@/features/editor/actions'
+import { useScm } from '@/features/editor/scm'
 
 const initial = useEditor.getState()
 const e = () => useEditor.getState()
@@ -170,7 +208,8 @@ const tab = (path: string, over: Partial<EditorTab> = {}): EditorTab => ({
 const fakeHost = (text = 'buffer') => ({
   snapshot: vi.fn<BufferHost['snapshot']>(() => ({ text, version: 7 })),
   markClean: vi.fn<BufferHost['markClean']>(),
-  drop: vi.fn<BufferHost['drop']>()
+  drop: vi.fn<BufferHost['drop']>(),
+  rekey: vi.fn<BufferHost['rekey']>()
 })
 
 beforeEach(() => {
@@ -190,7 +229,7 @@ describe('editor store: tree', () => {
     await e().selectProject('p')
     expect(e().treeError).toBe('no access')
     await e().selectProject('p') // same project → nothing to do
-    expect(bridge.invoke).toHaveBeenCalledTimes(1)
+    expect(bridge.invoke.mock.calls.filter(([c]) => c === 'files:list')).toHaveLength(1)
 
     broken = false
     await e().loadDir('src') // a sub-folder never clears the root's error…
@@ -462,6 +501,9 @@ describe('monaco setup & theme', () => {
       Array(2).fill({ noSemanticValidation: true, noSuggestionDiagnostics: true, noSyntaxValidation: false })
     )
     expect(mon.state.configured.compiler).toEqual(Array(2).fill({ strict: true, target: 99, jsx: 1, allowJs: true, allowNonTsExtensions: true }))
+    // The project's tsserver answers; the built-in service keeps only single-file extras.
+    expect(mon.state.configured.modes).toHaveLength(2)
+    expect(mon.state.configured.modes[0]).toMatchObject({ completionItems: false, hovers: false, diagnostics: false, documentSymbols: true, documentRangeFormattingEdits: true })
   })
 
   it('language names come from the registry, with the id as fallback', () => {
@@ -593,4 +635,88 @@ describe('CodeEditor (Monaco view)', () => {
     expect(model('a.ts').disposed).toBe(true)
     expect(editor().model).toBeNull()
   })
+
+  it('F1 and ⌃G open W-ONE’s palette; Monaco’s actions reach the palette; features see the shown tab', async () => {
+    useEditor.setState({ tabs: [tab('a.ts', { content: 'A' })] })
+    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const { rerender, unmount } = render(view())
+    expect(features.lsp).toBeGreaterThan(0)
+    expect(features.gutter.at(-1)!()).toBeUndefined() // nothing shown yet
+    rerender(view(e().tabs[0]))
+    expect(features.gutter.at(-1)!()).toMatchObject({ path: 'a.ts' })
+    expect(features.breakpoints.at(-1)!()).toMatchObject({ path: 'a.ts' })
+
+    const [f1, ctrlG] = editor().commands
+    expect([f1.keys, ctrlG.keys]).toEqual([59, 256 | 37])
+    act(() => f1.run())
+    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '>' })
+    act(() => ctrlG.run())
+    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: ':' })
+
+    const actions = editorActions()!
+    expect(actions.list()).toEqual([{ id: 'editor.action.formatDocument', label: 'Format Document' }])
+    actions.run('editor.action.formatDocument')
+    actions.run('missing')
+    expect(editor().ran).toEqual(['editor.action.formatDocument'])
+    rerender(view())
+    expect(actions.list()).toEqual([]) // no file on screen
+
+    const detachedBefore = features.detached
+    unmount()
+    expect(features.detached).toBe(detachedBefore + 2)
+    expect(editorActions()).toBeNull()
+  })
+
+  it('a renamed file keeps its buffer: unsaved edits move along, the shown one stays on screen', async () => {
+    useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })] })
+    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const { rerender } = render(view(e().tabs[1]))
+    rerender(view(e().tabs[0]))
+    act(() => model('a.ts').type('!'))
+    expect(e().tabs[0].dirty).toBe(true)
+
+    const writes: { path: string; content: string }[] = []
+    installBridge({
+      'files:rename': () => undefined,
+      'files:list': () => [],
+      'files:write': (req: { path: string; content: string }) => (writes.push(req), { mtimeMs: 2, size: 1 })
+    })
+    useEditor.setState({ projectId: 'p', activeId: 'p:a.ts' })
+    const rename = async (from: string, name: string) => {
+      useEditor.setState({ naming: { mode: 'rename', dir: '', path: from }, selection: { path: from, kind: 'file' } })
+      await act(() => e().submitName(name))
+    }
+
+    // The shown, dirty tab: a new model at the new path, still dirty, still on screen.
+    await rename('a.ts', 'x.ts')
+    rerender(view(e().tabs.find((t) => t.id === 'p:x.ts')))
+    expect(model('a.ts').disposed).toBe(true)
+    expect(model('x.ts').getValue()).toBe('A!')
+    expect(editor().model).toBe(model('x.ts'))
+    expect(e().tabs.find((t) => t.id === 'p:x.ts')!.dirty).toBe(true)
+    act(() => model('x.ts').type('?'))
+    expect(await act(() => e().save('p:x.ts'))).toBe(true)
+    expect(writes).toEqual([expect.objectContaining({ path: 'x.ts', content: 'A!?' })])
+    expect(e().tabs.find((t) => t.id === 'p:x.ts')!.dirty).toBe(false)
+
+    // A clean tab in the background moves clean.
+    await rename('b.ts', 'y.ts')
+    expect(model('y.ts').getValue()).toBe('B')
+    expect(e().tabs.find((t) => t.id === 'p:y.ts')!.dirty).toBe(false)
+    expect(editor().model).toBe(model('x.ts'))
+    // A tab the editor never showed has no buffer to move.
+    useEditor.setState((s) => ({ tabs: [...s.tabs, tab('c.ts')] }))
+    await rename('c.ts', 'z.ts')
+    expect(mon.state.models.filter((m) => !m.disposed)).toHaveLength(2)
+  })
+
+  it('a model already there (a peeked definition) becomes the tab’s buffer', () => {
+    const peeked = mon.monaco.editor.createModel('old', undefined, { path: '/p/a.ts' })
+    useEditor.setState({ tabs: [tab('a.ts', { content: 'DISK' })] })
+    render(<CodeEditor tab={e().tabs[0]} readOnly={false} onCursor={() => {}} />)
+    expect(editor().model).toBe(peeked)
+    expect(peeked.getValue()).toBe('DISK')
+    expect(e().tabs[0].dirty).toBe(false)
+  })
+
 })

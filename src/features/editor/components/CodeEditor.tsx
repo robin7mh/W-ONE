@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { applyMonacoTheme, languageName, monaco, THEME } from '../monaco/setup'
 import { setBufferHost, useEditor, type EditorTab } from '../store'
+import { useScm } from '../scm'
+import { setEditorActions } from '../actions'
+import { attachGutter } from '../monaco/gutter'
+import { setupLsp } from '../monaco/lsp'
+import { attachBreakpoints } from '../monaco/breakpoints'
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 
 export interface CursorInfo {
@@ -33,9 +38,28 @@ const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
   guides: { indentation: true, bracketPairs: false },
   stickyScroll: { enabled: true },
   renderWhitespace: 'selection',
+  // Breakpoints live in the glyph margin.
+  glyphMargin: true,
   // Hovers and suggestions may overflow the panel instead of being clipped.
   fixedOverflowWidgets: true,
   scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
+}
+
+/** The URI a project file's model lives at — language services and the editor opener key on it. */
+export const fileUri = (projectId: string, path: string): monaco.Uri => monaco.Uri.file(`/${projectId}/${path}`)
+
+/** A tab's model. One already there (a definition peeked at before the file was opened) takes the text. */
+function createBufferModel(text: string, file: { projectId: string; path: string }): monaco.editor.ITextModel {
+  const uri = fileUri(file.projectId, file.path)
+  const existing = monaco.editor.getModel(uri)
+  if (!existing) return monaco.editor.createModel(text, undefined, uri)
+  existing.setValue(text)
+  return existing
+}
+
+/** Keep the tab's dirty flag in step with the model (undoing back to the saved text is clean). */
+function watchDirty(id: string, buf: Buffer): void {
+  buf.model.onDidChangeContent(() => useEditor.getState().setDirty(id, buf.model.getAlternativeVersionId() !== buf.clean))
 }
 
 interface Props {
@@ -72,6 +96,21 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     }
     const subs = [editor.onDidChangeCursorPosition(report), editor.onDidChangeModel(report)]
 
+    // W-ONE's palette replaces Monaco's own (F1), and ⌃G goes through it, too.
+    editor.addCommand(monaco.KeyCode.F1, () => useScm.getState().setQuickOpen(true, '>'))
+    editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
+    setupLsp()
+    const shownTab = () => useEditor.getState().tabs.find((t) => t.id === shown.current)
+    const detachGutter = attachGutter(editor, shownTab)
+    const detachBreakpoints = attachBreakpoints(editor, shownTab)
+    setEditorActions({
+      list: () => (editor.getModel() ? editor.getSupportedActions().map((a) => ({ id: a.id, label: a.label })) : []),
+      run: (id) => {
+        editor.focus()
+        void editor.getAction(id)?.run()
+      }
+    })
+
     setBufferHost({
       snapshot: (id) => {
         const b = buffers.get(id)
@@ -92,6 +131,24 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
         }
         b.model.dispose()
         buffers.delete(id)
+      },
+      rekey: (id, next) => {
+        const b = buffers.get(id)
+        if (!b) return
+        // A model's URI is fixed: the text moves into a new one (the undo history stays behind).
+        const dirty = b.model.getAlternativeVersionId() !== b.clean
+        const model = createBufferModel(b.model.getValue(), next)
+        const moved: Buffer = { model, revision: b.revision, clean: dirty ? -1 : model.getAlternativeVersionId(), view: b.view }
+        watchDirty(next.id, moved)
+        buffers.set(next.id, moved)
+        buffers.delete(id)
+        if (shown.current === id) {
+          moved.view = editor.saveViewState()
+          editor.setModel(model)
+          editor.restoreViewState(moved.view)
+          shown.current = next.id
+        }
+        b.model.dispose()
       }
     })
 
@@ -103,6 +160,9 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
 
     return () => {
       setBufferHost(null)
+      setEditorActions(null)
+      detachGutter()
+      detachBreakpoints()
       theme.disconnect()
       subs.forEach((s) => s.dispose())
       editor.dispose()
@@ -130,11 +190,10 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
 
     let buf = buffers.get(tab.id)
     if (!buf) {
-      const id = tab.id
-      const model = monaco.editor.createModel(text, undefined, monaco.Uri.file(`/${tab.projectId}/${tab.path}`))
+      const model = createBufferModel(text, tab)
       const created: Buffer = { model, revision: tab.revision, clean: model.getAlternativeVersionId(), view: null }
-      model.onDidChangeContent(() => useEditor.getState().setDirty(id, model.getAlternativeVersionId() !== created.clean))
-      buffers.set(id, created)
+      watchDirty(tab.id, created)
+      buffers.set(tab.id, created)
       buf = created
     } else if (buf.revision !== tab.revision) {
       // Re-read from disk: one undoable edit, so the old text is a ⌘Z away.

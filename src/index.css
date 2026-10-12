@@ -294,3 +294,64 @@
 .xterm-viewport::-webkit-scrollbar {
   width: 6px;
 }
+
+/* Editor gutter: git changes of the buffer against the index (VS Code's quick diff). */
+.monaco-editor .wone-gutter-added,
+.monaco-editor .wone-gutter-modified {
+  margin-left: 4px;
+  width: 3px !important;
+  cursor: pointer;
+}
+.monaco-editor .wone-gutter-added {
+  background: rgb(var(--accent-green));
+}
+.monaco-editor .wone-gutter-modified {
+  background: rgb(var(--accent-blue));
+}
+.monaco-editor .wone-gutter-deleted,
+.monaco-editor .wone-gutter-deleted-top {
+  margin-left: 4px;
+  cursor: pointer;
+}
+.monaco-editor .wone-gutter-deleted::after,
+.monaco-editor .wone-gutter-deleted-top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  border-left: 5px solid rgb(var(--accent-danger));
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.monaco-editor .wone-gutter-deleted::after {
+  bottom: -4px;
+}
+.monaco-editor .wone-gutter-deleted-top::after {
+  top: -4px;
+}
+
+/* Debugger: breakpoints in the glyph margin, the line execution stopped at. */
+.monaco-editor .wone-bp::before {
+  content: '';
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: 5px auto 0;
+  border-radius: 9999px;
+  background: rgb(var(--accent-danger));
+  cursor: pointer;
+}
+.monaco-editor .wone-debug-arrow::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 4px;
+  border-left: 8px solid rgb(var(--accent-amber));
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.monaco-editor .wone-debug-line {
+  background: rgb(var(--accent-amber) / 0.14);
+}
+.monaco-editor .margin-view-overlays .cgmr {
+  cursor: pointer;
+}

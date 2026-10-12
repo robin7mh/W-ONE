@@ -273,6 +273,16 @@ export class ScmService {
     return { path, original: await blob(`${target.hash}^:${target.from ?? path}`), modified: await blob(`${target.hash}:${path}`) }
   }
 
+  /**
+   * The staged (index) text of a file — what the editor's gutter compares the
+   * buffer with, like VS Code. Null for untracked files and outside a repo.
+   */
+  async original(projectId: string, path: string): Promise<string | null> {
+    const root = this.root(projectId)
+    await confine(root, path)
+    return git(root, ['show', `:./${path}`]).catch(() => null)
+  }
+
   /** Every file of the project for quick open: git's view (ignores respected), else a capped walk. */
   async files(projectId: string): Promise<string[]> {
     const root = this.root(projectId)

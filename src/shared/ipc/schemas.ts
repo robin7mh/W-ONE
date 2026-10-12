@@ -16,6 +16,11 @@ const text = (max: number) => z.string().max(max)
 const none = z.void()
 const email = z.string().trim().min(3).max(254)
 
+const pos = z.object({ line: z.number().int().min(1), offset: z.number().int().min(1) })
+const at = z.object({ projectId: id, path, line: z.number().int().min(1), offset: z.number().int().min(1) })
+
+const breakpoint = z.object({ path, line: z.number().int().min(1) })
+
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
 /** Request schema per channel. Unknown object keys are stripped. */
@@ -75,6 +80,9 @@ export const REQUEST_SCHEMAS: Schemas = {
   'files:read': z.object({ projectId: id, path }),
   'files:stat': z.object({ projectId: id, paths: z.array(path).max(200) }),
   'files:write': z.object({ projectId: id, path, content: text(6 * 1024 * 1024), expectedMtime: z.number().optional() }),
+  'files:create': z.object({ projectId: id, path, kind: z.enum(['file', 'dir']) }),
+  'files:rename': z.object({ projectId: id, from: path, to: path }),
+  'files:delete': z.object({ projectId: id, path }),
 
   'scm:status': z.object({ projectId: id }),
   'scm:init': z.object({ projectId: id }),
@@ -99,8 +107,36 @@ export const REQUEST_SCHEMAS: Schemas = {
       z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() })
     ])
   }),
+  'scm:original': z.object({ projectId: id, path }),
   'scm:files': z.object({ projectId: id }),
   'scm:search': z.object({ projectId: id, query: text(500), regex: z.boolean().optional(), caseSensitive: z.boolean().optional() }),
+
+  'lsp:open': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
+  'lsp:change': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
+  'lsp:close': z.object({ projectId: id, path }),
+  'lsp:diagnostics': z.object({ projectId: id, paths: z.array(path).max(200) }),
+  'lsp:hover': at,
+  'lsp:completions': at.extend({ trigger: z.string().max(2).optional() }),
+  'lsp:completionDetails': at.extend({ name: z.string().max(1000), source: z.string().max(4096).optional(), data: z.unknown().optional() }),
+  'lsp:definition': at,
+  'lsp:references': at,
+  'lsp:rename': at.extend({ newName: z.string().min(1).max(1000) }),
+  'lsp:signature': at,
+  'lsp:codeFixes': z.object({ projectId: id, path, range: z.object({ start: pos, end: pos }), errorCodes: z.array(z.number().int()).max(100) }),
+
+  'debug:start': z.object({
+    projectId: id,
+    program: path,
+    args: z.array(text(4096)).max(100).optional(),
+    stopOnEntry: z.boolean().optional(),
+    breakpoints: z.array(breakpoint).max(1000)
+  }),
+  'debug:stop': none,
+  'debug:session': none,
+  'debug:control': z.object({ action: z.enum(['continue', 'pause', 'stepOver', 'stepInto', 'stepOut']) }),
+  'debug:setBreakpoints': z.object({ projectId: id, breakpoints: z.array(breakpoint).max(1000) }),
+  'debug:variables': z.object({ objectId: z.string().min(1).max(500) }),
+  'debug:evaluate': z.object({ expression: text(10_000), frameId: z.string().max(500).optional() }),
 
   'app:info': none,
   'fs:dirs': z

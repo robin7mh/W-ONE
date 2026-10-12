@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './helpers'
@@ -126,6 +127,13 @@ describe('createCore', () => {
     await new Promise((r) => setTimeout(r, 30))
     c.system.setRemoteClients(0)
     expect(pushed).toEqual(expect.arrayContaining(['context:progress', 'terminal:data', 'system:tick']))
+
+    // The editor's language service and debugger find projects the same way; the debugger publishes its session.
+    expect(await c.router.dispatch('lsp:open', { projectId: 'none', path: 'a.ts', text: '' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    await writeFile(join(process.env.WONE_HOME!, 'run.js'), '')
+    expect(await c.router.dispatch('debug:start', { projectId, program: 'run.js', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { status: 'starting' } })
+    expect(pushed).toContain('debug:session')
+    expect(await c.router.dispatch('debug:stop', undefined, { transport: 'ipc' })).toEqual({ ok: true })
   })
 
   it('desktop mode keeps the server config in settings; history is kept as files in the data folder', async () => {

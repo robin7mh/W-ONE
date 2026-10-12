@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, realpath, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
@@ -109,5 +109,48 @@ describe('FilesService', () => {
     await expect(service.write('p', 'dir', 'x')).rejects.toMatchObject({ code: 'not-a-file' })
     await expect(service.write('p', 'dir/x/y', 'x')).rejects.toMatchObject({ code: 'ENOTDIR' })
     await expect(service.write('p', '../evil.ts', 'x')).rejects.toMatchObject({ code: 'outside-project' })
+  })
+
+  it('creates files and folders (with parents); refuses taken names and the project folder', async () => {
+    const { root, service } = await project({ 'a.ts': 'x' })
+    await service.create('p', 'src/deep/new.ts', 'file')
+    expect(await readFile(join(root, 'src/deep/new.ts'), 'utf8')).toBe('')
+    await service.create('p', 'lib/empty', 'dir')
+    expect((await stat(join(root, 'lib/empty'))).isDirectory()).toBe(true)
+    await expect(service.create('p', 'a.ts', 'file')).rejects.toMatchObject({ code: 'exists' })
+    await expect(service.create('p', 'lib', 'dir')).rejects.toMatchObject({ code: 'exists' })
+    await expect(service.create('p', '.', 'dir')).rejects.toMatchObject({ code: 'bad-input' })
+    await expect(service.create('p', '../x', 'file')).rejects.toMatchObject({ code: 'outside-project' })
+  })
+
+  it('renames and moves; never over another entry, never into itself', async () => {
+    const { root, service } = await project({ 'a.ts': 'a', 'b.ts': 'b', 'dir/x.ts': 'x' })
+    await service.rename('p', 'a.ts', 'moved/A.ts')
+    expect(await readFile(join(root, 'moved/A.ts'), 'utf8')).toBe('a')
+    // Case-only rename of the same file (case-insensitive disks see it as "taken").
+    await service.rename('p', 'moved/A.ts', 'moved/a.ts')
+    expect(await readdir(join(root, 'moved'))).toEqual(['a.ts'])
+    await expect(service.rename('p', 'b.ts', 'moved/a.ts')).rejects.toMatchObject({ code: 'exists' })
+    await expect(service.rename('p', 'gone.ts', 'c.ts')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(service.rename('p', 'dir', 'dir/sub')).rejects.toMatchObject({ code: 'bad-input' })
+    await service.rename('p', 'dir', 'dir2')
+    expect(await readFile(join(root, 'dir2/x.ts'), 'utf8')).toBe('x')
+  })
+
+  it('deletes into the trash; refuses missing entries and the project folder', async () => {
+    const { root } = await project({ 'a.ts': 'a', 'dir/x.ts': 'x' })
+    const trashed: string[] = []
+    const service = new FilesService(
+      () => root,
+      async (abs) => void trashed.push(abs)
+    )
+    await service.remove('p', 'dir')
+    expect(trashed).toEqual([join(await realpath(root), 'dir')])
+    await expect(service.remove('p', 'gone')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(service.remove('p', '')).rejects.toMatchObject({ code: 'bad-input' })
+    // Without a trash the entry is simply removed.
+    const plain = new FilesService(() => root)
+    await plain.remove('p', 'a.ts')
+    expect(await readdir(root)).toEqual(['dir'])
   })
 })

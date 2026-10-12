@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpFromLine, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
@@ -14,7 +14,13 @@ import { useScm, type EditorPane } from '../scm'
 import { FileTree } from './FileTree'
 import { EditorTabs } from './EditorTabs'
 import { DiffHeader, ScmPanel } from './ScmPanel'
-import { QuickOpen, SearchPanel } from './SearchPanel'
+import { SearchPanel } from './SearchPanel'
+import { QuickOpen } from './QuickOpen'
+import { buildCommands } from '../commands'
+import { projectProblems, useProblems } from '../problems'
+import { useDebug } from '../debug'
+import { DebugConsole, DebugPanel } from './DebugPanel'
+import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
 
@@ -26,7 +32,8 @@ const PANES: { id: EditorPane; icon: LucideIcon }[] = [
   { id: 'files', icon: Files },
   { id: 'search', icon: Search },
   { id: 'scm', icon: GitBranch },
-  { id: 'graph', icon: GraphIcon }
+  { id: 'graph', icon: GraphIcon },
+  { id: 'debug', icon: Bug }
 ]
 
 /** VS Code's activity bar: explorer, search, source control (with the change count) and the git graph. */
@@ -59,6 +66,50 @@ function ActivityBar() {
       ))}
     </nav>
   )
+}
+
+/** The debugger in the command palette. */
+function debugCommands(t: ReturnType<typeof useT>): PickItem[] {
+  const d = t.debug
+  const debug = () => useDebug.getState()
+  const label = (s: string) => `${t.palette.debugCategory}: ${s}`
+  return [
+    { id: 'debug.start', label: label(d.start), keys: 'F5', run: () => debug().start() },
+    { id: 'debug.stop', label: label(d.stop), keys: '⇧F5', run: () => debug().stop() },
+    { id: 'debug.restart', label: label(d.restart), keys: '⇧⌘F5', run: () => debug().restart() },
+    { id: 'debug.continue', label: label(d.continue), run: () => debug().control('continue') },
+    { id: 'debug.stepOver', label: label(d.stepOver), keys: 'F10', run: () => debug().control('stepOver') },
+    { id: 'debug.stepInto', label: label(d.stepInto), keys: 'F11', run: () => debug().control('stepInto') },
+    { id: 'debug.stepOut', label: label(d.stepOut), keys: '⇧F11', run: () => debug().control('stepOut') },
+    { id: 'debug.breakpoint', label: label(d.toggleBreakpoint), keys: 'F9', run: toggleBreakpointAtCursor },
+    { id: 'debug.view', label: label(d.title), run: () => useScm.getState().setPane('debug') },
+    { id: 'debug.console', label: label(d.console), run: () => debug().setConsoleOpen(true) }
+  ]
+}
+
+/** F5 & co. — VS Code's debug keys. True when the key was one of them. */
+function debugKey(e: KeyboardEvent): boolean {
+  const debug = useDebug.getState()
+  const { session } = debug
+  const live = !!session && session.status !== 'exited'
+  const paused = session?.status === 'paused'
+  if (e.key === 'F5' && e.shiftKey && (e.metaKey || e.ctrlKey)) void debug.restart()
+  else if (e.key === 'F5' && e.shiftKey) void debug.stop()
+  else if (e.key === 'F5') void (paused ? debug.control('continue') : live ? undefined : debug.start())
+  else if (e.key === 'F6' && live && !paused) void debug.control('pause')
+  else if (e.key === 'F10' && paused) void debug.control('stepOver')
+  else if (e.key === 'F11' && paused) void debug.control(e.shiftKey ? 'stepOut' : 'stepInto')
+  else if (e.key === 'F9') toggleBreakpointAtCursor()
+  else return false
+  return true
+}
+
+/** The cursor line of the file on screen, for F9. */
+let cursorLine = 1
+function toggleBreakpointAtCursor(): void {
+  const { tabs, activeId } = useEditor.getState()
+  const tab = tabs.find((x) => x.id === activeId)
+  if (tab) useDebug.getState().toggleBreakpoint(tab.projectId, tab.path, cursorLine)
 }
 
 /** How often open files are compared with the disk while the editor is visible. */
@@ -152,8 +203,27 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // only when the core allows remote shells.
   const readOnly = !desktop && info?.remoteTerminal === false
   const [cursor, setCursor] = useState<CursorInfo>()
+  cursorLine = cursor?.line ?? 1
+  const session = useDebug((s) => s.session)
+  const consoleOpen = useDebug((s) => s.consoleOpen)
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
-  const { pane, diff, quickOpen, status, busy, error: scmError } = useScm()
+  const { pane, diff, quickOpen, quickQuery, pick, status, busy, error: scmError } = useScm()
+  const byFile = useProblems((s) => s.byFile)
+  const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
+  const errors = problems.filter((p) => p.severity === 'error').length
+  const showProblems = () =>
+    useScm.getState().openPick({
+      placeholder: t.problems.title,
+      items: problems.map((p) => ({
+        id: `${p.path}:${p.line}:${p.col}:${p.message}`,
+        label: `${p.severity === 'error' ? '⛔' : '⚠️'} ${p.message}`,
+        detail: `${p.path}:${p.line}${p.code ? ` · TS${p.code}` : ''}`,
+        run: () => {
+          useScm.getState().closeDiff()
+          return useEditor.getState().openAt(p.path, p.line)
+        }
+      }))
+    })
 
   useEffect(() => {
     void useProjects
@@ -178,11 +248,21 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       void useScm.getState().refresh()
     }
     const onKey = (e: KeyboardEvent) => {
+      const scm = useScm.getState()
+      if (debugKey(e)) return e.preventDefault()
+      if (e.key === 'F1') {
+        scm.setQuickOpen(true, '>')
+        return e.preventDefault()
+      }
+      if (e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'g') {
+        scm.setQuickOpen(true, ':')
+        return e.preventDefault()
+      }
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
-      const scm = useScm.getState()
-      if (key === 's') void useEditor.getState().save()
-      else if (key === 'p' && !e.shiftKey) scm.setQuickOpen(true)
+      if (key === 's' && e.altKey) void useEditor.getState().saveAll()
+      else if (key === 's') void useEditor.getState().save()
+      else if (key === 'p') scm.setQuickOpen(true, e.shiftKey ? '>' : '')
       else if (key === 'f' && e.shiftKey) scm.setPane('search')
       else if (key === 'g' && e.shiftKey) scm.setPane('scm')
       else return
@@ -198,6 +278,9 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       window.removeEventListener('keydown', onKey)
     }
   }, [active])
+
+  // The debugger follows the core's session events while the editor is mounted.
+  useEffect(() => useDebug.getState().connect(), [])
 
   // Unsaved edits veto closing the window; the desktop app then asks (main.ts).
   useEffect(() => {
@@ -273,7 +356,15 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
             <RefreshCw size={13} />
           </button>
         </div>
-        {pane === 'search' ? <SearchPanel /> : pane === 'scm' || pane === 'graph' ? <ScmPanel /> : projectId && <FileTree projectId={projectId} />}
+        {pane === 'search' ? (
+          <SearchPanel />
+        ) : pane === 'scm' || pane === 'graph' ? (
+          <ScmPanel />
+        ) : pane === 'debug' ? (
+          projectId && <DebugPanel />
+        ) : (
+          projectId && <FileTree projectId={projectId} readOnly={readOnly} />
+        )}
       </aside>
 
       {/* Tabs · banners · Monaco (or a diff, or the graph) · status */}
@@ -348,7 +439,21 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
         </div>
 
+        {consoleOpen && <DebugConsole />}
+
         <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-hud/60 px-3 font-mono text-[11px] text-text-muted">
+          {session && session.status !== 'exited' && (
+            <button
+              type="button"
+              onClick={() => {
+                useScm.getState().setPane('debug')
+                useDebug.getState().setConsoleOpen(true)
+              }}
+              className={cn('flex shrink-0 items-center gap-1 hover:text-text-primary', session.status === 'paused' ? 'text-amber' : 'text-cyan')}
+            >
+              <Bug size={11} /> {t.debug.status}: {session.status === 'paused' ? t.debug.paused(t.debug.reasons[session.reason as keyof typeof t.debug.reasons] ?? session.reason ?? '') : t.debug[session.status]}
+            </button>
+          )}
           {status?.repo && (
             <span className="flex shrink-0 items-center gap-3">
               <button type="button" onClick={() => useScm.getState().setPane('scm')} title={t.scm.panes.scm} className="flex items-center gap-1 hover:text-text-primary">
@@ -372,6 +477,16 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               )}
             </span>
           )}
+          {problems.length > 0 && (
+            <button type="button" onClick={showProblems} title={t.problems.title} className="flex shrink-0 items-center gap-2 hover:text-text-primary">
+              <span className={cn('flex items-center gap-1', errors > 0 && 'text-danger')}>
+                <CircleX size={11} /> {errors}
+              </span>
+              <span className={cn('flex items-center gap-1', problems.length > errors && 'text-amber')}>
+                <AlertTriangle size={11} /> {problems.length - errors}
+              </span>
+            </button>
+          )}
           {tab && hasText && (
             <>
               <span className="min-w-0 flex-1 truncate">
@@ -391,7 +506,9 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           )}
         </footer>
       </section>
-      {quickOpen && <QuickOpen />}
+      {quickOpen && (
+        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} commands={buildCommands(t, { onNavigate, readOnly, extra: readOnly ? [] : debugCommands(t) })} />
+      )}
     </Panel>
   )
 }

@@ -18,6 +18,18 @@ import type {
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
+import type {
+  LspCodeFix,
+  LspCompletion,
+  LspCompletionDetails,
+  LspDiagnostic,
+  LspHover,
+  LspLocation,
+  LspRange,
+  LspRename,
+  LspSignature
+} from '@shared/types/lsp'
+import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
 import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
 import type {
   AgentAvailability,
@@ -55,6 +67,14 @@ import type {
 } from '@shared/types/ai'
 import type { WoneEvent } from '@shared/types/events'
 import type { CloudStatus } from '@shared/types/cloud'
+
+/** A position in a project file, for the lsp:* queries. */
+export interface LspAt {
+  projectId: string
+  path: string
+  line: number
+  offset: number
+}
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -119,6 +139,10 @@ export interface IpcChannels {
     request: { projectId: string; path: string; content: string; expectedMtime?: number }
     response: FileStat
   }
+  'files:create': { request: { projectId: string; path: string; kind: 'file' | 'dir' }; response: void }
+  'files:rename': { request: { projectId: string; from: string; to: string }; response: void }
+  /** Into the trash (desktop: the OS trash), never deleted outright. */
+  'files:delete': { request: { projectId: string; path: string }; response: void }
 
   'scm:status': { request: { projectId: string }; response: ScmStatus }
   'scm:init': { request: { projectId: string }; response: ScmStatus }
@@ -136,9 +160,37 @@ export interface IpcChannels {
   'scm:log': { request: { projectId: string; limit?: number }; response: ScmCommit[] }
   'scm:show': { request: { projectId: string; hash: string }; response: ScmCommitDetail }
   'scm:diff': { request: { projectId: string; path: string; target: ScmDiffTarget }; response: FileDiff }
+  /** The staged text of a file (the gutter's baseline); null when untracked or not in a repo. */
+  'scm:original': { request: { projectId: string; path: string }; response: string | null }
   /** Every file of the project, for quick open (⌘P). */
   'scm:files': { request: { projectId: string }; response: string[] }
   'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
+
+  /** TypeScript intelligence (the project's tsserver). Positions are 1-based. */
+  'lsp:open': { request: { projectId: string; path: string; text: string }; response: { available: boolean } }
+  'lsp:change': { request: { projectId: string; path: string; text: string }; response: void }
+  'lsp:close': { request: { projectId: string; path: string }; response: void }
+  'lsp:diagnostics': { request: { projectId: string; paths: string[] }; response: Record<string, LspDiagnostic[]> }
+  'lsp:hover': { request: LspAt; response: LspHover | null }
+  'lsp:completions': { request: LspAt & { trigger?: string }; response: LspCompletion[] }
+  'lsp:completionDetails': { request: LspAt & { name: string; source?: string; data?: unknown }; response: LspCompletionDetails | null }
+  'lsp:definition': { request: LspAt; response: LspLocation[] }
+  'lsp:references': { request: LspAt; response: LspLocation[] }
+  'lsp:rename': { request: LspAt & { newName: string }; response: LspRename }
+  'lsp:signature': { request: LspAt; response: LspSignature | null }
+  'lsp:codeFixes': { request: { projectId: string; path: string; range: LspRange; errorCodes: number[] }; response: LspCodeFix[] }
+
+  /** Run & Debug: a Node program under the inspector (one session at a time). */
+  'debug:start': {
+    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] }
+    response: DebugSession
+  }
+  'debug:stop': { request: void; response: void }
+  'debug:session': { request: void; response: DebugSession | null }
+  'debug:control': { request: { action: DebugAction }; response: void }
+  'debug:setBreakpoints': { request: { projectId: string; breakpoints: DebugBreakpoint[] }; response: void }
+  'debug:variables': { request: { objectId: string }; response: DebugVariable[] }
+  'debug:evaluate': { request: { expression: string; frameId?: string }; response: DebugVariable }
 
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
@@ -266,6 +318,9 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'files:read': 'any',
   'files:stat': 'any',
   'files:write': 'terminal',
+  'files:create': 'terminal',
+  'files:rename': 'terminal',
+  'files:delete': 'terminal',
   'scm:status': 'any',
   'scm:init': 'terminal',
   'scm:stage': 'terminal',
@@ -281,8 +336,30 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'scm:log': 'any',
   'scm:show': 'any',
   'scm:diff': 'any',
+  'scm:original': 'any',
   'scm:files': 'any',
   'scm:search': 'any',
+  // Starting tsserver runs the project's own TypeScript (and its tsconfig plugins): a shell's power.
+  'lsp:open': 'terminal',
+  'lsp:change': 'terminal',
+  'lsp:close': 'terminal',
+  'lsp:diagnostics': 'terminal',
+  'lsp:hover': 'terminal',
+  'lsp:completions': 'terminal',
+  'lsp:completionDetails': 'terminal',
+  'lsp:definition': 'terminal',
+  'lsp:references': 'terminal',
+  'lsp:rename': 'terminal',
+  'lsp:signature': 'terminal',
+  'lsp:codeFixes': 'terminal',
+  // Debugging runs the project's code.
+  'debug:start': 'terminal',
+  'debug:stop': 'terminal',
+  'debug:session': 'terminal',
+  'debug:control': 'terminal',
+  'debug:setBreakpoints': 'terminal',
+  'debug:variables': 'terminal',
+  'debug:evaluate': 'terminal',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',
@@ -360,6 +437,8 @@ export interface IpcEvents {
   'agents:message': AgentMessageUpdate
   'cloud:status': CloudStatus
   'update:status': UpdateStatus
+  'debug:session': DebugSession
+  'debug:output': DebugOutput
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -380,8 +459,10 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'agents:changed',
   'agents:message',
   'cloud:status',
-  'update:status'
+  'update:status',
+  'debug:session',
+  'debug:output'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
-export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit']
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output']

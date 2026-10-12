@@ -351,6 +351,12 @@ describe('EditorView', () => {
     expect(screen.getByTestId('monaco')).toHaveTextContent('p:a.ts (read-only)')
     expect(screen.getByText('Read-only')).toBeInTheDocument()
     expect(screen.getByText('Keep mine')).toBeDisabled()
+    // Read-only: the palette has nothing that writes or runs code.
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true })
+    const labels = screen.getAllByRole('option').map((o) => o.textContent)
+    expect(labels.some((l) => l!.startsWith('Debug:'))).toBe(false)
+    expect(labels).not.toContain('File: Save⌘S')
+    fireEvent.keyDown(screen.getByRole('dialog').querySelector('input')!, { key: 'Escape' })
     act(() => useEditor.setState({ activeId: 'p:b.png' }))
     expect(screen.getByText('Binary file')).toBeInTheDocument()
     expect(screen.queryByText('Open in VS Code')).toBeNull()

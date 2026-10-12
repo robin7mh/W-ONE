@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { CaseSensitive, Loader2, Regex, Search } from 'lucide-react'
 import type { SearchMatch } from '@shared/types/scm'
 import { cn } from '@/lib/cn'
@@ -89,99 +89,6 @@ export function SearchPanel() {
             </ul>
           </section>
         ))}
-      </div>
-    </div>
-  )
-}
-
-/** Fuzzy match: every query character in order; earlier, denser and file-name hits score better (lower). */
-export function fuzzyScore(path: string, query: string): number | null {
-  const p = path.toLowerCase()
-  const q = query.toLowerCase().replace(/\s+/g, '')
-  if (!q) return 0
-  const base = p.lastIndexOf('/') + 1
-  let at = -1
-  let score = 0
-  for (const ch of q) {
-    const next = p.indexOf(ch, at + 1)
-    if (next < 0) return null
-    score += next - at - 1 // gaps cost
-    at = next
-  }
-  if (p.slice(base).includes(q)) score -= 1000 // the file name itself matches
-  return score + p.length / 100
-}
-
-/** ⌘P: jump to a file by (part of) its name. */
-export function QuickOpen() {
-  const t = useT()
-  const files = useScm((s) => s.files)
-  const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-  const list = useRef<HTMLUListElement>(null)
-  const hits = useMemo(
-    () =>
-      files
-        .map((path) => ({ path, score: fuzzyScore(path, query) }))
-        .filter((h): h is { path: string; score: number } => h.score !== null)
-        .sort((a, b) => a.score - b.score)
-        .slice(0, 60),
-    [files, query]
-  )
-  const close = () => useScm.getState().setQuickOpen(false)
-  const open = (path: string) => {
-    close()
-    useScm.getState().closeDiff()
-    void useEditor.getState().open(path)
-  }
-
-  useEffect(() => {
-    list.current!.children[active].scrollIntoView({ block: 'nearest' })
-  }, [active])
-
-  return (
-    <div role="dialog" aria-label={t.scm.quickOpen} className="fixed inset-0 z-[60] flex justify-center bg-void/40 pt-[12vh]" onMouseDown={close}>
-      <div className="h-fit w-[min(560px,90vw)] overflow-hidden rounded-lg border border-hud/70 bg-panel/95 shadow-2xl shadow-black/50 backdrop-blur-md" onMouseDown={(e) => e.stopPropagation()}>
-        <input
-          autoFocus
-          aria-label={t.scm.quickOpen}
-          placeholder={t.scm.quickOpen}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            setActive(0)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') close()
-            else if (e.key === 'ArrowDown') {
-              e.preventDefault()
-              setActive((i) => Math.min(hits.length - 1, i + 1))
-            } else if (e.key === 'ArrowUp') {
-              e.preventDefault()
-              setActive((i) => Math.max(0, i - 1))
-            } else if (e.key === 'Enter' && hits[active]) open(hits[active].path)
-          }}
-          className="w-full border-b border-hud/60 bg-transparent px-3 py-2.5 font-sans text-[13.5px] text-text-primary outline-none placeholder:text-text-muted"
-        />
-        <ul ref={list} role="listbox" aria-label={t.scm.quickOpen} className="max-h-[50vh] overflow-y-auto p-1">
-          {!hits.length && <li className="px-3 py-2 font-sans text-[12px] text-text-muted">{t.scm.noFiles}</li>}
-          {hits.map((h, i) => {
-            const name = h.path.slice(h.path.lastIndexOf('/') + 1)
-            return (
-              <li
-                key={h.path}
-                role="option"
-                aria-selected={i === active}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => open(h.path)}
-                className={cn('flex cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-1.5', i === active && 'bg-cyan/10')}
-              >
-                <span className="shrink-0 font-sans text-[12.5px] text-text-primary">{name}</span>
-                <span className="min-w-0 truncate font-mono text-[10.5px] text-text-muted">{h.path.slice(0, h.path.length - name.length)}</span>
-              </li>
-            )
-          })}
-        </ul>
       </div>
     </div>
   )

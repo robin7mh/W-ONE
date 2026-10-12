@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { hostname } from 'node:os'
+import { join } from 'node:path'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
 import type { WonePaths } from '../lib/paths'
 import type { Platform } from '../platform/types'
@@ -12,6 +13,8 @@ import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
 import { registerScmIpc } from '../../ipc/scm.ipc'
+import { registerLspIpc } from '../../ipc/lsp.ipc'
+import { registerDebugIpc } from '../../ipc/debug.ipc'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
@@ -25,6 +28,8 @@ import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
 import { ScmService } from '../services/scm/ScmService'
+import { LspService } from '../services/lsp/LspService'
+import { DebugService } from '../services/debug/DebugService'
 import { AuthService } from '../services/auth/AuthService'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
@@ -136,8 +141,15 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
 
   const fs = new FsService()
   // The editor's project files — paths resolve against the project registry.
-  const files = new FilesService((id) => projects.getProjectPath(id))
+  // Deleted project files go to the OS trash (a headless core keeps its own in the data folder).
+  const fileTrash = join(paths.dataDir, 'file-trash')
+  const files = new FilesService(
+    (id) => projects.getProjectPath(id),
+    (abs) => platform.trashItem(abs, fileTrash)
+  )
   const scm = new ScmService((id) => projects.getProjectPath(id))
+  const lsp = new LspService({ resolveRoot: (id) => projects.getProjectPath(id) })
+  const debug = new DebugService({ resolveRoot: (id) => projects.getProjectPath(id), publish: (channel, payload) => hub.publish(channel, payload as never) })
   const auth = new AuthService(paths.devicesFile)
 
   // The router asks the server controller whether remote shells are allowed,
@@ -251,6 +263,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
+  registerLspIpc(router, lsp)
+  registerDebugIpc(router, debug)
   registerAgentsIpc(router, agents)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
@@ -308,6 +322,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await local.close()
       system.dispose()
       vault.dispose()
+      lsp.dispose()
+      debug.dispose()
       terminal.killAll()
       await controller.stop()
       await eventLog.flush()

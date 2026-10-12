@@ -234,6 +234,19 @@ describe('ScmService', () => {
     expect((await s.diff('p', 'a.txt', { kind: 'unstaged' })).modified).toBe('')
   })
 
+  it('the gutter baseline: the staged text; null when untracked or without git; never outside', async () => {
+    const dir = await repo()
+    await writeFile(join(dir, 'a.txt'), 'one\nTWO\n')
+    await writeFile(join(dir, 'new.txt'), 'n\n')
+    const s = service(dir)
+    expect(await s.original('p', 'a.txt')).toBe('one\ntwo\n')
+    await s.stage('p', ['a.txt'])
+    expect(await s.original('p', 'a.txt')).toBe('one\nTWO\n')
+    expect(await s.original('p', 'new.txt')).toBeNull()
+    await expect(s.original('p', '../x')).rejects.toMatchObject({ code: 'outside-project' })
+    expect(await service(await tempDir()).original('p', 'a.txt')).toBeNull()
+  })
+
   it('quick open lists git’s files (minus deleted ones), else walks the folder with a cap', async () => {
     const dir = await repo()
     await writeFile(join(dir, '.gitignore'), 'ignored.txt\n')
