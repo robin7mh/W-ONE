@@ -111,12 +111,10 @@ describe('lib', () => {
 
     s().update({ accent: 'violet' })
     expect(JSON.parse(localStorage.getItem('wone.appearance')!)).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
-    s().toggleTheme() // the other theme, as a fixed choice
+    s().update({ mode: 'dark' }) // a fixed choice
     expect([s().appearance.mode, s().theme]).toEqual(['dark', 'dark'])
     osChanged() // fixed: the OS no longer decides
     expect(document.documentElement.dataset.theme).toBe('dark')
-    s().toggleTheme()
-    expect(s().appearance.mode).toBe('light')
 
     const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('blocked')

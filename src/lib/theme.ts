@@ -172,8 +172,6 @@ interface AppearanceState {
   /** The token set actually in use (`system` resolved). */
   theme: Theme
   update: (patch: Partial<Appearance>) => void
-  /** Top bar switch: the other theme, as a fixed choice. */
-  toggleTheme: () => void
   reset: () => void
 }
 
@@ -188,7 +186,6 @@ export const useAppearance = create<AppearanceState>((set, get) => {
     appearance,
     theme: resolveTheme(appearance.mode),
     update: (patch) => commit({ ...get().appearance, ...patch }),
-    toggleTheme: () => commit({ ...get().appearance, mode: get().theme === 'dark' ? 'light' : 'dark' }),
     reset: () => commit(DEFAULT_APPEARANCE)
   }
 })

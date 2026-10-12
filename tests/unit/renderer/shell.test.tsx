@@ -140,15 +140,11 @@ describe('TopStatusBar', () => {
     expect(screen.getByText('00:01:01')).toBeInTheDocument()
   })
 
-  it('elsewhere shows window controls; hides the clock on request; toggles the theme', async () => {
+  it('elsewhere shows window controls; hides the clock on request', async () => {
     const TopStatusBar = await load('linux')
     const { container } = render(<TopStatusBar uptime={0} showClock={false} />)
     expect(container.querySelector('header')!.className).not.toContain('pl-[88px]')
     expect(screen.getByLabelText('Close')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Switch to light mode'))
-    expect(document.documentElement.dataset.theme).toBe('light')
-    fireEvent.click(screen.getByLabelText('Switch to dark mode'))
-    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 })
 

@@ -176,10 +176,3 @@ test('agents: a coding agent session — chat, approval in W-ONE, the change as 
   await page.getByLabel('End session').click()
   await expect(page.getByText('· Ended')).toBeVisible()
 })
-
-test('theme toggle switches light and dark', async ({ page }) => {
-  const theme = () => page.evaluate(() => document.documentElement.dataset.theme)
-  const before = await theme()
-  await page.getByLabel(/Switch to (light|dark) mode/).click()
-  await expect.poll(theme).not.toBe(before)
-})

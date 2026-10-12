@@ -141,7 +141,7 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
   wird nie angefasst.
   - *electron*: die gebaute Desktop-App. Geprüft werden der Start, jedes Modul, eine
     echte Shell, eine Vault-Notiz auf der Platte, ein Projekt, der Editor, der eingebettete
-    API-Server und der Theme-Schalter. Dazu kommt eine Agent-Sitzung gegen einen Stellvertreter
+    API-Server. Dazu kommt eine Agent-Sitzung gegen einen Stellvertreter
     für Claude Code (`tests/e2e/fake-claude.mjs`, kein Konto nötig): Chat, Freigabe, Diff,
     Umbenennen und Protokoll. Unter Linux ohne Bildschirm mit `xvfb-run -a` starten.
   - *web*: die gebaute Web-UI in Chromium gegen den echten eigenständigen Core. Geprüft werden
@@ -183,7 +183,7 @@ Jede App bekommt ihr eigenes Dockerfile, CI und CD laufen pro Workspace.
 | Bereich | Komponente | Hinweise |
 | --- | --- | --- |
 | Boot-Overlay | `BootSequence` | Ein getipptes Boot-Log mit Fortschritt, das zur Oberfläche überblendet (Klick überspringt). |
-| Obere Leiste | `TopStatusBar` | Codename, Live-Uhr, Modus/Laufzeit/Verbindung und Theme-Schalter. Native Fensterknöpfe unter macOS, eigene unter Windows/Linux. Ziehbarer Bereich. |
+| Obere Leiste | `TopStatusBar` | Codename, Live-Uhr und Modus/Laufzeit/Verbindung. Native Fensterknöpfe unter macOS, eigene unter Windows/Linux. Ziehbarer Bereich. |
 | Linke Leiste | `SideNavigation` | Core · Editor · Terminal · Projects · Memory · Agents · System · Settings, dazu der verbundene Core. Bei schmalen Fenstern nur Icons. |
 | Mitte | das aktive Modul | Siehe [Module](#module) unten. |
 | Rechte Leiste | `SystemMonitorPanel` | CPU/RAM-Anzeigen, Verlaufskurven und eine Prozess-Vorschau. Nur auf Core; alle anderen Module nutzen die volle Breite. |
@@ -394,8 +394,8 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
 - **E2E** (`tests/e2e`): every test runs with a throwaway `WONE_HOME`, so your real `~/W-ONE` is
   never touched.
   - *electron*: the built desktop app. It covers boot, every module, a real
-    shell, a vault note written to disk, a project, the editor, the embedded API server and the
-    theme toggle. It also runs a coding agent session against a stand-in for Claude Code
+    shell, a vault note written to disk, a project, the editor, the embedded API server. It
+    also runs a coding agent session against a stand-in for Claude Code
     (`tests/e2e/fake-claude.mjs`, no account needed): chat, approval, diff, rename and journal.
     On Linux without a display, run it under `xvfb-run -a`.
   - *web*: the built web UI in Chromium against the real standalone core. It covers pairing, live
@@ -436,7 +436,7 @@ Each app gets its own Dockerfile, and CI and CD run per workspace.
 | Region | Component | Notes |
 | --- | --- | --- |
 | Boot overlay | `BootSequence` | A typed boot log with progress that fades to reveal the shell (click to skip). |
-| Top bar | `TopStatusBar` | Codename, live clock, mode/uptime/link status and theme toggle. Native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
+| Top bar | `TopStatusBar` | Codename, live clock and mode/uptime/link status. Native traffic lights on macOS, custom window controls on Windows/Linux. Draggable region. |
 | Left rail | `SideNavigation` | Core · Editor · Terminal · Projects · Memory · Agents · System · Settings, plus which core it is linked to. Collapses to icons only on narrow widths. |
 | Center | the active module | See [Modules](#modules) below. |
 | Right rail | `SystemMonitorPanel` | CPU/RAM gauges, sparklines and a process preview. Shown on Core only; every other module uses the full width. |
