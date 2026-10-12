@@ -14,7 +14,9 @@ import { useScm, type PickItem } from '@/features/editor/scm'
 import { buildCommands } from '@/features/editor/commands'
 import { editorActions, setEditorActions } from '@/features/editor/actions'
 import { projectProblems, useProblems } from '@/features/editor/problems'
-import { splitArgs, useDebug } from '@/features/editor/debug'
+import { runnerOf, splitArgs, useDebug } from '@/features/editor/debug'
+import { useEditorPrefs } from '@/features/editor/prefs'
+import { useLanguages } from '@/features/editor/languages'
 import { QuickOpen } from '@/features/editor/components/QuickOpen'
 import { DebugConsole, DebugPanel } from '@/features/editor/components/DebugPanel'
 import { EditorView } from '@/features/editor/components/EditorView'
@@ -251,6 +253,10 @@ describe('problems', () => {
 })
 
 describe('debug store', () => {
+  it('names what runs a program', () => {
+    expect([runnerOf('a.py'), runnerOf('cmd/main.go'), runnerOf('a.ts'), runnerOf('x')]).toEqual(['python', 'go run', 'node', 'node'])
+  })
+
   it('splits arguments like a shell', () => {
     expect(splitArgs(`--port 3000 "a b" 'c d' e`)).toEqual(['--port', '3000', 'a b', 'c d', 'e'])
     expect(splitArgs('   ')).toEqual([])
@@ -770,4 +776,79 @@ describe('EditorView: palette, problems, debugging', () => {
     const { unmount } = render(<EditorView active onNavigate={vi.fn()} />)
     unmount()
   })
+
+  it('the user’s own keybindings (from VS Code) run W-ONE commands; chords and editor commands are Monaco’s', async () => {
+    routes({ 'editor:settings': () => ({ settings: {}, snippets: [] }) })
+    show()
+    await act(settle)
+    act(() =>
+      useEditorPrefs.setState({
+        settings: {
+          keybindings: [
+            { key: 'cmd+shift+o', command: 'workbench.action.quickOpen' },
+            { key: 'cmd+alt+p', command: 'workbench.action.showCommands' },
+            { key: 'ctrl+alt+u', command: 'git.push' },
+            { key: 'cmd+k cmd+s', command: 'workbench.action.files.save' },
+            { key: 'cmd+e', command: 'editor.action.x' }
+          ]
+        }
+      })
+    )
+    const push = vi.spyOn(useScm.getState(), 'push').mockResolvedValue()
+    useScm.setState({ status: { repo: true, branch: 'main', ahead: 0, behind: 0, merging: false, files: [] } })
+    key('O', { metaKey: true, shiftKey: true, code: 'KeyO' } as KeyboardEventInit)
+    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '' })
+    act(() => useScm.getState().setQuickOpen(false))
+    key('π', { metaKey: true, altKey: true, code: 'KeyP' } as KeyboardEventInit)
+    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '>' })
+    act(() => useScm.getState().setQuickOpen(false))
+    key('u', { ctrlKey: true, altKey: true, code: 'KeyU' } as KeyboardEventInit)
+    expect(push).toHaveBeenCalled()
+    key('e', { metaKey: true, code: 'KeyE' } as KeyboardEventInit) // Monaco's to handle
+    expect(useScm.getState().quickOpen).toBe(false)
+    act(() => useEditorPrefs.setState({ settings: {} }))
+    key('O', { metaKey: true, shiftKey: true, code: 'KeyO' } as KeyboardEventInit) // gone again
+    expect(useScm.getState().quickOpen).toBe(false)
+  })
+
+  it('a file whose language server is missing says so in the status bar — a click leads to Settings', async () => {
+    routes()
+    const onNavigate = vi.fn()
+    useProjects.setState({ projects: [{ id: 'p', name: 'Demo', path: '/x/p', addedAt: '', lastSeenAt: '' }] })
+    useEditor.setState({ tabs: [tab('app.py'), tab('a.ts')], activeId: 'p:app.py' })
+    render(<EditorView active onNavigate={onNavigate} />)
+    await act(settle)
+    const footer = within(document.querySelector('footer')!)
+    expect(footer.queryByText(/no language server/)).toBeNull() // not known yet
+    act(() => useLanguages.getState().report('p:app.py', { language: 'python', available: false }))
+    fireEvent.click(footer.getByRole('button', { name: 'Python · no language server' }))
+    expect(onNavigate).toHaveBeenCalledWith('settings')
+    act(() => useLanguages.getState().report('p:app.py', { language: 'python', available: true }))
+    expect(footer.queryByText(/no language server/)).toBeNull()
+    act(() => useLanguages.getState().report('p:a.ts', { language: 'typescript', available: false }))
+    act(() => useEditor.setState({ activeId: 'p:a.ts' }))
+    expect(footer.queryByText(/no language server/)).toBeNull() // TypeScript has no install button
+    act(() => useLanguages.getState().report('p:a.ts', { language: undefined, available: false }))
+    expect(footer.queryByText(/no language server/)).toBeNull()
+
+    // The palette's way to Settings → moving over.
+    fireEvent.keyDown(window, { key: 'p', metaKey: true, shiftKey: true })
+    fireEvent.change(screen.getByRole('dialog').querySelector('input')!, { target: { value: '>Move over' } })
+    fireEvent.click(screen.getAllByRole('option')[0])
+    expect(onNavigate).toHaveBeenLastCalledWith('settings')
+  })
+
+  it('problems of language servers name their tool and rule', async () => {
+    routes()
+    show()
+    await act(settle)
+    act(() =>
+      useProblems.getState().report('p', {
+        'app.py': [{ range: { start: { line: 3, offset: 1 }, end: { line: 3, offset: 2 } }, message: 'bad type', severity: 'error', code: 'reportX', source: 'Pyright' }]
+      })
+    )
+    fireEvent.click(within(document.querySelector('footer')!).getByRole('button', { name: /1\s*0/ }))
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['⛔ bad typeapp.py:3 · Pyright reportX'])
+  })
+
 })

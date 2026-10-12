@@ -33,7 +33,10 @@ export interface LspDiagnostic {
   range: LspRange
   message: string
   severity: 'error' | 'warning' | 'suggestion' | 'info'
-  code?: number
+  /** TypeScript's error number, or a language server's rule name. */
+  code?: number | string
+  /** Which tool reported it (Pyright, clangd, …). */
+  source?: string
   /** Unused code (shown faded). */
   unnecessary?: boolean
   deprecated?: boolean
@@ -44,7 +47,9 @@ export interface LspHover {
   display: string
   /** Its documentation (markdown), JSDoc tags included. */
   documentation: string
-  range: LspRange
+  /** A language server's hover, already markdown (instead of display + documentation). */
+  markdown?: string
+  range?: LspRange
 }
 
 export interface LspCompletion {
@@ -58,6 +63,8 @@ export interface LspCompletion {
   replacement?: LspRange
   /** Module an auto-import would come from. */
   source?: string
+  /** A language server's short description (the type, the signature). */
+  detail?: string
   /** Opaque data the details request needs back. */
   data?: unknown
 }

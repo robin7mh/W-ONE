@@ -18,6 +18,8 @@ import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
 import { useSettings } from '../store'
 import { AppearanceCard } from './AppearanceCard'
+import { LanguagesCard } from './LanguagesCard'
+import { MigrateCard } from './MigrateCard'
 
 function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -398,6 +400,8 @@ export function SettingsView() {
           <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
         </Card>
         <AgentsCard />
+        <MigrateCard />
+        <LanguagesCard />
         <AiCard />
         <RemoteCard />
         <PermissionsCard />

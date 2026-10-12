@@ -7,7 +7,9 @@ export interface Problem {
   col: number
   message: string
   severity: 'error' | 'warning'
-  code?: number
+  code?: number | string
+  /** The reporting tool; absent for TypeScript. */
+  source?: string
 }
 
 interface ProblemsState {
@@ -28,7 +30,7 @@ export const useProblems = create<ProblemsState>((set) => ({
       for (const [path, diags] of Object.entries(result)) {
         byFile[`${projectId}:${path}`] = diags
           .filter((d) => d.severity === 'error' || d.severity === 'warning')
-          .map((d) => ({ path, line: d.range.start.line, col: d.range.start.offset, message: d.message, severity: d.severity as Problem['severity'], code: d.code }))
+          .map((d) => ({ path, line: d.range.start.line, col: d.range.start.offset, message: d.message, severity: d.severity as Problem['severity'], code: d.code, source: d.source }))
       }
       return { byFile }
     }),

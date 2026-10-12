@@ -213,7 +213,9 @@ describe('data & shared constants', () => {
       'cloud:status',
       'update:status',
       'debug:session',
-      'debug:output'
+      'debug:output',
+      'lsp:diagnostics',
+      'tools:progress'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })

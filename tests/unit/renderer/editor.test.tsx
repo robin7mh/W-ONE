@@ -158,7 +158,7 @@ const mon = vi.hoisted(() => {
 })
 vi.mock('monaco-editor', () => mon.monaco)
 // Gutter, breakpoints and TypeScript have their own tests (monaco-features.test.ts); here: what the view hands them.
-const features = vi.hoisted(() => ({ gutter: [] as (() => unknown)[], breakpoints: [] as (() => unknown)[], detached: 0, lsp: 0 }))
+const features = vi.hoisted(() => ({ gutter: [] as (() => unknown)[], breakpoints: [] as (() => unknown)[], detached: 0, lsp: 0, prefs: 0 }))
 vi.mock('@/features/editor/monaco/gutter', () => ({
   attachGutter: (_editor: unknown, current: () => unknown) => {
     features.gutter.push(current)
@@ -172,6 +172,7 @@ vi.mock('@/features/editor/monaco/breakpoints', () => ({
   }
 }))
 vi.mock('@/features/editor/monaco/lsp', () => ({ setupLsp: () => (features.lsp += 1) }))
+vi.mock('@/features/editor/monaco/userPrefs', () => ({ setupUserPrefs: () => (features.prefs += 1) }))
 vi.mock('monaco-editor/editor/editor.worker.js?worker', () => ({ default: class { kind = 'editor' } }))
 vi.mock('monaco-editor/language/json/json.worker.js?worker', () => ({ default: class { kind = 'json' } }))
 vi.mock('monaco-editor/language/css/css.worker.js?worker', () => ({ default: class { kind = 'css' } }))
@@ -184,6 +185,7 @@ import { monacoTheme } from '@/features/editor/monaco/theme'
 import CodeEditor from '@/features/editor/components/CodeEditor'
 import { editorActions } from '@/features/editor/actions'
 import { useScm } from '@/features/editor/scm'
+import { useEditorPrefs } from '@/features/editor/prefs'
 
 const initial = useEditor.getState()
 const e = () => useEditor.getState()
@@ -717,6 +719,20 @@ describe('CodeEditor (Monaco view)', () => {
     expect(editor().model).toBe(peeked)
     expect(peeked.getValue()).toBe('DISK')
     expect(e().tabs[0].dirty).toBe(false)
+  })
+
+
+  it('the user’s editor settings (from VS Code) apply on start and when they change', () => {
+    useEditorPrefs.setState({ settings: { fontSize: 20, minimap: false }, snippets: [] })
+    const { unmount } = render(<CodeEditor readOnly={false} onCursor={() => {}} />)
+    expect(features.prefs).toBeGreaterThan(0)
+    expect(editor().options).toMatchObject({ fontSize: 20, minimap: { enabled: false } })
+    act(() => useEditorPrefs.setState({ settings: { fontSize: 12 } }))
+    expect(editor().options.fontSize).toBe(12)
+    act(() => useEditorPrefs.setState({ snippets: [] })) // settings unchanged
+    unmount()
+    act(() => useEditorPrefs.setState({ settings: { fontSize: 30 } }))
+    expect(editor().options.fontSize).toBe(12)
   })
 
 })

@@ -49,8 +49,8 @@ describe('LspService (real tsserver)', () => {
   it('answers hovers, completions (with auto-imports), definitions, references, signatures, renames and fixes', { timeout: 60_000 }, async () => {
     const root = await project()
     const lsp = make(root)
-    expect(await lsp.open('p', 'src/b.ts', B)).toEqual({ available: true })
-    expect(await lsp.open('p', 'src/a.ts', A)).toEqual({ available: true })
+    expect(await lsp.open('p', 'src/b.ts', B)).toEqual({ available: true, language: 'typescript' })
+    expect(await lsp.open('p', 'src/a.ts', A)).toMatchObject({ available: true })
 
     const hover = await lsp.hover('p', 'src/b.ts', 4, 2)
     expect(hover?.display).toContain('greet(user: User, loud?: boolean): string')
@@ -108,13 +108,13 @@ describe('LspService (real tsserver)', () => {
     await lsp.close('p', 'src/b.ts') // not open anymore
     expect(await lsp.diagnostics('p', ['src/b.ts'])).toEqual({})
     // Opening an open file again just updates it.
-    expect(await lsp.open('p', 'src/a.ts', `${A}\n`)).toEqual({ available: true })
+    expect(await lsp.open('p', 'src/a.ts', `${A}\n`)).toMatchObject({ available: true })
   })
 
   it('without TypeScript, before any open, for unknown projects', async () => {
     const root = await project()
     const none = make(root, { locate: () => undefined })
-    expect(await none.open('p', 'src/a.ts', A)).toEqual({ available: false })
+    expect(await none.open('p', 'src/a.ts', A)).toEqual({ available: false, language: 'typescript' })
     await none.change('p', 'src/a.ts', A)
     await none.close('p', 'src/a.ts')
     expect(await none.diagnostics('p', ['src/a.ts'])).toEqual({})

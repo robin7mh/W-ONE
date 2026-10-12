@@ -138,6 +138,13 @@ export const REQUEST_SCHEMAS: Schemas = {
   'debug:variables': z.object({ objectId: z.string().min(1).max(500) }),
   'debug:evaluate': z.object({ expression: text(10_000), frameId: z.string().max(500).optional() }),
 
+  'tools:status': none,
+  'tools:install': z.object({ id: z.string().min(1).max(50), part: z.enum(['server', 'debugger']) }),
+
+  'migrate:scan': none,
+  'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
+  'editor:settings': none,
+
   'app:info': none,
   'fs:dirs': z
     .object({ path: path.optional() })

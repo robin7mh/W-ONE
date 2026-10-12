@@ -7,6 +7,10 @@ import WebSocket from 'ws'
 import type { DebugAction, DebugBreakpoint, DebugFrame, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
 import { confine } from '../../lib/confine'
 import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
+import { shellArgs } from '../../lib/shellArgs'
+import { LANGUAGES, languageOf } from '@shared/types/languages'
+import { DapClient, DapSession, type DapLaunch, type DapTransport } from './Dap'
+import { DAP_LANGUAGES, startAdapter, type AdapterContext } from './adapters'
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
@@ -59,9 +63,7 @@ export function connectCdp(url: string): Promise<Cdp> {
 
 /** `node` with these arguments as the user's shell would start it (their PATH: Homebrew, nvm, …). */
 export function nodeCommand(args: string[], platform: NodeJS.Platform = process.platform): { file: string; args: string[] } {
-  const { file } = shellCommand()
-  if (platform === 'win32') return { file, args: ['-NoLogo', '-Command', `node ${args.map(shellQuote).join(' ')}`] }
-  return { file, args: ['-lc', `exec node ${args.map(shellQuote).join(' ')}`] }
+  return { file: shellCommand().file, args: shellArgs(`node ${args.map(shellQuote).join(' ')}`, platform) }
 }
 
 /** Start `node` like the user's terminal would. */
@@ -108,6 +110,10 @@ export interface DebugOptions {
   publish: (channel: 'debug:session' | 'debug:output', payload: DebugSession | DebugOutput) => void
   launch?: (args: string[], cwd: string) => ChildProcess
   connect?: (url: string) => Promise<Cdp>
+  /** Where a language's debugger is installed (Settings → Languages). */
+  tools?: { locate: (language: string, part: 'debugger') => Promise<string | undefined> }
+  /** Start a language's debug adapter (tests script one). */
+  adapter?: (language: string, ctx: AdapterContext) => Promise<{ transport: DapTransport; launch: DapLaunch }>
 }
 
 /**
@@ -119,11 +125,13 @@ export interface DebugOptions {
  */
 export class DebugService {
   private current?: Running
+  /** A Python / Go program under its debug adapter (instead of `current`). */
+  private dap?: DapSession
 
   constructor(private readonly opts: DebugOptions) {}
 
   session(): DebugSession | null {
-    return this.current?.session ?? null
+    return this.dap?.session ?? this.current?.session ?? null
   }
 
   async start(req: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] }): Promise<DebugSession> {
@@ -132,6 +140,9 @@ export class DebugService {
     if (!configured) throw coded('not-found', `Unknown project: ${req.projectId}`)
     const root = await realpath(configured)
     const program = await confine(root, req.program)
+    const language = languageOf(req.program)?.id
+    if (language && DAP_LANGUAGES.includes(language)) return this.startDap(language, req, root, program)
+    this.dap = undefined
     // TypeScript runs as is: Node strips the types (positions stay, so breakpoints match). Default from Node 22.18 on.
     const ts = /\.[cm]?ts$/.test(program) ? ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] : []
     const proc = (this.opts.launch ?? launchNode)(['--inspect-brk=127.0.0.1:0', ...ts, program, ...(req.args ?? [])], root)
@@ -173,6 +184,7 @@ export class DebugService {
   }
 
   async stop(): Promise<void> {
+    if (this.dap) return this.dap.stop()
     const run = this.current
     if (!run || run.session.status === 'exited') return
     run.cdp?.close()
@@ -184,6 +196,7 @@ export class DebugService {
   }
 
   async control(action: DebugAction): Promise<void> {
+    if (this.dap) return this.running().control(action)
     const cdp = this.cdp()
     const method = { continue: 'Debugger.resume', pause: 'Debugger.pause', stepOver: 'Debugger.stepOver', stepInto: 'Debugger.stepInto', stepOut: 'Debugger.stepOut' }[action]
     await cdp.send(method)
@@ -191,12 +204,17 @@ export class DebugService {
 
   /** The editor's breakpoints changed: the running program gets exactly these. */
   async setBreakpoints(projectId: string, breakpoints: DebugBreakpoint[]): Promise<void> {
+    if (this.dap) {
+      if (this.dap.session.projectId === projectId && this.dap.session.status !== 'exited') await this.dap.setBreakpoints(breakpoints)
+      return
+    }
     const run = this.current
     if (!run?.cdp || run.session.projectId !== projectId || run.session.status === 'exited') return
     await this.applyBreakpoints(run, breakpoints)
   }
 
   async variables(objectId: string): Promise<DebugVariable[]> {
+    if (this.dap) return this.running().variables(objectId)
     const { result } = await this.cdp().send<{ result: { name: string; value?: Remote; get?: Remote }[] }>('Runtime.getProperties', {
       objectId,
       ownProperties: true,
@@ -210,6 +228,7 @@ export class DebugService {
 
   /** An expression in a call frame (paused), else in the program's global scope. */
   async evaluate(expression: string, frameId?: string): Promise<DebugVariable> {
+    if (this.dap) return this.running().evaluate(expression, frameId)
     const cdp = this.cdp()
     const { result, exceptionDetails } = await cdp.send<{ result: Remote; exceptionDetails?: { exception?: Remote; text: string } }>(
       frameId ? 'Debugger.evaluateOnCallFrame' : 'Runtime.evaluate',
@@ -220,6 +239,7 @@ export class DebugService {
   }
 
   dispose(): void {
+    this.dap?.dispose()
     const run = this.current
     if (!run) return
     run.cdp?.close()
@@ -227,6 +247,37 @@ export class DebugService {
   }
 
   // --- helpers ---
+
+  /** Python / Go: the language's debugger from Settings → Languages, through its debug adapter. */
+  private async startDap(
+    language: string,
+    req: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[] },
+    root: string,
+    program: string
+  ): Promise<DebugSession> {
+    const debuggerPath = await this.opts.tools?.locate(language, 'debugger')
+    const name = LANGUAGES.find((l) => l.id === language)!.name
+    if (!debuggerPath) throw coded('debugger-missing', `No ${name} debugger installed — Settings → Languages`)
+    this.current = undefined
+    let dap: DapSession | undefined
+    const { transport, launch } = await (this.opts.adapter ?? startAdapter)(language, {
+      root,
+      program,
+      args: req.args ?? [],
+      debugger: debuggerPath,
+      output: (stream, text) => dap && this.opts.publish('debug:output', { sessionId: dap.session.id, stream, text })
+    })
+    dap = new DapSession(new DapClient(transport), launch, { projectId: req.projectId, program: req.program, root, publish: this.opts.publish })
+    this.dap = dap
+    this.opts.publish('debug:session', dap.session)
+    void dap.start(req.breakpoints, !!req.stopOnEntry).catch((err: Error) => dap!.fail(err.message))
+    return dap.session
+  }
+
+  private running(): DapSession {
+    if (this.dap!.session.status === 'exited') throw coded('debug-not-running', 'No program is being debugged')
+    return this.dap!
+  }
 
   private cdp(): Cdp {
     const cdp = this.current?.cdp

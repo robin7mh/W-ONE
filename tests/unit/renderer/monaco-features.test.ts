@@ -35,7 +35,8 @@ const mon = vi.hoisted(() => {
       return new Uri('file', path)
     }
   }
-  const language = (path: string) => (/\.tsx?$/.test(path) ? 'typescript' : /\.jsx?$/.test(path) ? 'javascript' : 'plaintext')
+  const language = (path: string) =>
+    /\.tsx?$/.test(path) ? 'typescript' : /\.jsx?$/.test(path) ? 'javascript' : /\.py$/.test(path) ? 'python' : /\.go$/.test(path) ? 'go' : 'plaintext'
   class Model {
     change = new Emitter()
     willDispose = new Emitter()
@@ -134,7 +135,7 @@ const mon = vi.hoisted(() => {
       TrackedRangeStickiness: { NeverGrowsWhenTypingAtEdges: 1 }
     },
     languages: {
-      CompletionItemKind: { Text: 18, Function: 1, Variable: 4, Module: 8 },
+      CompletionItemKind: { Text: 18, Function: 1, Variable: 4, Module: 8, Snippet: 27 },
       CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
       registerHoverProvider: register('hover'),
       registerCompletionItemProvider: register('completion'),
@@ -157,6 +158,7 @@ import { tabKey, useEditor, type EditorTab } from '@/features/editor/store'
 import { useScm } from '@/features/editor/scm'
 import { useDebug } from '@/features/editor/debug'
 import { useProblems } from '@/features/editor/problems'
+import { useLanguages } from '@/features/editor/languages'
 
 type Model = InstanceType<typeof mon.Model>
 type Editor = InstanceType<typeof mon.Editor>
@@ -353,6 +355,8 @@ describe('breakpoints in the editor', () => {
 
 describe('TypeScript through tsserver', () => {
   let bridge: ReturnType<typeof installBridge>
+  /** setupLsp subscribes to events once — on the bridge of the first test. */
+  let first: ReturnType<typeof installBridge> | undefined
   const routes: Record<string, (p: never) => unknown> = {}
   beforeAll(() => {
     // Models from before the setup are picked up too.
@@ -367,6 +371,7 @@ describe('TypeScript through tsserver', () => {
       'lsp:diagnostics': () => ({})
     })
     bridge = installBridge(routes)
+    first ??= bridge
     setupLsp()
     setupLsp() // once is enough
     useEditor.setState({ tabs: [], projectId: 'p' })
@@ -449,7 +454,7 @@ describe('TypeScript through tsserver', () => {
     make('d1', 'readme.md', 'r')
     await flush()
     expect(calls('lsp:diagnostics')).toEqual([{ projectId: 'd1', paths: ['a.ts', 'b.ts'] }])
-    expect(mon.state.markers.get('tsserver:/d1/a.ts')).toEqual([
+    expect(mon.state.markers.get('lsp:/d1/a.ts')).toEqual([
       { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 4, message: 'bad', severity: 8, code: '2322', source: 'ts', tags: [] },
       { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 2, message: 'unused', severity: 1, code: undefined, source: 'ts', tags: [1] },
       { startLineNumber: 3, startColumn: 1, endLineNumber: 3, endColumn: 2, message: 'old', severity: 4, code: undefined, source: 'ts', tags: [2] },
@@ -592,19 +597,67 @@ describe('TypeScript through tsserver', () => {
     const marker = (code: string, line = 1) => ({ source: 'ts', code, startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 6 })
     routes['lsp:codeFixes'] = ({ errorCodes }: { errorCodes: number[] }) =>
       errorCodes[0] === 9 ? Promise.reject(new Error('x')) : [{ title: 'Add import from "./c"', files: [{ path: 'a.ts', edits: [{ range: range(1, 1, 1, 1), newText: 'import' }] }] }]
-    const res = (await provider('codeActions').provideCodeActions(m, null, { markers: [marker('2304'), marker('2304', 2), { source: 'other', code: '1' }, { source: 'ts' }, marker('9')] })) as {
+    // Every marker of a language service (it has a source); TypeScript's by error number, others by range.
+    const res = (await provider('codeActions').provideCodeActions(m, null, { markers: [marker('2304'), marker('2304', 2), { source: 'Pyright', code: 'reportX' }, { source: 'ts' }, { code: '5' }, marker('9')] })) as {
       actions: { title: string; kind: string; isPreferred: boolean; edit: { edits: unknown[] } }[]
       dispose: () => void
     }
     res.dispose()
-    expect(calls('lsp:codeFixes')).toHaveLength(3)
+    expect(calls('lsp:codeFixes')).toHaveLength(5)
     expect(calls('lsp:codeFixes')[0]).toEqual({ projectId: 'q1', path: 'a.ts', range: range(1, 1, 1, 6), errorCodes: [2304] })
+    expect((calls('lsp:codeFixes')[2] as { errorCodes: number[] }).errorCodes).toEqual([])
     expect(res.actions).toHaveLength(1)
     expect(res.actions[0]).toMatchObject({ title: 'Add import from "./c"', kind: 'quickfix', isPreferred: true })
     expect(res.actions[0].edit.edits).toHaveLength(1)
     const none = (await provider('codeActions').provideCodeActions(m, null, { markers: [] })) as { actions: unknown[]; dispose: () => void }
     none.dispose()
     expect(none.actions).toEqual([])
+  })
+
+  it('language servers: markdown hovers, details beside completions, availability per language', async () => {
+    routes['lsp:open'] = ({ path }: { path: string }) => (path.endsWith('.py') ? { available: true, language: 'python' } : { available: false, language: 'typescript' })
+    const py = make('l1', 'app.py', 'x')
+    const ts = make('l1', 'a.ts', 'y')
+    await flush()
+    expect(useLanguages.getState().files['l1:app.py']).toEqual({ language: 'python', available: true })
+    expect(useLanguages.getState().files['l1:a.ts']).toEqual({ language: 'typescript', available: false })
+    routes['lsp:hover'] = () => ({ display: '', documentation: '', markdown: '**def** f()' })
+    expect(await provider('hover', 'python').provideHover(py, { lineNumber: 1, column: 1 })).toEqual({ range: undefined, contents: [{ value: '**def** f()' }] })
+    expect(await provider('hover').provideHover(ts, { lineNumber: 1, column: 1 })).toBeNull() // its server isn't there
+    routes['lsp:completions'] = () => [{ name: 'f', kind: 'snippet', sortText: '1', detail: '() -> int' }]
+    const list = (await provider('completion', 'python').provideCompletionItems(py, { lineNumber: 1, column: 3 }, {})) as { suggestions: { label: unknown; kind: number }[] }
+    expect(list.suggestions[0]).toMatchObject({ label: { label: 'f', description: '() -> int' }, kind: 27 })
+    routes['lsp:diagnostics'] = () => ({ 'app.py': [{ range: range(1, 1, 1, 2), message: 'm', severity: 'error', code: 'reportX', source: 'Pyright' }] })
+    useEditor.setState({ tabs: [tab('l1', 'app.py')] })
+    await act(() => refreshDiagnostics('l1'))
+    expect(mon.state.markers.get('lsp:/l1/app.py')).toEqual([expect.objectContaining({ code: 'reportX', source: 'Pyright' })])
+    py.dispose()
+    expect(useLanguages.getState().files['l1:app.py']).toBeUndefined()
+  })
+
+  it('a server published diagnostics: the editor asks again; one was installed: open files try again', async () => {
+    let available = false
+    routes['lsp:open'] = () => ({ available, language: 'go' })
+    const g = make('e1', 'main.go', 'package main')
+    make('e1', 'ok.go', 'package main')
+    const opens = () => calls('lsp:open').filter((p) => (p as { projectId: string }).projectId === 'e1')
+    await flush()
+    expect(opens()).toHaveLength(2)
+    available = true
+    act(() => useLanguages.getState().toolsChanged())
+    await flush()
+    expect(opens()).toHaveLength(4)
+    expect(useLanguages.getState().files['e1:main.go']).toEqual({ language: 'go', available: true })
+    act(() => useLanguages.getState().toolsChanged()) // all have their server now: nothing to retry
+    act(() => useLanguages.setState({ files: { ...useLanguages.getState().files } })) // unrelated change
+    await flush()
+    expect(opens()).toHaveLength(4)
+
+    useEditor.setState({ tabs: [tab('e1', 'main.go')] })
+    act(() => first!.emit('lsp:diagnostics', { projectId: 'e1' }))
+    await flush()
+    expect(calls('lsp:diagnostics')).toContainEqual({ projectId: 'e1', paths: ['main.go'] })
+    g.dispose()
   })
 
   it('“go to definition” in another file opens it as a tab', () => {

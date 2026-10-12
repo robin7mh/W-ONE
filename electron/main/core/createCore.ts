@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises'
-import { hostname } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
 import type { WonePaths } from '../lib/paths'
@@ -15,6 +15,8 @@ import { registerFilesIpc } from '../../ipc/files.ipc'
 import { registerScmIpc } from '../../ipc/scm.ipc'
 import { registerLspIpc } from '../../ipc/lsp.ipc'
 import { registerDebugIpc } from '../../ipc/debug.ipc'
+import { registerToolsIpc } from '../../ipc/tools.ipc'
+import { registerMigrateIpc } from '../../ipc/migrate.ipc'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
@@ -30,6 +32,8 @@ import { FilesService } from '../services/files/FilesService'
 import { ScmService } from '../services/scm/ScmService'
 import { LspService } from '../services/lsp/LspService'
 import { DebugService } from '../services/debug/DebugService'
+import { ToolsService } from '../services/tools/ToolsService'
+import { MigrateService, appDataDir } from '../services/migrate/MigrateService'
 import { AuthService } from '../services/auth/AuthService'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
@@ -148,8 +152,17 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     (abs) => platform.trashItem(abs, fileTrash)
   )
   const scm = new ScmService((id) => projects.getProjectPath(id))
-  const lsp = new LspService({ resolveRoot: (id) => projects.getProjectPath(id) })
-  const debug = new DebugService({ resolveRoot: (id) => projects.getProjectPath(id), publish: (channel, payload) => hub.publish(channel, payload as never) })
+  // Language servers and debuggers W-ONE installs live in its data folder.
+  const devTools = new ToolsService({ dir: join(paths.dataDir, 'tools'), publish: hub.publish.bind(hub, 'tools:progress') })
+  const lsp = new LspService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    servers: { tools: devTools, onDiagnostics: hub.publish.bind(hub, 'lsp:diagnostics') }
+  })
+  const debug = new DebugService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    publish: (channel, payload) => hub.publish(channel, payload as never),
+    tools: devTools
+  })
   const auth = new AuthService(paths.devicesFile)
 
   // The router asks the server controller whether remote shells are allowed,
@@ -265,6 +278,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerScmIpc(router, scm)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
+  registerToolsIpc(router, devTools)
+  registerMigrateIpc(router, new MigrateService({ home: homedir(), appData: appDataDir(), settings, snippetsFile: join(paths.dataDir, 'snippets.json') }))
   registerAgentsIpc(router, agents)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))

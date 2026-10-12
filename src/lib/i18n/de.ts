@@ -477,7 +477,7 @@ agents: {
     running: 'Läuft',
     paused: (reason) => `Angehalten: ${reason}`,
     exited: (code) => (code === null ? 'Beendet' : `Beendet mit Code ${code}`),
-    reasons: { breakpoint: 'Haltepunkt', step: 'Schritt', exception: 'Ausnahme', promiseRejection: 'abgelehntes Promise', 'Break on start': 'Start', debugCommand: 'debugger-Anweisung' },
+    reasons: { breakpoint: 'Haltepunkt', step: 'Schritt', exception: 'Ausnahme', promiseRejection: 'abgelehntes Promise', 'Break on start': 'Start', debugCommand: 'debugger-Anweisung', entry: 'Start', pause: 'Pause' },
     internal: 'Node-intern',
     showInternal: (n) => `${n} Node-Frames anzeigen`,
     hideInternal: 'Node-Frames ausblenden',
@@ -486,6 +486,38 @@ agents: {
     noProgram: 'Wähle ein Programm zum Debuggen — oder öffne eine Datei.',
     nodeHint: 'Läuft mit deinem Node.js. TypeScript-Dateien laufen direkt (ab Node 22.6).',
     status: 'Debuggen'
+  },
+
+  migrate: {
+    title: 'Von VS Code / Cursor umziehen',
+    intro: 'W-ONE übernimmt deine Editor-Einstellungen, Tastenkürzel und Snippets – VS Code selbst bleibt unverändert. Farben und Themes bleiben im W-ONE-Design.',
+    desktopOnly: 'Der Umzug funktioniert in der W-ONE-Desktop-App.',
+    none: 'Kein VS Code, Cursor, VSCodium oder Windsurf auf diesem Rechner gefunden.',
+    apply: 'Übernehmen',
+    counts: (settings, keys, snippets) => `${settings} Editor-Einstellungen · ${keys} Tastenkürzel · ${snippets} Snippets`,
+    done: (settings, keys, snippets) => `Übernommen: ${settings} Einstellungen, ${keys} Tastenkürzel, ${snippets} Snippets`,
+    fates: {
+      'built-in': 'Schon in W-ONE eingebaut',
+      language: 'Sprachen',
+      snippets: 'Snippets kommen mit',
+      theme: 'Themes – W-ONE behält sein Design',
+      unsupported: 'Noch nicht in W-ONE'
+    },
+    installLanguages: (names) => `unter Sprachen installieren: ${names}`
+  },
+
+  languages: {
+    title: 'Sprachen',
+    intro: 'Sprachserver und Debugger laufen auf diesem Rechner, wie in VS Code. W-ONE installiert sie nur, wenn du auf „Installieren“ klickst.',
+    refresh: 'Erneut prüfen',
+    ready: 'bereit',
+    install: 'Installieren',
+    installTool: (name) => `${name} installieren`,
+    needs: (tool) => `braucht ${tool}`,
+    manual: 'kommt mit der Toolchain',
+    log: 'Installationsausgabe',
+    noServer: (name) => `${name} · ohne Sprachserver`,
+    noServerHint: 'Installieren unter Einstellungen → Sprachen'
   },
 
   problems: {

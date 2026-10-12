@@ -4,6 +4,7 @@
 import type { GraphStyle } from './memory'
 import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
+import type { EditorSettings } from './migrate'
 
 export interface AppSettings {
   /**
@@ -17,4 +18,6 @@ export interface AppSettings {
   server?: ServerConfig
   /** Assistant model + effort (the API key lives in the secret store). */
   ai?: AiSettings
+  /** Editor preferences and keybindings (taken over from VS Code / Cursor, or set here). */
+  editor?: EditorSettings
 }

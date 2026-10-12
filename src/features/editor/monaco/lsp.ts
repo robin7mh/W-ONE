@@ -1,15 +1,18 @@
-import { ipc } from '@shared/ipc/client'
+import { ipc, onEvent } from '@shared/ipc/client'
 import type { LspDiagnostic, LspFileEdits, LspRange, LspTextEdit } from '@shared/types/lsp'
+import { LANGUAGES as SERVED_LANGUAGES } from '@shared/types/languages'
 import { monaco } from './setup'
-import { useEditor } from '../store'
+import { tabKey, useEditor } from '../store'
 import { useProblems } from '../problems'
+import { useLanguages } from '../languages'
 
 type File = { projectId: string; path: string }
 type Model = monaco.editor.ITextModel
 
-const LANGUAGES = ['typescript', 'javascript']
-const OWNER = 'tsserver'
-/** Edits reach tsserver this long after the last keystroke (queries send them at once). */
+/** Monaco languages with a language service: TypeScript / JavaScript (tsserver) and every registry language. */
+const LANGUAGES = ['typescript', 'javascript', ...SERVED_LANGUAGES.flatMap((l) => l.monaco)]
+const OWNER = 'lsp'
+/** Edits reach the server this long after the last keystroke (queries send them at once). */
 const SYNC_MS = 250
 /** Diagnostics are asked for this long after the last change. */
 const DIAGNOSTICS_MS = 500
@@ -26,18 +29,22 @@ const uriOf = (f: File) => monaco.Uri.file(`/${f.projectId}/${f.path}`)
 const toRange = (r: LspRange) => new monaco.Range(r.start.line, r.start.offset, r.end.line, r.end.offset)
 const at = (model: Model, pos: monaco.IPosition) => ({ ...fileOf(model.uri)!, line: pos.lineNumber, offset: pos.column })
 
-/** Which projects have a tsserver running. */
+/** Which project + Monaco language has its server running (`projectId:languageId`). */
 const available = new Map<string, boolean>()
+const serverKey = (model: Model, file: File) => `${file.projectId}:${model.getLanguageId()}`
+const projectServed = (projectId: string) => [...available].some(([key, on]) => on && key.startsWith(`${projectId}:`))
+/** Per model: open it again (after a language server was installed). */
+const reopeners = new Map<string, () => void>()
 /** Per model: send its pending edit now (before a query). */
 const flushers = new Map<string, () => Promise<void>>()
 
-/** A model tsserver should know: TS / JS of a project, while its project has a server. */
+/** A model whose server runs. */
 function served(model: Model): File | undefined {
   const file = fileOf(model.uri)
-  return file && LANGUAGES.includes(model.getLanguageId()) && available.get(file.projectId) ? file : undefined
+  return file && LANGUAGES.includes(model.getLanguageId()) && available.get(serverKey(model, file)) ? file : undefined
 }
 
-/** Make sure tsserver has the text on screen before asking it anything. */
+/** Make sure the server has the text on screen before asking it anything. */
 async function ready(model: Model): Promise<File | undefined> {
   const file = served(model)
   if (file) await flushers.get(model.uri.toString())?.()
@@ -50,19 +57,26 @@ function track(model: Model): void {
   const file = fileOf(model.uri)
   if (!file || !LANGUAGES.includes(model.getLanguageId())) return
   const key = model.uri.toString()
+  const server = serverKey(model, file)
   let timer: number | undefined
-  let opened: Promise<unknown> = ipc('lsp:open', { ...file, text: model.getValue() }).then(
-    ({ available: on }) => {
-      available.set(file.projectId, on)
-      if (on) scheduleDiagnostics(file.projectId)
-    },
-    () => available.set(file.projectId, false)
-  )
+  const open = () =>
+    ipc('lsp:open', { ...file, text: model.getValue() }).then(
+      ({ available: on, language }) => {
+        available.set(server, on)
+        useLanguages.getState().report(tabKey(file.projectId, file.path), { language, available: on })
+        if (on) scheduleDiagnostics(file.projectId)
+      },
+      () => available.set(server, false)
+    )
+  let opened: Promise<unknown> = open()
+  reopeners.set(key, () => {
+    if (!available.get(server)) opened = opened.then(open)
+  })
   const send = async () => {
     window.clearTimeout(timer)
     timer = undefined
     await opened
-    if (!available.get(file.projectId)) return
+    if (!available.get(server)) return
     await ipc('lsp:change', { ...file, text: model.getValue() }).catch(() => {})
     scheduleDiagnostics(file.projectId)
   }
@@ -77,6 +91,8 @@ function track(model: Model): void {
   model.onWillDispose(() => {
     window.clearTimeout(timer)
     flushers.delete(key)
+    reopeners.delete(key)
+    useLanguages.getState().forget(tabKey(file.projectId, file.path))
     opened = opened.then(() => ipc('lsp:close', file)).catch(() => {})
     useProblems.getState().forget(file.projectId, file.path)
     scheduleDiagnostics(file.projectId)
@@ -101,7 +117,7 @@ const SEVERITY: Record<LspDiagnostic['severity'], monaco.MarkerSeverity> = {
 
 /** Errors of every open file of the project — a change in one file can break another. */
 export async function refreshDiagnostics(projectId: string): Promise<void> {
-  if (!available.get(projectId)) return
+  if (!projectServed(projectId)) return
   const paths = useEditor
     .getState()
     .tabs.filter((t) => t.projectId === projectId)
@@ -127,7 +143,7 @@ export async function refreshDiagnostics(projectId: string): Promise<void> {
         message: d.message,
         severity: SEVERITY[d.severity],
         code: d.code === undefined ? undefined : String(d.code),
-        source: 'ts',
+        source: d.source ?? 'ts',
         tags: [...(d.unnecessary ? [monaco.MarkerTag.Unnecessary] : []), ...(d.deprecated ? [monaco.MarkerTag.Deprecated] : [])]
       }))
     )
@@ -204,7 +220,8 @@ const KINDS: Record<string, monaco.languages.CompletionItemKind> = {
   'type parameter': K.TypeParameter,
   alias: K.Reference,
   string: K.Value,
-  directory: K.Folder
+  directory: K.Folder,
+  snippet: K.Snippet
 }
 
 /** What resolving a completion needs back (kept per suggestion object). */
@@ -222,6 +239,11 @@ export function setupLsp(): void {
   registered = true
   monaco.editor.getModels().forEach(track)
   monaco.editor.onDidCreateModel(track)
+  // A language server published diagnostics; one was installed (Settings) — open files try again.
+  onEvent('lsp:diagnostics', ({ projectId }) => scheduleDiagnostics(projectId))
+  useLanguages.subscribe((s, prev) => {
+    if (s.toolsVersion !== prev.toolsVersion) reopeners.forEach((reopen) => reopen())
+  })
 
   // "Go to definition" into another file opens it as a tab.
   monaco.editor.registerEditorOpener({
@@ -241,8 +263,10 @@ export function setupLsp(): void {
         const hover = await ipc('lsp:hover', at(model, position)).catch(() => null)
         if (!hover) return null
         return {
-          range: toRange(hover.range),
-          contents: [{ value: `\`\`\`typescript\n${hover.display}\n\`\`\`` }, ...(hover.documentation ? [{ value: hover.documentation }] : [])]
+          range: hover.range && toRange(hover.range),
+          contents: hover.markdown
+            ? [{ value: hover.markdown }]
+            : [{ value: `\`\`\`typescript\n${hover.display}\n\`\`\`` }, ...(hover.documentation ? [{ value: hover.documentation }] : [])]
         }
       }
     })
@@ -259,7 +283,7 @@ export function setupLsp(): void {
         return {
           suggestions: entries.map((e) => {
             const item: monaco.languages.CompletionItem = {
-              label: e.source ? { label: e.name, description: e.source } : e.name,
+              label: e.source || e.detail ? { label: e.name, description: e.source ?? e.detail } : e.name,
               kind: KINDS[e.kind] ?? K.Text,
               sortText: e.sortText,
               insertText: e.insertText ?? e.name,
@@ -340,12 +364,14 @@ export function setupLsp(): void {
     monaco.languages.registerCodeActionProvider(language, {
       async provideCodeActions(model, _range, context) {
         const file = await ready(model)
-        const markers = context.markers.filter((m) => m.source === 'ts' && m.code)
+        const markers = context.markers.filter((m) => m.source)
         if (!file || !markers.length) return { actions: [], dispose() {} }
         const actions: monaco.languages.CodeAction[] = []
         for (const marker of markers) {
           const range = { start: { line: marker.startLineNumber, offset: marker.startColumn }, end: { line: marker.endLineNumber, offset: marker.endColumn } }
-          const fixes = await ipc('lsp:codeFixes', { ...file, range, errorCodes: [Number(marker.code)] }).catch(() => [])
+          // TypeScript fixes per error number; language servers fix whatever they reported in the range.
+          const code = Number(marker.code)
+          const fixes = await ipc('lsp:codeFixes', { ...file, range, errorCodes: Number.isInteger(code) ? [code] : [] }).catch(() => [])
           for (const fix of fixes) {
             if (actions.some((a) => a.title === fix.title)) continue
             actions.push({ title: fix.title, kind: 'quickfix', diagnostics: [marker], edit: await workspaceEdit(file.projectId, fix.files), isPreferred: actions.length === 0 })

@@ -2,6 +2,10 @@ import { create } from 'zustand'
 import { errorMessage, ipc, onEvent } from '@shared/ipc/client'
 import type { DebugAction, DebugBreakpoint, DebugSession, DebugVariable } from '@shared/types/debug'
 import { useEditor } from './store'
+import { languageOf } from '@shared/types/languages'
+
+/** The program that runs a file, as the console's first line says. */
+export const runnerOf = (program: string): string => ({ python: 'python', go: 'go run' })[languageOf(program)?.id ?? ''] ?? 'node'
 
 export interface ConsoleLine {
   id: number
@@ -176,7 +180,7 @@ export const useDebug = create<DebugState>((set, get) => {
       if (!program) return set({ error: 'no-program' })
       // Unsaved edits would not be what runs.
       await editor.saveAll()
-      set({ error: undefined, console: [line('info', `▶ node ${program} ${get().args[projectId] ?? ''}\n`)], consoleOpen: true })
+      set({ error: undefined, console: [line('info', `▶ ${runnerOf(program)} ${program} ${get().args[projectId] ?? ''}\n`)], consoleOpen: true })
       try {
         const session = await ipc('debug:start', {
           projectId,

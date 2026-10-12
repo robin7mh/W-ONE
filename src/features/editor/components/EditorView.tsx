@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
@@ -19,6 +19,11 @@ import { QuickOpen } from './QuickOpen'
 import { buildCommands } from '../commands'
 import { projectProblems, useProblems } from '../problems'
 import { useDebug } from '../debug'
+import { useLanguages } from '../languages'
+import { LANGUAGES } from '@shared/types/languages'
+import { WORKBENCH_COMMANDS } from '@shared/types/migrate'
+import { useEditorPrefs } from '../prefs'
+import { matchesStroke, parseKeybinding } from '../keys'
 import { DebugConsole, DebugPanel } from './DebugPanel'
 import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
@@ -85,6 +90,19 @@ function debugCommands(t: ReturnType<typeof useT>): PickItem[] {
     { id: 'debug.view', label: label(d.title), run: () => useScm.getState().setPane('debug') },
     { id: 'debug.console', label: label(d.console), run: () => debug().setConsoleOpen(true) }
   ]
+}
+
+/** The user's own keybindings for workbench commands (moved over from VS Code): true when one ran. */
+function runUserBinding(e: KeyboardEvent, commands: () => PickItem[]): boolean {
+  for (const b of useEditorPrefs.getState().settings.keybindings ?? []) {
+    const id = WORKBENCH_COMMANDS[b.command]
+    const strokes = id ? parseKeybinding(b.key) : null
+    if (!strokes || strokes.length !== 1 || !matchesStroke(strokes[0], e)) continue
+    if (id === 'palette') useScm.getState().setQuickOpen(true, '>')
+    else void commands().find((c) => c.id === id)?.run()
+    return true
+  }
+  return false
 }
 
 /** F5 & co. — VS Code's debug keys. True when the key was one of them. */
@@ -205,9 +223,18 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const [cursor, setCursor] = useState<CursorInfo>()
   cursorLine = cursor?.line ?? 1
   const session = useDebug((s) => s.session)
+  const fileLanguage = useLanguages((s) => (tab ? s.files[tab.id] : undefined))
+  const missingServer = fileLanguage && !fileLanguage.available ? LANGUAGES.find((l) => l.id === fileLanguage.language) : undefined
   const consoleOpen = useDebug((s) => s.consoleOpen)
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
   const { pane, diff, quickOpen, quickQuery, pick, status, busy, error: scmError } = useScm()
+  const commands = useRef<() => PickItem[]>()
+  commands.current = () =>
+    buildCommands(t, {
+      onNavigate,
+      readOnly,
+      extra: [...(readOnly ? [] : debugCommands(t)), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
+    })
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
   const errors = problems.filter((p) => p.severity === 'error').length
@@ -217,7 +244,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       items: problems.map((p) => ({
         id: `${p.path}:${p.line}:${p.col}:${p.message}`,
         label: `${p.severity === 'error' ? '⛔' : '⚠️'} ${p.message}`,
-        detail: `${p.path}:${p.line}${p.code ? ` · TS${p.code}` : ''}`,
+        detail: `${p.path}:${p.line}${p.code === undefined ? '' : ` · ${p.source ? `${p.source} ${p.code}` : `TS${p.code}`}`}`,
         run: () => {
           useScm.getState().closeDiff()
           return useEditor.getState().openAt(p.path, p.line)
@@ -249,6 +276,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     }
     const onKey = (e: KeyboardEvent) => {
       const scm = useScm.getState()
+      if (runUserBinding(e, () => commands.current!())) return e.preventDefault()
       if (debugKey(e)) return e.preventDefault()
       if (e.key === 'F1') {
         scm.setQuickOpen(true, '>')
@@ -281,6 +309,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   // The debugger follows the core's session events while the editor is mounted.
   useEffect(() => useDebug.getState().connect(), [])
+  // Settings, keybindings and snippets taken over from VS Code / Cursor.
+  useEffect(() => void useEditorPrefs.getState().load(), [])
 
   // Unsaved edits veto closing the window; the desktop app then asks (main.ts).
   useEffect(() => {
@@ -500,6 +530,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               {cursor && (
                 <span>{t.editor.lineCol(cursor.line, cursor.col)}</span>
               )}
+              {missingServer && (
+                <button type="button" title={t.languages.noServerHint} onClick={() => onNavigate('settings')} className="shrink-0 text-amber/80 hover:text-amber">
+                  {t.languages.noServer(missingServer.name)}
+                </button>
+              )}
               {cursor && <span>{cursor.language}</span>}
               <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? t.editor.saving : tab.dirty ? t.editor.unsaved : t.editor.saved}</span>
             </>
@@ -507,7 +542,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         </footer>
       </section>
       {quickOpen && (
-        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} commands={buildCommands(t, { onNavigate, readOnly, extra: readOnly ? [] : debugCommands(t) })} />
+        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} commands={commands.current()} />
       )}
     </Panel>
   )

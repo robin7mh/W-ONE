@@ -490,7 +490,7 @@ agents: {
     running: 'Running',
     paused: (reason: string) => `Paused on ${reason}`,
     exited: (code: number | null) => (code === null ? 'Stopped' : `Exited with code ${code}`),
-    reasons: { breakpoint: 'breakpoint', step: 'step', exception: 'exception', promiseRejection: 'rejected promise', 'Break on start': 'entry', debugCommand: 'debugger statement' },
+    reasons: { breakpoint: 'breakpoint', step: 'step', exception: 'exception', promiseRejection: 'rejected promise', 'Break on start': 'entry', debugCommand: 'debugger statement', entry: 'entry', pause: 'pause' },
     internal: 'Node internals',
     showInternal: (n: number) => `Show ${n} Node frames`,
     hideInternal: 'Hide Node frames',
@@ -499,6 +499,38 @@ agents: {
     noProgram: 'Choose a program to debug — or open a file.',
     nodeHint: 'Runs with your Node.js. TypeScript files run directly (Node 22.6 or newer).',
     status: 'Debugging'
+  },
+
+  migrate: {
+    title: 'Move over from VS Code / Cursor',
+    intro: 'W-ONE takes over your editor settings, keybindings and snippets — VS Code itself stays untouched. Colors and themes stay W-ONE’s.',
+    desktopOnly: 'Moving over works in the W-ONE desktop app.',
+    none: 'No VS Code, Cursor, VSCodium or Windsurf found on this computer.',
+    apply: 'Take over',
+    counts: (settings: number, keys: number, snippets: number) => `${settings} editor settings · ${keys} keybindings · ${snippets} snippets`,
+    done: (settings: number, keys: number, snippets: number) => `Taken over: ${settings} settings, ${keys} keybindings, ${snippets} snippets`,
+    fates: {
+      'built-in': 'Already built into W-ONE',
+      language: 'Languages',
+      snippets: 'Snippets come along',
+      theme: 'Themes — W-ONE keeps its design',
+      unsupported: 'Not in W-ONE yet'
+    },
+    installLanguages: (names: string) => `install under Languages: ${names}`
+  },
+
+  languages: {
+    title: 'Languages',
+    intro: 'Language servers and debuggers run on this computer, like in VS Code. W-ONE installs them only when you click Install.',
+    refresh: 'Check again',
+    ready: 'ready',
+    install: 'Install',
+    installTool: (name: string) => `Install ${name}`,
+    needs: (tool: string) => `needs ${tool}`,
+    manual: 'comes with its toolchain',
+    log: 'Install output',
+    noServer: (name: string) => `${name} · no language server`,
+    noServerHint: 'Install it under Settings → Languages'
   },
 
   problems: {

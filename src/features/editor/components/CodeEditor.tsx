@@ -6,6 +6,8 @@ import { setEditorActions } from '../actions'
 import { attachGutter } from '../monaco/gutter'
 import { setupLsp } from '../monaco/lsp'
 import { attachBreakpoints } from '../monaco/breakpoints'
+import { setupUserPrefs } from '../monaco/userPrefs'
+import { monacoOptions, useEditorPrefs } from '../prefs'
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 
 export interface CursorInfo {
@@ -100,6 +102,12 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     editor.addCommand(monaco.KeyCode.F1, () => useScm.getState().setQuickOpen(true, '>'))
     editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
     setupLsp()
+    setupUserPrefs()
+    // The user's editor settings (moved over from VS Code / Cursor), now and when they change.
+    editor.updateOptions(monacoOptions(useEditorPrefs.getState().settings))
+    const unsubscribePrefs = useEditorPrefs.subscribe((s, prev) => {
+      if (s.settings !== prev.settings) editor.updateOptions(monacoOptions(s.settings))
+    })
     const shownTab = () => useEditor.getState().tabs.find((t) => t.id === shown.current)
     const detachGutter = attachGutter(editor, shownTab)
     const detachBreakpoints = attachBreakpoints(editor, shownTab)
@@ -163,6 +171,7 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
       setEditorActions(null)
       detachGutter()
       detachBreakpoints()
+      unsubscribePrefs()
       theme.disconnect()
       subs.forEach((s) => s.dispose())
       editor.dispose()

@@ -30,6 +30,8 @@ import type {
   LspSignature
 } from '@shared/types/lsp'
 import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
+import type { LanguageStatus, ToolProgress } from '@shared/types/languages'
+import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
 import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
 import type {
   AgentAvailability,
@@ -167,7 +169,8 @@ export interface IpcChannels {
   'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
 
   /** TypeScript intelligence (the project's tsserver). Positions are 1-based. */
-  'lsp:open': { request: { projectId: string; path: string; text: string }; response: { available: boolean } }
+  /** `language`: the file's language (registry id), whether or not its server runs. */
+  'lsp:open': { request: { projectId: string; path: string; text: string }; response: { available: boolean; language?: string } }
   'lsp:change': { request: { projectId: string; path: string; text: string }; response: void }
   'lsp:close': { request: { projectId: string; path: string }; response: void }
   'lsp:diagnostics': { request: { projectId: string; paths: string[] }; response: Record<string, LspDiagnostic[]> }
@@ -191,6 +194,16 @@ export interface IpcChannels {
   'debug:setBreakpoints': { request: { projectId: string; breakpoints: DebugBreakpoint[] }; response: void }
   'debug:variables': { request: { objectId: string }; response: DebugVariable[] }
   'debug:evaluate': { request: { expression: string; frameId?: string }; response: DebugVariable }
+
+  /** Language servers and debuggers on this machine (Settings → Languages). */
+  'tools:status': { request: void; response: LanguageStatus[] }
+  'tools:install': { request: { id: string; part: 'server' | 'debugger' }; response: LanguageStatus }
+
+  /** Moving over from VS Code / Cursor: what's there (read only), and taking it over. */
+  'migrate:scan': { request: void; response: MigrationSource[] }
+  'migrate:apply': { request: { app: string }; response: MigrationResult }
+  /** The editor's preferences, keybindings and snippets. */
+  'editor:settings': { request: void; response: { settings: EditorSettings; snippets: Snippet[] } }
 
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
@@ -360,6 +373,13 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'debug:setBreakpoints': 'terminal',
   'debug:variables': 'terminal',
   'debug:evaluate': 'terminal',
+  'tools:status': 'any',
+  // Installing runs package managers on the core's machine.
+  'tools:install': 'terminal',
+  // Reads the desktop user's own VS Code folders.
+  'migrate:scan': 'desktop',
+  'migrate:apply': 'desktop',
+  'editor:settings': 'any',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',
@@ -439,6 +459,9 @@ export interface IpcEvents {
   'update:status': UpdateStatus
   'debug:session': DebugSession
   'debug:output': DebugOutput
+  /** A language server published new diagnostics — the editor asks for them again. */
+  'lsp:diagnostics': { projectId: string }
+  'tools:progress': ToolProgress
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -461,7 +484,9 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'cloud:status',
   'update:status',
   'debug:session',
-  'debug:output'
+  'debug:output',
+  'lsp:diagnostics',
+  'tools:progress'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */

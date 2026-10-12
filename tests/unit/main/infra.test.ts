@@ -51,6 +51,8 @@ import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
 import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
 import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
+import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
+import { registerMigrateIpc } from '../../../electron/ipc/migrate.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -264,6 +266,23 @@ describe('ipc handler modules bind every channel to its service', () => {
           'codeFixes',
           ['p', 'a.ts', { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, [2304]]
         ]
+      ]
+    ],
+    [
+      'tools',
+      registerToolsIpc,
+      [
+        ['tools:status', undefined, 'status', []],
+        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']]
+      ]
+    ],
+    [
+      'migrate',
+      registerMigrateIpc,
+      [
+        ['migrate:scan', undefined, 'scan', []],
+        ['migrate:apply', { app: 'Code' }, 'apply', ['Code']],
+        ['editor:settings', undefined, 'editor', []]
       ]
     ],
     [
