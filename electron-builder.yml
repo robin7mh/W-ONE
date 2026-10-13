@@ -117,5 +117,5 @@ deb:
 publish:
   provider: github
   owner: robin7mh
-  repo: W-ONE
+  repo: mindeck
   releaseType: release

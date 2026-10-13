@@ -4,7 +4,7 @@
 declare const __MINDECK_CLOUD_URL__: string | undefined
 declare const __MINDECK_CLOUD_KEY__: string | undefined
 
-/** `npm run dev` in W-ONE-Cloud. */
+/** `npm run dev` in mindeck-cloud. */
 export const DEV_CLOUD_URL = 'http://localhost:8080'
 
 export interface CloudConfig {

@@ -617,7 +617,7 @@ User decision: the Agents module works with the AI the user already pays for —
 
 ### 12.7 Mindeck account & license (2026-10-09)
 
-User decision: Mindeck is sold — a 7-hour trial (active use, per account) and a 79 € lifetime license, both held by **Mindeck Cloud** (private repo `W-ONE-Cloud`: accounts, Stripe, signed entitlements, admin). The core stays local; the cloud only answers *may this account run Mindeck?*
+User decision: Mindeck is sold — a 7-hour trial (active use, per account) and a 79 € lifetime license, both held by **Mindeck Cloud** (private repo `mindeck-cloud`: accounts, Stripe, signed entitlements, admin). The core stays local; the cloud only answers *may this account run Mindeck?*
 
 - **`CloudService`** (`electron/main/services/cloud/`): sign-in/registration as this device (`client: desktop | server`, a stable install id), the session token in the shared `SecretStore` (keychain on desktop — one store instance for all secrets), the rest in `~/Mindeck/data/cloud.json`.
 - **Heartbeat & entitlement**: while someone uses Mindeck (desktop: system idle < 5 min; any connected remote client), the core renews its lease (`POST /v1/license/heartbeat`, ~every 60 s). The cloud charges the trial per interval and returns an Ed25519-signed entitlement; the core verifies it (`entitlement.ts`) with the key baked in at build time (or fetched from `/v1/meta` in dev). Trial lease: 90 s. Lifetime: 14 days offline. `deriveState` turns that into one `LicenseState`.

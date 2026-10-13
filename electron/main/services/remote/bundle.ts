@@ -9,7 +9,7 @@ function coded(code: string, message: string): Error {
 }
 
 /** Where release builds publish the server packages (next to the app's own release). */
-export const RELEASES = 'https://github.com/robin7mh/W-ONE/releases/download'
+export const RELEASES = 'https://github.com/robin7mh/mindeck/releases/download'
 
 export interface BundleOptions {
   version: string
