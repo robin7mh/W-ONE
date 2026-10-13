@@ -1,14 +1,14 @@
-# W-ONE Architecture
+# Mindeck Architecture
 
 **Status:** Authoritative steering document · **Created:** 2026-07-17 · **Revised:** 2026-07-17 (v1.1 — P2 split into A/B/C, search abstractions separated, event persistence classes, scoped permission grants, binding layering rules)
 **Supersedes:** [`docs/MASTERPLAN.md`](docs/MASTERPLAN.md) (kept as reference — its security doctrine and phase templates remain valid and are carried over here; see §12 for the reconciliation table).
 
-W-ONE evolves from a sci-fi command-center UI into a **modular, local-first personal intelligence system**: an AI assistant with long-term memory, a knowledge base, intelligent project workspaces, a permission-gated agent runtime, and live activity visibility — all running on the user's machine, on open formats.
+Mindeck evolves from a sci-fi command-center UI into a **modular, local-first personal intelligence system**: an AI assistant with long-term memory, a knowledge base, intelligent project workspaces, a permission-gated agent runtime, and live activity visibility — all running on the user's machine, on open formats.
 
 Guiding doctrine (unchanged from the masterplan, restated because everything below depends on it):
 
-1. **All privileged operations live in the W-ONE core** — the Electron main process, or the same core running headless as a server (§12.4). Clients (desktop renderer, browser, mobile app) never get Node access.
-2. **Markdown is the source of truth for knowledge; everything else the core keeps is plain JSON files — no database on the user's machine (since 2026-10-11, §11.5).** The only database is W-ONE Cloud's.
+1. **All privileged operations live in the Mindeck core** — the Electron main process, or the same core running headless as a server (§12.4). Clients (desktop renderer, browser, mobile app) never get Node access.
+2. **Markdown is the source of truth for knowledge; everything else the core keeps is plain JSON files — no database on the user's machine (since 2026-10-11, §11.5).** The only database is Mindeck Cloud's.
 3. **Local-first.** Cloud LLM APIs are called from main; data stays on disk in open formats.
 4. **Policy is code, never a model.** Permission decisions are made by a deterministic engine and the user — an LLM can request, never grant.
 5. **No speculative architecture.** Interfaces are introduced when the first real consumer lands; schemas grow by additive migration.
@@ -25,13 +25,13 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Build | electron-vite 2 (CJS main/preload, Vite renderer), dual tsconfig (`typecheck:node` + `typecheck:web`) |
 | Renderer | React 18, TypeScript 5.5, Zustand (one store per feature), Framer Motion |
 | Design system | Tailwind driven by CSS custom properties (`src/index.css` + `tailwind.config.ts`); primitives `Panel`, `TechLabel`, `StatusDot`, `HudFrame`; Inter Variable + JetBrains Mono, bundled locally |
-| Persistence | Atomic JSON (tmp + rename) under `userData/wone/` |
+| Persistence | Atomic JSON (tmp + rename) under `userData/mindeck/` |
 | Telemetry | `systeminformation` (main-process sampling, push stream) |
 
 ### 1.2 Load-bearing patterns (binding for all future work)
 
 1. **Typed IPC contract** — `src/shared/ipc/contract.ts` is the single source of truth: the `IpcChannels` request/response map, the `IpcResult<T>` union (errors never cross the bridge as throws), and the runtime allowlists `IPC_CHANNELS` / `IPC_EVENTS`. A capability is added exactly once, here.
-2. **Single preload bridge** — `electron/preload.ts` exposes only `window.wone` with allowlist-guarded `invoke`/`on`. The renderer never touches `ipcRenderer`.
+2. **Single preload bridge** — `electron/preload.ts` exposes only `window.mindeck` with allowlist-guarded `invoke`/`on`. The renderer never touches `ipcRenderer`.
 3. **Main-process services** — `electron/main/services/<domain>/<Domain>Service.ts`, constructed in `registerServices()` (`electron/main.ts`) with injected dependencies (e.g. `ContextService` receives a `resolvePath` callback, not a `ProjectService` reference). Handlers bind via `handle<K>()` in `electron/ipc/registry.ts`; main→renderer push goes through `broadcast()`.
 4. **Renderer feature slices** — `src/features/<name>/{store.ts, components/}`; view switching via `useState<ModuleId>` in `AppShell`, nav defined in `src/data/navigation.ts`. No router.
 
@@ -47,7 +47,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Terminal | ✅ Real (PT). `TerminalService`: node-pty login shell per tab (Home or a project), layouts single / side by side / stacked / 2×2 (panes only re-positioned, never remounted), output batched per frame, bounded scrollback for re-attach; xterm.js views stay mounted across modules; links clickable; theme-aware. Prebuilt N-API binaries (no compiler); `scripts/fix-node-pty.cjs` restores the spawn-helper exec bit on install |
 | Bottom dashboard | ✅ Command Deck (P9): running agents (stop / jump in), waiting approvals, live activity outcomes |
 | Memory | ✅ Real (§12.3). Obsidian-compatible vault: `VaultService` + in-memory `MemoryIndex` (wikilinks, backlinks, tags, search), live `fs.watch` for external edits, force-directed graph colored by folder or one accent |
-| Agents | ✅ Cockpit (§12.6): the user's own coding agents — Claude Code (hooks, own plan), Codex and Gemini (ACP) — as chats with approvals, changes/diffs, plan and a journal in memory; plus the W-ONE Assistant on an API key (P6–P9, §12.4) |
+| Agents | ✅ Cockpit (§12.6): the user's own coding agents — Claude Code (hooks, own plan), Codex and Gemini (ACP) — as chats with approvals, changes/diffs, plan and a journal in memory; plus the Mindeck Assistant on an API key (P6–P9, §12.4) |
 | Settings / System | ✅ AI key + model, remote access & devices (pairing, QR), permissions, vault, about · full telemetry view |
 | Network API | ✅ §12.4: the core as an HTTP + WebSocket service for the web UI and the mobile app (device pairing, bearer tokens) |
 
@@ -62,24 +62,24 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 │  Command Center · Projects · Knowledge · Memory · Agents · Files ·              │
 │  Automations · System · Settings          (features/<x>/{store,components})     │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
-                    window.wone (preload, allowlisted invoke/on)
+                    window.mindeck (preload, allowlisted invoke/on)
 ┌──────────────────────────────────┴───────────────────────────────────────────────┐
 │                    TYPED IPC  (contract.ts · IpcResult · broadcast)              │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
-┌──────────────────────────────────┴──────────────── MAIN PROCESS (W-ONE CORE) ───┐
+┌──────────────────────────────────┴──────────────── MAIN PROCESS (Mindeck CORE) ───┐
 │  ProjectService   ContextService   SystemService          (existing)            │
 │  SettingsService (P2A)  VaultService (P2C)  Repos + MemoryService (P2B/P5)      │
 │  KnowledgeService (P4)             ContextEngine (P6)     AIProvider (P6)       │
 │  ToolRegistry + PolicyEngine (P7)  AgentRuntime (P8)      AutomationService(P11)│
 │                                                                                  │
 │  Cross-cutting spines:                                                           │
-│   • EventBus — distributes all WoneEvents; persists per catalog class (P2A/P2B) │
+│   • EventBus — distributes all MindeckEvents; persists per catalog class (P2A/P2B) │
 │   • Entity graph — EntityRef {kind,id} + typed links table (P2B)                │
 │   • Permission gate — deterministic policy in front of every tool call (P7)     │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
 ┌──────────────────────────────────┴───────────────────────── DATA LAYER ─────────┐
-│  Markdown vault (~/W-ONE/vault, Obsidian-compatible — SoT for knowledge)        │
-│  SQLite wone.db (memories, entities, links, events, indexes, FTS5)              │
+│  Markdown vault (~/Mindeck/vault, Obsidian-compatible — SoT for knowledge)        │
+│  SQLite mindeck.db (memories, entities, links, events, indexes, FTS5)              │
 │  Search: TextSearchIndex (FTS5, P2B) · EmbeddingIndex (P13) · RetrievalService  │
 │  JSON (settings, project registry, context cache) · safeStorage (API keys)      │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
@@ -91,8 +91,8 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 
 The three spines are what turn separate features into one system:
 
-- **EventBus** (§10): every meaningful action becomes a structured `WoneEvent` — distributed to all subscribers, persisted according to its catalog class (`activity`/`audit`), consumed by the Agent Activity UI and automations.
-- **Entity graph** (§4): every domain object is addressable as `EntityRef {kind, id}`; typed edges in a `links` table connect memories ↔ projects ↔ knowledge ↔ people ↔ decisions. This is how "open project W-ONE and know everything about it" works, and it *is* the knowledge graph's data layer.
+- **EventBus** (§10): every meaningful action becomes a structured `MindeckEvent` — distributed to all subscribers, persisted according to its catalog class (`activity`/`audit`), consumed by the Agent Activity UI and automations.
+- **Entity graph** (§4): every domain object is addressable as `EntityRef {kind, id}`; typed edges in a `links` table connect memories ↔ projects ↔ knowledge ↔ people ↔ decisions. This is how "open project Mindeck and know everything about it" works, and it *is* the knowledge graph's data layer.
 - **Permission gate** (§9): tools are the only way agents touch the system, and the policy engine fronts every tool call.
 
 ### 2.1 Layering rules (binding)
@@ -171,7 +171,7 @@ interface MemoryEntryWithRelations extends MemoryEntry {
 |---|---|---|
 | `MemoryEntry` / note | Markdown file in the vault — entry fields live in frontmatter (§12.3) | in-memory `MemoryIndex` today; SQLite `memories` + FTS5 later, as a rebuildable index |
 | `Project` | JSON `projects.json` (today) | mirrored into `entities` from P3 |
-| `WoneEvent` | SQLite `events`, per persistence class (§10); audit rows immutable | — |
+| `MindeckEvent` | SQLite `events`, per persistence class (§10); audit rows immutable | — |
 | `AgentDefinition` / `ToolDescriptor` | code (built-ins) + SQLite (user-defined, later) | — |
 | `Automation` | SQLite | — |
 | `AppSettings` | JSON `settings.json` | — |
@@ -421,9 +421,9 @@ Grant rules: `safe` is auto-allowed and logged. `confirm` supports Allow Once or
 One envelope for everything that happens:
 
 ```ts
-interface WoneEvent<T = unknown> {
+interface MindeckEvent<T = unknown> {
   id: string
-  type: WoneEventType     // 'agent.started' | 'tool.completed' | 'memory.created' | …
+  type: MindeckEventType     // 'agent.started' | 'tool.completed' | 'memory.created' | …
   ts: string
   actor: { kind: 'user' | 'agent' | 'system'; id?: string }
   subject?: EntityRef     // primary entity concerned
@@ -459,20 +459,20 @@ Consumers:
 
 ### 11.1 What lives where
 
-Everything W-ONE keeps lives under one user-visible root, **`~/W-ONE/`** (override: `WONE_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/wone/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/W-ONE/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. There is no database: the core keeps files only (§11.5).
+Everything Mindeck keeps lives under one user-visible root, **`~/Mindeck/`** (override: `MINDECK_HOME`) — findable in Finder, identical for `npm run dev` and the packaged app, backed up by copying one folder. Changed 2026-10-02 from the hidden `userData/mindeck/` (which was named after the dev package and would have differed in a release build); on first start the old folder is **copied** to `~/Mindeck/data` and left in place as a backup (`paths.ts → migrateLegacyData`). Chromium's own profile (cache, `localStorage`) stays in `userData`. There is no database: the core keeps files only (§11.5).
 
 | Store | Location | Content | Rebuildable? |
 |---|---|---|---|
-| Markdown vault | `~/W-ONE/vault` (default; configurable via settings) | the memory notes, Obsidian-compatible (§12.3) | **is** the source of truth |
-| JSON | `~/W-ONE/data/` | `settings.json`, `projects.json`, `context/<id>.json`, `agents/`, `conversations/`, `grants.json`, `runs.json` | context cache: yes |
-| JSON lines | `~/W-ONE/data/events.jsonl` | the activity log, newest 1000 events (compacted at 2000) | no — history |
+| Markdown vault | `~/Mindeck/vault` (default; configurable via settings) | the memory notes, Obsidian-compatible (§12.3) | **is** the source of truth |
+| JSON | `~/Mindeck/data/` | `settings.json`, `projects.json`, `context/<id>.json`, `agents/`, `conversations/`, `grants.json`, `runs.json` | context cache: yes |
+| JSON lines | `~/Mindeck/data/events.jsonl` | the activity log, newest 1000 events (compacted at 2000) | no — history |
 | safeStorage | OS keychain | LLM API keys (P6) | — |
 
 ### 11.2 Vault & Obsidian compatibility
 
-- Default root `~/W-ONE/vault` — user-visible, so the folder can be opened in Obsidian, synced, and backed up. Path configurable (`settings.vaultRoot`). Created lazily on first write, never at boot.
+- Default root `~/Mindeck/vault` — user-visible, so the folder can be opened in Obsidian, synced, and backed up. Path configurable (`settings.vaultRoot`). Created lazily on first write, never at boot.
 - Notes are plain Markdown with standard YAML frontmatter (`id`, `type`, `title`, `tags`, `created`, `updated`, `aliases?`, `project?`, `summary?`) and `[[wikilinks]]` in the body — a stock Obsidian vault.
-- **W-ONE is the primary system; Obsidian is optional.** External edits are legitimate: files win over the index, and the index is always rebuildable from the files.
+- **Mindeck is the primary system; Obsidian is optional.** External edits are legitimate: files win over the index, and the index is always rebuildable from the files.
 - Filenames = the note title, because Obsidian resolves `[[wikilinks]]` by filename (a slug would break every hand-written link). Only characters forbidden by Obsidian or the filesystem are stripped (`\ / : * ? " < > | # ^ [ ]`), ≤ 120 chars, ` 2` suffix on collision; daily notes `YYYY-MM-DD.md`. *(Changed from kebab-case slugs, 2026-10-01.)*
 
 **Knowledge identity (binding):** a note's durable identity is `frontmatter.id` (UUID) — never the title, path, filename, or slug, all of which may change freely. Externally created Markdown files without an `id` are indexed as **unadopted**: readable and searchable, but not linkable as entities. Adoption is an explicit, controlled step that assigns a fresh UUID and writes it back into the frontmatter atomically, preserving the rest of the file byte-for-byte (the exact flow ships with P4). Identity is never derived from the path.
@@ -508,12 +508,12 @@ Files carry a `version` field where their shape may change; readers accept older
 
 ### 11.5 No database on the user's machine (changed 2026-10-11)
 
-User decision: W-ONE Cloud is the one backend with a database (Postgres, accounts and licenses). The core on the user's machine keeps plain files only — a customer installs a Mac app, never Docker.
+User decision: Mindeck Cloud is the one backend with a database (Postgres, accounts and licenses). The core on the user's machine keeps plain files only — a customer installs a Mac app, never Docker.
 
-- **History:** the activity log is `~/W-ONE/data/events.jsonl` (`EventLog`: the newest 1000 events in memory, appended per event, rewritten with the newest once it reaches 2000 lines). Assistant runs are `~/W-ONE/data/runs.json` (`RunStore`, newest 200).
+- **History:** the activity log is `~/Mindeck/data/events.jsonl` (`EventLog`: the newest 1000 events in memory, appended per event, rewritten with the newest once it reaches 2000 lines). Assistant runs are `~/Mindeck/data/runs.json` (`RunStore`, newest 200).
 - **Writes:** `lib/writeAtomic` — temp file + rename, one write at a time per file.
-- **History of this decision:** from 2026-10-02 to 2026-10-11 the core used an optional Postgres in Docker (`w-one-db`) for exactly these two things; it was removed before the launch. Where §4/§5/§12 still mention SQLite or Postgres for the core, read "files"; a future full-text index would be rebuildable from the vault.
-- **Server image:** `Dockerfile` builds the W-ONE core (API + web UI, §12.4) for a home server; `npm run docker:up` starts it; its data is the `wone-data` volume. The Electron app itself stays a desktop app (and can embed the same server).
+- **History of this decision:** from 2026-10-02 to 2026-10-11 the core used an optional Postgres in Docker (`mindeck-db`) for exactly these two things; it was removed before the launch. Where §4/§5/§12 still mention SQLite or Postgres for the core, read "files"; a future full-text index would be rebuildable from the vault.
+- **Server image:** `Dockerfile` builds the Mindeck core (API + web UI, §12.4) for a home server; `npm run docker:up` starts it; its data is the `mindeck-data` volume. The Electron app itself stays a desktop app (and can embed the same server).
 
 ---
 
@@ -542,11 +542,11 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | Phase | Scope | Definition of done |
 |---|---|---|
 | **P1 Architecture** | this document | ✅ this commit |
-| **P2A Core Foundation** | `paths.ts`; SettingsService; SQLite connection (better-sqlite3, WAL, pragmas); migration runner (`user_version`, pre-migration backup with WAL checkpoint); EventBus base (in-main pub/sub + injectable persistence sink — no-op until P2B); minimal shared core types (`entity` minimal, `events` + catalog, `settings`); dev-only DB health/self-check. **No new IPC channels, renderer untouched** | app boots unchanged; `wone.db` created (WAL, FK on, `user_version` 0); migration runner proven by scratch-DB self-check; settings roundtrip; both typechecks green |
+| **P2A Core Foundation** | `paths.ts`; SettingsService; SQLite connection (better-sqlite3, WAL, pragmas); migration runner (`user_version`, pre-migration backup with WAL checkpoint); EventBus base (in-main pub/sub + injectable persistence sink — no-op until P2B); minimal shared core types (`entity` minimal, `events` + catalog, `settings`); dev-only DB health/self-check. **No new IPC channels, renderer untouched** | app boots unchanged; `mindeck.db` created (WAL, FK on, `user_version` 0); migration runner proven by scratch-DB self-check; settings roundtrip; both typechecks green |
 | **P2B Core Storage** | migration 001: `entities`, `links`, `events`, `memories` + `memories_fts` (+ sync triggers); repository layer (EntityRepo, LinkRepo, EventRepo, MemoryRepo — persistence only, no business logic); `TextSearchIndex` over `memories_fts`; event persistence sink active (catalog-driven; audit append-only, no update/delete); storage IPC **only where a real UI consumer exists** | memory insert → FTS match → delete roundtrip; link CRUD; events persisted per class; audit rows immutable |
 | **P2C Vault Foundation** | VaultService: markdown + YAML frontmatter, slugs, wikilink parsing, vault status, identity rules (§11.2); **no** KnowledgeService, **no** `knowledge_index`/`knowledge_fts` (→ P4) | note write/read roundtrip against a scratch root; vault opens cleanly in Obsidian |
 | **P3 Projects as Workspaces** | context UI lands (panel in project detail); projects mirrored into `entities`; project hub aggregating linked memories/knowledge/tasks as they arrive in later phases | opening a project shows its structural context |
-| **P4 Knowledge Base** | KnowledgeService (CRUD, wikilink/backlink index, chokidar watcher for external edits, adoption flow for unadopted notes); `knowledge_index` + `knowledge_fts` are created **here** with their first consumer (rebuildable from the vault); Knowledge module UI (explorer, markdown viewer/editor, search, tags, backlinks); nav entry | notes round-trip W-ONE ↔ Obsidian; backlinks live |
+| **P4 Knowledge Base** | KnowledgeService (CRUD, wikilink/backlink index, chokidar watcher for external edits, adoption flow for unadopted notes); `knowledge_index` + `knowledge_fts` are created **here** with their first consumer (rebuildable from the vault); Knowledge module UI (explorer, markdown viewer/editor, search, tags, backlinks); nav entry | notes round-trip Mindeck ↔ Obsidian; backlinks live |
 | **P5 Memory Core** | MemoryService + pipeline scaffold (deterministic stages); `RetrievalService` is introduced here or in P6 with its first real consumer; Memory module UI (browse, search, create, types) | "remember X" via UI persists a typed, linked, searchable memory |
 | **P6 AI Foundation + Context Engine** | `LLMProvider` interface + Anthropic adapter (streaming, keys in safeStorage); `buildContext()`; assistant chat in the Command Center (text only, **no tools**); conversations persisted; memory pipeline stages become model-assisted | asking about the active project gets a context-aware streamed answer |
 | **P7 Tool Registry + Permission System** | registry + schema validation; policy engine + grants store; ApprovalDialog (Allow Once / Always / Deny); audit events; first SAFE read-only tools | assistant can search memory/knowledge and read project files, gated and audited |
@@ -559,7 +559,7 @@ One deliberate re-ordering versus the original 14-phase directive: **the Permiss
 | **PT Terminal** *(optional)* | node-pty + TerminalService; xterm goes live | any time after P2A |
 | **PV Voice** *(optional)* | SpeechProvider abstraction (STT/TTS) | after P6 |
 
-Each phase ships end-to-end (service + IPC + UI in W-ONE's design language), leaves the app bootable, and touches nothing outside its scope. The detailed P2A execution plan (file list, definition of done, dependencies, risks) is specified; implementation starts on explicit release.
+Each phase ships end-to-end (service + IPC + UI in Mindeck's design language), leaves the app bootable, and touches nothing outside its scope. The detailed P2A execution plan (file list, definition of done, dependencies, risks) is specified; implementation starts on explicit release.
 
 ### 12.3 Deviation (2026-10-01): Memory is the Obsidian vault
 
@@ -567,23 +567,23 @@ User decision: the AI memory should *be* an Obsidian vault — notes, `[[wikilin
 
 - **Pulled forward and shipped:** P2C (`VaultService`: frontmatter, wikilinks, status, path confinement, atomic writes), the P4 core (backlinks, tags, search, external-edit watcher, read/edit UI) and a P12-lite graph (wikilink graph, colored by top-level folder or one accent; style persisted in `settings.graphStyle`).
 - **Editing (2026-10-02):** the editor shows only the note text (`memory:writeBody` keeps the frontmatter byte-for-byte); the title is the filename and renames in place; connect/disconnect buttons write or remove `[[links]]` (new links go under `## Verbindungen`, disconnecting keeps inline mentions as plain text); notes and folders move by drag & drop. Renames and moves rewrite affected links in other notes (`linkEdit.ts`; planned before the move, while old names still resolve) — name-style links only change when the name does, path-style links follow the path.
-- **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — W-ONE writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
+- **Simplified for now:** the index is in-memory (`MemoryIndex`) and rebuilt from the files at open — no `knowledge_index`/FTS tables yet; `fs.watch` (recursive) instead of chokidar; no adoption flow — Mindeck writes `id`/`type`/`created`/`tags` frontmatter only on notes it creates, and graph links are wikilinks, not `links` rows.
 - **Model mapping:** §5's `MemoryEntry` fields map onto frontmatter (`id`, `type`, `tags`, `created`, optional `importance`/`confidence`/`summary`). When P2B/P5 land, SQLite `memories` + FTS become a rebuildable index over the vault, and the memory pipeline writes notes. P6/P7 give the assistant read/write tools over this vault behind the permission gate.
 
 ### 12.4 Deviation (2026-10-02): one core for desktop, web and mobile
 
-User decision: W-ONE gets a React Native app, and the Docker deploy must be a working web UI. The core therefore became host-independent and network-capable; P3 and P6–P9 shipped together on top of it.
+User decision: Mindeck gets a React Native app, and the Docker deploy must be a working web UI. The core therefore became host-independent and network-capable; P3 and P6–P9 shipped together on top of it.
 
 - **Core, not "main process":** every service runs behind `createCore()` (`electron/main/core/createCore.ts`) with an injected `Platform` (`electron` = native dialogs, Finder, OS trash; `headless` = none of those, deletes go to the vault's `.trash`). The Electron app and `server/main.ts` (standalone, `out/server/index.cjs`, Docker) build the same core.
 - **One Router:** `electron/ipc/router.ts` is the single dispatch point for desktop IPC and the network API. Per call: channel exists → caller may use it (`CHANNEL_ACCESS`: `any` / `desktop` = native UI or host apps / `terminal` = remote shells, opt-in) → Zod schema (`src/shared/ipc/schemas.ts`) → handler → `IpcResult`.
 - **Network API** (`electron/main/server/HttpServer.ts`, reference: [`docs/API.md`](docs/API.md)): `POST /api/rpc/<channel>`, `WS /api/events`, `POST /api/pair`, `GET /api/health`, plus the built web UI at `/`. Devices pair with one-time codes (10 min, rate-limited) and get bearer tokens; only SHA-256 hashes are stored. No cookies, no CORS. Desktop: opt-in in Settings, 127.0.0.1 unless LAN is switched on. Standalone: always on, configured by environment.
 - **Clients:** `src/shared/ipc/transport.ts` (bridge | HTTP + WebSocket, only `fetch`/`WebSocket` — the mobile app reuses it unchanged together with `contract.ts`, `schemas.ts` and `types/`).
-- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected — since 2026-10-11 to `~/W-ONE/data/events.jsonl` instead (§11.5) — (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
+- **P2B (partial):** migration 001 = `events` + `agent_runs`. `EventLog` keeps a memory ring and writes to Postgres once connected — since 2026-10-11 to `~/Mindeck/data/events.jsonl` instead (§11.5) — (append-only, catalog-driven classes); events are pushed live (`events:event`). `entities`/`links`/`memories` tables still wait for their first consumer.
 - **P6:** `LLMProvider` (provider-neutral, the model's own blocks replayed unchanged) + Anthropic adapter (streaming, `claude-opus-5-5` default, effort, adaptive thinking, cached system prompt, server-side refusal fallback). Key from `ANTHROPIC_API_KEY` or the secret store (OS keychain on desktop, 0600 file on a server), verified before saving, never returned. Context engine = time, user, active project, matching vault notes under a budget, sent as a `<context>` block in the user turn (cache-friendly).
 - **P7:** `ToolRegistry` (Zod → JSON Schema) with memory, project (confined to the project root), shell and system tools; `PermissionService` = read runs, write asks (Allow once / Always — persisted per agent + tool / Deny), execute always asks; remote devices only run commands with remote shells enabled; unanswered requests are denied after 10 minutes.
 - **P8:** `AssistantService` — controlled loop, per-agent iteration and time limits, cancellation, append-only transcript (dangling tool calls are closed as interrupted), structured `agent.*`/`tool.*`/`permission.*` events, no reasoning stored. Agents are data (`agents.ts`: Assistant, Coding, Research with web search/fetch, Chat).
 - **P9:** Agents module (chat, tool cards, inline approvals, run activity), floating approvals in every module, Command Deck.
-- **Conversations are JSON files** (`~/W-ONE/data/conversations/`), not Postgres rows: the assistant must work on a desktop without the database container. Runs and events go to Postgres when it is there.
+- **Conversations are JSON files** (`~/Mindeck/data/conversations/`), not Postgres rows: the assistant must work on a desktop without the database container. Runs and events go to Postgres when it is there.
 - **Still open:** P5 memory pipeline (model-assisted classification), P10 Files, P11 Automations, P12 graph over `entities`/`links`, P13 embeddings, packaging (electron-builder, signing, auto-update), the mobile app itself.
 
 ### 12.5 Editor (2026-10-02)
@@ -599,35 +599,35 @@ User decision: an editor "like VS Code" in its own module. Not a VS Code replace
 
 ### 12.6 Agent cockpit (2026-10-03)
 
-User decision: the Agents module works with the AI the user already pays for — not only an API key. W-ONE sells the workspace, not the model.
+User decision: the Agents module works with the AI the user already pays for — not only an API key. Mindeck sells the workspace, not the model.
 
-- **Claude Code** runs as the user's own, unmodified CLI in a PTY (`AgentSessionService` → `TerminalService.spawnProgram`, through the login shell). Interactive use stays on the user's plan; W-ONE never sees or stores Claude credentials (Anthropic's terms: no third-party Claude.ai login, no token handling — running the unmodified binary is fine). Everything W-ONE needs is passed per session on the command line, the user's `~/.claude` is never touched:
+- **Claude Code** runs as the user's own, unmodified CLI in a PTY (`AgentSessionService` → `TerminalService.spawnProgram`, through the login shell). Interactive use stays on the user's plan; Mindeck never sees or stores Claude credentials (Anthropic's terms: no third-party Claude.ai login, no token handling — running the unmodified binary is fine). Everything Mindeck needs is passed per session on the command line, the user's `~/.claude` is never touched:
   - `--settings`: HTTP hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse(Failure)`, `PermissionRequest`, `Stop`, `TaskCreated/Completed`, `SessionEnd`) and a `curl` relay command hook for `SessionStart`/`Notification` (HTTP hooks don't run there).
-  - `--mcp-config`: W-ONE's memory as MCP server; `--allowedTools` pre-allows its read tools; `--append-system-prompt`: a short hint to use it.
+  - `--mcp-config`: Mindeck's memory as MCP server; `--allowedTools` pre-allows its read tools; `--append-system-prompt`: a short hint to use it.
   - `--session-id` / `--resume`, `--name`.
-  - Inherited Claude Code markers (`CLAUDE_CODE_*`, `CLAUDECODE`, …) are stripped from every PTY's environment, so a `claude` started from W-ONE is never mistaken for a child session.
-- **Codex and Gemini** speak ACP (`@agentclientprotocol/sdk`, bundled — it is ESM-only) over stdio: Codex through Zed's adapter (`npx @zed-industries/codex-acp`, the user's Codex sign-in), Gemini as `gemini --experimental-acp`. `session/update` streams text, tool calls and the plan; `session/request_permission` goes to the same gate. W-ONE's MCP server is offered when the agent takes HTTP servers.
+  - Inherited Claude Code markers (`CLAUDE_CODE_*`, `CLAUDECODE`, …) are stripped from every PTY's environment, so a `claude` started from Mindeck is never mistaken for a child session.
+- **Codex and Gemini** speak ACP (`@agentclientprotocol/sdk`, bundled — it is ESM-only) over stdio: Codex through Zed's adapter (`npx @zed-industries/codex-acp`, the user's Codex sign-in), Gemini as `gemini --experimental-acp`. `session/update` streams text, tool calls and the plan; `session/request_permission` goes to the same gate. Mindeck's MCP server is offered when the agent takes HTTP servers.
 - **LocalAgentServer**: always-on, `127.0.0.1` on a random port, Host/Origin must be loopback, a random bearer token per session (`timingSafeEqual`). Routes: `/hooks/<session>`, `/mcp/<session>`. Separate from the opt-in network API.
-- **Approvals**: `PermissionRequest` (Claude) and `request_permission` (ACP) both go through `PermissionService.ask` — inline cards, toasts (not for the open chat), Command Deck, desktop notification while W-ONE is in the background. Commands are asked every time; file/memory tools can be allowed for good per agent.
-- **Changes**: `GitService` takes a baseline when a session starts (`git stash create` — the working tree is untouched, the user's own earlier edits stay out of the diff). Optional own working folder per session: a git worktree in `~/W-ONE/worktrees` with `node_modules` linked (excluded from diffs/patches); *Take over* applies its changes to the project as uncommitted edits (refuses cleanly on conflicts), *Discard* drops it. Diffs open in Monaco's diff editor.
+- **Approvals**: `PermissionRequest` (Claude) and `request_permission` (ACP) both go through `PermissionService.ask` — inline cards, toasts (not for the open chat), Command Deck, desktop notification while Mindeck is in the background. Commands are asked every time; file/memory tools can be allowed for good per agent.
+- **Changes**: `GitService` takes a baseline when a session starts (`git stash create` — the working tree is untouched, the user's own earlier edits stay out of the diff). Optional own working folder per session: a git worktree in `~/Mindeck/worktrees` with `node_modules` linked (excluded from diffs/patches); *Take over* applies its changes to the project as uncommitted edits (refuses cleanly on conflicts), *Discard* drops it. Diffs open in Monaco's diff editor.
 - **Memory (idea 4)**: the MCP server (`mcp.ts`, minimal stateless JSON-RPC) offers `memory_search/read/list/create_note/append` and `project_context` from the built-in tools; a journal note per session (`Agents/<project>/<date> <title>.md`: task, result, changed files, open plan items) is written after every turn, so the next agent — any vendor — can continue.
-- **Sessions** are stored in `~/W-ONE/data/agents` (list + one transcript per session); after a restart they show as ended and can be resumed (Claude Code continues its own transcript).
-- **Session header**: the name defaults to the agent's ("Claude Code", "Codex") and is renamed in place (`agents:rename`; the journal heading follows, a journal still named after its agent takes the first message). *VS Code* opens the session's folder — its worktree, if it has one (`agents:openInEditor`, shared `lib/openInVsCode`). The repo link comes from `origin` (`GitService.webUrl`, credentials stripped) and points at the repo, since a worktree's `wone/…` branch is local only. *Terminal* shows Claude Code's own PTY; ACP agents have none, so it opens a plain shell in the session's folder instead (`agents:shell`, one per session, ended with it).
-- **Tests**: unit tests for every piece (git against real repos, the local server over real HTTP, ACP with an in-process agent and a stdio fixture agent); E2E with `tests/e2e/fake-claude.mjs` (`WONE_CLAUDE_BIN`) — chat, approval, diff, journal — so CI needs no account.
+- **Sessions** are stored in `~/Mindeck/data/agents` (list + one transcript per session); after a restart they show as ended and can be resumed (Claude Code continues its own transcript).
+- **Session header**: the name defaults to the agent's ("Claude Code", "Codex") and is renamed in place (`agents:rename`; the journal heading follows, a journal still named after its agent takes the first message). *VS Code* opens the session's folder — its worktree, if it has one (`agents:openInEditor`, shared `lib/openInVsCode`). The repo link comes from `origin` (`GitService.webUrl`, credentials stripped) and points at the repo, since a worktree's `mindeck/…` branch is local only. *Terminal* shows Claude Code's own PTY; ACP agents have none, so it opens a plain shell in the session's folder instead (`agents:shell`, one per session, ended with it).
+- **Tests**: unit tests for every piece (git against real repos, the local server over real HTTP, ACP with an in-process agent and a stdio fixture agent); E2E with `tests/e2e/fake-claude.mjs` (`MINDECK_CLAUDE_BIN`) — chat, approval, diff, journal — so CI needs no account.
 
-### 12.7 W-ONE account & license (2026-10-09)
+### 12.7 Mindeck account & license (2026-10-09)
 
-User decision: W-ONE is sold — a 7-hour trial (active use, per account) and a 79 € lifetime license, both held by **W-ONE Cloud** (private repo `W-ONE-Cloud`: accounts, Stripe, signed entitlements, admin). The core stays local; the cloud only answers *may this account run W-ONE?*
+User decision: Mindeck is sold — a 7-hour trial (active use, per account) and a 79 € lifetime license, both held by **Mindeck Cloud** (private repo `mindeck-cloud`: accounts, Stripe, signed entitlements, admin). The core stays local; the cloud only answers *may this account run Mindeck?*
 
-- **`CloudService`** (`electron/main/services/cloud/`): sign-in/registration as this device (`client: desktop | server`, a stable install id), the session token in the shared `SecretStore` (keychain on desktop — one store instance for all secrets), the rest in `~/W-ONE/data/cloud.json`.
-- **Heartbeat & entitlement**: while someone uses W-ONE (desktop: system idle < 5 min; any connected remote client), the core renews its lease (`POST /v1/license/heartbeat`, ~every 60 s). The cloud charges the trial per interval and returns an Ed25519-signed entitlement; the core verifies it (`entitlement.ts`) with the key baked in at build time (or fetched from `/v1/meta` in dev). Trial lease: 90 s. Lifetime: 14 days offline. `deriveState` turns that into one `LicenseState`.
+- **`CloudService`** (`electron/main/services/cloud/`): sign-in/registration as this device (`client: desktop | server`, a stable install id), the session token in the shared `SecretStore` (keychain on desktop — one store instance for all secrets), the rest in `~/Mindeck/data/cloud.json`.
+- **Heartbeat & entitlement**: while someone uses Mindeck (desktop: system idle < 5 min; any connected remote client), the core renews its lease (`POST /v1/license/heartbeat`, ~every 60 s). The cloud charges the trial per interval and returns an Ed25519-signed entitlement; the core verifies it (`entitlement.ts`) with the key baked in at build time (or fetched from `/v1/meta` in dev). Trial lease: 90 s. Lifetime: 14 days offline. `deriveState` turns that into one `LicenseState`.
 - **Enforcement**: the Router refuses every channel but `cloud:*` and `app:info` with `license-required` until `CloudService.allowed()` (so the web UI and the mobile app are gated too, not just the window). The renderer's `LicenseGate` (inside `SessionGate`) shows sign-in / confirm email / trial over / offline; when a license ends mid-session it covers the app (`inert`) instead of unmounting it.
-- **Where it applies** (`cloud/config.ts`): the packaged desktop app and the production server image (`NODE_ENV=production`) always enforce and always use the cloud baked in at build time (`WONE_CLOUD_URL`, `WONE_CLOUD_KEY` → `define`; Docker: build args). Dev and test runs are open; `WONE_LICENSE=required` turns the gate on, `WONE_CLOUD_URL` points elsewhere.
+- **Where it applies** (`cloud/config.ts`): the packaged desktop app and the production server image (`NODE_ENV=production`) always enforce and always use the cloud baked in at build time (`MINDECK_CLOUD_URL`, `MINDECK_CLOUD_KEY` → `define`; Docker: build args). Dev and test runs are open; `MINDECK_LICENSE=required` turns the gate on, `MINDECK_CLOUD_URL` points elsewhere.
 - **Profile**: the account card shows the account, plan, trial time left / offline window, *Buy* (Stripe Checkout in the browser), *Check again*, *Sign out*; the nav's profile tab shows who is signed in.
 
 ### 12.8 Packaging & updates (2026-10-09)
 
-- **electron-builder** ([`electron-builder.yml`](electron-builder.yml)): DMG + ZIP for arm64 and x64 (`npm run dist:mac`), hardened runtime with [`build/entitlements.mac.plist`](build/entitlements.mac.plist), icon and DMG background rendered from [`build/brand/`](build/brand/) (`node build/brand/render.cjs`). DMGs keep the same name in every release (`W-ONE-<arch>.dmg`) so the website links `releases/latest/download/…`.
+- **electron-builder** ([`electron-builder.yml`](electron-builder.yml)): DMG + ZIP for arm64 and x64 (`npm run dist:mac`), hardened runtime with [`build/entitlements.mac.plist`](build/entitlements.mac.plist), icon and DMG background rendered from [`build/brand/`](build/brand/) (`node build/brand/render.cjs`). DMGs keep the same name in every release (`Mindeck-<arch>.dmg`) so the website links `releases/latest/download/…`.
 - **node-pty** uses its N-API prebuilds (no compiler, `npmRebuild: false`), unpacked from the asar; renderer-only packages (Monaco, React, xterm, …) are excluded from the app's `node_modules` — they are already in the Vite bundle.
 - **Updates:** `UpdateService` (electron-updater, packaged app only) checks GitHub Releases 15 s after start and every 4 h, downloads in the background and offers *Restart & update* (top bar chip, Profile → This core). `update:*` channels are desktop-only and license-free. On macOS this needs a signed app.
 - **Signing & notarization** come from environment variables at release time — see [`docs/RELEASE.md`](docs/RELEASE.md).

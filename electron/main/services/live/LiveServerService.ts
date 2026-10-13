@@ -38,10 +38,10 @@ const TYPES: Record<string, string> = {
   '.pdf': 'application/pdf'
 }
 
-const EVENTS = '/__wone_live'
+const EVENTS = '/__mindeck_live'
 
 /** What every served HTML page gets: reload on changes, styles swapped in place. */
-export const RELOAD_SCRIPT = `<script>(function(){var s=new EventSource('${EVENTS}');s.onmessage=function(e){if(e.data==='css'){document.querySelectorAll('link[rel="stylesheet"]').forEach(function(l){var u=new URL(l.href);u.searchParams.set('wone',Date.now());l.href=u.href})}else{location.reload()}}})();</script>`
+export const RELOAD_SCRIPT = `<script>(function(){var s=new EventSource('${EVENTS}');s.onmessage=function(e){if(e.data==='css'){document.querySelectorAll('link[rel="stylesheet"]').forEach(function(l){var u=new URL(l.href);u.searchParams.set('mindeck',Date.now());l.href=u.href})}else{location.reload()}}})();</script>`
 
 /** Insert the reload script before </body> (or at the end). */
 export function inject(html: string): string {

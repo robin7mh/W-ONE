@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 #
-# W-ONE core image — the same core as the desktop app, headless: API
+# Mindeck core image — the same core as the desktop app, headless: API
 # (HTTP + WebSocket, device pairing) and the web UI on one port. The mobile
 # app and browsers connect here. The database runs from docker-compose.yml.
 #
-#   docker build -t w-one .
-#   docker run -p 127.0.0.1:7420:7420 -v wone-data:/data w-one
+#   docker build -t mindeck .
+#   docker run -p 127.0.0.1:7420:7420 -v mindeck-data:/data mindeck
 #   docker exec <container> node out/server/index.cjs pair   # pairing code
 
 # The full image ships python3/make/g++: node-pty has no Linux prebuilds and
@@ -17,10 +17,10 @@ COPY package.json package-lock.json ./
 COPY scripts ./scripts
 RUN npm ci --no-audit --no-fund
 COPY . .
-# W-ONE Cloud for this image (license + sign-in), baked in at build time:
-#   docker build --build-arg WONE_CLOUD_URL=https://api.example.com --build-arg WONE_CLOUD_KEY=… .
-ARG WONE_CLOUD_URL=
-ARG WONE_CLOUD_KEY=
+# Mindeck Cloud for this image (license + sign-in), baked in at build time:
+#   docker build --build-arg MINDECK_CLOUD_URL=https://api.example.com --build-arg MINDECK_CLOUD_KEY=… .
+ARG MINDECK_CLOUD_URL=
+ARG MINDECK_CLOUD_KEY=
 RUN npm run web:build && npm run server:build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
@@ -39,9 +39,9 @@ COPY --from=build --chown=node:node /app/out/server ./out/server
 COPY --from=build --chown=node:node /app/out/web ./out/web
 USER node
 ENV NODE_ENV=production \
-  WONE_HOME=/data \
-  WONE_PORT=7420 \
-  WONE_LAN=1 \
+  MINDECK_HOME=/data \
+  MINDECK_PORT=7420 \
+  MINDECK_LAN=1 \
   SHELL=/bin/bash
 EXPOSE 7420
 VOLUME ["/data"]

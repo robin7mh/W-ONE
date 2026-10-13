@@ -11,7 +11,7 @@ const m = vi.hoisted(() => ({
 vi.mock('@/features/editor/components/CodeEditor', () => ({ default: () => <div data-testid="monaco" /> }))
 vi.mock('@/features/editor/components/DiffView', () => ({ default: () => <div data-testid="diff" /> }))
 vi.mock('@/features/editor/monaco/setup', () => ({
-  THEME: 'wone',
+  THEME: 'mindeck',
   applyMonacoTheme: vi.fn(),
   monaco: {
     Uri: { parse: (s: string) => ({ s }) },

@@ -1,7 +1,7 @@
 # W/-ONE — Masterplan: Von der UI zum persönlichen Command Center
 
 > ⚠️ **SUPERSEDED (2026-07-17):** Dieses Dokument wurde durch
-> [`/W-ONE_ARCHITECTURE.md`](../W-ONE_ARCHITECTURE.md) abgelöst — dort stehen die
+> [`/Mindeck_ARCHITECTURE.md`](../Mindeck_ARCHITECTURE.md) abgelöst — dort stehen die
 > maßgebliche Zielarchitektur und die aktuelle Phasenfolge (inkl. Mapping-Tabelle
 > alte → neue Phasen in §12.1). Der Masterplan bleibt als Referenz erhalten,
 > insbesondere für das Sicherheitsmodell (§D) und die detaillierten Phasen-Templates.
@@ -21,7 +21,7 @@
 - **Electron-Grundgerüst, sicher:** `electron/main.ts` (frameless BrowserWindow, `contextIsolation: true`,
   `nodeIntegration: false`, `sandbox: false`, externe Links via `shell.openExternal`), CJS main/preload.
   Das ist bereits eine korrekte, sichere Baseline — sie wird nur **erweitert**, nicht ersetzt.
-- **Eine einzige Bridge:** `electron/preload.ts` exponiert `window.wone` (aktuell nur Window-Controls
+- **Eine einzige Bridge:** `electron/preload.ts` exponiert `window.mindeck` (aktuell nur Window-Controls
   + `platform`). Genau der richtige, erweiterbare Naht-Punkt für alles Weitere.
 - **Design-System aus einem Guss:** CSS-Variablen → Tailwind-Tokens (`src/index.css`,
   `tailwind.config.ts`), **eine** `Panel`-Primitive (`src/components/ui/Panel.tsx`), `TechLabel`,
@@ -59,7 +59,7 @@ Diesen Sockel **einmal** sauber zu bauen verhindert die größte technische Schu
 1. **Typed IPC Contract** (`src/shared/ipc/contract.ts`): ein zentrales, typisiertes Channel-Register
    (Request/Response-Typen pro Channel). Preload und Renderer teilen sich diese Typen. Handrolled,
    keine Lib nötig (~100 Zeilen). Später optional `electron-trpc`, falls Streaming/Router wachsen.
-2. **Preload-Namespaces:** `window.wone` wird in Domänen unterteilt: `window.wone.window.*` (bestehend),
+2. **Preload-Namespaces:** `window.mindeck` wird in Domänen unterteilt: `window.mindeck.window.*` (bestehend),
    `.projects.*`, `.system.*`, `.terminal.*`, `.context.*`, `.sessions.*`, `.memory.*`, `.ai.*`,
    `.tools.*`. Jede Domäne nur `invoke`/`on` über den typed Contract — **nie** `ipcRenderer` roh.
 3. **Service-Pattern im Main:** `electron/main/services/<domain>/<Domain>Service.ts`. Ein dünner
@@ -84,7 +84,7 @@ Diesen Sockel **einmal** sauber zu bauen verhindert die größte technische Schu
 └───────────────▲────────────────────────────────┬──────────────────────────────┘
                 │  typed events / streams          │  typed invoke() calls
 ┌───────────────┴──────────────────────────────────▼──────────────────────────────┐
-│ PRELOAD BRIDGE (contextBridge → window.wone.<domain>.*)  — nur whitelisted APIs  │
+│ PRELOAD BRIDGE (contextBridge → window.mindeck.<domain>.*)  — nur whitelisted APIs  │
 └───────────────▲──────────────────────────────────┬──────────────────────────────┘
                 │                                    │  ipcRenderer.invoke / on
 ┌───────────────┴──────────────────────────────────▼──────────────────────────────┐
@@ -123,7 +123,7 @@ Migration bestehender `components/*` in `features/*` ist optional/graduell (kein
 ```
 electron/
   main.ts                      # bootstrap: Window + registerAllIpc() (bestehend, erweitert)
-  preload.ts                   # contextBridge, baut window.wone aus den Domänen (bestehend, erweitert)
+  preload.ts                   # contextBridge, baut window.mindeck aus den Domänen (bestehend, erweitert)
   ipc/
     registry.ts                # bindet Contract-Channels an Services, Zod-Validierung
     <domain>.ipc.ts            # pro Domäne die Channel→Handler-Bindings
@@ -200,7 +200,7 @@ Native-Modul; passt zu Electron; Migrationen als nummerierte SQL/TS-Skripte mit 
 frameless, externe Links via `shell.openExternal`, keine Remote-Inhalte, strenge CSP in `index.html`.
 
 **Erweiterungen entlang der Phasen:**
-1. **Preload-Whitelist:** `window.wone` exponiert nur benannte, typisierte Methoden — nie `ipcRenderer`,
+1. **Preload-Whitelist:** `window.mindeck` exponiert nur benannte, typisierte Methoden — nie `ipcRenderer`,
    nie `require`, nie ganze Module. Jede neue Fähigkeit = ein bewusst hinzugefügter Channel.
 2. **Zod an der IPC-Grenze:** jede Renderer→Main-Payload wird validiert, bevor ein Service sie sieht.
 3. **Path-Validation (ab Phase 1, kritisch ab 4/8):** jeder Pfad wird gegen die Menge **registrierter
@@ -271,7 +271,7 @@ frameless, externe Links via `shell.openExternal`, keine Remote-Inhalte, strenge
       pinned?: boolean;
     }
     ```
-12. **Speicherstrategie:** `projects.json` in `app.getPath('userData')/wone/`. Atomar schreiben
+12. **Speicherstrategie:** `projects.json` in `app.getPath('userData')/mindeck/`. Atomar schreiben
     (temp + rename). Git/Stack werden **on demand** neu erkannt (nicht dauerhaft cachen — Wahrheit
     liegt im Repo).
 13. **Security-Risiken:** Pfad-Validation (kanonisieren, speichern nur echte Verzeichnisse);
@@ -369,7 +369,7 @@ frameless, externe Links via `shell.openExternal`, keine Remote-Inhalte, strenge
 11. **Datenmodelle:** `interface TermSession { id:string; projectId?:string; cwd:string; shell:string;
     createdAt:string; status:'running'|'exited'; exitCode?:number }`. History als JSONL pro Session.
 12. **Speicherstrategie:** Sessions flüchtig (leben im Main). History optional als JSONL in
-    `userData/wone/terminal/<id>.jsonl` (append). Kein DB nötig.
+    `userData/mindeck/terminal/<id>.jsonl` (append). Kein DB nötig.
 13. **Security-Risiken:** Volle User-Shell = volle Rechte — **deshalb hier bewusst nur nutzer-getrieben**,
     keine Programmierschnittstelle für „führe X aus". Klare Grenze zu Phase 8. Env sanitisieren
     (keine Secrets in Child-Env leaken).
@@ -522,7 +522,7 @@ frameless, externe Links via `shell.openExternal`, keine Remote-Inhalte, strenge
    | Embeddings | — | erst, wenn Keyword-/Metadaten-Suche nachweislich nicht reicht (Phase 7) |
 
    **Empfehlung V1:**
-   - **Source of Truth = Markdown-Vault** (`~/.wone/vault/` oder vom Nutzer gewählter Ordner; Frontmatter +
+   - **Source of Truth = Markdown-Vault** (`~/.mindeck/vault/` oder vom Nutzer gewählter Ordner; Frontmatter +
      Wiki-Links → *interoperabel mit Obsidian, ohne es zu brauchen*).
    - **SQLite = Index** (Volltext via FTS5 + Metadaten/Backlinks) — **rebuildbar** aus dem Vault.
    - **Noch keine Vector-DB, noch keine Embeddings.** FTS5-Keyword-Suche + Tags/Backlinks reicht für V1.

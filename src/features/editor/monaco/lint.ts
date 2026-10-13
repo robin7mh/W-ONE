@@ -146,7 +146,7 @@ export const lintActions: monaco.languages.CodeActionProvider = {
         actions.push({ title: t.disable(String(marker.code)), kind: 'quickfix', diagnostics: [marker], edit: edit(new monaco.Range(line, 1, line, 1), `${indent}// eslint-disable-next-line ${marker.code}\n`) })
       }
     }
-    if (last.diagnostics.some((d) => d.fix)) actions.push({ title: t.fixAll, kind: 'source.fixAll.eslint', command: { id: 'wone.eslintFixAll', title: t.fixAll } })
+    if (last.diagnostics.some((d) => d.fix)) actions.push({ title: t.fixAll, kind: 'source.fixAll.eslint', command: { id: 'mindeck.eslintFixAll', title: t.fixAll } })
     return { actions, dispose() {} }
   }
 }
@@ -161,7 +161,7 @@ export function setupLint(): void {
   monaco.editor.getModels().forEach(track)
   monaco.editor.onDidCreateModel(track)
   for (const language of ['javascript', 'typescript']) monaco.languages.registerCodeActionProvider(language, lintActions)
-  monaco.editor.registerCommand('wone.eslintFixAll', () => {
+  monaco.editor.registerCommand('mindeck.eslintFixAll', () => {
     const model = monaco.editor.getEditors().find((e) => e.hasTextFocus() || e.hasWidgetFocus())?.getModel()
     if (model) void fixAll(model)
   })

@@ -46,7 +46,7 @@ export function ProjectDetailPanel({ project, onNavigate }: { project: Project; 
   const shells = useSession((st) => desktop || st.info?.remoteTerminal === true)
   const repo = g?.webUrl ? repoLink(g.webUrl) : undefined
 
-  // Git changes outside W-ONE (commits, pushes, a new remote): re-detect whenever a project is shown.
+  // Git changes outside Mindeck (commits, pushes, a new remote): re-detect whenever a project is shown.
   useEffect(() => {
     void useProjects.getState().refresh(project.id)
   }, [project.id])

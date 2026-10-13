@@ -57,7 +57,7 @@ export interface ToolState {
   /**
    * ready: found on this machine · missing: installable from Settings ·
    * toolchain: needs the language's own toolchain first (`requires`) ·
-   * manual: comes with something W-ONE can't install (Xcode, …)
+   * manual: comes with something Mindeck can't install (Xcode, …)
    */
   state: 'ready' | 'missing' | 'toolchain' | 'manual'
   /** The program installing needs (go, rustup, npm, …). */

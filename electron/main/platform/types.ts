@@ -29,4 +29,4 @@ function coded(code: string, message: string): Error {
 
 /** The error every desktop-only capability raises on a headless host. */
 export const desktopOnly = (what: string): Error =>
-  coded('desktop-only', `${what} is only available in the W-ONE desktop app`)
+  coded('desktop-only', `${what} is only available in the Mindeck desktop app`)

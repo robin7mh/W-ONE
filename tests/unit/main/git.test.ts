@@ -10,7 +10,7 @@ const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, 
 
 /** A repo with one commit: a.txt (2 lines) and gone.txt; plus an untracked old.txt. */
 async function repo(): Promise<string> {
-  const dir = await tempDir('wone-git-')
+  const dir = await tempDir('mindeck-git-')
   sh(dir, 'init', '-q', '-b', 'main')
   sh(dir, 'config', 'user.email', 't@t')
   sh(dir, 'config', 'user.name', 'T')
@@ -76,7 +76,7 @@ describe('GitService', () => {
   it('worktrees: add, apply into the project (new files too, a node_modules link left out), remove with the branch', async () => {
     const dir = await repo()
     const wt = join(await tempDir(), 'wt')
-    await git.addWorktree(dir, wt, 'wone/test')
+    await git.addWorktree(dir, wt, 'mindeck/test')
     expect(existsSync(join(wt, 'a.txt'))).toBe(true)
     const start = (await git.baseline(wt))!
     expect(await git.applyTo(dir, wt, start.base)).toBe(0) // nothing yet
@@ -94,23 +94,23 @@ describe('GitService', () => {
     expect(await readFile(join(dir, 'added.txt'), 'utf8')).toBe('new\n')
     expect(existsSync(join(dir, 'node_modules'))).toBe(false)
 
-    await git.removeWorktree(dir, wt, 'wone/test')
+    await git.removeWorktree(dir, wt, 'mindeck/test')
     expect(existsSync(wt)).toBe(false)
-    expect(sh(dir, 'branch', '--list', 'wone/test')).toBe('')
-    await expect(git.removeWorktree(dir, wt, 'wone/test')).rejects.toMatchObject({ code: 'git' })
+    expect(sh(dir, 'branch', '--list', 'mindeck/test')).toBe('')
+    await expect(git.removeWorktree(dir, wt, 'mindeck/test')).rejects.toMatchObject({ code: 'git' })
   })
 
   it('refuses a patch that does not apply, touching nothing', async () => {
     const dir = await repo()
     const wt = join(await tempDir(), 'wt')
-    await git.addWorktree(dir, wt, 'wone/clash')
+    await git.addWorktree(dir, wt, 'mindeck/clash')
     const start = (await git.baseline(wt))!
     await writeFile(join(wt, 'a.txt'), 'one\nagent\n')
     await writeFile(join(dir, 'a.txt'), 'totally\ndifferent\n')
     await expect(git.applyTo(dir, wt, start.base)).rejects.toMatchObject({ code: 'conflict' })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('totally\ndifferent\n')
     // a branch that exists already: git's own error comes through
-    await expect(git.addWorktree(dir, join(await tempDir(), 'wt2'), 'wone/clash')).rejects.toMatchObject({ code: 'git' })
+    await expect(git.addWorktree(dir, join(await tempDir(), 'wt2'), 'mindeck/clash')).rejects.toMatchObject({ code: 'git' })
   })
 
   it('a branch and origin: pushed, landed in the default branch (only once merged there), uncommitted files', async () => {
@@ -119,32 +119,32 @@ describe('GitService', () => {
     expect(await git.landed(lone, 'main', 'no-such-commit')).toBe(false) // git can't tell: not landed
 
     const dir = await repo()
-    const origin = await tempDir('wone-origin-')
+    const origin = await tempDir('mindeck-origin-')
     sh(origin, 'init', '-q', '--bare', '-b', 'main')
     sh(dir, 'remote', 'add', 'origin', origin)
     sh(dir, 'push', '-q', 'origin', 'main')
     const wt = join(await tempDir(), 'wt')
-    await git.addWorktree(dir, wt, 'wone/pr')
+    await git.addWorktree(dir, wt, 'mindeck/pr')
     const start = (await git.baseline(wt))!
-    expect(await git.pushed(wt, 'wone/pr')).toBe(false)
-    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(false) // no commits of its own yet
+    expect(await git.pushed(wt, 'mindeck/pr')).toBe(false)
+    expect(await git.landed(wt, 'mindeck/pr', start.base)).toBe(false) // no commits of its own yet
 
     await writeFile(join(wt, 'a.txt'), 'one\ntwo\nthree\n')
     sh(wt, 'commit', '-qam', 'agent work')
-    sh(wt, 'push', '-q', '-u', 'origin', 'wone/pr')
-    expect(await git.pushed(wt, 'wone/pr')).toBe(true)
-    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(false) // pushed, not merged
+    sh(wt, 'push', '-q', '-u', 'origin', 'mindeck/pr')
+    expect(await git.pushed(wt, 'mindeck/pr')).toBe(true)
+    expect(await git.landed(wt, 'mindeck/pr', start.base)).toBe(false) // pushed, not merged
 
     // The pull request is merged on the server: another clone merges and pushes main.
     const other = join(await tempDir(), 'other')
     execFileSync('git', ['clone', '-q', origin, other])
     sh(other, 'config', 'user.email', 't@t')
     sh(other, 'config', 'user.name', 'T')
-    sh(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request', 'origin/wone/pr')
+    sh(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request', 'origin/mindeck/pr')
     sh(other, 'push', '-q', 'origin', 'main')
-    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(true) // fetched, and it is in origin/main
+    expect(await git.landed(wt, 'mindeck/pr', start.base)).toBe(true) // fetched, and it is in origin/main
     sh(dir, 'remote', 'set-head', 'origin', 'main') // origin/HEAD known: the same answer
-    expect(await git.landed(wt, 'wone/pr', start.base)).toBe(true)
+    expect(await git.landed(wt, 'mindeck/pr', start.base)).toBe(true)
 
     expect(await git.uncommitted(wt)).toBe(0)
     await writeFile(join(wt, 'left.txt'), 'not committed\n')

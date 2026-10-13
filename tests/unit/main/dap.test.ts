@@ -74,7 +74,7 @@ describe('DapClient', () => {
     adapter.send({ seq: 7, type: 'request', command: 'runInTerminal', arguments: {} })
     await tick()
     expect(events).toEqual([{ reason: 'x' }, {}])
-    expect(adapter.received.find((m) => m.type === 'response')).toMatchObject({ request_seq: 7, success: false, message: 'Not supported by W-ONE' })
+    expect(adapter.received.find((m) => m.type === 'response')).toMatchObject({ request_seq: 7, success: false, message: 'Not supported by Mindeck' })
 
     const pending = client.request('hang', undefined, 10_000)
     let closed = 0
@@ -335,7 +335,7 @@ describe('starting debug adapters', () => {
   })
 
   it('spawnInShell runs through the user’s shell with extra environment; socket transports', async () => {
-    const proc = spawnInShell('node', ['-e', 'process.stdout.write(process.env.WONE_X)'], await tempDir(), { WONE_X: 'yes' })
+    const proc = spawnInShell('node', ['-e', 'process.stdout.write(process.env.MINDECK_X)'], await tempDir(), { MINDECK_X: 'yes' })
     let out = ''
     proc.stdout!.on('data', (d: Buffer) => (out += d.toString()))
     await new Promise((r) => proc.on('exit', r))
@@ -440,9 +440,9 @@ describe('starting debug adapters: LLDB, PHP, Java, Kotlin', () => {
       const proc = new FakeProc()
       const out: string[] = []
       const calls: Parameters<Spawn>[] = []
-      const { launch } = await startAdapter(language, { ...base, program: '/r/.w-one/build/app', output: (s, t) => out.push(`${s}:${t}`) }, (...a) => (calls.push(a), proc as never))
+      const { launch } = await startAdapter(language, { ...base, program: '/r/.mindeck/build/app', output: (s, t) => out.push(`${s}:${t}`) }, (...a) => (calls.push(a), proc as never))
       expect(calls[0]).toEqual(['/dbg', [], '/r'])
-      expect(launch).toMatchObject({ adapterID: 'lldb-dap', arguments: { program: '/r/.w-one/build/app', args: base.args, cwd: '/r' } })
+      expect(launch).toMatchObject({ adapterID: 'lldb-dap', arguments: { program: '/r/.mindeck/build/app', args: base.args, cwd: '/r' } })
       proc.stderr.write('warning: no dSYM\n')
       await tick()
       expect(out).toEqual(['stderr:warning: no dSYM\n'])
@@ -451,7 +451,7 @@ describe('starting debug adapters: LLDB, PHP, Java, Kotlin', () => {
     }
   })
 
-  it('PHP: Xdebug’s adapter on W-ONE’s own Node; php gets Xdebug pointed at the adapter’s port', async () => {
+  it('PHP: Xdebug’s adapter on Mindeck’s own Node; php gets Xdebug pointed at the adapter’s port', async () => {
     const proc = new FakeProc()
     const calls: Parameters<Spawn>[] = []
     const { launch } = await startAdapter('php', { ...base, program: '/r/index.php', debugger: '/tools/php-debug/extension/out/phpDebug.js' }, (...a) => (calls.push(a), proc as never))
@@ -535,13 +535,13 @@ describe('DebugService: compiled languages, the build step, other languages', ()
       build: async (ctx) => {
         ctx.output('stderr', 'compiling\n')
         expect(ctx).toMatchObject({ language: 'cpp', command: undefined })
-        return join(ctx.root, '.w-one/build/main')
+        return join(ctx.root, '.mindeck/build/main')
       }
     })
     const started = await t.svc.start({ projectId: 'p', program: 'main.c', breakpoints: [] })
     expect(t.sessions[0]).toMatchObject({ id: started.id, status: 'starting', program: 'main.c' })
     expect(t.output[0]).toEqual({ sessionId: started.id, stream: 'stderr', text: 'compiling\n' })
-    expect(t.adapters[0]).toMatchObject({ language: 'cpp', program: join(t.root, '.w-one/build/main'), command: 'ok' })
+    expect(t.adapters[0]).toMatchObject({ language: 'cpp', program: join(t.root, '.mindeck/build/main'), command: 'ok' })
     expect(t.executed[0]).toEqual(['p', 'cpp', 'x', [1]])
     t.svc.dispose()
   })
@@ -596,7 +596,7 @@ describe('DebugService: compiled languages, the build step, other languages', ()
 
   it('languages without a debugger say so', async () => {
     const t = await setup({ 'run.sh': '' })
-    await expect(t.svc.start({ projectId: 'p', program: 'run.sh', breakpoints: [] })).rejects.toMatchObject({ code: 'debug-unsupported', message: "W-ONE can't debug Shell programs yet" })
+    await expect(t.svc.start({ projectId: 'p', program: 'run.sh', breakpoints: [] })).rejects.toMatchObject({ code: 'debug-unsupported', message: "Mindeck can't debug Shell programs yet" })
   })
 
   it('on macOS a native program that doesn’t start soon gets the permission hint', async () => {

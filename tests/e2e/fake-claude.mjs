@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// A stand-in for the Claude Code CLI in end-to-end tests (WONE_CLAUDE_BIN):
-// it reads the flags W-ONE passes, talks back through the real hooks, asks
+// A stand-in for the Claude Code CLI in end-to-end tests (MINDECK_CLAUDE_BIN):
+// it reads the flags Mindeck passes, talks back through the real hooks, asks
 // for one approval and writes a file — without any model or account.
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -43,9 +43,9 @@ async function turn(prompt) {
 }
 
 // SessionStart goes through the relay (a command hook) in the real CLI.
-await fetch(process.env.WONE_HOOK_URL, {
+await fetch(process.env.MINDECK_HOOK_URL, {
   method: 'POST',
-  headers: { Authorization: `Bearer ${process.env.WONE_TOKEN}`, 'Content-Type': 'application/json' },
+  headers: { Authorization: `Bearer ${process.env.MINDECK_TOKEN}`, 'Content-Type': 'application/json' },
   body: JSON.stringify({ hook_event_name: 'SessionStart', source: 'startup', session_id: sessionId })
 })
 console.log('fake claude ready')

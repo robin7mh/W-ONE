@@ -68,7 +68,7 @@ export function SideNavigation({
         )
       })}
 
-      {/* Profile: the W-ONE account, licence and language */}
+      {/* Profile: the Mindeck account, licence and language */}
       <button
         type="button"
         onClick={() => onSelect('account')}

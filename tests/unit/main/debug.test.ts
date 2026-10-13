@@ -44,7 +44,7 @@ afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 
 describe('DebugService (real node --inspect)', () => {
   it('stops at breakpoints, shows frames and scopes, steps, evaluates, and runs to the end', { timeout: 30_000 }, async () => {
-    const root = await tempDir('wone-debug-')
+    const root = await tempDir('mindeck-debug-')
     await writeFile(join(root, 'app.js'), PROGRAM)
     const h = harness(root)
     services.push(h.service)
@@ -89,7 +89,7 @@ describe('DebugService (real node --inspect)', () => {
   })
 
   it('stops on entry when asked, pauses on uncaught exceptions, stops a running program', { timeout: 30_000 }, async () => {
-    const root = await tempDir('wone-debug-')
+    const root = await tempDir('mindeck-debug-')
     await writeFile(join(root, 'boom.mjs'), `const x = 1\nsetTimeout(() => {\n  throw new Error('boom ' + x)\n}, 0)\n`)
     await writeFile(join(root, 'loop.js'), `setInterval(() => {}, 1000)\n`)
     const h = harness(root)
@@ -112,7 +112,7 @@ describe('DebugService (real node --inspect)', () => {
   })
 
   it('runs TypeScript directly: Node strips the types, breakpoints still match', { timeout: 30_000 }, async () => {
-    const root = await tempDir('wone-debug-')
+    const root = await tempDir('mindeck-debug-')
     await writeFile(join(root, 'typed.ts'), `interface P {\n  x: number\n}\nconst p: P = { x: 3 }\nconsole.log('x', p.x)\n`)
     const h = harness(root)
     services.push(h.service)

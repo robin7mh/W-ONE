@@ -16,16 +16,16 @@ type Core = { url: string; home: string; code: () => Promise<string>; log: () =>
 
 const test = base.extend<{ core: Core; paired: Page }>({
   core: async ({}, use) => {
-    const home = await mkdtemp(join(tmpdir(), 'wone-web-e2e-'))
+    const home = await mkdtemp(join(tmpdir(), 'mindeck-web-e2e-'))
     const port = 7600 + Math.floor(Math.random() * 300)
     const anthropic = await startFakeAnthropic()
     let log = ''
     const proc: ChildProcess = spawn(process.execPath, [resolve('out/server/index.cjs')], {
       env: {
         ...process.env,
-        WONE_HOME: home,
-        WONE_PORT: String(port),
-        WONE_WEB_ROOT: resolve('out/web'),
+        MINDECK_HOME: home,
+        MINDECK_PORT: String(port),
+        MINDECK_WEB_ROOT: resolve('out/web'),
         // the assistant talks to a local stand-in for the Messages API
         ANTHROPIC_BASE_URL: anthropic.url,
         ANTHROPIC_API_KEY: 'sk-e2e-fake-key-000000'
@@ -66,7 +66,7 @@ test('pairs a browser and shows live data from the core', async ({ paired, core 
   await expect(paired.getByText(/REMOTE ·/)).toBeVisible()
   await paired.getByLabel('Disconnect this browser').click()
   await expect(paired.getByLabel('Pairing code')).toBeVisible()
-  expect(core.log()).toContain('W-ONE pairing')
+  expect(core.log()).toContain('Mindeck pairing')
 })
 
 test('rejects a wrong pairing code', async ({ page, core }) => {
@@ -95,7 +95,7 @@ test('adds a project and a vault through the folder browser; the editor reads it
   await expect(paired.getByText('Read-only')).toBeVisible()
 
   await paired.getByTitle('Memory', { exact: true }).click()
-  await paired.getByText('Create W-ONE vault').click()
+  await paired.getByText('Create Mindeck vault').click()
   await expect(paired.getByText('Willkommen', { exact: true }).first()).toBeVisible()
   await expect(paired.getByLabel('Show vault in Finder')).toHaveCount(0)
 })
@@ -109,15 +109,15 @@ test('remote shells stay off unless the core allows them', async ({ paired, core
 
 test('agents: streamed answer, a tool call behind an approval, the note lands in the vault', async ({ paired, core }) => {
   await paired.getByTitle('Memory', { exact: true }).click()
-  await paired.getByText('Create W-ONE vault').click()
+  await paired.getByText('Create Mindeck vault').click()
   await expect(paired.getByText('Willkommen', { exact: true }).first()).toBeVisible()
 
   // ask from the Core dashboard — it opens the Agents module
   await paired.getByTitle('Core', { exact: true }).click()
-  await paired.getByLabel('Ask W-ONE').fill('Hallo W-ONE')
-  await paired.getByLabel('Ask W-ONE').press('Enter')
+  await paired.getByLabel('Ask Mindeck').fill('Hallo Mindeck')
+  await paired.getByLabel('Ask Mindeck').press('Enter')
   await expect(paired.getByRole('heading', { name: 'Hello from the assistant' })).toBeVisible()
-  await expect(paired.getByText('I can see your W-ONE context.')).toBeVisible()
+  await expect(paired.getByText('I can see your Mindeck context.')).toBeVisible()
   await expect(paired.getByLabel('Send')).toBeVisible() // the run is over
 
   await paired.getByLabel('Message').fill('Bitte merk dir das als Notiz')

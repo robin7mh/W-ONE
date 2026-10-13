@@ -109,7 +109,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
- * The W-ONE core over the network — one server for the web UI and the mobile
+ * The Mindeck core over the network — one server for the web UI and the mobile
  * app. Same contract as the desktop IPC, same Router (validation + access
  * rules), authenticated with per-device bearer tokens:
  *
@@ -186,7 +186,7 @@ export class HttpServer {
       const url = new URL(req.url as string, 'http://local')
       const path = url.pathname
       if (path === '/api/health' && req.method === 'GET') {
-        return send(res, 200, { ok: true, name: 'W-ONE', version: this.opts.version, mode: this.opts.mode })
+        return send(res, 200, { ok: true, name: 'Mindeck', version: this.opts.version, mode: this.opts.mode })
       }
       if (path === '/api/pair' && req.method === 'POST') return await this.pair(req, res)
       if (path.startsWith('/api/rpc/') && req.method === 'POST') return await this.rpc(req, res, path.slice(9))
@@ -231,7 +231,7 @@ export class HttpServer {
 
   private async serveStatic(path: string, res: ServerResponse): Promise<void> {
     const root = this.opts.webRoot
-    if (!root) throw new HttpError(404, 'not-found', 'This W-ONE core serves no web UI')
+    if (!root) throw new HttpError(404, 'not-found', 'This Mindeck core serves no web UI')
     const rootReal = await realpath(root).catch(() => {
       throw new HttpError(404, 'not-found', 'Web UI not built')
     })

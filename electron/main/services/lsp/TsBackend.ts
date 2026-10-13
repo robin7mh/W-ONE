@@ -45,7 +45,7 @@ export function findTsserver(dir: string): string | undefined {
   return parent === dir ? undefined : findTsserver(parent)
 }
 
-/** W-ONE's own TypeScript (shipped with the app, unpacked from the asar archive so Node can run it). */
+/** Mindeck's own TypeScript (shipped with the app, unpacked from the asar archive so Node can run it). */
 export function bundledTsserver(resolve: (id: string) => string = createRequire(__filename).resolve): string | undefined {
   try {
     return resolve('typescript/lib/tsserver.js').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1')
@@ -64,7 +64,7 @@ interface Session {
 
 export interface TsOptions {
   resolveRoot: (projectId: string) => string | undefined
-  /** tsserver.js for a project root; default: the project's own, else W-ONE's. */
+  /** tsserver.js for a project root; default: the project's own, else Mindeck's. */
   locate?: (root: string) => string | undefined
   start?: (tsserver: string, root: string, onExit: () => void) => TsServer
 }

@@ -65,9 +65,9 @@ interface Live extends Record_ {
 }
 
 export interface AgentSessionDeps {
-  /** ~/W-ONE/data/agents — session list + one transcript file per session. */
+  /** ~/Mindeck/data/agents — session list + one transcript file per session. */
   dir: string
-  /** ~/W-ONE/worktrees — isolated sessions' working folders. */
+  /** ~/Mindeck/worktrees — isolated sessions' working folders. */
   worktreesDir: string
   terminal: {
     spawnProgram(req: {
@@ -112,7 +112,7 @@ const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').re
 /**
  * The agent cockpit's core: runs Claude Code (the user's own, unmodified CLI,
  * on their own plan) per session in a PTY, and turns its hooks into a chat
- * with tool cards, approvals through W-ONE's permission gate, a plan, the
+ * with tool cards, approvals through Mindeck's permission gate, a plan, the
  * changes since the session started, and a journal in the vault.
  */
 export class AgentSessionService {
@@ -180,7 +180,7 @@ export class AgentSessionService {
     if (req.isolated) {
       if (!(await this.deps.git.isRepo(project.path))) throw coded('not-a-repo', 'An own working folder needs a git repository')
       worktree = join(this.deps.worktreesDir, `${slug(project.name)}-${id.slice(0, 8)}`)
-      branch = `wone/${id.slice(0, 8)}`
+      branch = `mindeck/${id.slice(0, 8)}`
       await mkdir(this.deps.worktreesDir, { recursive: true })
       await this.deps.git.addWorktree(project.path, worktree, branch)
       // Dependencies: a link to the project's, not a second install.
@@ -381,7 +381,7 @@ export class AgentSessionService {
     return undefined
   }
 
-  /** An MCP message from the session's agent: W-ONE's memory, scoped to its project. */
+  /** An MCP message from the session's agent: Mindeck's memory, scoped to its project. */
   handleMcp(id: string, body: unknown): Promise<unknown> {
     const l = this.require(id)
     return this.deps.mcp({ projectId: l.session.projectId, onCall: (tool, input) => this.usedNote(l, tool, input) }, body)
@@ -456,7 +456,7 @@ export class AgentSessionService {
 
   /**
    * Codex / Gemini over ACP: start the agent, shake hands, open a session
-   * with W-ONE's memory as MCP server (when the agent takes HTTP servers).
+   * with Mindeck's memory as MCP server (when the agent takes HTTP servers).
    * Runs in the background — a slow first start (e.g. npx) never blocks.
    */
   private launchAcp(l: Live, prompt?: string): void {
@@ -476,7 +476,7 @@ export class AgentSessionService {
     link.ready = (async () => {
       const init = await link.conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
       const mcpServers = init.agentCapabilities?.mcpCapabilities?.http
-        ? [{ type: 'http' as const, name: 'wone', url: this.deps.server.url('mcp', session.id), headers: [{ name: 'Authorization', value: `Bearer ${token}` }] }]
+        ? [{ type: 'http' as const, name: 'mindeck', url: this.deps.server.url('mcp', session.id), headers: [{ name: 'Authorization', value: `Bearer ${token}` }] }]
         : []
       return (await link.conn.newSession({ cwd: session.cwd, mcpServers })).sessionId
     })()
@@ -516,7 +516,7 @@ export class AgentSessionService {
     this.applied(l, { changed: [turn], attention: 'done' })
   }
 
-  /** An ACP agent asks permission: W-ONE's approval gate decides, the agent's option is picked. */
+  /** An ACP agent asks permission: Mindeck's approval gate decides, the agent's option is picked. */
   private async acpPermission(l: Live, link: AcpLink, params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
     const kind = l.session.kind
     const call = params.toolCall
@@ -556,7 +556,7 @@ export class AgentSessionService {
     return optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } }
   }
 
-  /** Claude Code asks permission for a tool: W-ONE's approval gate decides. */
+  /** Claude Code asks permission for a tool: Mindeck's approval gate decides. */
   private async approve(l: Live, e: HookEvent, signal: AbortSignal): Promise<unknown> {
     const applied = applyHook(this.state(l), e)
     const name = e.tool_name ?? 'tool'
@@ -592,7 +592,7 @@ export class AgentSessionService {
     return {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',
-        decision: decision === 'deny' ? { behavior: 'deny', message: 'The user denied this in W-ONE.' } : { behavior: 'allow' }
+        decision: decision === 'deny' ? { behavior: 'deny', message: 'The user denied this in Mindeck.' } : { behavior: 'allow' }
       }
     }
   }

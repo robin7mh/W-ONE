@@ -25,7 +25,7 @@ function TrialMeter({ license }: { license: CloudLicense }) {
   )
 }
 
-/** The W-ONE account on this core: who is signed in, the license, and what to do next. */
+/** The Mindeck account on this core: who is signed in, the license, and what to do next. */
 function AccountCard({ status }: { status: CloudStatus }) {
   const t = useT()
   const busy = useCloud((s) => s.busy)
@@ -86,7 +86,7 @@ function AccountCard({ status }: { status: CloudStatus }) {
   )
 }
 
-/** Settings Sync: this W-ONE's settings ↔ the account (here, not in Settings — it belongs to the account). */
+/** Settings Sync: this Mindeck's settings ↔ the account (here, not in Settings — it belongs to the account). */
 function SyncCard({ signedIn }: { signedIn: boolean }) {
   const t = useT()
   const { status, busy, conflict, done, error } = useSync()
@@ -180,7 +180,7 @@ function UpdateRow() {
   )
 }
 
-/** Profile: the W-ONE account (license, trial), the UI language and the connected core. */
+/** Profile: the Mindeck account (license, trial), the UI language and the connected core. */
 export function AccountView() {
   const t = useT()
   const info = useSession((s) => s.info)

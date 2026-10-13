@@ -296,25 +296,25 @@
 }
 
 /* Editor gutter: git changes of the buffer against the index (VS Code's quick diff). */
-.monaco-editor .wone-gutter-added,
-.monaco-editor .wone-gutter-modified {
+.monaco-editor .mindeck-gutter-added,
+.monaco-editor .mindeck-gutter-modified {
   margin-left: 4px;
   width: 3px !important;
   cursor: pointer;
 }
-.monaco-editor .wone-gutter-added {
+.monaco-editor .mindeck-gutter-added {
   background: rgb(var(--accent-green));
 }
-.monaco-editor .wone-gutter-modified {
+.monaco-editor .mindeck-gutter-modified {
   background: rgb(var(--accent-blue));
 }
-.monaco-editor .wone-gutter-deleted,
-.monaco-editor .wone-gutter-deleted-top {
+.monaco-editor .mindeck-gutter-deleted,
+.monaco-editor .mindeck-gutter-deleted-top {
   margin-left: 4px;
   cursor: pointer;
 }
-.monaco-editor .wone-gutter-deleted::after,
-.monaco-editor .wone-gutter-deleted-top::after {
+.monaco-editor .mindeck-gutter-deleted::after,
+.monaco-editor .mindeck-gutter-deleted-top::after {
   content: '';
   position: absolute;
   left: 0;
@@ -322,15 +322,15 @@
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
 }
-.monaco-editor .wone-gutter-deleted::after {
+.monaco-editor .mindeck-gutter-deleted::after {
   bottom: -4px;
 }
-.monaco-editor .wone-gutter-deleted-top::after {
+.monaco-editor .mindeck-gutter-deleted-top::after {
   top: -4px;
 }
 
 /* Debugger: breakpoints in the glyph margin, the line execution stopped at. */
-.monaco-editor .wone-bp::before {
+.monaco-editor .mindeck-bp::before {
   content: '';
   display: block;
   width: 9px;
@@ -340,7 +340,7 @@
   background: rgb(var(--accent-danger));
   cursor: pointer;
 }
-.monaco-editor .wone-debug-arrow::after {
+.monaco-editor .mindeck-debug-arrow::after {
   content: '';
   position: absolute;
   top: 5px;
@@ -349,7 +349,7 @@
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
 }
-.monaco-editor .wone-debug-line {
+.monaco-editor .mindeck-debug-line {
   background: rgb(var(--accent-amber) / 0.14);
 }
 .monaco-editor .margin-view-overlays .cgmr {
@@ -357,14 +357,14 @@
 }
 
 /* ⌘K: what the AI wrote, until it is accepted or rejected. */
-.monaco-editor .wone-ai-added {
+.monaco-editor .mindeck-ai-added {
   background: rgb(var(--accent-green) / 0.1);
 }
-.monaco-editor .wone-ai-added-gutter {
+.monaco-editor .mindeck-ai-added-gutter {
   margin-left: 4px;
   width: 3px !important;
   background: rgb(var(--accent-green));
 }
-.monaco-editor .wone-ai-target {
+.monaco-editor .mindeck-ai-target {
   background: rgb(var(--accent-cyan) / 0.08);
 }

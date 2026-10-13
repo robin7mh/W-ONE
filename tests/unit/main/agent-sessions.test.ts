@@ -11,7 +11,7 @@ import type { ApprovalDecision } from '../../../src/shared/types/ai'
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 
 async function gitProject(): Promise<string> {
-  const dir = await tempDir('wone-agent-proj-')
+  const dir = await tempDir('mindeck-agent-proj-')
   sh(dir, 'init', '-q', '-b', 'main')
   sh(dir, 'config', 'user.email', 't@t')
   sh(dir, 'config', 'user.name', 'T')
@@ -24,7 +24,7 @@ async function gitProject(): Promise<string> {
 
 /** Everything around the service, faked at its seams; git is real. */
 async function setup(opts: { projectPath?: string; projectName?: string; probe?: AgentSessionDeps['probe'] } = {}) {
-  const dir = await tempDir('wone-agents-')
+  const dir = await tempDir('mindeck-agents-')
   const projectPath = opts.projectPath ?? (await gitProject())
   const exits = new Map<string, (code: number) => void>()
   let seq = 0
@@ -102,7 +102,7 @@ describe('AgentSessionService: sessions', () => {
     const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'Fix the login bug\nand add a test' })
     expect(s).toMatchObject({ kind: 'claude-code', title: 'Claude Code', projectName: 'Demo App', cwd: t.projectPath, isolated: false, status: 'starting', terminalId: 'pty-1' })
     const req = t.terminal.spawned[0]
-    expect(req).toMatchObject({ cwd: t.projectPath, command: { file: 'claude' }, env: { WONE_TOKEN: 'tok', WONE_HOOK_URL: `http://127.0.0.1:1/hooks/${s.id}` }, projectId: 'p1' })
+    expect(req).toMatchObject({ cwd: t.projectPath, command: { file: 'claude' }, env: { MINDECK_TOKEN: 'tok', MINDECK_HOOK_URL: `http://127.0.0.1:1/hooks/${s.id}` }, projectId: 'p1' })
     expect(req.command.args.slice(0, 2)).toEqual(['--session-id', s.id])
     expect(req.command.args.slice(-2)).toEqual(['--', 'Fix the login bug\nand add a test'])
     expect(t.deps.events.emit).toHaveBeenCalledWith('session.started', expect.objectContaining({ conversationId: s.id }))
@@ -290,7 +290,7 @@ describe('AgentSessionService: sessions', () => {
     expect((await svc.detect())[0]).toMatchObject({ kind: 'claude-code', installed: true, signedIn: false })
   })
 
-  it('a configured Claude binary (WONE_CLAUDE_BIN) is used to detect and to start', async () => {
+  it('a configured Claude binary (MINDECK_CLAUDE_BIN) is used to detect and to start', async () => {
     const probe = vi.fn(async (cmd: string) => (cmd === "'/opt/my claude' --version" ? '3.0.0' : Promise.reject(new Error('nope'))))
     const svc = track(new AgentSessionService({ ...t.deps, probe, claudeBin: '/opt/my claude' }))
     await svc.init()
@@ -358,7 +358,7 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
     expect(t.svc.get(s3.id).journal).toBeUndefined()
   })
 
-  it('approvals go through W-ONE: allow, deny, standing grants; commands always ask', async () => {
+  it('approvals go through Mindeck: allow, deny, standing grants; commands always ask', async () => {
     const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
     await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
     await t.hook(s.id, { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'b1', tool_input: { command: 'npm test' } })
@@ -458,7 +458,7 @@ describe('AgentSessionService: changes and own working folders', () => {
     const t = await setup({ projectName: 'Demo App!' })
     await mkdir(join(t.projectPath, 'node_modules', 'lib'), { recursive: true })
     const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', isolated: true })
-    expect(s).toMatchObject({ isolated: true, branch: `wone/${s.id.slice(0, 8)}` })
+    expect(s).toMatchObject({ isolated: true, branch: `mindeck/${s.id.slice(0, 8)}` })
     expect(s.worktree).toBe(join(t.deps.worktreesDir, `demo-app-${s.id.slice(0, 8)}`))
     expect(s.cwd).toBe(s.worktree)
     expect(lstatSync(join(s.worktree!, 'node_modules')).isSymbolicLink()).toBe(true)
@@ -489,7 +489,7 @@ describe('AgentSessionService: changes and own working folders', () => {
     let gh: () => string = () => '[]'
     const probe = vi.fn(async (_line: string) => gh())
     const t = await setup({ probe })
-    const origin = await tempDir('wone-origin-')
+    const origin = await tempDir('mindeck-origin-')
     sh(origin, 'init', '-q', '--bare', '-b', 'main')
     sh(t.projectPath, 'remote', 'add', 'origin', 'git@github.com:me/demo.git')
 

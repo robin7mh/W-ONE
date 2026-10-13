@@ -126,7 +126,7 @@ describe('editor actions and text edits', () => {
     const editor = { addAction: (a: (typeof actions)[number]) => (actions.push(a), { dispose: () => {} }), getModel: () => model }
     const disposables = addEditorActions(editor as never)
     expect(disposables).toHaveLength(4)
-    const tidy = actions.find((a) => a.id === 'wone.tidyBlankLines')!
+    const tidy = actions.find((a) => a.id === 'mindeck.tidyBlankLines')!
     expect(tidy).toMatchObject({ label: 'Remove Blank Lines' })
     tidy.run(editor)
     expect(value).toBe('a\n\nb')
@@ -135,7 +135,7 @@ describe('editor actions and text edits', () => {
 })
 
 describe('settings per language', () => {
-  it('W-ONE’s defaults, then the user’s, then the language’s', () => {
+  it('Mindeck’s defaults, then the user’s, then the language’s', () => {
     const user = { fontSize: 15, tabSize: 2, languages: { python: { tabSize: 4, rulers: [88] } } }
     expect(settingsFor(user, 'python')).toMatchObject({ fontSize: 15, tabSize: 4, rulers: [88], wordWrap: 'off' })
     expect(settingsFor(user, 'go')).toMatchObject({ tabSize: 2, rulers: [] })

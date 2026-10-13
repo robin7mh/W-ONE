@@ -38,8 +38,8 @@ const WRITE = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 
 /** read: looks only · write: changes files · execute: runs things (asked every time). */
 export function toolRisk(name: string): ToolRisk {
-  if (READ.has(name) || /^mcp__wone__(memory_search|memory_read|memory_list|project_context)$/.test(name)) return 'read'
-  if (WRITE.has(name) || /^mcp__wone__/.test(name)) return 'write'
+  if (READ.has(name) || /^mcp__mindeck__(memory_search|memory_read|memory_list|project_context)$/.test(name)) return 'read'
+  if (WRITE.has(name) || /^mcp__mindeck__/.test(name)) return 'write'
   return 'execute'
 }
 
@@ -62,7 +62,7 @@ const TITLES: Record<string, string> = {
 
 export function toolTitle(name: string): string {
   const mcp = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(name)
-  if (mcp) return mcp[1] === 'wone' ? `W-ONE memory · ${mcp[2].replace(/_/g, ' ')}` : `${mcp[1]} · ${mcp[2].replace(/_/g, ' ')}`
+  if (mcp) return mcp[1] === 'mindeck' ? `Mindeck memory · ${mcp[2].replace(/_/g, ' ')}` : `${mcp[1]} · ${mcp[2].replace(/_/g, ' ')}`
   return TITLES[name] ?? name
 }
 
@@ -117,7 +117,7 @@ function planFromTodos(input: Record<string, unknown>): PlanItem[] | undefined {
   return input.todos.map((t: { content?: string; status?: string }, i) => ({ id: `todo-${i}`, text: String(t.content ?? ''), done: t.status === 'completed' }))
 }
 
-/** What changed for the rest of W-ONE (messages to push, a notification to show). */
+/** What changed for the rest of Mindeck (messages to push, a notification to show). */
 export interface Applied {
   /** Messages that were added or changed. */
   changed: ChatMessage[]

@@ -177,7 +177,7 @@ describe('remote transport', () => {
   it('uses the global fetch/WebSocket by default', async () => {
     const g = globalThis as unknown as { fetch: unknown; WebSocket: unknown }
     const saved = { fetch: g.fetch, WebSocket: g.WebSocket }
-    g.fetch = fakeFetch(() => ({ status: 200, body: { ok: true, name: 'W-ONE', version: '1', mode: 'server' } }))
+    g.fetch = fakeFetch(() => ({ status: 200, body: { ok: true, name: 'Mindeck', version: '1', mode: 'server' } }))
     g.WebSocket = FakeSocket
     try {
       const t = createRemoteTransport({ baseUrl: '', token: 'x' })
@@ -185,7 +185,7 @@ describe('remote transport', () => {
       t.on('b', vi.fn())
       expect(FakeSocket.all).toHaveLength(1)
       t.close()
-      expect(await probeCore('')).toEqual({ name: 'W-ONE', version: '1', mode: 'server' })
+      expect(await probeCore('')).toEqual({ name: 'Mindeck', version: '1', mode: 'server' })
       g.fetch = fakeFetch(() => ({ status: 200, body: { ok: true, data: { token: 't', device: { id: 'd' } } } }))
       expect(await pairDevice('', 'C', 'N')).toMatchObject({ token: 't' })
     } finally {
@@ -194,7 +194,7 @@ describe('remote transport', () => {
     }
   })
 
-  it('probeCore recognizes only a W-ONE core; pairDevice surfaces errors', async () => {
+  it('probeCore recognizes only a Mindeck core; pairDevice surfaces errors', async () => {
     expect(await probeCore('http://x', fakeFetch(() => ({ status: 200, body: { ok: true, name: 'Other' } })))).toBeNull()
     expect(await probeCore('http://x', fakeFetch(() => ({ status: 200, body: null })))).toBeNull()
     expect(await probeCore('http://x', fakeFetch(() => ({ status: 0, throws: new Error('down') })))).toBeNull()
@@ -208,7 +208,7 @@ describe('remote transport', () => {
     await expect(pairDevice('http://x', 'AB', 'Me', fakeFetch(() => ({ status: 500, badJson: true })))).rejects.toMatchObject({ code: 'bad-response' })
   })
 
-  it('bridgeTransport wraps window.wone', async () => {
+  it('bridgeTransport wraps window.mindeck', async () => {
     const bridge = { invoke: vi.fn(async () => ({ ok: true, data: 1 })), on: vi.fn(() => () => {}) }
     const t = bridgeTransport(bridge)
     expect(t.kind).toBe('bridge')
@@ -245,7 +245,7 @@ const initialSession = useSession.getState()
 const sessionFetch = (opts: { health?: boolean; pair?: 'ok' | 'bad'; info?: number } = {}) =>
   fakeFetch((url) => {
     if (url.endsWith('/api/health')) {
-      return opts.health === false ? { status: 0, throws: new Error('down') } : { status: 200, body: { ok: true, name: 'W-ONE', version: '1', mode: 'server' } }
+      return opts.health === false ? { status: 0, throws: new Error('down') } : { status: 200, body: { ok: true, name: 'Mindeck', version: '1', mode: 'server' } }
     }
     if (url.endsWith('/api/pair')) {
       return opts.pair === 'bad'
@@ -298,7 +298,7 @@ describe('session store', () => {
     expect(useSession.getState().status).toBe('unpaired')
     withFetch(sessionFetch({ health: false }))
     await useSession.getState().init()
-    expect(useSession.getState()).toMatchObject({ status: 'unreachable', error: 'No W-ONE core answered at this address' })
+    expect(useSession.getState()).toMatchObject({ status: 'unreachable', error: 'No Mindeck core answered at this address' })
   })
 
   it('pairs, stores the token, reconnects with it, and logs out (revoking the device)', async () => {
@@ -309,7 +309,7 @@ describe('session store', () => {
     withFetch(sessionFetch())
     expect(await useSession.getState().pair('ABCD-EFGH', 'Me')).toBe(true)
     expect(useSession.getState()).toMatchObject({ status: 'ready', info: { hostname: 'nas' } })
-    expect(localStorage.getItem('wone.token')).toBe('tok')
+    expect(localStorage.getItem('mindeck.token')).toBe('tok')
     expect(fetch).toBeDefined()
 
     // reload: the stored token is used
@@ -321,18 +321,18 @@ describe('session store', () => {
     await useSession.getState().logout()
     expect(revoke.mock.calls.some(([url]) => String(url).endsWith('server:revokeDevice'))).toBe(true)
     expect(useSession.getState().status).toBe('unpaired')
-    expect(localStorage.getItem('wone.token')).toBeNull()
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
     await useSession.getState().logout() // nothing to revoke
   })
 
   it('a rejected token resets to pairing; an unreachable core is reported', async () => {
-    localStorage.setItem('wone.token', 'old')
+    localStorage.setItem('mindeck.token', 'old')
     withFetch(sessionFetch({ info: 401 }))
     await useSession.getState().init()
     expect(useSession.getState()).toMatchObject({ status: 'unpaired', error: 'This device is no longer paired' })
-    expect(localStorage.getItem('wone.token')).toBeNull()
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
 
-    localStorage.setItem('wone.token', 'old')
+    localStorage.setItem('mindeck.token', 'old')
     withFetch(sessionFetch({ info: 0 }))
     await useSession.getState().init()
     expect(useSession.getState().status).toBe('unreachable')
@@ -377,7 +377,7 @@ describe('SessionGate and pairing screens', () => {
         <div>APP</div>
       </SessionGate>
     )
-    expect(screen.getByText(/Connecting to the W-ONE core/)).toBeInTheDocument()
+    expect(screen.getByText(/Connecting to the Mindeck core/)).toBeInTheDocument()
     await act(settle)
     const pairButton = screen.getByText('Pair device').closest('button')!
     expect(pairButton).toBeDisabled()
@@ -403,13 +403,13 @@ describe('SessionGate and pairing screens', () => {
       </SessionGate>
     )
     await act(settle)
-    expect(screen.getByText('The W-ONE core did not answer.')).toBeInTheDocument()
+    expect(screen.getByText('The Mindeck core did not answer.')).toBeInTheDocument()
     withFetch(sessionFetch())
     fireEvent.click(screen.getByText('Retry'))
     await act(settle)
     expect(screen.getByLabelText('Pairing code')).toBeInTheDocument()
     act(() => useSession.setState({ status: 'unreachable', error: undefined }))
-    expect(screen.queryByText('No W-ONE core answered at this address')).toBeNull()
+    expect(screen.queryByText('No Mindeck core answered at this address')).toBeNull()
   })
 })
 

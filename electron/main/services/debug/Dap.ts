@@ -93,7 +93,7 @@ export class DapClient {
     }
     if (msg.type === 'event') return this.handlers.get(msg.event!)?.forEach((fn) => fn((msg.body ?? {}) as never))
     // The adapter asks something of the editor (runInTerminal, startDebugging): not supported here.
-    this.transport.write(frame({ seq: ++this.seq, type: 'response', request_seq: msg.seq, command: msg.command, success: false, message: 'Not supported by W-ONE' }))
+    this.transport.write(frame({ seq: ++this.seq, type: 'response', request_seq: msg.seq, command: msg.command, success: false, message: 'Not supported by Mindeck' }))
   }
 
   private closed(): void {
@@ -164,8 +164,8 @@ export class DapSession {
     c.on('close', () => this.end())
 
     const caps = await c.request<{ exceptionBreakpointFilters?: { filter: string; default?: boolean }[] }>('initialize', {
-      clientID: 'w-one',
-      clientName: 'W-ONE',
+      clientID: 'mindeck',
+      clientName: 'Mindeck',
       adapterID: this.launch.adapterID,
       linesStartAt1: true,
       columnsStartAt1: true,

@@ -18,7 +18,7 @@ test('navigates every module', async ({ page }) => {
   // the editor stays mounted (hidden) once opened — only the visible text counts
   await expect(page.getByText('No projects yet').filter({ visible: true })).toBeVisible()
   await nav('Memory').click()
-  await expect(page.getByText('Create W-ONE vault')).toBeVisible()
+  await expect(page.getByText('Create Mindeck vault')).toBeVisible()
   await nav('Agents').click()
   await expect(page.getByText('Your agents, in one place')).toBeVisible() // starts with "New chat", no key needed
   await nav('System').click()
@@ -37,7 +37,7 @@ test('settings: the embedded API server starts on demand and answers', async ({ 
   await page.getByLabel('Run the API server').check()
   await expect(page.getByText('API server running')).toBeVisible()
   const res = await fetch('http://127.0.0.1:7499/api/health')
-  expect(await res.json()).toMatchObject({ ok: true, name: 'W-ONE', mode: 'desktop' })
+  expect(await res.json()).toMatchObject({ ok: true, name: 'Mindeck', mode: 'desktop' })
   await page.getByRole('button', { name: 'Pair a device' }).click()
   // LAN off: no QR a phone couldn't open — the code and what to switch on instead
   await expect(page.getByText(/Only this computer can connect right now/)).toBeVisible()
@@ -51,12 +51,12 @@ test('the terminal runs a real shell, keeps it across modules and splits panes',
   const screen = page.locator('.xterm-rows').first()
   await expect(screen).toBeVisible()
   await page.locator('.xterm-helper-textarea').first().focus()
-  await page.keyboard.type('echo "w-one-$((40 + 2))"\n')
-  await expect(screen).toContainText('w-one-42')
+  await page.keyboard.type('echo "mindeck-$((40 + 2))"\n')
+  await expect(screen).toContainText('mindeck-42')
 
   await page.getByTitle('Core', { exact: true }).click()
   await page.getByTitle('Terminal', { exact: true }).click()
-  await expect(screen).toContainText('w-one-42') // same session, still there
+  await expect(screen).toContainText('mindeck-42') // same session, still there
 
   await page.getByLabel('Layout: Side by side').click()
   await page.getByRole('button', { name: 'New terminal' }).last().click()
@@ -66,7 +66,7 @@ test('the terminal runs a real shell, keeps it across modules and splits panes',
 
 test('memory: creates the starter vault, writes a note to disk and links it', async ({ page, home }) => {
   await page.getByTitle('Memory', { exact: true }).click()
-  await page.getByText('Create W-ONE vault').click()
+  await page.getByText('Create Mindeck vault').click()
   await expect(page.getByText('Willkommen', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'New note' }).first().click()
@@ -94,7 +94,7 @@ test('projects: adds a git folder through the (stubbed) native picker', async ({
   }, repo)
   await page.getByTitle('Projects', { exact: true }).click()
   await page.getByRole('button', { name: 'Add project' }).click()
-  await expect(page.getByRole('heading', { level: 2 })).toHaveText('w-one') // package.json name
+  await expect(page.getByRole('heading', { level: 2 })).toHaveText('mindeck') // package.json name
   await expect(page.getByText(repo).first()).toBeVisible()
   if (branch !== 'HEAD') await expect(page.getByText(branch).first()).toBeVisible()
   await expect(page.getByText('TypeScript').first()).toBeVisible()
@@ -106,7 +106,7 @@ test('editor: opens a project file in Monaco, saves it with ⌘S and follows cha
   writeFileSync(join(root, 'src', 'hello.ts'), 'export const greeting = "hi"\n')
   writeFileSync(join(root, '.gitignore'), 'dist\n')
   mkdirSync(join(root, 'dist'))
-  const added = await page.evaluate((path) => window.wone!.invoke('projects:add', { path }), root)
+  const added = await page.evaluate((path) => window.mindeck!.invoke('projects:add', { path }), root)
   expect(added).toMatchObject({ ok: true })
 
   await page.getByTitle('Editor', { exact: true }).click()
@@ -119,26 +119,26 @@ test('editor: opens a project file in Monaco, saves it with ⌘S and follows cha
 
   await lines.click()
   await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.type('export const greeting = "from W-ONE"')
+  await page.keyboard.type('export const greeting = "from Mindeck"')
   await expect(page.getByText('Unsaved', { exact: true })).toBeVisible()
   await page.keyboard.press('ControlOrMeta+s')
   await expect(page.getByText('Saved', { exact: true })).toBeVisible()
-  expect(readFileSync(join(root, 'src', 'hello.ts'), 'utf8')).toBe('export const greeting = "from W-ONE"')
+  expect(readFileSync(join(root, 'src', 'hello.ts'), 'utf8')).toBe('export const greeting = "from Mindeck"')
 
   // an outside edit (an agent, git, VS Code) shows up in the clean tab by itself
   writeFileSync(join(root, 'src', 'hello.ts'), 'export const greeting = "changed outside"\n')
   await expect(lines).toContainText('changed outside')
 })
 
-test('agents: a coding agent session — chat, approval in W-ONE, the change as a diff, a journal in memory', async ({ page, home }) => {
+test('agents: a coding agent session — chat, approval in Mindeck, the change as a diff, a journal in memory', async ({ page, home }) => {
   const root = join(home, 'agent-demo')
   mkdirSync(root)
   writeFileSync(join(root, 'README.md'), '# demo\n')
   execFileSync('git', ['init', '-q'], { cwd: root })
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', 'add', '.'], { cwd: root })
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init'], { cwd: root })
-  await page.evaluate((path) => window.wone!.invoke('projects:add', { path }), root)
-  await page.evaluate(() => window.wone!.invoke('memory:createVault'))
+  await page.evaluate((path) => window.mindeck!.invoke('projects:add', { path }), root)
+  await page.evaluate(() => window.mindeck!.invoke('memory:createVault'))
 
   await page.getByTitle('Agents', { exact: true }).click()
   await page.getByRole('button', { name: 'New chat' }).first().click()
@@ -147,7 +147,7 @@ test('agents: a coding agent session — chat, approval in W-ONE, the change as 
   await dialog.getByLabel('First message').fill('Write the output file')
   await dialog.getByRole('button', { name: 'Start' }).click()
 
-  // the agent asks before it runs a command — answered in W-ONE
+  // the agent asks before it runs a command — answered in Mindeck
   await expect(page.getByText('Write the output file').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Allow once' })).toHaveCount(1) // inline only — no toast for the open chat
   await page.getByRole('button', { name: 'Allow once' }).click()

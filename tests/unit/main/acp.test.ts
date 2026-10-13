@@ -154,7 +154,7 @@ function fakeAgent(opts: { http?: boolean; failInit?: boolean; hangInit?: boolea
 }
 
 async function acpSetup(agentOpts: Parameters<typeof fakeAgent>[0] = {}) {
-  const dir = await tempDir('wone-acp-')
+  const dir = await tempDir('mindeck-acp-')
   const agents: FakeAgent[] = []
   const asks: { input: { agentId: string; risk: string; allowAlways: boolean; toolName: string }; settle: (d: ApprovalDecision) => void }[] = []
   const granted = new Set<string>()
@@ -197,7 +197,7 @@ async function acpSetup(agentOpts: Parameters<typeof fakeAgent>[0] = {}) {
 }
 
 describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
-  it('starts the agent, hands it W-ONE\'s memory, streams a turn with an approval and a plan', async () => {
+  it('starts the agent, hands it Mindeck\'s memory, streams a turn with an approval and a plan', async () => {
     const t = await acpSetup({ http: true })
     t.granted.add('Read a.ts')
     const s = await t.svc.create({ kind: 'codex', projectId: 'p1', prompt: 'Run the tests' })
@@ -221,7 +221,7 @@ describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
       return { stopReason: 'end_turn' }
     }
     await t.settled(s.id, 'approval')
-    expect(agent.newSession[0]).toMatchObject({ cwd: t.dir, mcpServers: [{ type: 'http', name: 'wone', url: `http://127.0.0.1:1/mcp/${s.id}`, headers: [{ name: 'Authorization', value: 'Bearer tok' }] }] })
+    expect(agent.newSession[0]).toMatchObject({ cwd: t.dir, mcpServers: [{ type: 'http', name: 'mindeck', url: `http://127.0.0.1:1/mcp/${s.id}`, headers: [{ name: 'Authorization', value: 'Bearer tok' }] }] })
     expect(agent.prompts[0]).toMatchObject({ sessionId: 'acp-1', prompt: [{ type: 'text', text: 'Run the tests' }] })
     expect(t.asks[0].input).toMatchObject({ agentId: 'codex', risk: 'execute', allowAlways: false, toolName: 'npm test' })
     expect((t.svc.get(s.id).messages[1].parts[1] as ToolCallPart).requestId).toBe('req-1')

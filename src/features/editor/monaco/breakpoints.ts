@@ -19,10 +19,10 @@ export function attachBreakpoints(editor: monaco.editor.IStandaloneCodeEditor, c
     decorations.set([
       ...here.map((b) => ({
         range: new monaco.Range(b.line, 1, b.line, 1),
-        options: { glyphMarginClassName: 'wone-bp', glyphMarginHoverMessage: { value: `Breakpoint · ${b.line}` }, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges }
+        options: { glyphMarginClassName: 'mindeck-bp', glyphMarginHoverMessage: { value: `Breakpoint · ${b.line}` }, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges }
       })),
       ...(stopped?.path === file.path
-        ? [{ range: new monaco.Range(stopped.line, 1, stopped.line, 1), options: { isWholeLine: true, className: 'wone-debug-line', glyphMarginClassName: 'wone-debug-arrow' } }]
+        ? [{ range: new monaco.Range(stopped.line, 1, stopped.line, 1), options: { isWholeLine: true, className: 'mindeck-debug-line', glyphMarginClassName: 'mindeck-debug-arrow' } }]
         : [])
     ])
   }

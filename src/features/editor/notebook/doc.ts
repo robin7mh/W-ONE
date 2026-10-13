@@ -1,6 +1,6 @@
 import type { MultiLine, NotebookCell, NotebookDocument, NotebookOutput } from '@shared/types/notebook'
 
-/** A cell with the key W-ONE knows it by (its nbformat id, or one made up for older files). */
+/** A cell with the key Mindeck knows it by (its nbformat id, or one made up for older files). */
 export type Cell = NotebookCell & { key: string }
 export type Doc = Omit<NotebookDocument, 'cells'> & { cells: Cell[] }
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentAvailability, AgentSession } from '@shared/types/agents'
 import type { ChatMessage, PermissionRequest } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 
 // --- xterm (the session's terminal) and Monaco (diffs): jsdom runs neither ----------
 const x = vi.hoisted(() => ({
@@ -45,7 +45,7 @@ vi.mock('@xterm/addon-fit', () => ({
 }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 vi.mock('@/features/editor/monaco/setup', () => ({
-  THEME: 'wone',
+  THEME: 'mindeck',
   applyMonacoTheme: vi.fn(),
   monaco: {
     Uri: { file: (path: string) => ({ path }) },
@@ -114,7 +114,7 @@ const claude = (over: Partial<AgentAvailability> = {}): AgentAvailability => ({
   ready: true,
   ...over
 })
-const codex: AgentAvailability = { kind: 'codex', name: 'Codex', installed: true, version: '1.0.0', ready: false, hint: 'Coming to W-ONE soon' }
+const codex: AgentAvailability = { kind: 'codex', name: 'Codex', installed: true, version: '1.0.0', ready: false, hint: 'Coming to Mindeck soon' }
 const msg = (id: string, role: ChatMessage['role'], text: string): ChatMessage => ({ id, role, parts: [{ type: 'text', text }], createdAt: '', status: 'done' })
 const ag = () => useAgents.getState()
 
@@ -283,7 +283,7 @@ describe('useAgents store', () => {
   })
 
   it('describes session events for the activity timeline', () => {
-    const e = (type: string, payload: Record<string, unknown>) => ({ id: '1', type, ts: '', actor: { kind: 'agent' }, payload }) as WoneEvent
+    const e = (type: string, payload: Record<string, unknown>) => ({ id: '1', type, ts: '', actor: { kind: 'agent' }, payload }) as MindeckEvent
     expect(describeEvent(e('session.started', { agent: 'Claude Code', title: 'Fix login' }))).toEqual({ text: 'Claude Code started: Fix login', tone: 'cyan' })
     expect(describeEvent(e('session.started', {}))).toEqual({ text: 'Agent started:', tone: 'cyan' })
     expect(describeEvent(e('session.ended', { code: 2 }))).toEqual({ text: 'Session ended (exit code 2)', tone: 'warn' })
@@ -302,8 +302,8 @@ describe('NewChatDialog', () => {
     expect(screen.getByRole('button', { name: /Claude Code/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Pro plan · v2.1.287')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Codex/ })).toBeDisabled()
-    expect(screen.getByText('Coming to W-ONE soon')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /W-ONE Assistant/ })).toBeDisabled() // no API key
+    expect(screen.getByText('Coming to Mindeck soon')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Mindeck Assistant/ })).toBeDisabled() // no API key
     expect(screen.getByLabelText('Own working folder')).toBeChecked() // another agent works in p1
     expect(screen.getByText(/Another agent works in this project/)).toBeInTheDocument()
     expect(screen.getByLabelText('First message')).toHaveValue('Fix the login')
@@ -321,13 +321,13 @@ describe('NewChatDialog', () => {
     expect(create).toHaveBeenLastCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: undefined })
   })
 
-  it('W-ONE Assistant: chosen when no agent is ready; sends the first message into a new assistant chat', async () => {
+  it('Mindeck Assistant: chosen when no agent is ready; sends the first message into a new assistant chat', async () => {
     const a = { newChat: vi.fn(), setProject: vi.fn(), send: vi.fn(async () => true) }
-    useAssistant.setState({ status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, ...a })
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }, ...a })
     useAgents.setState({ availability: [claude({ ready: false, signedIn: false, hint: 'Sign in once: claude auth login' })] })
     dialog({ prompt: 'Hello' })
     await act(settle)
-    expect(screen.getByRole('button', { name: /W-ONE Assistant/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /Mindeck Assistant/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Sign in once: claude auth login')).toBeInTheDocument()
     expect(screen.queryByLabelText('Own working folder')).toBeNull()
     choose('Project', 'No project') // "No project" exists for the assistant
@@ -341,10 +341,10 @@ describe('NewChatDialog', () => {
 
   it('assistant without a first message; switching between agents', async () => {
     const a = { newChat: vi.fn(), setProject: vi.fn(), send: vi.fn(async () => true) }
-    useAssistant.setState({ status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, ...a })
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }, ...a })
     useAgents.setState({ availability: [claude()], create: vi.fn(async () => true) })
     dialog()
-    fireEvent.click(screen.getByRole('button', { name: /W-ONE Assistant/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Mindeck Assistant/ }))
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
     expect(a.setProject).toHaveBeenCalledWith('p1')
@@ -391,17 +391,17 @@ describe('SessionPane', () => {
     const stop = vi.fn(async () => {})
     useAgents.setState({ stop })
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const { rerender } = pane(session({ status: 'starting', branch: 'wone/abc' }))
+    const { rerender } = pane(session({ status: 'starting', branch: 'mindeck/abc' }))
     expect(screen.getByText(/Claude Code is starting/)).toBeInTheDocument()
-    expect(screen.getByText(/wone\/abc/)).toBeInTheDocument()
+    expect(screen.getByText(/mindeck\/abc/)).toBeInTheDocument()
     expect(screen.getByText('· Starting…')).toBeInTheDocument()
     // A quick start (a resume, a trusted folder): ready before the grace — no terminal flashes up.
     await act(() => vi.advanceTimersByTimeAsync(1000))
-    rerender(<SessionPane session={session({ status: 'idle', branch: 'wone/abc' })} messages={[]} />)
+    rerender(<SessionPane session={session({ status: 'idle', branch: 'mindeck/abc' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(5000))
     expect(x.terms).toHaveLength(0)
     // The next start takes long: the agent asks something in its terminal, which opens.
-    rerender(<SessionPane session={session({ status: 'starting', branch: 'wone/abc', terminalId: 'pty2' })} messages={[]} />)
+    rerender(<SessionPane session={session({ status: 'starting', branch: 'mindeck/abc', terminalId: 'pty2' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(2900))
     expect(x.terms).toHaveLength(0)
     await act(() => vi.advanceTimersByTimeAsync(100))
@@ -585,7 +585,7 @@ describe('SessionSide and diffs', () => {
         ]
       }
     })
-    const { rerender } = render(<SessionSide session={session({ worktree: '/wt', branch: 'wone/x' })} onOpenNote={vi.fn()} />)
+    const { rerender } = render(<SessionSide session={session({ worktree: '/wt', branch: 'mindeck/x' })} onOpenNote={vi.fn()} />)
     expect(loadChanges).toHaveBeenCalledWith('s1')
     expect(loadBranch).toHaveBeenCalledWith('s1')
     expect(screen.getByText('In its own working folder')).toBeInTheDocument()
@@ -636,7 +636,7 @@ describe('SessionSide and diffs', () => {
       branches: { s1: { pushed: true, pr: { number: 1, url: 'https://github.com/me/web/pull/1', state: 'merged' }, merged: true, uncommitted: 0 } }
     })
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    const { rerender, unmount } = render(<SessionSide session={session({ worktree: '/wt', branch: 'wone/x' })} onOpenNote={vi.fn()} />)
+    const { rerender, unmount } = render(<SessionSide session={session({ worktree: '/wt', branch: 'mindeck/x' })} onOpenNote={vi.fn()} />)
     expect(screen.getByText('Merged on GitHub')).toBeInTheDocument()
     expect(screen.getByText('— PR #1 merged.').closest('a')).toHaveAttribute('href', 'https://github.com/me/web/pull/1')
     expect(screen.queryByText('Take over')).toBeNull() // the work is in main already
@@ -665,7 +665,7 @@ describe('SessionSide and diffs', () => {
     act(() => void window.dispatchEvent(new Event('focus')))
     act(() => void vi.advanceTimersByTime(60_000))
     expect(loadBranch.mock.calls.length).toBe(before + 2)
-    rerender(<SessionSide session={session({ id: 's2', worktree: '/wt2', branch: 'wone/y' })} onOpenNote={vi.fn()} />)
+    rerender(<SessionSide session={session({ id: 's2', worktree: '/wt2', branch: 'mindeck/y' })} onOpenNote={vi.fn()} />)
     expect(screen.queryByText(/Not possible to fast-forward/)).toBeNull() // that was another session's
     unmount()
     const after = loadBranch.mock.calls.length
@@ -750,7 +750,7 @@ describe('AgentsView', () => {
     view()
     await act(settle)
     expect(screen.getAllByText(/^(Fix login|Ask|Old|Quiet)$/).map((n) => n.textContent)).toEqual(['Fix login', 'Ask', 'Old', 'Quiet'])
-    expect(screen.getAllByText(/W-ONE Assistant ·/)).toHaveLength(2)
+    expect(screen.getAllByText(/Mindeck Assistant ·/)).toHaveLength(2)
     expect(screen.getAllByText(/^Claude Code · Demo ·/)).toHaveLength(2) // renamed: the agent moves to the second line
     expect(screen.getAllByText(/^Demo ·/)).toHaveLength(1) // still named after its agent
     expect(screen.getByLabelText('Delete Fix login')).toHaveAttribute('title', 'Deletes its working folder too')
@@ -777,7 +777,7 @@ describe('AgentsView', () => {
       activity: [
         { id: 'e1', type: 'agent.cancelled', ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload: {}, conversationId: 'c1' },
         { id: 'e2', type: 'app.started', ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'system' }, payload: {} }
-      ] as WoneEvent[]
+      ] as MindeckEvent[]
     })
     const { rerender } = view()
     await act(settle)
@@ -808,7 +808,7 @@ describe('AssistantPane', () => {
     }
     useAssistant.setState({
       ...a,
-      status: { configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } },
+      status: { configured: false, model: 'claude-opus-5-5', cloud: null, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } },
       agents: [
         { id: 'assistant', name: 'Assistant', description: 'Personal', tools: [], web: false },
         { id: 'research', name: 'Research', description: 'Web', tools: [], web: true },
@@ -818,10 +818,10 @@ describe('AssistantPane', () => {
     })
     const { rerender } = render(<AssistantPane onOpenSettings={onOpenSettings} />)
     expect(screen.getByText('New chat · Assistant')).toBeInTheDocument()
-    expect(screen.getByText('W-ONE Assistant · claude-opus-5-5 · high')).toBeInTheDocument()
+    expect(screen.getByText('Mindeck Assistant · claude-opus-5-5 · high')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Research' }))
     expect(a.newChat).toHaveBeenCalledWith('research')
-    fireEvent.click(screen.getByText(/Add an API key in Settings/))
+    fireEvent.click(screen.getByText(/Sign in to your Mindeck account to use the Assistant/))
     expect(onOpenSettings).toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('Dismiss'))
     expect(a.clearError).toHaveBeenCalled()
@@ -829,7 +829,7 @@ describe('AssistantPane', () => {
 
     act(() =>
       useAssistant.setState({
-        status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' } },
+        status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } },
         error: undefined,
         conversations: [{ id: 'c1', title: 'Chat one', agentId: 'odd', createdAt: '', updatedAt: '', running: true }],
         activeId: 'c1',

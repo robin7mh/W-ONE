@@ -21,8 +21,8 @@ const WIDGET_HEIGHT = 46
 let status: AiStatus | undefined
 let registered = false
 
-/** Suggestions while typing: switched on in Settings → AI, with a key. */
-export const suggesting = () => !!status?.configured && !!status.settings.inline
+/** Suggestions while typing: switched on in Settings → AI, with the user's own key (never on the account's credit). */
+export const suggesting = () => (status?.source === 'env' || status?.source === 'stored') && !!status.settings.inline
 
 const newId = () => crypto.randomUUID()
 
@@ -137,7 +137,7 @@ export function acceptInlineEdit(editor: Editor): void {
 export function rejectInlineEdit(editor: Editor): void {
   const s = sessions.get(editor)
   if (!s) return
-  if (s.phase === 'review') editor.executeEdits('wone.inlineEdit', [{ range: rangeOf(s), text: s.original }])
+  if (s.phase === 'review') editor.executeEdits('mindeck.inlineEdit', [{ range: rangeOf(s), text: s.original }])
   close(s)
 }
 
@@ -178,7 +178,7 @@ async function write(s: Session): Promise<void> {
     if (sessions.get(s.editor) !== s) return
     s.requestId = undefined
     const at = rangeOf(s)
-    s.editor.executeEdits('wone.inlineEdit', [{ range: at, text: result, forceMoveMarkers: true }])
+    s.editor.executeEdits('mindeck.inlineEdit', [{ range: at, text: result, forceMoveMarkers: true }])
     const from = s.model.getOffsetAt(at.getStartPosition())
     const startPos = s.model.getPositionAt(from)
     const endPos = s.model.getPositionAt(from + result.length)
@@ -186,9 +186,9 @@ async function write(s: Session): Promise<void> {
       {
         range: new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column),
         options: {
-          className: 'wone-ai-added',
+          className: 'mindeck-ai-added',
           isWholeLine: true,
-          linesDecorationsClassName: 'wone-ai-added-gutter',
+          linesDecorationsClassName: 'mindeck-ai-added-gutter',
           stickiness: monaco.editor.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges
         }
       }
@@ -250,7 +250,7 @@ export function startInlineEdit(editor: Editor): void {
   root.style.left = `${layout.contentLeft}px`
   root.style.width = `${Math.max(240, Math.min(720, layout.contentWidth - 40))}px`
   const widget: monaco.editor.IOverlayWidget = {
-    getId: () => 'wone.inlineEdit',
+    getId: () => 'mindeck.inlineEdit',
     getDomNode: () => root,
     getPosition: () => null
   }
@@ -265,7 +265,7 @@ export function startInlineEdit(editor: Editor): void {
       {
         range,
         options: {
-          className: empty ? undefined : 'wone-ai-target',
+          className: empty ? undefined : 'mindeck-ai-target',
           isWholeLine: !empty,
           stickiness: monaco.editor.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges
         }
@@ -298,10 +298,10 @@ export function startInlineEdit(editor: Editor): void {
 
 /** ⌘K in an editor, and its keys while an edit waits to be accepted (⌘⏎) or rejected (Esc). */
 export function addInlineEdit(editor: Editor): monaco.IDisposable[] {
-  const key = editor.createContextKey('woneInlineEditPending', false)
+  const key = editor.createContextKey('mindeckInlineEditPending', false)
   pending.set(editor, key)
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => acceptInlineEdit(editor), 'woneInlineEditPending')
-  editor.addCommand(monaco.KeyCode.Escape, () => rejectInlineEdit(editor), 'woneInlineEditPending')
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => acceptInlineEdit(editor), 'mindeckInlineEditPending')
+  editor.addCommand(monaco.KeyCode.Escape, () => rejectInlineEdit(editor), 'mindeckInlineEditPending')
   return [
     // Another file in this editor: the edit stays as it is.
     editor.onDidChangeModel(() => {
@@ -309,7 +309,7 @@ export function addInlineEdit(editor: Editor): monaco.IDisposable[] {
       if (s) close(s)
     }),
     editor.addAction({
-      id: 'wone.inlineEdit',
+      id: 'mindeck.inlineEdit',
       label: getT().inlineAi.palette,
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
       contextMenuGroupId: '1_modification',

@@ -32,8 +32,8 @@ function fakeServer(remote: string, opts: { failEnd?: boolean } = {}) {
 }
 
 async function project(config: unknown) {
-  const root = await tempDir('wone-sftp-')
-  const remote = await tempDir('wone-remote-')
+  const root = await tempDir('mindeck-sftp-')
+  const remote = await tempDir('mindeck-remote-')
   await mkdir(join(root, '.vscode'), { recursive: true })
   if (config !== undefined) await writeFile(join(root, '.vscode/sftp.json'), typeof config === 'string' ? config : JSON.stringify(config))
   await mkdir(join(root, 'site/css'), { recursive: true })
@@ -108,7 +108,7 @@ describe('SFTP (.vscode/sftp.json like the VS Code extension)', () => {
   })
 
   it('signs in with a key (with ~), else the SSH agent; FTP is not supported; a failing close is ignored', async () => {
-    const home = await tempDir('wone-home-')
+    const home = await tempDir('mindeck-home-')
     await mkdir(join(home, '.ssh'))
     await writeFile(join(home, '.ssh/id_test'), 'KEY')
     const keyed = await project({ name: 'K', host: 'h', privateKeyPath: '~/.ssh/id_test', passphrase: 'pp', port: 2222, connectTimeout: 5000 })

@@ -23,7 +23,7 @@ beforeEach(() => {
 })
 
 describe('Settings → Editor', () => {
-  it('shows the settings (W-ONE’s defaults where none are set) and changes them one by one', async () => {
+  it('shows the settings (Mindeck’s defaults where none are set) and changes them one by one', async () => {
     let saved: EditorSettings = { formatOnSave: true, wordWrap: 'on' }
     const bridge = installBridge({
       'editor:settings': () => ({ settings: saved, snippets: [] }),
@@ -35,7 +35,7 @@ describe('Settings → Editor', () => {
     expect(sw('Format on save')).toBeChecked()
     expect(sw('Prettier for every project')).not.toBeChecked()
     expect(sw('ESLint fixes on save')).not.toBeChecked()
-    expect(sw('Minimap')).toBeChecked() // W-ONE's default
+    expect(sw('Minimap')).toBeChecked() // Mindeck's default
     expect(sw('Wrap long lines')).toBeChecked()
     fireEvent.click(sw('Prettier for every project'))
     await act(settle)

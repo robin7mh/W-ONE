@@ -1,6 +1,6 @@
 // Moving over from VS Code / Cursor: the editor settings, keybindings and
-// snippets W-ONE takes along, and what becomes of each extension.
-// (Colors and themes stay W-ONE's own, deliberately.)
+// snippets Mindeck takes along, and what becomes of each extension.
+// (Colors and themes stay Mindeck's own, deliberately.)
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 
 export interface EditorKeybinding {
@@ -10,7 +10,7 @@ export interface EditorKeybinding {
   when?: string
 }
 
-/** The editor preferences W-ONE applies (taken from VS Code's settings.json). */
+/** The editor preferences Mindeck applies (taken from VS Code's settings.json). */
 export interface EditorSettings {
   fontSize?: number
   fontFamily?: string
@@ -33,7 +33,7 @@ export interface EditorSettings {
   formatOnSave?: boolean
   /**
    * Prettier formats (VS Code's editor.defaultFormatter = Prettier) — the
-   * project's own, else W-ONE's. Without it, Prettier formats only projects
+   * project's own, else Mindeck's. Without it, Prettier formats only projects
    * that use Prettier; the rest the editor's own formatters.
    */
   prettier?: boolean
@@ -128,7 +128,7 @@ export interface MigrationSource {
   /** Folder name of the app's data: Code, Cursor, VSCodium, Windsurf. */
   app: string
   name: string
-  /** Editor settings W-ONE understands. */
+  /** Editor settings Mindeck understands. */
   settings: number
   keybindings: number
   snippets: number
@@ -141,7 +141,7 @@ export interface MigrationResult {
   snippets: number
 }
 
-/** VS Code's workbench commands → the W-ONE command palette's ids. */
+/** VS Code's workbench commands → the Mindeck command palette's ids. */
 export const WORKBENCH_COMMANDS: Record<string, string> = {
   'workbench.action.quickOpen': 'go.file',
   'workbench.action.showCommands': 'palette',
@@ -175,7 +175,7 @@ export const WORKBENCH_COMMANDS: Record<string, string> = {
   'workbench.action.terminal.new': 'module.terminal'
 }
 
-/** A keybinding W-ONE can honor: Monaco's own editor commands, or a mapped workbench command. */
+/** A keybinding Mindeck can honor: Monaco's own editor commands, or a mapped workbench command. */
 export const isSupportedCommand = (command: string): boolean =>
   command in WORKBENCH_COMMANDS || /^(editor\.|cursor|actions\.find|deleteLines|undo|redo|tab|outdent)/.test(command)
 

@@ -1,9 +1,9 @@
 {
-  "name": "w-one",
+  "name": "mindeck",
   "version": "0.1.0",
-  "description": "W-ONE — a dark, futuristic Sci-Fi command-center desktop app.",
+  "description": "Mindeck — a dark, futuristic Sci-Fi command-center desktop app.",
   "author": "Robin Hinkelmann",
-  "desktopName": "w-one.desktop",
+  "desktopName": "mindeck.desktop",
   "license": "SEE LICENSE IN LICENSE",
   "main": "out/main/index.js",
   "scripts": {
@@ -23,9 +23,9 @@
     "remote:bundle": "node scripts/remote-bundle.mjs",
     "web": "npm run web:build && npm run server:build && npm run server",
     "postinstall": "node scripts/fix-node-pty.cjs",
-    "docker:build": "docker build -t ghcr.io/robin7mh/w-one:local .",
+    "docker:build": "docker build -t ghcr.io/robin7mh/mindeck:local .",
     "docker:up": "docker compose up -d --build --wait",
-    "docker:pair": "docker exec w-one-core node out/server/index.cjs pair",
+    "docker:pair": "docker exec mindeck-core node out/server/index.cjs pair",
     "docker:logs": "docker compose logs -f core",
     "docker:down": "docker compose down",
     "test": "vitest run",
@@ -96,5 +96,5 @@
     "vite": "^5.3.5",
     "vitest": "^3.2.7"
   },
-  "homepage": "https://github.com/robin7mh/W-ONE"
+  "homepage": "https://github.com/robin7mh/mindeck"
 }

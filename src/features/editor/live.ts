@@ -4,7 +4,7 @@ import type { LiveServerStatus, SassResult } from '@shared/types/live'
 import { onSaved, useEditor } from './store'
 import { useProblems } from './problems'
 
-const KEY = 'wone.sassWatch'
+const KEY = 'mindeck.sassWatch'
 
 function loadWatching(): Record<string, boolean> {
   try {

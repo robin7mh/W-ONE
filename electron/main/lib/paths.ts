@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 
 /** Every local data location, derived in exactly one place (architecture §11.1). */
-export interface WonePaths {
-  /** ~/W-ONE — the one user-visible home of everything W-ONE keeps. */
+export interface MindeckPaths {
+  /** ~/Mindeck — the one user-visible home of everything Mindeck keeps. */
   homeDir: string
-  /** ~/W-ONE/data — project registry, settings, history, caches: plain files, no database. */
+  /** ~/Mindeck/data — project registry, settings, history, caches: plain files, no database. */
   dataDir: string
   /** Typed app settings (JSON, atomic writes). */
   settingsFile: string
@@ -16,7 +16,7 @@ export interface WonePaths {
   devicesFile: string
   /** Secrets such as the LLM API key — encrypted on desktop, 0600 on a server. */
   secretsFile: string
-  /** The W-ONE account: last signed entitlement, install id (the session token is a secret). */
+  /** The Mindeck account: last signed entitlement, install id (the session token is a secret). */
   cloudFile: string
   /** Persisted "Always allow" permission grants for agent tools. */
   grantsFile: string
@@ -30,13 +30,18 @@ export interface WonePaths {
   worktreesDir: string
 }
 
+/** The home before the app was called Mindeck — used as it is until ~/Mindeck exists (moving it over is up to the user). */
+const FORMER_HOME = 'W-ONE'
+
 /**
- * Everything lives under ~/W-ONE: findable in Finder, the same for `npm run
- * dev` and the packaged app, and backed up by copying one folder. WONE_HOME
+ * Everything lives under ~/Mindeck: findable in Finder, the same for `npm run
+ * dev` and the packaged app, and backed up by copying one folder. MINDECK_HOME
  * overrides the root (tests, or a custom location).
  */
-export function wonePaths(): WonePaths {
-  const homeDir = process.env.WONE_HOME || join(homedir(), 'W-ONE')
+export function mindeckPaths(home = homedir()): MindeckPaths {
+  const current = join(home, 'Mindeck')
+  const former = join(home, FORMER_HOME)
+  const homeDir = process.env.MINDECK_HOME || (!existsSync(current) && existsSync(former) ? former : current)
   const dataDir = join(homeDir, 'data')
   return {
     homeDir,
@@ -56,17 +61,17 @@ export function wonePaths(): WonePaths {
 
 /**
  * One-time copy of the old hidden data folder (Electron's userData, before
- * 2026-10-02 — only the desktop app ever had one) into ~/W-ONE/data. Copy, not
+ * 2026-10-02 — only the desktop app ever had one) into ~/Mindeck/data. Copy, not
  * move: the original stays untouched as a backup (with a note pointing to the
  * new place). Runs before the DB is opened, so the SQLite files are at rest.
  */
-export function migrateLegacyData(paths: WonePaths, legacyDataDir: string): boolean {
+export function migrateLegacyData(paths: MindeckPaths, legacyDataDir: string): boolean {
   if (existsSync(paths.dataDir) || !existsSync(legacyDataDir)) return false
   mkdirSync(paths.homeDir, { recursive: true })
   cpSync(legacyDataDir, paths.dataDir, { recursive: true, errorOnExist: true })
   writeFileSync(
-    join(legacyDataDir, 'MOVED-TO-W-ONE-DATA.txt'),
-    `W-ONE now keeps its data in ${paths.dataDir}.\nThis folder is an untouched backup from before the move.\n`
+    join(legacyDataDir, 'MOVED-TO-Mindeck-DATA.txt'),
+    `Mindeck now keeps its data in ${paths.dataDir}.\nThis folder is an untouched backup from before the move.\n`
   )
   return true
 }

@@ -102,7 +102,7 @@ describe('command palette: commands', () => {
     setEditorActions({
       list: () => [
         { id: 'editor.action.formatDocument', label: 'Format Document' },
-        { id: 'wone.formatDocument', label: 'Format Document' },
+        { id: 'mindeck.formatDocument', label: 'Format Document' },
         { id: 'editor.action.quickCommand', label: 'Command Palette' },
         { id: 'editor.action.gotoLine', label: 'Go to Line' },
         { id: 'editor.action.transformToUppercase', label: 'Transform to Uppercase' }
@@ -113,7 +113,7 @@ describe('command palette: commands', () => {
     const editor = items.filter((i) => i.label.startsWith('Editor:'))
     expect(editor.map((i) => `${i.label}${i.keys ? ` [${i.keys}]` : ''}`)).toEqual(['Editor: Format Document [⇧⌥F]', 'Editor: Transform to Uppercase'])
     editor.forEach((i) => void i.run())
-    expect(ran).toEqual(['wone.formatDocument', 'editor.action.transformToUppercase'])
+    expect(ran).toEqual(['mindeck.formatDocument', 'editor.action.transformToUppercase'])
     expect(editorActions()).not.toBeNull()
   })
 
@@ -328,7 +328,7 @@ describe('Live Server and the Sass watcher', () => {
 
     await useLive.getState().toggleSass()
     expect(useLive.getState().sassWatching).toEqual({ p: true })
-    expect(JSON.parse(localStorage.getItem('wone.sassWatch')!)).toEqual({ p: true })
+    expect(JSON.parse(localStorage.getItem('mindeck.sassWatch')!)).toEqual({ p: true })
     expect(useProblems.getState().byFile['p:broken.scss'][0].message).toBe('oops')
     await useLive.getState().toggleSass()
     expect(useLive.getState().sassWatching).toEqual({ p: false })
@@ -344,10 +344,10 @@ describe('Live Server and the Sass watcher', () => {
   })
 
   it('remembers watched projects; broken storage watches none', async () => {
-    localStorage.setItem('wone.sassWatch', JSON.stringify({ p: true }))
+    localStorage.setItem('mindeck.sassWatch', JSON.stringify({ p: true }))
     vi.resetModules()
     expect((await import('@/features/editor/live')).useLive.getState().sassWatching).toEqual({ p: true })
-    localStorage.setItem('wone.sassWatch', '{broken')
+    localStorage.setItem('mindeck.sassWatch', '{broken')
     vi.resetModules()
     expect((await import('@/features/editor/live')).useLive.getState().sassWatching).toEqual({})
   })
@@ -379,7 +379,7 @@ describe('debug store', () => {
     d().toggleBreakpoint('p', 'a.js', 3)
     d().toggleBreakpoint('p', 'a.js', 5)
     expect(d().breakpoints.p).toEqual([{ path: 'a.js', line: 3 }, { path: 'a.js', line: 5 }])
-    expect(JSON.parse(localStorage.getItem('wone.debug')!).breakpoints.p).toHaveLength(2)
+    expect(JSON.parse(localStorage.getItem('mindeck.debug')!).breakpoints.p).toHaveLength(2)
     expect(bridge.invoke).not.toHaveBeenCalled() // nothing running
 
     useDebug.setState({ session: session({ status: 'running', frames: [] }) })
@@ -405,7 +405,7 @@ describe('debug store', () => {
     d().setArgs('p', '--x 1')
     d().setBuild('p', 'make')
     d().setStopOnEntry(true)
-    expect(JSON.parse(localStorage.getItem('wone.debug')!)).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' }, build: { p: 'make' } })
+    expect(JSON.parse(localStorage.getItem('mindeck.debug')!)).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' }, build: { p: 'make' } })
     vi.resetModules()
     const fresh = (await import('@/features/editor/debug')).useDebug.getState()
     expect(fresh).toMatchObject({ program: { p: 'src/main.ts' }, args: { p: '--x 1' }, breakpoints: {} })
@@ -897,7 +897,7 @@ describe('EditorView: palette, problems, debugging', () => {
     unmount()
   })
 
-  it('the user’s own keybindings (from VS Code) run W-ONE commands; chords and editor commands are Monaco’s', async () => {
+  it('the user’s own keybindings (from VS Code) run Mindeck commands; chords and editor commands are Monaco’s', async () => {
     routes({ 'editor:settings': () => ({ settings: {}, snippets: [] }) })
     show()
     await act(settle)

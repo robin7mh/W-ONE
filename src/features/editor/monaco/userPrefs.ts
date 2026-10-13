@@ -119,7 +119,7 @@ export function setupUserPrefs(): void {
   // One provider per language: Monaco doesn't ask providers registered for '*'.
   const provider: monaco.languages.CompletionItemProvider = {
     provideCompletionItems(model, position) {
-      // The user's snippets, and the ones W-ONE brings (MUI).
+      // The user's snippets, and the ones Mindeck brings (MUI).
       const snippets = [...useEditorPrefs.getState().snippets, ...MUI_SNIPPETS]
       const word = model.getWordUntilPosition(position)
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)

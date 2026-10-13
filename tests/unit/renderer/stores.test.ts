@@ -320,7 +320,7 @@ describe('memory store', () => {
     const files = new Map(paths.map((p) => [p, note(p)]))
     const calls: string[] = []
     const routes: Record<string, (p: never) => unknown> = {
-      'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'W-ONE', isDefault: true, exists: true, noteCount: files.size, graphStyle: { mode: 'colorful', color: 'cyan' } }),
+      'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists: true, noteCount: files.size, graphStyle: { mode: 'colorful', color: 'cyan' } }),
       'memory:list': () => [...files.keys()].map((p) => meta(p)),
       'memory:graph': () => ({ nodes: [], edges: [] }),
       'memory:folders': () => ['Ich'],
@@ -651,7 +651,7 @@ describe('memory store', () => {
     await m().init()
     let resolve: (v: unknown) => void = () => {}
     useMemory.getState()
-    ;(window as unknown as { wone: { routes: Record<string, unknown> } }).wone.routes['memory:setGraphStyle'] = () =>
+    ;(window as unknown as { mindeck: { routes: Record<string, unknown> } }).mindeck.routes['memory:setGraphStyle'] = () =>
       new Promise((r) => (resolve = r))
     const pending = m().setGraphStyle({ mode: 'single', color: 'lime' })
     await settle()

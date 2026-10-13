@@ -76,7 +76,7 @@ export interface GitHubOptions {
   gh: GhRunner
 }
 
-/** gh's JSON for one pull request (the fields W-ONE asks for). */
+/** gh's JSON for one pull request (the fields Mindeck asks for). */
 interface RawPull {
   number: number
   title: string

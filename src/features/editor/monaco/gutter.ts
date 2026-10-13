@@ -35,7 +35,7 @@ export function attachGutter(editor: monaco.editor.IStandaloneCodeEditor, curren
         return {
           range: new monaco.Range(line, 1, Math.max(1, c.end), 1),
           options: {
-            linesDecorationsClassName: c.kind === 'deleted' && c.start === 0 ? 'wone-gutter-deleted-top' : `wone-gutter-${c.kind}`,
+            linesDecorationsClassName: c.kind === 'deleted' && c.start === 0 ? 'mindeck-gutter-deleted-top' : `mindeck-gutter-${c.kind}`,
             overviewRuler: { color: tint, position: monaco.editor.OverviewRulerLane.Left },
             minimap: { color: tint, position: monaco.editor.MinimapPosition.Gutter }
           }

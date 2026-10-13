@@ -1,7 +1,7 @@
-// Builds the W-ONE server packages for Remote-SSH / Dev Containers with Docker:
+// Builds the Mindeck server packages for Remote-SSH / Dev Containers with Docker:
 //   npm run remote:bundle              linux-x64 and linux-arm64
 //   npm run remote:bundle -- arm64     one architecture
-// → out/remote/wone-server-<version>-linux-<arch>.tar.gz (release builds attach them to the GitHub release).
+// → out/remote/mindeck-server-<version>-linux-<arch>.tar.gz (release builds attach them to the GitHub release).
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,9 +17,9 @@ for (const arch of arches) {
   rmSync(dir, { recursive: true, force: true })
   console.log(`\n▸ linux-${arch}`)
   const args = ['build', '--platform', `linux/${arch === 'x64' ? 'amd64' : 'arm64'}`, '-f', 'remote/Dockerfile', '-o', `type=local,dest=${dir}`]
-  for (const name of ['WONE_CLOUD_URL', 'WONE_CLOUD_KEY']) if (process.env[name]) args.push('--build-arg', `${name}=${process.env[name]}`)
+  for (const name of ['MINDECK_CLOUD_URL', 'MINDECK_CLOUD_KEY']) if (process.env[name]) args.push('--build-arg', `${name}=${process.env[name]}`)
   execFileSync('docker', [...args, '.'], { cwd: root, stdio: 'inherit' })
-  const file = join(out, `wone-server-${version}-linux-${arch}.tar.gz`)
+  const file = join(out, `mindeck-server-${version}-linux-${arch}.tar.gz`)
   execFileSync('tar', ['czf', file, '-C', dir, '.'], { stdio: 'inherit' })
   rmSync(dir, { recursive: true, force: true })
   console.log(`✓ ${file}`)

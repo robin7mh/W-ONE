@@ -101,9 +101,9 @@ export function surfaceTokens(surface: Surface, accent: Accent): Record<string, 
 /** Attributes of <html> that change when the appearance does — watch these to re-read tokens. */
 export const APPEARANCE_ATTRIBUTES = ['data-theme', 'data-accent', 'data-surface', 'style']
 
-const KEY = 'wone.appearance'
+const KEY = 'mindeck.appearance'
 /** Before the appearance settings, only dark/light was stored. */
-const LEGACY_KEY = 'wone.theme'
+const LEGACY_KEY = 'mindeck.theme'
 const LIGHT_QUERY = '(prefers-color-scheme: light)'
 const SURFACE_TOKENS = Object.keys(CYBER)
 

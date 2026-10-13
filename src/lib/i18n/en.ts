@@ -33,7 +33,7 @@ export const en = {
 
   account: {
     title: 'Profile',
-    accountCard: 'W-ONE account',
+    accountCard: 'Mindeck account',
     languageCard: 'Language',
     languageHint: 'The whole interface switches at once. Remembered on this device.',
     coreCard: 'This core',
@@ -62,7 +62,7 @@ export const en = {
     frame: 'Account',
     checking: 'Checking your license…',
     signInTitle: 'Sign in',
-    signInIntro: 'W-ONE runs with your W-ONE account. New here? Create one — the trial includes 7 hours of use.',
+    signInIntro: 'Mindeck runs with your Mindeck account. New here? Create one — the trial includes 7 hours of use.',
     registerTitle: 'Create account',
     registerIntro: 'Your 7-hour trial starts once you confirm your email address.',
     forgotTitle: 'Reset password',
@@ -80,14 +80,14 @@ export const en = {
     forgotSent: 'If an account exists for this address, a link is on its way.',
     signOut: 'Sign out',
     checkAgain: 'Check again',
-    offlineTitle: 'W-ONE Cloud unreachable',
+    offlineTitle: 'Mindeck Cloud unreachable',
     offlineIntro: 'Checking your license needs an internet connection. Check it and try again.',
     verifyTitle: 'Confirm your email',
     verifyIntro: (email: string) => `We sent a link to ${email}. Open it, then check again here — your 7 hours start after that.`,
     resend: 'Send again',
     resent: 'Sent. Check your inbox and spam folder.',
     expiredTitle: 'Your trial is over',
-    expiredIntro: 'You have used your 7 hours of W-ONE. The lifetime license unlocks it for good, including every update.',
+    expiredIntro: 'You have used your 7 hours of Mindeck. The lifetime license unlocks it for good, including every update.',
     buy: 'Buy lifetime license',
     checkoutOpened: 'Checkout is open in your browser. Your license applies right after payment.',
     openCheckout: 'Open checkout',
@@ -96,7 +96,7 @@ export const en = {
     trial: 'Trial',
     trialLeft: (time: string) => `${time} of trial left`,
     offlineUntil: (date: string) => `Works offline until ${date}`,
-    devBuild: 'Developer build — W-ONE runs without a license here.',
+    devBuild: 'Developer build — Mindeck runs without a license here.',
     errors: {
       invalid_credentials: 'Email or password is wrong.',
       email_taken: 'An account with this email already exists.',
@@ -109,7 +109,7 @@ export const en = {
       billing_unavailable: 'Payments are not available yet.',
       invalid_input: 'Please check your input.',
       'bad-request': 'Please check your input.',
-      'cloud-unreachable': 'W-ONE Cloud is not reachable.',
+      'cloud-unreachable': 'Mindeck Cloud is not reachable.',
       'bad-entitlement': 'The license could not be verified.'
     }
   },
@@ -133,7 +133,7 @@ export const en = {
     initializing: 'Initializing',
     skip: 'click to skip',
     lines: [
-      'W-ONE KERNEL v0.1.0 — cold start',
+      'Mindeck KERNEL v0.1.0 — cold start',
       'mounting core services ............ ok',
       'initializing HUD compositor ....... ok',
       'loading design tokens ............. ok',
@@ -142,7 +142,7 @@ export const en = {
       'memory vault ...................... standby',
       'network link ...................... LOCAL',
       'command interface ................. online',
-      'W-ONE COMMAND CENTER READY'
+      'Mindeck COMMAND CENTER READY'
     ]
   },
 
@@ -178,18 +178,18 @@ export const en = {
 
   pair: {
     web: 'Command Center · Web',
-    connecting: 'Connecting to the W-ONE core…',
+    connecting: 'Connecting to the Mindeck core…',
     unreachable: 'Core unreachable',
-    noAnswer: 'The W-ONE core did not answer.',
+    noAnswer: 'The Mindeck core did not answer.',
     title: 'Pair this browser',
-    introBefore: 'Enter the one-time pairing code of your W-ONE core. You find it in the server log (',
+    introBefore: 'Enter the one-time pairing code of your Mindeck core. You find it in the server log (',
     introMiddle: ') or in the desktop app under',
     introPath: 'Settings → Devices',
     code: 'Pairing code',
     deviceName: 'Device name',
     submit: 'Pair device',
     noLongerPaired: 'This device is no longer paired',
-    noCore: 'No W-ONE core answered at this address'
+    noCore: 'No Mindeck core answered at this address'
   },
 
   folderPicker: {
@@ -202,7 +202,7 @@ export const en = {
 
   shell: {
     shellsOffTitle: 'Remote shells are off',
-    shellsOffBefore: 'This W-ONE core does not let paired devices open terminals. Turn it on in the desktop app under Settings → Remote access, or start the server with',
+    shellsOffBefore: 'This Mindeck core does not let paired devices open terminals. Turn it on in the desktop app under Settings → Remote access, or start the server with',
     shellsOffAfter: '.'
   },
 
@@ -233,8 +233,8 @@ export const en = {
     battery: 'Battery',
     disk: 'Disk',
     loading: 'loading…',
-    ask: 'Ask W-ONE…',
-    askLabel: 'Ask W-ONE',
+    ask: 'Ask Mindeck…',
+    askLabel: 'Ask Mindeck',
     askSubmit: 'Ask',
     open: (title: string) => `Open ${title}`
   },
@@ -243,7 +243,7 @@ agents: {
     title: 'Agents',
     newChat: 'New chat',
     noChats: 'No chats yet',
-    assistant: 'W-ONE Assistant',
+    assistant: 'Mindeck Assistant',
     delete: 'Delete',
     deleteItem: (title: string) => `Delete ${title}`,
     deletesFolder: 'Deletes its working folder too',
@@ -264,14 +264,22 @@ agents: {
     // assistant pane
     newChatWith: (name: string) => `New chat · ${name}`,
     assistantName: 'Assistant',
-    addKey: 'Add an API key in Settings to use the W-ONE Assistant →',
+    addKey: 'Sign in to your Mindeck account to use the Assistant — or add your own API key in Settings →',
+    aiErrors: {
+      'ai-credit-exhausted': 'Your AI credit is used up. It renews at the start of next month — or add your own API key in Settings to go on now.',
+      'ai-credit-exhausted-trial': 'The AI credit of the trial is used up. With a license you get new credit every month — or add your own API key in Settings.',
+      'license-required': 'The AI needs an active trial or license.',
+      'ai-unavailable': 'The AI is not available right now — please try again later.',
+      'rate-limited': 'The AI is busy — please try again in a moment.',
+      session_expired: 'Please sign in to your Mindeck account again.'
+    },
     messageTo: (name: string) => `Message ${name}…`,
     theAssistant: 'the assistant',
     personas: {
       assistant: { name: 'Assistant', description: 'Personal assistant with memory and project awareness. Can search, read and write notes.' },
       coding: { name: 'Coding', description: 'Works inside a project: reads the structure and files, writes changes, runs commands (each approved by you).' },
       research: { name: 'Research', description: 'Researches on the web (search + fetch) and can file the results in your memory vault.' },
-      chat: { name: 'Chat', description: 'Plain conversation — no tools, no access to your data beyond the context W-ONE adds.' }
+      chat: { name: 'Chat', description: 'Plain conversation — no tools, no access to your data beyond the context Mindeck adds.' }
     } as Record<string, { name: string; description: string }>,
     // chat thread
     toolStatus: { pending: 'queued', 'awaiting-approval': 'waiting for you', running: 'running', done: 'done', error: 'failed', denied: 'blocked' },
@@ -399,8 +407,8 @@ agents: {
     selectNote: 'Select a note, or create one',
     setupTitle: 'Your memory, as an Obsidian vault',
     setupBefore: 'Notes are plain Markdown files linked with',
-    setupAfter: '. Open the same folder in Obsidian any time — W-ONE follows every change. Your agents read and write here too.',
-    createVault: 'Create W-ONE vault',
+    setupAfter: '. Open the same folder in Obsidian any time — Mindeck follows every change. Your agents read and write here too.',
+    createVault: 'Create Mindeck vault',
     openExisting: 'Open existing vault…',
     notFound: (path: string) => `Vault not found: ${path}`,
     newVaultAt: (path: string) => `New vault goes to ${path}`,
@@ -505,25 +513,25 @@ agents: {
 
   migrate: {
     title: 'Move over from VS Code / Cursor',
-    intro: 'W-ONE takes over your editor settings, keybindings and snippets — VS Code itself stays untouched. Colors and themes stay W-ONE’s.',
-    desktopOnly: 'Moving over works in the W-ONE desktop app.',
+    intro: 'Mindeck takes over your editor settings, keybindings and snippets — VS Code itself stays untouched. Colors and themes stay Mindeck’s.',
+    desktopOnly: 'Moving over works in the Mindeck desktop app.',
     none: 'No VS Code, Cursor, VSCodium or Windsurf found on this computer.',
     apply: 'Take over',
     counts: (settings: number, keys: number, snippets: number) => `${settings} editor settings · ${keys} keybindings · ${snippets} snippets`,
     done: (settings: number, keys: number, snippets: number) => `Taken over: ${settings} settings, ${keys} keybindings, ${snippets} snippets`,
     fates: {
-      'built-in': 'Already built into W-ONE',
+      'built-in': 'Already built into Mindeck',
       language: 'Languages',
       snippets: 'Snippets come along',
-      theme: 'Themes — W-ONE keeps its design',
-      unsupported: 'Not in W-ONE yet'
+      theme: 'Themes — Mindeck keeps its design',
+      unsupported: 'Not in Mindeck yet'
     },
     installLanguages: (names: string) => `install under Languages: ${names}`
   },
 
   languages: {
     title: 'Languages',
-    intro: 'Language servers and debuggers run on this computer, like in VS Code. W-ONE installs them only when you click Install.',
+    intro: 'Language servers and debuggers run on this computer, like in VS Code. Mindeck installs them only when you click Install.',
     refresh: 'Check again',
     ready: 'ready',
     install: 'Install',
@@ -567,7 +575,7 @@ agents: {
     formatOnSave: 'Format on save',
     formatOnSaveHint: 'Prettier where the project uses it, else the editor’s own formatter',
     prettier: 'Prettier for every project',
-    prettierHint: 'Also in projects without Prettier (W-ONE brings its own)',
+    prettierHint: 'Also in projects without Prettier (Mindeck brings its own)',
     eslintFix: 'ESLint fixes on save',
     eslintFixHint: 'In projects with ESLint: everything it can fix by itself',
     minimap: 'Minimap',
@@ -591,6 +599,7 @@ agents: {
     suggestions: 'Suggestions while typing',
     suggestionsHint: 'Ghost text at the cursor, Tab accepts it. Asks the model on every pause in typing — that costs tokens.',
     suggestionsModel: 'Model for suggestions',
+    suggestionsOwnKey: 'Ghost text at the cursor, Tab accepts it — with your own API key only (it asks on every pause in typing).',
     editHint: '⌘K in the editor rewrites the selection (or writes at the cursor) with the model above.'
   },
   notebook: {
@@ -659,7 +668,7 @@ agents: {
   },
   remote: {
     button: 'Remote',
-    hint: 'W-ONE on another machine over SSH, or in a project’s Dev Container — in a window of its own.',
+    hint: 'Mindeck on another machine over SSH, or in a project’s Dev Container — in a window of its own.',
     hosts: 'SSH hosts',
     noHosts: 'No hosts in ~/.ssh/config.',
     target: 'user@host[:port]',
@@ -667,7 +676,7 @@ agents: {
     container: 'Open in Dev Container',
     containerOf: (name: string) => `${name} in its Dev Container`,
     active: 'Connections',
-    states: { connecting: 'connecting …', installing: 'installing W-ONE there …', starting: 'starting …', ready: 'connected', closed: 'closed', failed: 'failed' },
+    states: { connecting: 'connecting …', installing: 'installing Mindeck there …', starting: 'starting …', ready: 'connected', closed: 'closed', failed: 'failed' },
     disconnect: 'Disconnect',
     paletteSsh: 'Remote: Connect to SSH host…',
     paletteContainer: 'Remote: Open project in Dev Container',
@@ -675,7 +684,7 @@ agents: {
   },
   sync: {
     title: 'Settings Sync',
-    hint: 'Editor settings, keybindings, snippets, look and language — saved in your W-ONE account, loaded on your other machines.',
+    hint: 'Editor settings, keybindings, snippets, look and language — saved in your Mindeck account, loaded on your other machines.',
     signIn: 'Sign in to sync your settings.',
     never: 'Not synced on this machine yet.',
     last: (date: string) => `This machine: synced ${date}`,
@@ -900,7 +909,7 @@ agents: {
     openInVsCode: 'Open in VS Code',
     binary: 'Binary file',
     tooLarge: 'Larger than 5 MB',
-    textOnly: 'W-ONE only edits text files up to 5 MB.',
+    textOnly: 'Mindeck only edits text files up to 5 MB.',
     cantOpen: "Couldn't open this file",
     tryAgain: 'Try again',
     noProjects: 'No projects yet',
@@ -915,7 +924,7 @@ agents: {
     keepMine: 'Keep mine',
     deletedOnDisk: (name: string) => `${name} was deleted on disk — saving creates it again.`,
     starting: 'Starting the editor…',
-    readOnlyHint: 'This W-ONE core does not allow remote edits (remote shells are off)',
+    readOnlyHint: 'This Mindeck core does not allow remote edits (remote shells are off)',
     readOnly: 'Read-only',
     lineCol: (line: number, col: number) => `Ln ${line}, Col ${col}`,
     saving: 'Saving…',
@@ -967,7 +976,7 @@ agents: {
     none_: 'none',
     scripts: 'Scripts',
     terminal: 'Terminal',
-    terminalHint: 'A shell in this folder, in the W-ONE terminal',
+    terminalHint: 'A shell in this folder, in the Mindeck terminal',
     shellsHere: 'Shells in this project',
     shellFree: 'free',
     openRepo: (url: string) => `Open ${url}`,
@@ -1039,11 +1048,23 @@ agents: {
     surfaceDarkOnly: 'Applies to dark mode.',
     resetAppearance: 'Reset to default',
     agentsCard: 'Coding agents',
-    agentsIntro: 'Your own agents, signed in with your own accounts — W-ONE starts them, shows their work and asks you before anything risky.',
+    agentsIntro: 'Your own agents, signed in with your own accounts — Mindeck starts them, shows their work and asks you before anything risky.',
     checkAgain: 'Check again',
-    aiCard: 'W-ONE Assistant (API key)',
+    aiCard: 'Mindeck Assistant (AI)',
+    locale: 'en-US',
+    viaCloud: (model: string) => `Through your Mindeck account · ${model}`,
+    aiSignIn: 'Sign in to your Mindeck account to use the AI',
+    creditLabel: 'AI credit',
+    creditUsed: (used: string, of: string) => `${used} of ${of} used`,
+    creditRenews: (date: string) => `this month · renews on ${date}`,
+    creditTrial: 'credit of the trial (once)',
+    cloudModel: 'Model (Mindeck account)',
+    cloudDefault: 'fast · light on credit',
+    costFactor: (n: number) => `about ${n}× the credit`,
+    ownKeyWins: 'Your own API key is set: the assistant uses it instead of this credit.',
+    ownKeyTitle: 'Your own API key (optional)',
+    ownKeyHint: 'For heavy use: requests go straight to Anthropic, on your bill — no credit, every model, suggestions while typing.',
     keyFrom: (env: boolean, hint?: string) => `Anthropic key ${env ? 'from the environment' : 'stored'} · …${hint}`,
-    noKey: 'No API key yet',
     newKey: 'New API key',
     replaceKey: 'Replace key…',
     removeKey: 'Remove key',
@@ -1054,14 +1075,14 @@ agents: {
     serverRunning: 'API server running',
     serverOff: 'API server off',
     runServer: 'Run the API server',
-    runServerHint: 'Lets browsers and the W-ONE app connect to this computer.',
+    runServerHint: 'Lets browsers and the Mindeck app connect to this computer.',
     lan: 'Reachable on the local network',
     lanHint: 'Off: this computer only (127.0.0.1). On: phones on your network can connect — pairing still protects it.',
     shells: 'Allow remote shells',
     shellsHint: 'Paired devices may open terminals and let agents run commands. Off by default.',
     port: 'Port',
     desktopOnly: 'Server settings can only be changed in the desktop app.',
-    envOnly: 'This core is configured through its environment (WONE_PORT, WONE_LAN, WONE_REMOTE_TERMINAL).',
+    envOnly: 'This core is configured through its environment (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL).',
     remoteShells: (on: boolean) => `Remote shells: ${on ? 'allowed' : 'off'}.`,
     pairedDevices: 'Paired devices',
     pairDevice: 'Pair a device',

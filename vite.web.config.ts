@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // The renderer as a web app (no Electron): built into out/web and served by
-// the W-ONE core (`npm run web`). In dev (`npm run web:dev`) Vite proxies the
+// the Mindeck core (`npm run web`). In dev (`npm run web:dev`) Vite proxies the
 // API to a core running on :7420 (`npm run server:build && npm run server`).
 export default defineConfig({
   root: '.',

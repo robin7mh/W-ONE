@@ -29,7 +29,7 @@ interface Saved {
   watches: string[]
 }
 
-const KEY = 'wone.debug'
+const KEY = 'mindeck.debug'
 const MAX_LINES = 2000
 
 function load(): Saved {

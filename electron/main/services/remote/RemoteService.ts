@@ -50,7 +50,7 @@ interface Live {
 }
 
 /** Where the package lives over there: per version, next to the user's home. */
-const dirOf = (version: string) => `$HOME/.w-one-server/${version}`
+const dirOf = (version: string) => `$HOME/.mindeck-server/${version}`
 
 /** `Host` entries of an ssh config — the concrete ones (no patterns), with what they point at. */
 export function parseSshConfig(text: string): SshHost[] {
@@ -95,7 +95,7 @@ export const pairingCode = (output: string): string | undefined => /Code:\s+(\S+
 
 /** The command starting the core over there: our package, our license (when this desktop needs one), gone with the connection. */
 export function coreCommand(version: string, port: number, licensed: boolean): string {
-  const env = ['WONE_HOME="$HOME/.w-one"', `WONE_PORT=${port}`, 'WONE_REMOTE_TERMINAL=1', 'WONE_EXIT_WITH_STDIN=1', ...(licensed ? ['WONE_LICENSE=follower', 'NODE_ENV=production'] : [])]
+  const env = ['MINDECK_HOME="$HOME/.mindeck"', `MINDECK_PORT=${port}`, 'MINDECK_REMOTE_TERMINAL=1', 'MINDECK_EXIT_WITH_STDIN=1', ...(licensed ? ['MINDECK_LICENSE=follower', 'NODE_ENV=production'] : [])]
   return `cd "${dirOf(version)}" && ${env.join(' ')} exec ./node out/server/index.cjs`
 }
 
@@ -114,7 +114,7 @@ function freePort(): Promise<number> {
 }
 
 /**
- * Remote-SSH and Dev Containers: W-ONE's own core runs on the other machine
+ * Remote-SSH and Dev Containers: Mindeck's own core runs on the other machine
  * (installed there once per version), the desktop reaches it through an ssh
  * tunnel — or a pipe into the container — pairs itself, hands its license
  * over and opens a window on it. Closing the window ends it all.
@@ -250,7 +250,7 @@ export class RemoteService {
       if (probe.code !== 0) throw coded('remote-unreachable', lastLine(probe.stderr) ?? `exit ${probe.code}`)
       const [machine, installed] = probe.stdout.split('\n')
       const arch = archOf(machine)
-      if (!arch) throw coded('remote-unsupported', `W-ONE runs on Linux x64 / arm64 — this machine is ${machine.trim() || 'unknown'}`)
+      if (!arch) throw coded('remote-unsupported', `Mindeck runs on Linux x64 / arm64 — this machine is ${machine.trim() || 'unknown'}`)
       if (installed?.trim() !== this.opts.version) {
         this.update(live, { state: 'installing' })
         const bundle = await this.opts.bundle(arch)
@@ -265,8 +265,8 @@ export class RemoteService {
       const core = target.core()
       live.procs.push(core)
       const started = await this.waitFor(core, /listening on/)
-      core.on('exit', () => live.info.state === 'ready' && this.stop(live, 'failed', 'The remote W-ONE stopped'))
-      const { token, deviceId } = await this.pair(id, target.url, started, () => this.collect(target.run(`cd "${dirOf(this.opts.version)}" && WONE_HOME="$HOME/.w-one" ./node out/server/index.cjs pair`)))
+      core.on('exit', () => live.info.state === 'ready' && this.stop(live, 'failed', 'The remote Mindeck stopped'))
+      const { token, deviceId } = await this.pair(id, target.url, started, () => this.collect(target.run(`cd "${dirOf(this.opts.version)}" && MINDECK_HOME="$HOME/.mindeck" ./node out/server/index.cjs pair`)))
       await this.handLicense(target.url, token)
       live.timer = setInterval(() => void this.handLicense(target.url, token).catch(() => {}), this.opts.licenseMs)
       live.timer.unref?.()
@@ -293,11 +293,11 @@ export class RemoteService {
       if ((await this.rpc(url, parsed.token, 'app:info').then(() => true, () => false))) return parsed
     }
     const code = pairingCode(output) ?? pairingCode((await pairCmd()).stdout)
-    if (!code) throw coded('remote-pair', 'The remote W-ONE gave no pairing code')
+    if (!code) throw coded('remote-pair', 'The remote Mindeck gave no pairing code')
     const res = await this.opts.fetch(`${url}/api/pair`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, name: `W-ONE Desktop · ${this.opts.deviceName}` })
+      body: JSON.stringify({ code, name: `Mindeck Desktop · ${this.opts.deviceName}` })
     })
     const body = (await res.json()) as { ok: boolean; data?: PairResult; error?: { message: string } }
     if (!body.ok) throw coded('remote-pair', body.error!.message)
@@ -312,7 +312,7 @@ export class RemoteService {
     if (!entitlement) return
     await this.rpc(url, token, 'cloud:adopt', entitlement).catch((err: Error) => {
       // Its package verifies with the key built into it — the same as this app's.
-      throw coded('remote-license', `The remote W-ONE can't verify this license (${err.message}) — its server package must come from the same release`)
+      throw coded('remote-license', `The remote Mindeck can't verify this license (${err.message}) — its server package must come from the same release`)
     })
   }
 
@@ -360,7 +360,7 @@ export class RemoteService {
   private waitFor(proc: ChildProcess, pattern: RegExp): Promise<string> {
     return new Promise((resolve, reject) => {
       let out = ''
-      const timer = setTimeout(() => reject(coded('remote-start', 'The remote W-ONE did not start in time')), this.opts.timeoutMs)
+      const timer = setTimeout(() => reject(coded('remote-start', 'The remote Mindeck did not start in time')), this.opts.timeoutMs)
       const seen = (d: Buffer) => {
         out += d.toString()
         // The pairing banner follows the "listening" line right away.
@@ -370,7 +370,7 @@ export class RemoteService {
       proc.stderr?.on('data', (d: Buffer) => (out += d.toString()))
       proc.on('close', () => {
         clearTimeout(timer)
-        reject(coded('remote-start', lastLine(out) ?? 'The remote W-ONE stopped'))
+        reject(coded('remote-start', lastLine(out) ?? 'The remote Mindeck stopped'))
       })
     })
   }
@@ -403,7 +403,7 @@ const lastLine = (text: string): string | undefined =>
     .filter(Boolean)
     .pop()
 
-/** The Dev Containers CLI that ships with W-ONE, run by W-ONE's own Node (Electron as Node). */
+/** The Dev Containers CLI that ships with Mindeck, run by Mindeck's own Node (Electron as Node). */
 export function defaultDevcontainer(root: string): [string, string[], Record<string, string>] {
   return [process.execPath, [require.resolve('@devcontainers/cli/devcontainer.js'), 'up', '--workspace-folder', root], { ELECTRON_RUN_AS_NODE: '1' }]
 }

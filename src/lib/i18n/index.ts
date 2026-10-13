@@ -12,7 +12,7 @@ export const LOCALES: { id: Locale; label: string }[] = [
 ]
 
 const DICTS: Record<Locale, Dict> = { de, en }
-const KEY = 'wone.locale'
+const KEY = 'mindeck.locale'
 
 /** German systems get German, everything else English. */
 export function systemLocale(language: string = navigator.language): Locale {

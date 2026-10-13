@@ -12,7 +12,7 @@ const electron = vi.hoisted(() => {
   return {
     handlers,
     rendererListeners,
-    userData: '/tmp/wone-userdata',
+    userData: '/tmp/mindeck-userdata',
     ipcMain: { handle: vi.fn((ch: string, fn: (e: unknown, r: unknown) => unknown) => handlers.set(ch, fn)) },
     app: { getPath: vi.fn(() => electron.userData) },
     exposed: {} as Record<string, unknown>,
@@ -62,7 +62,7 @@ import { registerMongoIpc } from '../../../electron/ipc/mongo.ipc'
 import { registerRemoteIpc } from '../../../electron/ipc/remote.ipc'
 import { registerLintIpc } from '../../../electron/ipc/lint.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
-import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
+import { migrateLegacyData, mindeckPaths } from '../../../electron/main/lib/paths'
 
 const call = (channel: string, req?: unknown) => electron.handlers.get(channel)!({}, req)
 
@@ -440,42 +440,50 @@ describe('ipc handler modules bind every channel to its service', () => {
 })
 
 describe('paths', () => {
-  it('puts everything under ~/W-ONE unless WONE_HOME overrides it', () => {
-    const saved = process.env.WONE_HOME
+  it('puts everything under ~/Mindeck unless MINDECK_HOME overrides it; a former ~/W-ONE stays in use until ~/Mindeck exists', async () => {
+    const saved = process.env.MINDECK_HOME
+    const home = await tempDir()
     try {
-      delete process.env.WONE_HOME
-      expect(wonePaths()).toEqual({
-        homeDir: join(homedir(), 'W-ONE'),
-        dataDir: join(homedir(), 'W-ONE', 'data'),
-        settingsFile: join(homedir(), 'W-ONE', 'data', 'settings.json'),
-        defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
-        devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
-        secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
-        cloudFile: join(homedir(), 'W-ONE', 'data', 'cloud.json'),
-        grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
-        eventsFile: join(homedir(), 'W-ONE', 'data', 'events.jsonl'),
-        runsFile: join(homedir(), 'W-ONE', 'data', 'runs.json'),
-        agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
-        worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
+      delete process.env.MINDECK_HOME
+      expect(mindeckPaths(home)).toEqual({
+        homeDir: join(home, 'Mindeck'),
+        dataDir: join(home, 'Mindeck', 'data'),
+        settingsFile: join(home, 'Mindeck', 'data', 'settings.json'),
+        defaultVaultRoot: join(home, 'Mindeck', 'vault'),
+        devicesFile: join(home, 'Mindeck', 'data', 'devices.json'),
+        secretsFile: join(home, 'Mindeck', 'data', 'secrets.json'),
+        cloudFile: join(home, 'Mindeck', 'data', 'cloud.json'),
+        grantsFile: join(home, 'Mindeck', 'data', 'grants.json'),
+        eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
+        runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
+        agentsDir: join(home, 'Mindeck', 'data', 'agents'),
+        worktreesDir: join(home, 'Mindeck', 'worktrees')
       })
-      process.env.WONE_HOME = '/custom'
-      expect(wonePaths().dataDir).toBe(join('/custom', 'data'))
+      // Data from before the rename: used where it is.
+      await mkdir(join(home, 'W-ONE'))
+      expect(mindeckPaths(home).homeDir).toBe(join(home, 'W-ONE'))
+      // Moved over (or both there): ~/Mindeck.
+      await mkdir(join(home, 'Mindeck'))
+      expect(mindeckPaths(home).homeDir).toBe(join(home, 'Mindeck'))
+      expect(mindeckPaths().homeDir.startsWith(homedir())).toBe(true)
+      process.env.MINDECK_HOME = '/custom'
+      expect(mindeckPaths().dataDir).toBe(join('/custom', 'data'))
     } finally {
-      if (saved === undefined) delete process.env.WONE_HOME
-      else process.env.WONE_HOME = saved
+      if (saved === undefined) delete process.env.MINDECK_HOME
+      else process.env.MINDECK_HOME = saved
     }
   })
 
   it('copies the legacy data folder once and leaves a note in the original', async () => {
     const dir = await tempDir()
-    const legacy = join(dir, 'userData', 'wone')
+    const legacy = join(dir, 'userData', 'mindeck')
     await mkdir(legacy, { recursive: true })
     await writeFile(join(legacy, 'projects.json'), '{"projects":[]}')
-    const paths = { ...wonePaths(), homeDir: join(dir, 'W-ONE'), dataDir: join(dir, 'W-ONE', 'data') }
+    const paths = { ...mindeckPaths(), homeDir: join(dir, 'Mindeck'), dataDir: join(dir, 'Mindeck', 'data') }
 
     expect(migrateLegacyData(paths, legacy)).toBe(true)
     expect(await readFile(join(paths.dataDir, 'projects.json'), 'utf8')).toBe('{"projects":[]}')
-    expect(existsSync(join(legacy, 'MOVED-TO-W-ONE-DATA.txt'))).toBe(true)
+    expect(existsSync(join(legacy, 'MOVED-TO-Mindeck-DATA.txt'))).toBe(true)
     expect(existsSync(join(legacy, 'projects.json'))).toBe(true) // original untouched
 
     expect(migrateLegacyData(paths, legacy)).toBe(false) // already migrated
@@ -486,7 +494,7 @@ describe('paths', () => {
 describe('preload bridge', () => {
   it('exposes window controls, the allowlisted invoke/on, and the platform', async () => {
     await import('../../../electron/preload')
-    const api = electron.exposed.wone as Record<string, (...a: unknown[]) => unknown>
+    const api = electron.exposed.mindeck as Record<string, (...a: unknown[]) => unknown>
     expect(api.platform).toBe(process.platform)
 
     api.minimize()
@@ -506,7 +514,7 @@ describe('preload bridge', () => {
 
   it('forwards push events without the IPC event object and unsubscribes cleanly', async () => {
     await import('../../../electron/preload')
-    const api = electron.exposed.wone as Record<string, (...a: unknown[]) => unknown>
+    const api = electron.exposed.mindeck as Record<string, (...a: unknown[]) => unknown>
     const emit = (ch: string, ...args: unknown[]) => [...(electron.rendererListeners.get(ch) ?? [])].forEach((l) => l({}, ...args))
 
     for (const [method, channel] of [

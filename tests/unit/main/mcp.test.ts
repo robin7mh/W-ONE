@@ -7,7 +7,7 @@ import type { ToolDefinition } from '../../../electron/main/services/ai/tools/ty
 const tool = (name: string, run: ToolDefinition<{ q: string }>['run']): ToolDefinition<never> =>
   ({ name, title: name, description: `${name} tool`, risk: 'read', schema: z.object({ q: z.string() }), summarize: () => name, run }) as never
 
-describe('W-ONE MCP server', () => {
+describe('Mindeck MCP server', () => {
   const runs = vi.fn(async ({ q }: { q: string }, ctx: { projectId?: string }) => `found ${q} in ${ctx.projectId}`)
   const registry = new ToolRegistry([
     tool('memory_search', runs),
@@ -25,7 +25,7 @@ describe('W-ONE MCP server', () => {
     expect(await rpc('initialize', { protocolVersion: '2025-03-26' })).toMatchObject({
       jsonrpc: '2.0',
       id: 1,
-      result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'w-one', version: '1.2.3' } }
+      result: { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'mindeck', version: '1.2.3' } }
     })
     expect(await rpc('initialize')).toMatchObject({ result: { protocolVersion: '2025-06-18' } })
     expect(await rpc('ping')).toEqual({ jsonrpc: '2.0', id: 1, result: {} })

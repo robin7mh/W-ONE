@@ -113,7 +113,7 @@ export class AssistantService {
 
   private async start(req: SendRequest, ctx: CallContext, entry: ActiveRun): Promise<{ conversationId: string; messageId: string }> {
     const provider = await this.deps.ai.provider()
-    const settings = this.deps.ai.settings()
+    const settings = { ...this.deps.ai.settings(), model: await this.deps.ai.model() }
     const now = new Date().toISOString()
 
     let conv: StoredConversation
@@ -240,7 +240,8 @@ export class AssistantService {
             tools: this.deps.tools.forModel(agent.tools),
             webTools: agent.web,
             maxTokens: MAX_TOKENS,
-            signal
+            signal,
+            kind: 'assistant'
           },
           (text) => this.appendText(conv, reply, text)
         )
@@ -296,6 +297,7 @@ export class AssistantService {
         run.status = 'failed'
         reply.status = 'error'
         reply.error = errorText(err)
+        reply.errorCode = errorCode(err)
       }
       run.error = reply.error
     } finally {
@@ -380,7 +382,7 @@ export class AssistantService {
     }
     if (tool.risk === 'execute' && r.ctx.transport === 'remote' && !this.deps.remoteShell()) {
       event('tool.denied', { reason: 'remote-shell-disabled' })
-      return finish('denied', 'Running commands is disabled for remote devices on this W-ONE core.', true)
+      return finish('denied', 'Running commands is disabled for remote devices on this Mindeck core.', true)
     }
     // 2. schema
     const parsed = this.deps.tools.parse(tool, call.input)

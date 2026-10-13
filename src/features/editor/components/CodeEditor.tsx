@@ -203,7 +203,7 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     }
     const subs = [editor.onDidChangeCursorPosition(report), editor.onDidChangeModel(report)]
 
-    // W-ONE's palette replaces Monaco's own (F1), and ⌃G goes through it, too.
+    // Mindeck's palette replaces Monaco's own (F1), and ⌃G goes through it, too.
     editor.addCommand(monaco.KeyCode.F1, () => useScm.getState().setQuickOpen(true, '>'))
     editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
     setupLsp()
@@ -225,7 +225,7 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     const detachBreakpoints = attachBreakpoints(editor, shownTab)
     const detachVim = attachVim(editor, vimRef.current!)
     const actionHost: EditorActionHost = {
-      // Actions added to this editor carry an instance prefix ("vs.editor.ICodeEditor:4:wone.…"): the palette knows them by their own id.
+      // Actions added to this editor carry an instance prefix ("vs.editor.ICodeEditor:4:mindeck.…"): the palette knows them by their own id.
       list: () => (editor.getModel() ? editor.getSupportedActions().map((a) => ({ id: actionId(a.id), label: a.label })) : []),
       run: (id) => {
         editor.focus()

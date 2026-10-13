@@ -10,7 +10,7 @@ function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
 }
 
-/** What W-ONE needs of an SFTP connection (ssh2-sftp-client; a fake in tests). */
+/** What Mindeck needs of an SFTP connection (ssh2-sftp-client; a fake in tests). */
 export interface SftpClient {
   connect(options: Record<string, unknown>): Promise<unknown>
   list(path: string): Promise<{ name: string; type: string; size: number; modifyTime: number }[]>
@@ -46,7 +46,7 @@ const ALWAYS_IGNORED = ['.vscode', '.git', '.DS_Store']
  * SFTP for a project, configured exactly as for the VS Code SFTP extension
  * (.vscode/sftp.json, its profiles and contexts): upload on save, upload and
  * download of files and folders, syncing either way, browsing the server.
- * Passwords stay where the user put them; W-ONE stores nothing extra.
+ * Passwords stay where the user put them; Mindeck stores nothing extra.
  */
 export class SftpService {
   constructor(

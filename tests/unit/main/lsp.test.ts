@@ -11,7 +11,7 @@ const A = `export interface User {\n  /** The display name. */\n  name: string\n
 const B = `import { greet } from './a'\n\nconst who = { name: 'Ada' }\ngreet(who, )\nconst n: number = greet(who)\n`
 
 async function project() {
-  const root = await tempDir('wone-lsp-')
+  const root = await tempDir('mindeck-lsp-')
   await writeFile(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true, target: 'es2022', module: 'esnext', moduleResolution: 'bundler', noEmit: true }, include: ['src'] }))
   await mkdir(join(root, 'src'))
   await writeFile(join(root, 'src/a.ts'), A)
@@ -29,7 +29,7 @@ const make = (root: string | undefined, opts: Partial<ConstructorParameters<type
 afterAll(() => services.forEach((s) => s.dispose()))
 
 describe('LspService (real tsserver)', () => {
-  it('finds the project’s TypeScript walking up, else W-ONE’s own', async () => {
+  it('finds the project’s TypeScript walking up, else Mindeck’s own', async () => {
     const root = await tempDir()
     await mkdir(join(root, 'node_modules/typescript/lib'), { recursive: true })
     await writeFile(join(root, 'node_modules/typescript/lib/tsserver.js'), '')

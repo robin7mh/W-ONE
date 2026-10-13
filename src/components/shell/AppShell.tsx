@@ -36,7 +36,7 @@ function RemoteShellsOff() {
         <TerminalSquare size={28} className="text-text-muted" />
         <p className="font-sans text-[14px] font-semibold text-text-primary">{t.shell.shellsOffTitle}</p>
         <p className="font-sans text-[13px] text-text-secondary">
-          {t.shell.shellsOffBefore} <code className="font-mono text-cyan">WONE_REMOTE_TERMINAL=1</code>
+          {t.shell.shellsOffBefore} <code className="font-mono text-cyan">MINDECK_REMOTE_TERMINAL=1</code>
           {t.shell.shellsOffAfter}
         </p>
       </div>

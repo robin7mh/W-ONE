@@ -42,7 +42,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 
 /**
  * The always-on, this-computer-only endpoint agent processes talk back to:
- * Claude Code's HTTP hooks (`/hooks/<session>`) and W-ONE's MCP memory server
+ * Claude Code's HTTP hooks (`/hooks/<session>`) and Mindeck's MCP memory server
  * (`/mcp/<session>`). Separate from the opt-in network API on purpose — it
  * binds 127.0.0.1 on a random port, rejects foreign Host/Origin headers (DNS
  * rebinding) and accepts only the random token issued to each session.

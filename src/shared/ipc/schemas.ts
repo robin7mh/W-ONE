@@ -237,6 +237,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'ai:clearKey': none,
   'ai:configure': z.object({
     model: z.string().min(1).max(100).optional(),
+    cloudModel: z.string().min(1).max(100).optional(),
     effort: z.enum(EFFORTS).optional(),
     inline: z.boolean().optional(),
     inlineModel: z.string().min(1).max(100).optional()

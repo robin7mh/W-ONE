@@ -19,8 +19,8 @@ function coded(code: string, message: string): Error {
 export const WORKER = String.raw`
 const path = require('path'), fs = require('fs'), readline = require('readline')
 const { createRequire } = require('module')
-const ROOT = process.env.WONE_ROOT
-const local = createRequire(path.join(ROOT, 'w-one.js'))
+const ROOT = process.env.MINDECK_ROOT
+const local = createRequire(path.join(ROOT, 'mindeck.js'))
 const tryRequire = (m) => { try { return local(m) } catch { return null } }
 const CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', 'eslint.config.mts', 'eslint.config.cts',
   '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yaml', '.eslintrc.yml']
@@ -53,7 +53,7 @@ const ops = {
     return result && result.output !== undefined ? result.output : null
   },
   async format({ file, text, force, options }) {
-    const prettier = projectPrettier || (force ? require(process.env.WONE_PRETTIER) : null)
+    const prettier = projectPrettier || (force ? require(process.env.MINDECK_PRETTIER) : null)
     if (!prettier) return null
     const info = await prettier.getFileInfo(file, { ignorePath: path.join(ROOT, '.prettierignore') })
     if (info.ignored || !info.inferredParser) return null
@@ -84,7 +84,7 @@ interface RawMessage {
 
 export interface LintOptions {
   resolveRoot: (projectId: string) => string | undefined
-  /** W-ONE's own Prettier (used where a project has none, when asked to). */
+  /** Mindeck's own Prettier (used where a project has none, when asked to). */
   prettier: string
   /** Start the worker in a project (tests run it with plain Node). */
   spawn?: (root: string) => ChildProcess
@@ -176,7 +176,7 @@ export class LintService {
       spawn: (root) =>
         spawn(process.execPath, ['-e', WORKER], {
           cwd: root,
-          env: { ...shellEnv(), ELECTRON_RUN_AS_NODE: '1', WONE_ROOT: root, WONE_PRETTIER: opts.prettier },
+          env: { ...shellEnv(), ELECTRON_RUN_AS_NODE: '1', MINDECK_ROOT: root, MINDECK_PRETTIER: opts.prettier },
           stdio: ['pipe', 'pipe', 'pipe']
         }),
       ...opts
@@ -244,7 +244,7 @@ export class LintService {
   }
 }
 
-/** W-ONE's own Prettier, outside the app archive (the worker is a separate Node). */
+/** Mindeck's own Prettier, outside the app archive (the worker is a separate Node). */
 export function bundledPrettier(resolve: (id: string) => string = require.resolve): string {
   return resolve('prettier').replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)
 }

@@ -95,7 +95,7 @@ export function documentLanguage(path: string, lang: LanguageInfo): string {
   return { '.c': 'c', '.h': 'c', '.m': 'objective-c', '.mm': 'objective-cpp' }[ext] ?? 'cpp'
 }
 
-/** The editor's client capabilities — what VS Code announces, minus what W-ONE doesn't do. */
+/** The editor's client capabilities — what VS Code announces, minus what Mindeck doesn't do. */
 const CAPABILITIES = {
   general: { positionEncodings: ['utf-16'] },
   workspace: { configuration: true, workspaceFolders: true, applyEdit: false, didChangeConfiguration: { dynamicRegistration: false } },
@@ -141,9 +141,9 @@ interface Session {
   used: number
 }
 
-/** Where language servers are (W-ONE's ToolsService). */
+/** Where language servers are (Mindeck's ToolsService). */
 export interface ServerTools {
-  /** W-ONE's tools folder (some servers keep their index there). */
+  /** Mindeck's tools folder (some servers keep their index there). */
   dir: string
   /** The installed server of a language (absolute path), undefined when it isn't. */
   locate: (languageId: string, part: 'server') => Promise<string | undefined>
@@ -401,7 +401,7 @@ export class GenericBackend {
         'initialize',
         {
           processId: process.pid,
-          clientInfo: { name: 'W-ONE' },
+          clientInfo: { name: 'Mindeck' },
           rootUri: uri(root),
           rootPath: root,
           workspaceFolders: [{ uri: uri(root), name: basename(root) }],

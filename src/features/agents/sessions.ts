@@ -57,7 +57,7 @@ const upsertSession = (list: AgentSession[], s: AgentSession) => [s, ...list.fil
 
 /**
  * The agent cockpit's renderer side: the user's coding agent sessions
- * (Claude Code & co.), their chats, changes and diffs. W-ONE Assistant chats
+ * (Claude Code & co.), their chats, changes and diffs. Mindeck Assistant chats
  * (API key) stay in `useAssistant`; the view switches between both.
  */
 export const useAgents = create<AgentsState>((set, get) => {

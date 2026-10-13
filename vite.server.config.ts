@@ -3,7 +3,7 @@ import { builtinModules } from 'node:module'
 import { defineConfig } from 'vite'
 import pkg from './package.json'
 
-// The standalone W-ONE core (server/main.ts) as one CommonJS file:
+// The standalone Mindeck core (server/main.ts) as one CommonJS file:
 // out/server/index.cjs. npm dependencies stay external (node_modules at
 // runtime — native modules like node-pty cannot be bundled).
 // ESM-only packages are bundled instead: a CommonJS file can't require() them.
@@ -17,10 +17,10 @@ const external = [
 export default defineConfig({
   resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },
   define: {
-    __WONE_VERSION__: JSON.stringify(pkg.version),
-    // Where W-ONE Cloud lives (see electron/main/services/cloud/config.ts).
-    __WONE_CLOUD_URL__: JSON.stringify(process.env.WONE_CLOUD_URL ?? ''),
-    __WONE_CLOUD_KEY__: JSON.stringify(process.env.WONE_CLOUD_KEY ?? '')
+    __MINDECK_VERSION__: JSON.stringify(pkg.version),
+    // Where Mindeck Cloud lives (see electron/main/services/cloud/config.ts).
+    __MINDECK_CLOUD_URL__: JSON.stringify(process.env.MINDECK_CLOUD_URL ?? ''),
+    __MINDECK_CLOUD_KEY__: JSON.stringify(process.env.MINDECK_CLOUD_KEY ?? '')
   },
   build: {
     outDir: 'out/server',

@@ -54,7 +54,7 @@ export function addEditorActions(editor: monaco.editor.IStandaloneCodeEditor): m
   const t = getT()
   return [
     editor.addAction({
-      id: 'wone.formatDocument',
+      id: 'mindeck.formatDocument',
       label: t.palette.editor.format,
       keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
       run: async (ed) => {
@@ -63,16 +63,16 @@ export function addEditorActions(editor: monaco.editor.IStandaloneCodeEditor): m
       }
     }),
     editor.addAction({
-      id: 'wone.eslint.fixAll',
+      id: 'mindeck.eslint.fixAll',
       label: t.lint.paletteFixAll,
       run: async (ed) => {
         const model = ed.getModel()
         if (model) await fixAll(model)
       }
     }),
-    editor.addAction({ id: 'wone.eslint.restart', label: t.lint.restart, run: () => restartLint() }),
+    editor.addAction({ id: 'mindeck.eslint.restart', label: t.lint.restart, run: () => restartLint() }),
     editor.addAction({
-      id: 'wone.tidyBlankLines',
+      id: 'mindeck.tidyBlankLines',
       label: getT().editorExtras.tidyBlankLines,
       run: (ed) => {
         const model = ed.getModel()

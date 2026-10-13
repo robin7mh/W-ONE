@@ -220,7 +220,7 @@ describe('editor settings and snippets', () => {
 
     const { provider } = mon.state.providers[0]
     const model = { getWordUntilPosition: () => ({ startColumn: 1, endColumn: 3 }), getLanguageId: () => 'javascript', getValue: () => '' }
-    // W-ONE's own MUI snippets are always there for JavaScript / TypeScript.
+    // Mindeck's own MUI snippets are always there for JavaScript / TypeScript.
     expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 }).suggestions).toHaveLength(MUI_SNIPPETS.length / 2)
     act(() => useEditorPrefs.setState({ snippets: [{ name: 'Log', language: 'javascript', prefix: 'log', body: 'x' }] }))
     expect(provider.provideCompletionItems(model, { lineNumber: 1, column: 3 }).suggestions).toHaveLength(MUI_SNIPPETS.length / 2 + 1)

@@ -73,9 +73,9 @@ function Source({ source }: { source: MigrationSource }) {
 }
 
 /**
- * Settings → moving over from VS Code / Cursor: W-ONE reads their editor
+ * Settings → moving over from VS Code / Cursor: Mindeck reads their editor
  * settings, keybindings, snippets and extensions (never changing them) and
- * takes over what it understands. Colors stay W-ONE's.
+ * takes over what it understands. Colors stay Mindeck's.
  */
 export function MigrateCard() {
   const t = useT()

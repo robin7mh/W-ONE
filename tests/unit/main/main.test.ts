@@ -116,7 +116,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('electron-updater', () => ({ autoUpdater: h.updater }))
 vi.mock('../../../electron/main/lib/paths', () => ({
-  wonePaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
+  mindeckPaths: () => ({ homeDir: '/h', dataDir: '/h/data' }),
   migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
 }))
 vi.mock('../../../electron/main/platform/electron', () => ({ electronPlatform: { kind: 'desktop' }, electronCipher: () => ({ kind: 'cipher' }) }))
@@ -225,13 +225,13 @@ describe('main process boot', () => {
     h.packaged = false
   })
 
-  it('agents needing the user notify only while W-ONE is in the background; a click brings it up', async () => {
+  it('agents needing the user notify only while Mindeck is in the background; a click brings it up', async () => {
     const win = await boot()
     const notify = h.coreOpts!.notify as (title: string, body: string) => void
     h.notifications.length = 0
     h.focused = win
     notify('Claude Code · fix', 'Waiting for your approval')
-    expect(h.notifications).toHaveLength(0) // looking at W-ONE already
+    expect(h.notifications).toHaveLength(0) // looking at Mindeck already
     h.focused = null
     h.notifySupported = false
     notify('x', 'y')
@@ -258,8 +258,8 @@ describe('main process boot', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     h.migrate.mockReturnValueOnce(true)
     await boot()
-    expect(h.migrate).toHaveBeenCalledWith(expect.stringMatching(/userData[\\/]wone$/))
-    expect(log.mock.calls[0][0]).toMatch(/^\[data\] copied .*wone → \/h\/data$/)
+    expect(h.migrate).toHaveBeenCalledWith(expect.stringMatching(/userData[\\/]mindeck$/))
+    expect(log.mock.calls[0][0]).toMatch(/^\[data\] copied .*mindeck → \/h\/data$/)
 
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     h.migrate.mockImplementationOnce(() => {

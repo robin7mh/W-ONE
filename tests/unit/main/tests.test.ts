@@ -489,7 +489,7 @@ describe('TestService', () => {
     expect(state.output.length).toBe(200_000)
   })
 
-  it('debugs a test with W-ONE’s debugger, per runner', async () => {
+  it('debugs a test with Mindeck’s debugger, per runner', async () => {
     const root = await realpath(await tempDir())
     await writeFile(join(root, 'package.json'), JSON.stringify({ devDependencies: { vitest: '3' } }))
     await writeFile(join(root, 'a.test.ts'), `describe('s', () => { it('t', () => {}) })`)

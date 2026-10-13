@@ -1,4 +1,4 @@
-import { DEFAULT_AI_SETTINGS, EFFORTS, INLINE_MODELS, MODELS, type AiSettings, type AiStatus } from '@shared/types/ai'
+import { CLOUD_MODELS, DEFAULT_AI_SETTINGS, EFFORTS, INLINE_MODELS, MODELS, type AiSettings, type AiStatus } from '@shared/types/ai'
 import type { SettingsService } from '../settings/SettingsService'
 import type { SecretStore } from './SecretStore'
 import { AnthropicProvider } from './AnthropicProvider'
@@ -8,14 +8,30 @@ const KEY = 'anthropic_api_key'
 
 export interface ProviderFactory {
   create(apiKey: string): LlmProvider & { verify(model: string): Promise<void> }
+  /** The AI through Mindeck Cloud: its address and the account's session. */
+  cloud?(baseUrl: string, token: string): LlmProvider
 }
 
-const anthropic: ProviderFactory = { create: (key) => AnthropicProvider.fromKey(key) }
+const anthropic: ProviderFactory = {
+  create: (key) => AnthropicProvider.fromKey(key),
+  cloud: (baseUrl, token) => AnthropicProvider.forCloud(baseUrl, token)
+}
+
+/** What the assistant needs from the Mindeck account. */
+export interface CloudAi {
+  /** The cloud's AI endpoint (the Messages API lives below it). */
+  baseUrl: string
+  /** The account's session token — null when signed out. */
+  token(): Promise<string | null>
+  /** The account's AI credit and models — null when signed out, offline or the cloud offers none. */
+  info(): Promise<AiStatus['cloud']>
+}
 
 /**
- * The assistant's configuration: API key (environment first, else the secret
- * store), model and effort. Hands out a provider for the current key; the key
- * itself never leaves the core.
+ * The assistant's configuration and where its AI comes from: an API key of
+ * the user's own (environment first, else the secret store) — or, without
+ * one, Mindeck Cloud with the account's credit. Model and effort per source.
+ * Keys never leave the core.
  */
 export class AiService {
   private cached?: { key: string; provider: LlmProvider }
@@ -26,6 +42,7 @@ export class AiService {
       secrets: SecretStore
       env?: NodeJS.ProcessEnv
       factory?: ProviderFactory
+      cloud?: CloudAi
     }
   ) {}
 
@@ -35,7 +52,10 @@ export class AiService {
 
   async status(): Promise<AiStatus> {
     const { key, source } = await this.key()
-    return { configured: !!key, source, ...(key ? { keyHint: key.slice(-4) } : {}), settings: this.settings() }
+    const settings = this.settings()
+    if (key) return { configured: true, source, keyHint: key.slice(-4), model: settings.model, cloud: await this.cloudInfo(), settings }
+    const cloud = await this.cloudInfo()
+    return { configured: !!cloud, source: cloud ? 'cloud' : null, model: cloud ? settings.cloudModel : settings.model, cloud, settings }
   }
 
   /** Verifies the key with Anthropic (no tokens spent), then stores it. */
@@ -55,25 +75,48 @@ export class AiService {
   async configure(patch: Partial<AiSettings>): Promise<AiStatus> {
     const next = { ...this.settings(), ...patch }
     if (!MODELS.some((m) => m.id === next.model)) throw aiError('bad-model', `Unknown model: ${next.model}`)
+    if (!CLOUD_MODELS.some((m) => m.id === next.cloudModel)) throw aiError('bad-model', `Unknown model: ${next.cloudModel}`)
     if (!EFFORTS.includes(next.effort)) throw aiError('bad-effort', `Unknown effort: ${next.effort}`)
     if (!INLINE_MODELS.some((m) => m.id === next.inlineModel)) throw aiError('bad-model', `Unknown model: ${next.inlineModel}`)
     await this.deps.settings.update({ ai: next })
     return this.status()
   }
 
-  /** A provider for the current key, or a `no-key` error the UI turns into setup. */
+  /** The user's own key is in use (no credit, everything allowed). */
+  async ownKey(): Promise<boolean> {
+    return !!(await this.key()).key
+  }
+
+  /** The model for the AI in use: one's own key's, else the cloud's. */
+  async model(): Promise<string> {
+    const settings = this.settings()
+    return (await this.ownKey()) ? settings.model : settings.cloudModel
+  }
+
+  /** A provider: one's own key, else Mindeck Cloud with the account — else a `no-key` error the UI turns into setup. */
   async provider(): Promise<LlmProvider> {
     const { key } = await this.key()
-    if (!key) throw aiError('no-key', 'No Anthropic API key configured — add one in Settings → AI')
-    if (this.cached?.key !== key) this.cached = { key, provider: this.factory().create(key) }
+    if (key) {
+      if (this.cached?.key !== key) this.cached = { key, provider: this.factory().create(key) }
+      return this.cached.provider
+    }
+    const token = await this.deps.cloud?.token()
+    const cloud = this.factory().cloud
+    if (!token || !cloud) throw aiError('no-key', 'Sign in to your Mindeck account (or add your own API key in Settings → AI) to use the assistant')
+    const id = `cloud:${token}`
+    if (this.cached?.key !== id) this.cached = { key: id, provider: cloud(this.deps.cloud!.baseUrl, token) }
     return this.cached.provider
+  }
+
+  private async cloudInfo(): Promise<AiStatus['cloud']> {
+    return (await this.deps.cloud?.info().catch(() => null)) ?? null
   }
 
   private factory(): ProviderFactory {
     return this.deps.factory ?? anthropic
   }
 
-  private async key(): Promise<{ key?: string; source: AiStatus['source'] }> {
+  private async key(): Promise<{ key?: string; source: 'env' | 'stored' | null }> {
     const fromEnv = (this.deps.env ?? process.env).ANTHROPIC_API_KEY?.trim()
     if (fromEnv) return { key: fromEnv, source: 'env' }
     const stored = await this.deps.secrets.get(KEY)

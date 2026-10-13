@@ -44,13 +44,13 @@ function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
     'server:createPairingCode': () => ({ code: 'ABCD-EFGH', expiresAt: '', urls: ['http://127.0.0.1:7420', 'http://192.168.1.9:7420'] }),
     'server:revokeDevice': () => undefined,
     'permission:revoke': () => undefined,
-    'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'W-ONE', isDefault: true, exists: true, noteCount: 3, graphStyle: { mode: 'colorful', color: 'cyan' } }),
+    'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists: true, noteCount: 3, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'memory:pickVault': () => ({ root: '/picked', defaultRoot: '/v', name: 'picked', isDefault: false, exists: false, noteCount: 0, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'memory:setVault': ({ path }: { path: string }) => ({ root: path, defaultRoot: '/v', name: 'x', isDefault: false, exists: true, noteCount: 1, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'fs:dirs': () => ({ path: '/srv/notes', parent: '/srv', home: '/root', dirs: [] }),
-    'ai:setKey': () => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }),
-    'ai:clearKey': () => ({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }),
-    'ai:configure': (p: Record<string, unknown>) => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', ...p } }),
+    'ai:setKey': () => ({ configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }),
+    'ai:clearKey': () => ({ configured: false, model: 'claude-opus-5-5', cloud: null, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }),
+    'ai:configure': (p: Record<string, unknown>) => ({ configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', ...p } }),
     ...over
   }
 }
@@ -155,7 +155,7 @@ describe('SettingsView', () => {
     const detect = vi.fn()
       .mockResolvedValueOnce([
         { kind: 'claude-code', name: 'Claude Code', installed: true, version: '2.1.287', signedIn: true, account: 'Pro plan', ready: true },
-        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to W-ONE soon' }
+        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to Mindeck soon' }
       ])
       .mockResolvedValueOnce([{ kind: 'claude-code', name: 'Claude Code', installed: true, ready: true }])
     installBridge(settingsCore({ 'agents:detect': detect }))
@@ -163,7 +163,7 @@ describe('SettingsView', () => {
     await act(settle)
     expect(screen.getByText('Coding agents')).toBeInTheDocument()
     expect(screen.getByText('Pro plan · v2.1.287')).toBeInTheDocument()
-    expect(screen.getByText('Coming to W-ONE soon')).toBeInTheDocument()
+    expect(screen.getByText('Coming to Mindeck soon')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Check again'))
     await act(settle)
     expect(detect).toHaveBeenCalledTimes(2)
@@ -204,10 +204,68 @@ describe('SettingsView', () => {
     expect(useSettings.getState().pairing).toBeUndefined()
   })
 
+  it('AI through the Mindeck account: credit, its model (Sonnet costs more), a key of one’s own wins; suggestions need one', async () => {
+    const credit = (over = {}) => ({ period: 'month' as const, allowanceCents: 100, usedCents: 85, remainingCents: 15, renewsAt: '2026-11-01T00:00:00.000Z', ...over })
+    const cloudStatus = (over: Record<string, unknown> = {}) => ({
+      configured: true,
+      source: 'cloud' as const,
+      model: 'claude-haiku-5-5',
+      cloud: {
+        credit: credit(),
+        models: [
+          { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 },
+          { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', costFactor: 20 }
+        ]
+      },
+      settings: { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high' as const, inline: false, inlineModel: 'claude-opus-5-5' },
+      ...over
+    })
+    let fresh: Record<string, unknown> = cloudStatus()
+    installBridge(
+      settingsCore({
+        'ai:status': () => fresh,
+        'ai:configure': (p: Record<string, unknown>) => (fresh = { ...fresh, settings: { ...(fresh.settings as object), ...p } })
+      })
+    )
+    useAssistant.setState({ status: undefined })
+    useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false } })
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText('Through your Mindeck account · Claude Haiku 5.5')).toBeInTheDocument()
+    expect(screen.getByText('€0.85 of €1.00 used')).toBeInTheDocument()
+    expect(screen.getByText('this month · renews on November 1')).toBeInTheDocument()
+    const meter = screen.getByRole('meter', { name: 'AI credit' })
+    expect(meter).toHaveAttribute('aria-valuenow', '85')
+    expect(meter.firstElementChild).toHaveClass('bg-amber')
+    // Sonnet: about 20× the credit.
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model (Mindeck account)' }))
+    expect(screen.getByRole('option', { name: /Claude Sonnet 5\.5.*about 20× the credit/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /^Claude Sonnet 5\.5/ }))
+    await act(settle)
+    expect(useAssistant.getState().status?.settings.cloudModel).toBe('claude-sonnet-5-5')
+    // Suggestions while typing: only with a key of one's own.
+    expect(screen.getByLabelText('Suggestions while typing')).toBeDisabled()
+
+    // The trial's credit, with room left; a key of one's own takes over.
+    act(() => useAssistant.setState({ status: cloudStatus({ source: 'stored', keyHint: 'ABCD', model: 'claude-opus-5-5', cloud: { ...cloudStatus().cloud, credit: credit({ period: 'trial', allowanceCents: 30, usedCents: 3, renewsAt: null }) } }) as never }))
+    expect(screen.getByText('credit of the trial (once)')).toBeInTheDocument()
+    expect(screen.getByRole('meter', { name: 'AI credit' }).firstElementChild).toHaveClass('bg-cyan')
+    expect(screen.getByText('Your own API key is set: the assistant uses it instead of this credit.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Suggestions while typing')).toBeEnabled()
+    // No credit included at all (a cloud set to 0 €): the meter is full.
+    act(() => useAssistant.setState({ status: cloudStatus({ cloud: { ...cloudStatus().cloud, credit: credit({ allowanceCents: 0, usedCents: 0 }) } }) as never }))
+    expect(screen.getByRole('meter', { name: 'AI credit' })).toHaveAttribute('aria-valuenow', '100')
+    // A model the cloud no longer offers: shown by its id.
+    act(() => useAssistant.setState({ status: cloudStatus({ model: 'claude-old-1' }) as never }))
+    expect(screen.getByText('Through your Mindeck account · claude-old-1')).toBeInTheDocument()
+    act(() => useAssistant.setState({ status: cloudStatus({ cloud: null }) as never }))
+    expect(screen.getByText('Through your Mindeck account · claude-haiku-5-5')).toBeInTheDocument()
+  })
+
   it('desktop: AI key + model, server toggles, pairing, devices, grants, vault, about', async () => {
     installBridge(settingsCore())
-    localStorage.setItem('wone.deviceId', 'd2')
-    useAssistant.setState({ status: { configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } } })
+    localStorage.setItem('mindeck.deviceId', 'd2')
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } } })
     useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false } })
     render(<SettingsView />)
     await act(settle)
@@ -234,7 +292,7 @@ describe('SettingsView', () => {
     expect(useAssistant.getState().status?.settings.inlineModel).toBe('claude-haiku-5-5')
     fireEvent.click(screen.getByLabelText('Remove key'))
     await act(settle)
-    expect(screen.getByText('No API key yet')).toBeInTheDocument()
+    expect(screen.getByText('Sign in to your Mindeck account to use the AI')).toBeInTheDocument()
 
     // server
     expect(screen.getByText('API server running')).toBeInTheDocument()
@@ -293,7 +351,7 @@ describe('SettingsView', () => {
         'memory:setVault': () => fail('That folder does not exist')
       })
     )
-    useAssistant.setState({ status: { configured: true, source: 'env', keyHint: '9999', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, error: 'ai problem' })
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'env', keyHint: '9999', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }, error: 'ai problem' })
     useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } })
     render(<SettingsView />)
     await act(settle)
@@ -330,7 +388,7 @@ describe('SettingsView', () => {
     useAssistant.setState({ status: undefined })
     render(<SettingsView />)
     await act(settle)
-    expect(screen.getByText('No API key yet')).toBeInTheDocument()
+    expect(screen.getByText('Sign in to your Mindeck account to use the AI')).toBeInTheDocument()
     expect(screen.getByText(/configured through its environment/)).toBeInTheDocument()
     expect(screen.getByText('vault down')).toBeInTheDocument()
     expect(screen.getByText('Loading…')).toBeInTheDocument()

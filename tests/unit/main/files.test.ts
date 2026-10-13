@@ -5,7 +5,7 @@ import { tempDir } from './helpers'
 import { FilesService, MAX_EDIT_BYTES } from '../../../electron/main/services/files/FilesService'
 
 async function project(files: Record<string, string | Buffer>) {
-  const root = await tempDir('wone-files-')
+  const root = await tempDir('mindeck-files-')
   for (const [rel, body] of Object.entries(files)) {
     await mkdir(dirname(join(root, rel)), { recursive: true })
     await writeFile(join(root, rel), body)
@@ -130,6 +130,9 @@ describe('FilesService', () => {
     // Case-only rename of the same file (case-insensitive disks see it as "taken").
     await service.rename('p', 'moved/A.ts', 'moved/a.ts')
     expect(await readdir(join(root, 'moved'))).toEqual(['a.ts'])
+    // Onto itself: the same file on every disk, not "taken" (case-sensitive disks never see the case-only one so).
+    await service.rename('p', 'moved/a.ts', 'moved/a.ts')
+    expect(await readFile(join(root, 'moved/a.ts'), 'utf8')).toBe('a')
     await expect(service.rename('p', 'b.ts', 'moved/a.ts')).rejects.toMatchObject({ code: 'exists' })
     await expect(service.rename('p', 'gone.ts', 'c.ts')).rejects.toMatchObject({ code: 'not-found' })
     await expect(service.rename('p', 'dir', 'dir/sub')).rejects.toMatchObject({ code: 'bad-input' })

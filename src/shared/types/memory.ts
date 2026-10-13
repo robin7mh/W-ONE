@@ -20,7 +20,7 @@ export const DEFAULT_GRAPH_STYLE: GraphStyle = { mode: 'colorful', color: 'cyan'
 export interface VaultStatus {
   /** Absolute vault root (configured, or the default location). */
   root: string
-  /** Where "Create W-ONE vault" puts a new vault. */
+  /** Where "Create Mindeck vault" puts a new vault. */
   defaultRoot: string
   /** Folder name shown in the UI. */
   name: string
@@ -31,7 +31,7 @@ export interface VaultStatus {
   graphStyle: GraphStyle
 }
 
-/** Vault-relative POSIX path, e.g. `Projekte/W-ONE.md`. Identity in the UI. */
+/** Vault-relative POSIX path, e.g. `Projekte/Mindeck.md`. Identity in the UI. */
 export type NotePath = string
 
 export interface NoteMeta {
@@ -87,7 +87,7 @@ export interface SearchHit {
   snippet: string
 }
 
-/** Pushed after any vault change (W-ONE's own writes or external edits). */
+/** Pushed after any vault change (Mindeck's own writes or external edits). */
 export interface MemoryChanged {
   /** Changed paths, or undefined after a full rescan. */
   paths?: NotePath[]

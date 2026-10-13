@@ -13,7 +13,7 @@ const services: LiveServerService[] = []
 afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 
 async function site() {
-  const root = await tempDir('wone-live-')
+  const root = await tempDir('mindeck-live-')
   await mkdir(join(root, 'public/css'), { recursive: true })
   await mkdir(join(root, 'public/empty'), { recursive: true })
   await writeFile(join(root, 'public/index.html'), '<html><body><h1>Hi</h1></body></html>')
@@ -37,7 +37,7 @@ function make(root: string | undefined, settings: LiveServerSettings = {}) {
 
 /** Read the reload stream until a message arrives. */
 async function nextEvent(url: string): Promise<string> {
-  const res = await fetch(`${url}/__wone_live`)
+  const res = await fetch(`${url}/__mindeck_live`)
   const reader = res.body!.getReader()
   let text = ''
   for (;;) {
@@ -131,6 +131,8 @@ describe('Live Server', () => {
 
   it('a new folder (and events replayed from before the watch) change nothing: a style still swaps in place', async () => {
     const root = await site() // fresh: no late events from other writes
+    // The site's files are older than the watch (not written in the millisecond it starts).
+    await new Promise((r) => setTimeout(r, 50))
     const { service } = make(root, { port: 0, wait: 10, noBrowser: true })
     const { url } = await service.start('p')
     const swap = nextEvent(url)
@@ -177,7 +179,7 @@ describe('Live Server', () => {
 
 describe('Live Sass Compiler', () => {
   async function styles() {
-    const root = await tempDir('wone-sass-')
+    const root = await tempDir('mindeck-sass-')
     await mkdir(join(root, 'scss/parts'), { recursive: true })
     await mkdir(join(root, 'node_modules/lib'), { recursive: true })
     await mkdir(join(root, 'vendor'), { recursive: true })

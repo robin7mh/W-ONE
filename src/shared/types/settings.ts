@@ -9,7 +9,7 @@ import type { EditorSettings } from './migrate'
 export interface AppSettings {
   /**
    * Absolute path to the markdown vault root. Unset = default location
-   * (~/W-ONE/vault — user-visible so the vault stays Obsidian-openable).
+   * (~/Mindeck/vault — user-visible so the vault stays Obsidian-openable).
    */
   vaultRoot?: string
   /** Memory graph coloring (colorful by folder, or one accent). */

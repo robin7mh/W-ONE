@@ -92,7 +92,7 @@ function fakeEditor(model: InstanceType<typeof mon.Model> | null, selection = ne
     getSelection: () => selection,
     getLayoutInfo: () => ({ contentLeft: 60, contentWidth: 900 }),
     addOverlayWidget: (w: Widget) => {
-      expect([w.getId(), w.getPosition()]).toEqual(['wone.inlineEdit', null])
+      expect([w.getId(), w.getPosition()]).toEqual(['mindeck.inlineEdit', null])
       editor.overlays.push(w)
       document.body.append(w.getDomNode())
     },
@@ -130,10 +130,12 @@ function fakeEditor(model: InstanceType<typeof mon.Model> | null, selection = ne
 
 type FakeEditor = ReturnType<typeof fakeEditor>
 const ed = (e: FakeEditor) => e as never
-const STATUS = (over: Partial<AiStatus['settings']> = {}, configured = true): AiStatus => ({
+const STATUS = (over: Partial<AiStatus['settings']> = {}, configured = true, source: AiStatus['source'] = configured ? 'stored' : null): AiStatus => ({
   configured,
-  source: 'stored',
-  settings: { model: 'claude-opus-5-5', effort: 'high', inline: true, inlineModel: 'claude-opus-5-5', ...over }
+  source,
+  model: 'claude-opus-5-5',
+  cloud: null,
+  settings: { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high', inline: true, inlineModel: 'claude-opus-5-5', ...over }
 })
 
 const input = () => document.querySelector<HTMLInputElement>('input[aria-label="What should the AI change?"]')
@@ -166,6 +168,11 @@ describe('suggestions while typing', () => {
     expect(suggesting()).toBe(false)
     useAssistant.setState({ status: STATUS({}, false) })
     expect(suggesting()).toBe(false)
+    // Through Mindeck Cloud: not on the account's credit.
+    useAssistant.setState({ status: STATUS({}, true, 'cloud') })
+    expect(suggesting()).toBe(false)
+    useAssistant.setState({ status: STATUS({}, true, 'env') })
+    expect(suggesting()).toBe(true)
     inlineCompletions.disposeInlineCompletions({ items: [] }, 'lostRace' as never)
   })
 
@@ -218,10 +225,10 @@ describe('⌘K: edit with AI', () => {
     const model = new mon.Model('var x = 1\n')
     const e = fakeEditor(model)
     const disposables = addInlineEdit(ed(e))
-    expect(e.actions[0]).toMatchObject({ id: 'wone.inlineEdit', keybindings: [2048 | 41] })
+    expect(e.actions[0]).toMatchObject({ id: 'mindeck.inlineEdit', keybindings: [2048 | 41] })
     expect(e.commands.map((c) => [c.keys, c.when])).toEqual([
-      [2048 | 3, 'woneInlineEditPending'],
-      [9, 'woneInlineEditPending']
+      [2048 | 3, 'mindeckInlineEditPending'],
+      [9, 'mindeckInlineEditPending']
     ])
     e.actions[0].run(e)
     expect(input()).not.toBeNull()
@@ -241,7 +248,7 @@ describe('⌘K: edit with AI', () => {
     startInlineEdit(ed(e))
     expect(e.zones[0]).toMatchObject({ afterLineNumber: 0, heightInPx: 46 })
     expect(e.decoration()!.range).toEqual(new mon.Range(1, 1, 2, 10))
-    expect(e.decoration()!.options).toMatchObject({ className: 'wone-ai-target', isWholeLine: true })
+    expect(e.decoration()!.options).toMatchObject({ className: 'mindeck-ai-target', isWholeLine: true })
     expect(input()!.placeholder).toMatch(/^Edit with AI/)
     expect(document.activeElement).toBe(input())
     const root = input()!.parentElement!
@@ -286,7 +293,7 @@ describe('⌘K: edit with AI', () => {
     finish('const x = 1\nconst y = 2')
     await settle()
     expect(model.value).toBe('top\nconst x = 1\nconst y = 2\nend')
-    expect(e.decoration()).toMatchObject({ range: new mon.Range(2, 1, 3, 12), options: { className: 'wone-ai-added', isWholeLine: true } })
+    expect(e.decoration()).toMatchObject({ range: new mon.Range(2, 1, 3, 12), options: { className: 'mindeck-ai-added', isWholeLine: true } })
     expect(buttons()).toEqual(['Accept ⌘⏎', 'Reject Esc'])
     expect(e.contextKey.value).toBe(true)
     // A button's mouse down keeps the editor's focus.

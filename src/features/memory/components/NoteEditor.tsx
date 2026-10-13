@@ -348,7 +348,7 @@ function ConnectPicker({ notes, onPick }: { notes: NoteMeta[]; onPick: (path: st
   }, [open])
 
   // Exact title first, then "starts with", then "contains" — so Enter picks
-  // "W-ONE" over "Ideen für W-ONE".
+  // "Mindeck" over "Ideen für Mindeck".
   const needle = q.trim().toLowerCase()
   const rank = (title: string) => {
     const lower = title.toLowerCase()

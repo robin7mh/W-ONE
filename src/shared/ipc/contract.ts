@@ -79,7 +79,7 @@ import type {
   SendRequest,
   ToolInfo
 } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
 
 /** A position in a project file, for the lsp:* queries. */
@@ -274,7 +274,7 @@ export interface IpcChannels {
   'mongo:delete': { request: { id: string; db: string; collection: string; docId: string }; response: void }
   'mongo:aggregate': { request: { id: string; db: string; collection: string; pipeline: string }; response: string[] }
   'mongo:indexes': { request: { id: string; db: string; collection: string }; response: MongoIndex[] }
-  /** Remote-SSH and Dev Containers: W-ONE's core on another machine / in a container, in a window of its own. */
+  /** Remote-SSH and Dev Containers: Mindeck's core on another machine / in a container, in a window of its own. */
   'remote:hosts': { request: void; response: SshHost[] }
   'remote:list': { request: void; response: RemoteConnection[] }
   'remote:ssh': { request: { target: string }; response: RemoteConnection }
@@ -313,7 +313,7 @@ export interface IpcChannels {
   'permission:grants': { request: void; response: PermissionGrant[] }
   'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
 
-  'events:recent': { request: { limit?: number; conversationId?: string }; response: WoneEvent[] }
+  'events:recent': { request: { limit?: number; conversationId?: string }; response: MindeckEvent[] }
 
   'agents:detect': { request: void; response: AgentAvailability[] }
   'agents:list': { request: void; response: AgentSession[] }
@@ -571,7 +571,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:rename': 'terminal',
   'agents:shell': 'terminal',
   'agents:openInEditor': 'desktop',
-  // The W-ONE account: a headless core is signed in from its web UI, so every client may.
+  // The Mindeck account: a headless core is signed in from its web UI, so every client may.
   'cloud:status': 'any',
   'cloud:login': 'any',
   'cloud:register': 'any',
@@ -606,7 +606,7 @@ export interface IpcEvents {
   'ai:conversationsChanged': { reason: 'created' | 'updated' | 'deleted'; id: string }
   'permission:request': PermissionRequest
   'permission:resolved': { id: string; decision: ApprovalDecision }
-  'events:event': WoneEvent
+  'events:event': MindeckEvent
   'agents:changed': { session?: AgentSession; removed?: string }
   'agents:message': AgentMessageUpdate
   'cloud:status': CloudStatus

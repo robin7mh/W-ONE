@@ -156,7 +156,7 @@ describe('ToolsService', () => {
 
 describe('moving over from VS Code / Cursor', () => {
   async function machine() {
-    const home = await tempDir('wone-home-')
+    const home = await tempDir('mindeck-home-')
     const appData = join(home, 'AppData')
     const user = join(appData, 'Code', 'User')
     await mkdir(join(user, 'snippets'), { recursive: true })
@@ -244,7 +244,7 @@ describe('moving over from VS Code / Cursor', () => {
     await extension('vscodevim.vim-1', { publisher: 'vscodevim', name: 'vim', displayName: 'Vim', main: './x.js' })
     await extension('broken-1', { name: 'no-publisher' })
     await mkdir(join(ext, 'empty-1'))
-    // Cursor installed too, with one setting; VSCodium with settings W-ONE can't use.
+    // Cursor installed too, with one setting; VSCodium with settings Mindeck can't use.
     await mkdir(join(appData, 'Cursor', 'User'), { recursive: true })
     await writeFile(join(appData, 'Cursor', 'User', 'settings.json'), '{ "editor.fontLigatures": false }')
     await mkdir(join(appData, 'VSCodium', 'User'), { recursive: true })
@@ -283,7 +283,7 @@ describe('moving over from VS Code / Cursor', () => {
     const { service } = await machine()
     const [code, cursor, codium, windsurf] = await service.scan()
     expect(windsurf).toMatchObject({ app: 'Windsurf', settings: 0, keybindings: 0 })
-    expect(codium).toMatchObject({ app: 'VSCodium', settings: 0 }) // nothing W-ONE could use
+    expect(codium).toMatchObject({ app: 'VSCodium', settings: 0 }) // nothing Mindeck could use
     expect(code).toMatchObject({ app: 'Code', name: 'Visual Studio Code', settings: 32, keybindings: 3, snippets: 6 })
     expect(code.extensions.map((e) => `${e.id}|${e.name}|${e.fate}|${e.language ?? ''}`)).toEqual([
       'ctf0.blank-line-organizer|blank-line-organizer|built-in|',
@@ -299,7 +299,7 @@ describe('moving over from VS Code / Cursor', () => {
     expect(cursor).toEqual({ app: 'Cursor', name: 'Cursor', settings: 1, keybindings: 0, snippets: 0, extensions: [] })
   })
 
-  it('takes settings, the keybindings W-ONE can honor and every snippet over', async () => {
+  it('takes settings, the keybindings Mindeck can honor and every snippet over', async () => {
     const { service, settings, data } = await machine()
     expect(await service.apply('Code')).toEqual({ settings: 32, keybindings: 2, snippets: 6 })
     const editor = settings.get().editor!

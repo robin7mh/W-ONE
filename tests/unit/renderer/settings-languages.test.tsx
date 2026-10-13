@@ -116,11 +116,11 @@ describe('Settings → moving over from VS Code / Cursor', () => {
     await act(settle)
     const code = screen.getByText('Visual Studio Code').closest('li')!
     expect(code).toHaveTextContent('3 editor settings · 2 keybindings · 455 snippets')
-    expect(code).toHaveTextContent('Already built into W-ONEGit Graph')
+    expect(code).toHaveTextContent('Already built into MindeckGit Graph')
     expect(code).toHaveTextContent('Python · Python Debugger · Odd → install under Languages: Python, cobol')
     expect(code).toHaveTextContent('Snippets come alongES7 snippets')
-    expect(code).toHaveTextContent('Themes — W-ONE keeps its designOne Dark Pro')
-    expect(code).toHaveTextContent('Not in W-ONE yetLive Server')
+    expect(code).toHaveTextContent('Themes — Mindeck keeps its designOne Dark Pro')
+    expect(code).toHaveTextContent('Not in Mindeck yetLive Server')
 
     fireEvent.click(within(code).getByRole('button', { name: /Take over/ }))
     await act(settle)
@@ -149,9 +149,9 @@ describe('Settings → moving over from VS Code / Cursor', () => {
     expect(screen.getByText('no access')).toBeInTheDocument()
     second.unmount()
 
-    delete (window as { wone?: unknown }).wone
+    delete (window as { mindeck?: unknown }).mindeck
     installRemote({})
     render(<MigrateCard />)
-    expect(screen.getByText('Moving over works in the W-ONE desktop app.')).toBeInTheDocument()
+    expect(screen.getByText('Moving over works in the Mindeck desktop app.')).toBeInTheDocument()
   })
 })

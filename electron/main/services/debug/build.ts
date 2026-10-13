@@ -75,7 +75,7 @@ export async function buildProgram(ctx: BuildContext, run: BuildRunner = shellBu
   if (ctx.command) await step(ctx.command)
 
   const ext = extname(ctx.program).toLowerCase()
-  const out = join(ctx.root, '.w-one', 'build', basename(ctx.program, extname(ctx.program)))
+  const out = join(ctx.root, '.mindeck', 'build', basename(ctx.program, extname(ctx.program)))
   const q = shellQuote
   if (ctx.language === 'cpp') {
     if (HEADERS.includes(ext)) throw coded('debug-program', 'A header file does not run — choose a source file (.c, .cpp, …) or a built program')

@@ -32,7 +32,7 @@ class FakeProc extends EventEmitter {
 }
 
 type Script = (p: FakeProc) => void
-const banner = (port = 1) => `[server] W-ONE 0.1.0 listening on http://127.0.0.1:${port}\n  │  Code:  PAIR-1   (valid 10 minutes, one use)\n`
+const banner = (port = 1) => `[server] Mindeck 0.1.0 listening on http://127.0.0.1:${port}\n  │  Code:  PAIR-1   (valid 10 minutes, one use)\n`
 
 /** The other machine: what each command line does there. */
 function machine(over: Partial<Record<'probe' | 'install' | 'core' | 'pair' | 'up' | 'pipe', Script>> = {}) {
@@ -99,7 +99,7 @@ const services: RemoteService[] = []
 afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 
 async function setup(o: { machine?: ReturnType<typeof machine>; api?: ReturnType<typeof api>; saved?: string; entitlement?: boolean; window?: boolean; licensed?: boolean } = {}) {
-  const dir = await tempDir('wone-remote-')
+  const dir = await tempDir('mindeck-remote-')
   const bundle = join(dir, 'pkg.tar.gz')
   await writeFile(bundle, 'TARBALL')
   const m = o.machine ?? machine()
@@ -113,7 +113,7 @@ async function setup(o: { machine?: ReturnType<typeof machine>; api?: ReturnType
     deviceName: 'Studio',
     bundle: vi.fn(async () => bundle),
     secrets: { get: async (k) => secrets.get(k), set: async (k, v) => void (v === null ? secrets.delete(k) : secrets.set(k, v)) },
-    entitlement: () => (o.entitlement === false ? null : { token: 'ent', account: { email: 'r@w-one.test', name: null } }),
+    entitlement: () => (o.entitlement === false ? null : { token: 'ent', account: { email: 'r@mindeck.test', name: null } }),
     openWindow:
       o.window === false
         ? undefined
@@ -168,7 +168,7 @@ Match host x
     expect(pairingCode('…│  Code:  AB12CD   (valid…')).toBe('AB12CD')
     expect(pairingCode('nothing')).toBeUndefined()
     expect(coreCommand('1.2.3', 4000, true)).toBe(
-      'cd "$HOME/.w-one-server/1.2.3" && WONE_HOME="$HOME/.w-one" WONE_PORT=4000 WONE_REMOTE_TERMINAL=1 WONE_EXIT_WITH_STDIN=1 WONE_LICENSE=follower NODE_ENV=production exec ./node out/server/index.cjs'
+      'cd "$HOME/.mindeck-server/1.2.3" && MINDECK_HOME="$HOME/.mindeck" MINDECK_PORT=4000 MINDECK_REMOTE_TERMINAL=1 MINDECK_EXIT_WITH_STDIN=1 MINDECK_LICENSE=follower NODE_ENV=production exec ./node out/server/index.cjs'
     )
     expect(coreCommand('1.2.3', 4000, false)).not.toContain('follower')
     expect(defaultDevcontainer('/p')).toEqual([process.execPath, [expect.stringMatching(/@devcontainers[/\\]cli[/\\]devcontainer\.js$/), 'up', '--workspace-folder', '/p'], { ELECTRON_RUN_AS_NODE: '1' }])
@@ -183,15 +183,15 @@ describe('Remote-SSH', () => {
     expect(await t.svc.hosts()).toEqual([{ name: 'box', hostName: '1.2.3.4' }])
   })
 
-  it('first time: installs W-ONE there, starts it behind a tunnel, pairs, hands the license over, opens a window', async () => {
+  it('first time: installs Mindeck there, starts it behind a tunnel, pairs, hands the license over, opens a window', async () => {
     const t = await setup()
     const c = await t.svc.ssh('box')
     expect(c).toMatchObject({ id: 'ssh:box', kind: 'ssh', label: 'box', state: 'ready', url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/) })
     expect(t.published.map((l) => l[0].state)).toEqual(['connecting', 'installing', 'starting', 'ready'])
     const core = t.m.find('exec ./node')[0]
     expect(core.line).toMatch(/^ssh -o BatchMode=yes .* -F .*ssh_config -o ExitOnForwardFailure=yes -L 127\.0\.0\.1:\d+:127\.0\.0\.1:\d+ box cd "\$HOME/)
-    expect(core.line).toContain('WONE_LICENSE=follower')
-    expect(t.a.calls.find((x) => x.url.endsWith('/api/pair'))!.body).toEqual({ code: 'PAIR-1', name: 'W-ONE Desktop · Studio' })
+    expect(core.line).toContain('MINDECK_LICENSE=follower')
+    expect(t.a.calls.find((x) => x.url.endsWith('/api/pair'))!.body).toEqual({ code: 'PAIR-1', name: 'Mindeck Desktop · Studio' })
     expect(JSON.parse(t.secrets.get('remote.ssh:box')!)).toEqual({ token: 'tok-new', deviceId: 'dev-new' })
     expect(t.a.calls.find((x) => x.url.endsWith('cloud:adopt'))).toMatchObject({ auth: 'Bearer tok-new', body: { token: 'ent' } })
     expect(t.windows[0]).toMatchObject({ title: 'SSH: box', url: c.url, token: 'tok-new', deviceId: 'dev-new' })
@@ -209,7 +209,7 @@ describe('Remote-SSH', () => {
   })
 
   it('again: nothing to install, the saved pairing works, no license to hand over; a window that won’t open', async () => {
-    const m = machine({ probe: (p) => p.finish(0, 'x86_64\n0.1.0\n'), core: (p) => p.stdout.write('[server] W-ONE 0.1.0 listening on http://127.0.0.1:1\n') })
+    const m = machine({ probe: (p) => p.finish(0, 'x86_64\n0.1.0\n'), core: (p) => p.stdout.write('[server] Mindeck 0.1.0 listening on http://127.0.0.1:1\n') })
     const t = await setup({ machine: m, api: api({ tokenOk: true }), saved: JSON.stringify({ token: 'tok-old', deviceId: 'dev-old' }), entitlement: false, window: false, licensed: false })
     await t.svc.ssh('box')
     expect(m.find('tar xzf')).toEqual([])
@@ -223,15 +223,15 @@ describe('Remote-SSH', () => {
 
   it('a pairing the core forgot: a new code from `pair`; no code, or a refused one, fails', async () => {
     const saved = JSON.stringify({ token: 'tok-old', deviceId: 'dev-old' })
-    const quiet = machine({ core: (p) => p.stdout.write('[server] W-ONE 0.1.0 listening on http://127.0.0.1:1\n') })
+    const quiet = machine({ core: (p) => p.stdout.write('[server] Mindeck 0.1.0 listening on http://127.0.0.1:1\n') })
     const t = await setup({ machine: quiet, saved })
     await t.svc.ssh('box')
     expect(t.a.calls.find((x) => x.url.endsWith('/api/pair'))!.body).toMatchObject({ code: 'PAIR-2' })
 
-    const silent = machine({ core: (p) => p.stdout.write('[server] W-ONE 0.1.0 listening on x\n'), pair: (p) => p.finish(0, 'nothing') })
+    const silent = machine({ core: (p) => p.stdout.write('[server] Mindeck 0.1.0 listening on x\n'), pair: (p) => p.finish(0, 'nothing') })
     const u = await setup({ machine: silent })
-    await expect(u.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-pair', message: 'The remote W-ONE gave no pairing code' })
-    expect(u.svc.list()[0]).toMatchObject({ state: 'failed', error: 'The remote W-ONE gave no pairing code' })
+    await expect(u.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-pair', message: 'The remote Mindeck gave no pairing code' })
+    expect(u.svc.list()[0]).toMatchObject({ state: 'failed', error: 'The remote Mindeck gave no pairing code' })
 
     const refused = await setup({ api: api({ pair: 'refuse' }) })
     await expect(refused.svc.ssh('box')).rejects.toMatchObject({ message: 'Code expired' })
@@ -258,9 +258,9 @@ describe('Remote-SSH', () => {
     const dies = await setup({ machine: machine({ core: (p) => (p.stdout.write('Error: EADDRINUSE\n'), p.finish(1)) }) })
     await expect(dies.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-start', message: 'Error: EADDRINUSE' })
     const mute = await setup({ machine: machine({ core: (p) => p.finish(1) }) })
-    await expect(mute.svc.ssh('box')).rejects.toMatchObject({ message: 'The remote W-ONE stopped' })
+    await expect(mute.svc.ssh('box')).rejects.toMatchObject({ message: 'The remote Mindeck stopped' })
     const slow = await setup({ machine: machine({ core: (p) => p.stderr.write('warming up\n') }) })
-    await expect(slow.svc.ssh('box')).rejects.toMatchObject({ message: 'The remote W-ONE did not start in time' })
+    await expect(slow.svc.ssh('box')).rejects.toMatchObject({ message: 'The remote Mindeck did not start in time' })
 
     const unlicensed = await setup({ api: api({ adopt: 'fail' }) })
     await expect(unlicensed.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-license', message: expect.stringContaining('(bad-entitlement)') })
@@ -271,7 +271,7 @@ describe('Remote-SSH', () => {
     const t = await setup()
     await t.svc.ssh('box')
     t.m.find('exec ./node')[0].kill()
-    expect(t.svc.list()[0]).toMatchObject({ state: 'failed', error: 'The remote W-ONE stopped' })
+    expect(t.svc.list()[0]).toMatchObject({ state: 'failed', error: 'The remote Mindeck stopped' })
     expect(t.windows[0].close).toHaveBeenCalled()
     // A failed one can be tried again.
     expect((await t.svc.ssh('box')).state).toBe('ready')
@@ -279,7 +279,7 @@ describe('Remote-SSH', () => {
 
   it('for real: the user’s ssh (nobody listens on port 1 here) and the default ssh config', async () => {
     const home = process.env.HOME
-    process.env.HOME = await tempDir('wone-home-')
+    process.env.HOME = await tempDir('mindeck-home-')
     try {
       const svc = new RemoteService({ version: '0.1.0', licensed: false, deviceName: 'x', bundle: async () => '', secrets: { get: async () => undefined, set: async () => {} }, entitlement: () => null, publish: () => {} })
       services.push(svc)
@@ -298,7 +298,7 @@ describe('Remote-SSH', () => {
 
 describe('Dev Containers', () => {
   async function project(file: '.devcontainer/devcontainer.json' | '.devcontainer.json' | null = '.devcontainer/devcontainer.json') {
-    const root = join(await tempDir('wone-devc-'), 'my-app')
+    const root = join(await tempDir('mindeck-devc-'), 'my-app')
     await mkdir(join(root, '.devcontainer'), { recursive: true })
     if (file) await writeFile(join(root, file), '{ "image": "debian" }')
     return root
@@ -313,14 +313,14 @@ describe('Dev Containers', () => {
     await expect(t.svc.container(none)).rejects.toMatchObject({ code: 'no-devcontainer' })
   })
 
-  it('starts the container, installs and starts W-ONE in it, pipes connections in, opens its folder', async () => {
+  it('starts the container, installs and starts Mindeck in it, pipes connections in, opens its folder', async () => {
     const t = await setup()
     const root = await project()
     const c = await t.svc.container(root)
     expect(c).toMatchObject({ kind: 'container', label: 'Container: my-app', state: 'ready' })
     const up = t.m.find('devcontainer up')[0]
     expect(up.envUsed).toEqual({ X: '1' })
-    expect(t.m.find('uname -m')[0].line).toBe(`docker exec -i -u node c0ffee sh -c uname -m; cat "$HOME/.w-one-server/0.1.0/VERSION" 2>/dev/null; true`)
+    expect(t.m.find('uname -m')[0].line).toBe(`docker exec -i -u node c0ffee sh -c uname -m; cat "$HOME/.mindeck-server/0.1.0/VERSION" 2>/dev/null; true`)
     expect(t.a.calls.find((x) => x.url.endsWith('projects:add'))!.body).toEqual({ path: '/workspaces/app' })
     expect(t.windows[0].title).toBe('Container: my-app')
 
@@ -331,7 +331,7 @@ describe('Dev Containers', () => {
     socket.write('ping')
     expect(await echoed).toBe('ping')
     const pipe = t.m.find('-e ')[0]
-    expect(pipe.line).toContain(`exec "$HOME/.w-one-server/0.1.0/node" -e "const s=require('net').connect(`)
+    expect(pipe.line).toContain(`exec "$HOME/.mindeck-server/0.1.0/node" -e "const s=require('net').connect(`)
     socket.destroy()
     await tick()
     expect(pipe.killed).toBe(true)

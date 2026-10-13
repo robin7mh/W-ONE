@@ -42,7 +42,7 @@ function Tool({ tool, part, busy, onInstall }: { tool: ToolState; part: Part; bu
 /**
  * Settings → Languages: every language the editor knows, its language server
  * and debugger on this machine, and installing what is missing — the only
- * place W-ONE installs anything.
+ * place Mindeck installs anything.
  */
 export function LanguagesCard() {
   const t = useT()
