@@ -12,6 +12,9 @@ const mon = vi.hoisted(() => {
   const state = { providers: [] as { lang: string; provider: unknown }[] }
   const monaco = {
     Range,
+    KeyMod: { Shift: 1024, Alt: 512 },
+    KeyCode: { KeyF: 36 },
+    MarkerSeverity: { Hint: 1, Info: 2, Warning: 4, Error: 8 },
     languages: { registerCodeActionProvider: (lang: string, provider: unknown) => state.providers.push({ lang, provider }) }
   }
   return { monaco, state, Range }
@@ -122,11 +125,12 @@ describe('editor actions and text edits', () => {
     const actions: { id: string; label: string; run: (ed: unknown) => void }[] = []
     const editor = { addAction: (a: (typeof actions)[number]) => (actions.push(a), { dispose: () => {} }), getModel: () => model }
     const disposables = addEditorActions(editor as never)
-    expect(disposables).toHaveLength(1)
-    expect(actions[0]).toMatchObject({ id: 'wone.tidyBlankLines', label: 'Remove Blank Lines' })
-    actions[0].run(editor)
+    expect(disposables).toHaveLength(4)
+    const tidy = actions.find((a) => a.id === 'wone.tidyBlankLines')!
+    expect(tidy).toMatchObject({ label: 'Remove Blank Lines' })
+    tidy.run(editor)
     expect(value).toBe('a\n\nb')
-    actions[0].run({ getModel: () => null }) // no file on screen
+    tidy.run({ getModel: () => null }) // no file on screen
   })
 })
 

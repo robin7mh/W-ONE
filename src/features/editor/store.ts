@@ -77,6 +77,10 @@ interface EditorState {
   treeError?: string
   tabs: EditorTab[]
   activeId?: string
+  /** Split view: the tab the right-hand editor shows (none: one editor). */
+  splitId?: string
+  /** The right-hand editor has the focus — opening and saving go there. */
+  focusRight: boolean
   /** Dirty tab waiting for "save before closing?". */
   closing?: string
   /** A line to scroll to once its tab shows (search results); the view clears it. */
@@ -98,6 +102,15 @@ interface EditorState {
   /** Open a file and put the cursor on `line` (1-based). */
   openAt: (path: string, line: number) => Promise<void>
   setActive: (id: string) => void
+  /** Open a file in the right-hand editor (splitting, if it isn't yet). */
+  openToSide: (path: string) => Promise<void>
+  /** Split the editor: the file on screen opens on the right too (⌘\). */
+  split: (id?: string) => void
+  closeSplit: () => void
+  /** Which editor of the split has the focus. */
+  focusGroup: (right: boolean) => void
+  /** The tab of the focused editor. */
+  focusedId: () => string | undefined
   setDirty: (id: string, dirty: boolean) => void
   /** Write the buffer to disk. `force` overwrites a newer disk copy. Resolves true when saved. */
   save: (id?: string, opts?: { force?: boolean }) => Promise<boolean>
@@ -142,6 +155,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   tree: {},
   expanded: {},
   tabs: [],
+  focusRight: false,
 
   selectProject: async (id) => {
     if (get().projectId === id) return
@@ -190,7 +204,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   open: async (path) => {
     const projectId = get().projectId!
     const id = tabKey(projectId, path)
-    if (get().tabs.some((t) => t.id === id)) return set({ activeId: id })
+    if (get().tabs.some((t) => t.id === id)) return get().setActive(id)
     const tab: EditorTab = {
       id,
       projectId,
@@ -203,7 +217,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       conflict: false,
       deleted: false
     }
-    set((s) => ({ tabs: [...s.tabs, tab], activeId: id }))
+    set((s) => ({ tabs: [...s.tabs, tab] }))
+    get().setActive(id)
     await get().reload(id)
   },
 
@@ -212,14 +227,30 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ reveal: { id: tabKey(get().projectId!, path), line } })
   },
 
-  setActive: (id) => set({ activeId: id }),
+  setActive: (id) => set(get().focusRight && get().splitId ? { splitId: id } : { activeId: id }),
+
+  openToSide: async (path) => {
+    const anchor = get().splitId ?? get().activeId
+    if (anchor) set({ splitId: anchor, focusRight: true })
+    await get().open(path)
+  },
+
+  split: (id = get().focusedId()) => {
+    if (id) set({ splitId: id, focusRight: true })
+  },
+
+  closeSplit: () => set({ splitId: undefined, focusRight: false }),
+
+  focusGroup: (right) => set({ focusRight: right && !!get().splitId }),
+
+  focusedId: () => (get().focusRight && get().splitId ? get().splitId : get().activeId),
 
   setDirty: (id, dirty) => {
     if (get().tabs.find((t) => t.id === id)?.dirty === dirty) return
     set(update(id, { dirty }))
   },
 
-  save: async (id = get().activeId, opts = {}) => {
+  save: async (id = get().focusedId(), opts = {}) => {
     // Like VS Code: a save of edited text first formats / tidies it (the user's settings) — then reads it.
     const before = get().tabs.find((t) => t.id === id)
     const prepare = host?.prepare
@@ -288,7 +319,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   close: (id) => {
-    const { tabs, activeId } = get()
+    const { tabs, activeId, splitId } = get()
     const index = tabs.findIndex((t) => t.id === id)
     if (index < 0) return
     const rest = tabs.filter((t) => t.id !== id)
@@ -297,7 +328,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       tabs: rest,
       closing: undefined,
       // The neighbour takes over (right, else left) — like VS Code.
-      activeId: activeId === id ? rest[Math.min(index, rest.length - 1)]?.id : activeId
+      activeId: activeId === id ? rest[Math.min(index, rest.length - 1)]?.id : activeId,
+      // The right-hand editor's last file closed: back to one editor.
+      ...(splitId === id ? { splitId: undefined, focusRight: false } : {})
     })
   },
 
@@ -403,7 +436,8 @@ function moveTabs(from: string, to: string): void {
     host?.rekey(t.id, { id, projectId: t.projectId, path })
     useEditor.setState((s) => ({
       tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, id, path, name: path.slice(path.lastIndexOf('/') + 1) } : x)),
-      activeId: s.activeId === t.id ? id : s.activeId
+      activeId: s.activeId === t.id ? id : s.activeId,
+      splitId: s.splitId === t.id ? id : s.splitId
     }))
   }
 }

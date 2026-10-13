@@ -82,7 +82,11 @@ const mon = vi.hoisted(() => {
       return null
     }
     getSupportedActions() {
-      return [{ id: 'editor.action.formatDocument', label: 'Format Document' }]
+      // Monaco prefixes actions added to one editor with the instance.
+      return [
+        { id: 'editor.action.formatDocument', label: 'Format Document', run: async () => void this.ran.push('editor.action.formatDocument') },
+        { id: 'vs.editor.ICodeEditor:1:wone.formatDocument', label: 'Format (W-ONE)', run: async () => void this.ran.push('wone.formatDocument') }
+      ]
     }
     getAction(id: string) {
       return id === 'missing' ? null : { run: async () => void this.ran.push(id) }
@@ -106,6 +110,10 @@ const mon = vi.hoisted(() => {
     }
     onDidChangeCursorPosition(fn: Fn) {
       return this.cursor.event(fn)
+    }
+    focusText = new Emitter()
+    onDidFocusEditorText(fn: Fn) {
+      return this.focusText.event(fn)
     }
     onDidChangeModel(fn: Fn) {
       return this.modelChange.event(fn)
@@ -173,8 +181,16 @@ vi.mock('@/features/editor/monaco/breakpoints', () => ({
 }))
 vi.mock('@/features/editor/monaco/lsp', () => ({ setupLsp: () => (features.lsp += 1) }))
 vi.mock('@/features/editor/monaco/userPrefs', () => ({ setupUserPrefs: () => (features.prefs += 1) }))
+vi.mock('@/features/editor/monaco/lint', () => ({ setupLint: () => {}, fixAll: async (model: { getValue(): string; setValue(v: string): void }) => (model.setValue(model.getValue().replace(/var /g, 'let ')), true) }))
+vi.mock('@/features/editor/monaco/testMarkers', () => ({ setupTestMarkers: () => {} }))
+vi.mock('@/features/editor/monaco/inlineAi', () => ({ setupInlineAi: () => {}, addInlineEdit: () => [] }))
+vi.mock('@/features/editor/monaco/vim', () => ({ attachVim: () => () => {} }))
 vi.mock('@/features/editor/monaco/extras', () => ({
   setupExtras: () => {},
+  // Prettier isn't there: the editor's own formatter, for the file on screen.
+  formatModel: async (model: unknown, _prefs: unknown, ed?: { getModel(): unknown; getAction(id: string): { run(): Promise<void> } | null }) => {
+    if (ed?.getModel() === model) await ed?.getAction('editor.action.formatDocument')?.run()
+  },
   addEditorActions: () => [{ dispose: () => (features.actionsDisposed += 1) }],
   replaceText: (model: { getValue(): string; setValue(v: string): void }, text: string) => model.getValue() !== text && model.setValue(text)
 }))
@@ -661,10 +677,14 @@ describe('CodeEditor (Monaco view)', () => {
     expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: ':' })
 
     const actions = editorActions()!
-    expect(actions.list()).toEqual([{ id: 'editor.action.formatDocument', label: 'Format Document' }])
+    expect(actions.list()).toEqual([
+      { id: 'editor.action.formatDocument', label: 'Format Document' },
+      { id: 'wone.formatDocument', label: 'Format (W-ONE)' }
+    ])
     actions.run('editor.action.formatDocument')
+    actions.run('wone.formatDocument')
     actions.run('missing')
-    expect(editor().ran).toEqual(['editor.action.formatDocument'])
+    expect(editor().ran).toEqual(['editor.action.formatDocument', 'wone.formatDocument'])
     rerender(view())
     expect(actions.list()).toEqual([]) // no file on screen
 
@@ -715,6 +735,48 @@ describe('CodeEditor (Monaco view)', () => {
     useEditor.setState((s) => ({ tabs: [...s.tabs, tab('c.ts')] }))
     await rename('c.ts', 'z.ts')
     expect(mon.state.models.filter((m) => !m.disposed)).toHaveLength(2)
+  })
+
+  it('a split: the right editor shows the same models; focus moves the palette and the store; closing and renaming follow on both sides', async () => {
+    useEditor.setState({ projectId: 'p', tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })], activeId: 'p:a.ts' })
+    const both = (left?: EditorTab, right?: EditorTab, split = true) => (
+      <>
+        <CodeEditor tab={left} readOnly={false} onCursor={() => {}} />
+        {split && <CodeEditor secondary tab={right} readOnly={false} onCursor={() => {}} />}
+      </>
+    )
+    const { rerender } = render(both(e().tabs[0], e().tabs[0]))
+    const [left, right] = mon.state.editors.slice(-2)
+    expect(left.model).toBe(model('a.ts'))
+    expect(right.model).toBe(model('a.ts')) // one model, two editors
+    act(() => model('a.ts').type('!'))
+    expect(e().tabs[0].dirty).toBe(true)
+    // The right editor gets the focus: palette commands and saving go there.
+    useEditor.setState({ splitId: 'p:a.ts' })
+    act(() => right.focusText.fire())
+    expect(e().focusRight).toBe(true)
+    expect(editorActions()!.list().map((a) => a.id)).toContain('wone.formatDocument')
+    act(() => left.focusText.fire())
+    expect(e().focusRight).toBe(false)
+    rerender(both(e().tabs[0], e().tabs[1]))
+    expect(right.model).toBe(model('b.ts'))
+    rerender(both(e().tabs[0], e().tabs[0]))
+    // Renaming the file on both sides: both move to the new model.
+    installBridge({ 'files:rename': () => undefined, 'files:list': () => [] })
+    useEditor.setState({ naming: { mode: 'rename', dir: '', path: 'a.ts' }, selection: { path: 'a.ts', kind: 'file' } })
+    await act(() => e().submitName('z.ts'))
+    expect(left.model).toBe(model('z.ts'))
+    expect(right.model).toBe(model('z.ts'))
+    expect(e().splitId).toBe('p:z.ts')
+    // Closing it: both let go.
+    act(() => e().close('p:z.ts'))
+    expect(left.model).toBeNull()
+    expect(right.model).toBeNull()
+    // The right editor closes: the left one's commands are back in the palette.
+    act(() => right.focusText.fire())
+    rerender(both(e().tabs[0], undefined, false))
+    expect(right.disposed).toBe(true)
+    expect(editorActions()).not.toBeNull()
   })
 
   it('a model already there (a peeked definition) becomes the tab’s buffer', () => {
@@ -771,6 +833,26 @@ describe('CodeEditor (Monaco view)', () => {
     expect(await act(() => e().save('p:a.ts'))).toBe(true)
     useEditor.setState((st) => ({ tabs: [...st.tabs, tab('c.ts', { dirty: true })] }))
     expect(await act(() => e().save('p:c.ts'))).toBe(false)
+
+    // ESLint fixes on save, when asked to.
+    useEditorPrefs.setState({ settings: { eslintFixOnSave: true } })
+    act(() => model('a.ts').type('\nvar z'))
+    expect(await act(() => e().save('p:a.ts'))).toBe(true)
+    expect(writes.at(-1)).toContain('let z')
+    // Formatting a file that isn't on screen: no editor to hand over (Prettier's, or nothing).
+    useEditorPrefs.setState({ settings: { formatOnSave: true } })
+    const ran = editor().ran.length
+    act(() => model('b.md').type('?'))
+    expect(await act(() => e().save('p:b.md'))).toBe(true)
+    expect(editor().ran).toHaveLength(ran)
+    // A notebook's JSON stays as Jupyter wrote it: no tidying, no formatting.
+    useEditorPrefs.setState({ settings: { formatOnSave: true, blankLines: { onSave: true, keepOne: false } } })
+    useEditor.setState((st) => ({ tabs: [...st.tabs, tab('n.ipynb', { content: '{}' })], activeId: 'p:n.ipynb' }))
+    rerender(view(e().tabs.find((x) => x.path === 'n.ipynb')))
+    act(() => model('n.ipynb').type('\n\n\n'))
+    expect(await act(() => e().save('p:n.ipynb'))).toBe(true)
+    expect(writes.at(-1)).toBe('{}\n\n\n')
+    expect(editor().ran).toHaveLength(ran)
     useEditorPrefs.setState({ settings: {} })
   })
 

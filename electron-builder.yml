@@ -1,4 +1,7 @@
-# Packaging the desktop app: npm run dist:mac (DMG + ZIP for Apple silicon and Intel).
+# Packaging the desktop app:
+#   npm run dist:mac     DMG + ZIP for Apple silicon and Intel (on a Mac)
+#   npm run dist:win     NSIS installer for x64 and arm64 (on Windows — .github/workflows/desktop.yml)
+#   npm run dist:linux   AppImage + .deb for the machine's architecture (on Linux — node-pty is compiled there)
 # Release builds need, as environment variables:
 #   WONE_CLOUD_URL / WONE_CLOUD_KEY  where W-ONE Cloud lives (baked in by electron-vite)
 #   CSC_LINK / CSC_KEY_PASSWORD      "Developer ID Application" certificate (.p12, base64 or path)
@@ -21,19 +24,23 @@ files:
   # Bundled into the renderer by Vite — not needed again as node_modules.
   - "!node_modules/{monaco-editor,react,react-dom,framer-motion,lucide-react,@xterm,d3-force,marked,dompurify,zustand,qrcode,@fontsource,@fontsource-variable}/**"
   - "!node_modules/node-pty/{src,deps,scripts,typings,binding.gyp}/**"
-  - "!node_modules/node-pty/prebuilds/win32-*/**"
   - "!**/*.{map,md,d.ts}"
   # The editor's TypeScript service needs its standard library declarations.
   - node_modules/typescript/lib/*.d.ts
 
-# node-pty ships N-API prebuilds (stable across Electron versions): nothing to compile.
+# node-pty ships N-API prebuilds for macOS and Windows (stable across Electron versions): nothing
+# to compile. Linux has none: `npm ci` builds it there (node-gyp), and N-API keeps that build valid
+# for Electron. Each platform keeps only its own prebuilds (build/afterPack.cjs).
 npmRebuild: false
+afterPack: build/afterPack.cjs
 asarUnpack:
   - node_modules/node-pty/**
   # tsserver runs as its own Node process and reads its lib files from disk.
   - node_modules/typescript/**
   # Run as a Node program of its own (Dev Containers).
   - node_modules/@devcontainers/cli/**
+  # W-ONE's Prettier, for projects without one (run by the lint worker).
+  - node_modules/prettier/**
 
 mac:
   category: public.app-category.developer-tools
@@ -67,6 +74,45 @@ dmg:
       y: 190
       type: link
       path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  icon: build/icon.png
+  executableName: W-ONE
+
+nsis:
+  # Same name in every release, like the DMG: releases/latest/download/W-ONE-Setup-<arch>.exe
+  artifactName: ${productName}-Setup-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ${productName}
+
+linux:
+  target:
+    - target: AppImage
+    - target: deb
+  icon: build/icon.png
+  category: Development
+  executableName: w-one
+  # The window belongs to w-one.desktop (package.json desktopName): docks group and pin it right.
+  syncDesktopName: true
+  synopsis: Command center for code, agents and projects
+  description: W-ONE — editor, terminal, agents, memory and projects in one app.
+  maintainer: Robin Hinkelmann <robin.hinkelmann@webma.one>
+  desktop:
+    entry:
+      StartupWMClass: W-ONE
+
+appImage:
+  artifactName: ${productName}-${arch}.${ext}
+
+deb:
+  artifactName: ${productName}-${arch}.${ext}
 
 publish:
   provider: github

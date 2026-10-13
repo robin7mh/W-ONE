@@ -28,6 +28,12 @@ import { SyncService } from '../services/cloud/SyncService'
 import { registerRemoteIpc } from '../../ipc/remote.ipc'
 import { RemoteService } from '../services/remote/RemoteService'
 import { bundleSource } from '../services/remote/bundle'
+import { registerLintIpc } from '../../ipc/lint.ipc'
+import { bundledPrettier, LintService } from '../services/lint/LintService'
+import { registerNotebookIpc } from '../../ipc/notebook.ipc'
+import { NotebookService } from '../services/notebook/NotebookService'
+import { registerTestsIpc } from '../../ipc/tests.ipc'
+import { TestService } from '../services/tests/TestService'
 import { LiveServerService } from '../services/live/LiveServerService'
 import { SassService } from '../services/live/SassService'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
@@ -53,6 +59,7 @@ import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
+import { InlineService } from '../services/ai/InlineService'
 import { ConversationStore } from '../services/ai/ConversationStore'
 import { RunStore } from '../services/ai/RunStore'
 import { PermissionService } from '../services/ai/PermissionService'
@@ -327,6 +334,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('ai:cancel', ({ conversationId }) => assistant.cancel(conversationId))
   router.register('ai:deleteConversation', ({ id }) => assistant.remove(id))
   router.register('ai:runs', ({ limit }) => assistant.runs(limit))
+  const inline = new InlineService({ ai, publish: hub.publish.bind(hub, 'ai:inlineDelta') })
+  router.register('ai:inlineComplete', (req) => inline.complete(req))
+  router.register('ai:inlineEdit', (req) => inline.edit(req))
+  router.register('ai:inlineCancel', ({ requestId }) => inline.cancel(requestId))
   router.register('permission:pending', () => permissions.list())
   router.register('permission:respond', ({ id, decision }, ctx) => permissions.respond(id, decision, ctx.deviceId))
   router.register('permission:grants', () => permissions.grants())
@@ -362,6 +373,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     sshConfig: process.env.WONE_SSH_CONFIG || undefined
   })
   registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
+  // ESLint and Prettier: the project's own, in a worker per project.
+  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), prettier: bundledPrettier() })
+  registerLintIpc(router, lint)
+  // The test explorer: the project's runners, W-ONE's debugger.
+  const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'notebook:event') })
+  registerNotebookIpc(router, notebooks)
+  registerTestsIpc(router, new TestService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'tests:changed'), debug: debug.start.bind(debug) }))
 
   events.emit('app.started', { payload: { version: opts.version, mode: opts.mode } })
 
@@ -391,6 +409,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       debug.dispose()
       await mongo.dispose()
       remote.dispose()
+      lint.dispose()
+      notebooks.dispose()
       terminal.killAll()
       await controller.stop()
       await eventLog.flush()

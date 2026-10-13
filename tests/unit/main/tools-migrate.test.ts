@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
-import { CATALOG, pythonFor, which } from '../../../electron/main/services/tools/catalog'
+import { CATALOG, pythonFor, systemPython, which } from '../../../electron/main/services/tools/catalog'
 import { loginShellRunner, ToolsService } from '../../../electron/main/services/tools/ToolsService'
-import { APPS, appDataDir, MigrateService, parseJsonc, snippetsOf } from '../../../electron/main/services/migrate/MigrateService'
+import { APPS, appDataDir, fixesEslintOnSave, MigrateService, parseJsonc, prettierSettings, snippetsOf, vimMappings } from '../../../electron/main/services/migrate/MigrateService'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
 import { isSupportedCommand } from '@shared/types/migrate'
 import type { ToolProgress } from '@shared/types/languages'
@@ -33,6 +33,12 @@ describe('the tools catalog', () => {
     await mkdir(join(root, 'venv/bin'), { recursive: true })
     await writeFile(join(root, 'venv/bin/python'), '')
     expect(pythonFor(root)).toBe(join(root, 'venv/bin/python'))
+    // Windows: the virtualenv keeps it in Scripts, the system's is `python`.
+    expect(pythonFor(root, 'win32')).toBe('python')
+    await mkdir(join(root, '.venv/Scripts'), { recursive: true })
+    await writeFile(join(root, '.venv/Scripts/python.exe'), '')
+    expect(pythonFor(root, 'win32')).toBe(join(root, '.venv/Scripts/python.exe'))
+    expect([systemPython('linux'), systemPython('win32')]).toEqual(['python3', 'python'])
   })
 })
 
@@ -181,9 +187,18 @@ describe('moving over from VS Code / Cursor', () => {
   "liveServer.settings.port": 5501,
   "liveSassCompile.settings.generateMap": true,
   "blankLine.keepOneEmptyLine": false,
-  "[python]": { "editor.tabSize": 4, "editor.formatOnSave": false },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  "prettier.singleQuote": true,
+  "prettier.printWidth": 100,
+  "prettier.requireConfig": true,
+  "prettier.ignore": { "x": 1 },
+  "vim.leader": "<space>",
+  "vim.insertModeKeyBindings": [{ "before": ["j", "j"], "after": ["<Esc>"] }],
+  "vim.normalModeKeyBindingsNonRecursive": [{ "before": ["<leader>", "w"], "after": [":", "w", "<CR>"] }, { "before": ["x"], "commands": [":w"] }],
+  "[python]": { "editor.tabSize": 4, "editor.formatOnSave": false, "editor.defaultFormatter": "ms-python.black-formatter" },
   "[javascript][typescriptreact]": { "editor.tabSize": 2 },
-  "[markdown]": { "markdown.preview": true },
+  "[markdown]": { "markdown.preview": true, "editor.defaultFormatter": null },
   "[go]": "not settings",
   "workbench.colorTheme": "One Dark Pro", /* themes stay */
   "url": "https://example.com/a//b",
@@ -226,6 +241,7 @@ describe('moving over from VS Code / Cursor', () => {
     await extension('mhutchie.git-graph-2', { publisher: 'mhutchie', name: 'git-graph' }) // two versions side by side
     await extension('random.tool-1', { publisher: 'random', name: 'tool', main: './x.js' })
     await extension('ctf0.blank-line-organizer-0', { publisher: 'ctf0', name: 'blank-line-organizer', main: './x.js' })
+    await extension('vscodevim.vim-1', { publisher: 'vscodevim', name: 'vim', displayName: 'Vim', main: './x.js' })
     await extension('broken-1', { name: 'no-publisher' })
     await mkdir(join(ext, 'empty-1'))
     // Cursor installed too, with one setting; VSCodium with settings W-ONE can't use.
@@ -268,7 +284,7 @@ describe('moving over from VS Code / Cursor', () => {
     const [code, cursor, codium, windsurf] = await service.scan()
     expect(windsurf).toMatchObject({ app: 'Windsurf', settings: 0, keybindings: 0 })
     expect(codium).toMatchObject({ app: 'VSCodium', settings: 0 }) // nothing W-ONE could use
-    expect(code).toMatchObject({ app: 'Code', name: 'Visual Studio Code', settings: 24, keybindings: 3, snippets: 6 })
+    expect(code).toMatchObject({ app: 'Code', name: 'Visual Studio Code', settings: 32, keybindings: 3, snippets: 6 })
     expect(code.extensions.map((e) => `${e.id}|${e.name}|${e.fate}|${e.language ?? ''}`)).toEqual([
       'ctf0.blank-line-organizer|blank-line-organizer|built-in|',
       'dsznajder.es7|ES7 snippets|snippets|',
@@ -277,6 +293,7 @@ describe('moving over from VS Code / Cursor', () => {
       'obj.nls|Object Name|unsupported|',
       'pkief.icons|icons|theme|',
       'random.tool|tool|unsupported|',
+      'vscodevim.vim|Vim|built-in|',
       'zhuangtongfa.material-theme|One Dark Pro|theme|'
     ])
     expect(cursor).toEqual({ app: 'Cursor', name: 'Cursor', settings: 1, keybindings: 0, snippets: 0, extensions: [] })
@@ -284,7 +301,7 @@ describe('moving over from VS Code / Cursor', () => {
 
   it('takes settings, the keybindings W-ONE can honor and every snippet over', async () => {
     const { service, settings, data } = await machine()
-    expect(await service.apply('Code')).toEqual({ settings: 24, keybindings: 2, snippets: 6 })
+    expect(await service.apply('Code')).toEqual({ settings: 32, keybindings: 2, snippets: 6 })
     const editor = settings.get().editor!
     expect(editor).toMatchObject({
       fontSize: 15,
@@ -297,9 +314,19 @@ describe('moving over from VS Code / Cursor', () => {
       rulers: [80, 120],
       bracketPairColorization: false,
       formatOnSave: true,
+      // Prettier formatted, ESLint fixed on save (Python had its own formatter).
+      prettier: true,
+      eslintFixOnSave: true,
+      prettierOptions: { singleQuote: true, printWidth: 100 },
       // The Blank Line Organizer was installed: it ran on save, and kept no blank lines.
       blankLines: { onSave: true, keepOne: false },
-      languages: { python: { tabSize: 4, formatOnSave: false }, javascript: { tabSize: 2 }, typescript: { tabSize: 2 } },
+      // VSCodeVim was installed: Vim keys, with the user's remappings (key → key only).
+      vim: true,
+      vimMappings: [
+        { mode: 'normal', before: '<space>w', after: ':w<CR>' },
+        { mode: 'insert', before: 'jj', after: '<Esc>' }
+      ],
+      languages: { python: { tabSize: 4, formatOnSave: false, prettier: false }, javascript: { tabSize: 2 }, typescript: { tabSize: 2 } },
       importedFrom: { app: 'Code', at: expect.any(String) }
     })
     expect(editor.keybindings).toEqual([
@@ -314,6 +341,35 @@ describe('moving over from VS Code / Cursor', () => {
     const elsewhere = new MigrateService({ home: '/nowhere', appData: await tempDir(), settings, snippetsFile: join(data, 'x.json') })
     await expect(elsewhere.apply('Code')).rejects.toMatchObject({ code: 'not-found' }) // not installed here
     expect(await elsewhere.scan()).toEqual([])
+  })
+
+  it('Settings → Editor changes single settings, keeping the rest', async () => {
+    const { service, settings } = await machine()
+    await settings.update({ editor: { fontSize: 15, formatOnSave: true } })
+    expect(await service.updateEditor({ formatOnSave: false, prettier: true })).toEqual({ fontSize: 15, formatOnSave: false, prettier: true })
+    expect(settings.get().editor).toEqual({ fontSize: 15, formatOnSave: false, prettier: true })
+  })
+
+  it('ESLint fixes on save in every way VS Code writes it; Prettier’s options only', () => {
+    expect([
+      { 'source.fixAll.eslint': 'explicit' },
+      { 'source.fixAll.eslint': true },
+      { 'source.fixAll': 'always' },
+      ['source.fixAll.eslint'],
+      ['source.fixAll'],
+      { 'source.fixAll.eslint': 'never' },
+      { 'source.organizeImports': true },
+      ['source.organizeImports'],
+      'source.fixAll.eslint',
+      null
+    ].map(fixesEslintOnSave)).toEqual([true, true, true, true, true, false, false, false, false, false])
+    expect(prettierSettings({ 'prettier.semi': false, 'prettier.enable': true, 'prettier.configPath': 'x', 'prettier.overrides': [] })).toEqual({ semi: false })
+    expect(prettierSettings({ 'editor.fontSize': 1 })).toBeUndefined()
+    // Vim: the default leader is a backslash; malformed entries are skipped.
+    expect(vimMappings({ 'vim.visualModeKeyBindings': [{ before: ['<leader>', 'y'], after: ['"', '+', 'y'] }, { before: [], after: ['x'] }, { before: ['a', 1], after: ['b'] }, null] })).toEqual([
+      { mode: 'visual', before: '\\y', after: '"+y' }
+    ])
+    expect(vimMappings({ 'vim.leader': '', 'vim.normalModeKeyBindings': 'nope' })).toBeUndefined()
   })
 
   it('without anything imported the editor gets defaults; a broken snippet file is no snippets', async () => {

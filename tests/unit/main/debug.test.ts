@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { writeFile } from 'node:fs/promises'
+import { realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -233,6 +233,17 @@ describe('DebugService edge cases', () => {
     proc.emit('exit', null)
     await stopping
     expect(service.session()?.status).toBe('exited')
+    service.dispose()
+  })
+
+  it('a program that opens the inspector in its worker (Vitest): no --inspect-brk for the program itself', async () => {
+    const root = await tempDir()
+    await writeFile(join(root, 'a.js'), '')
+    const { proc } = fakeRun()
+    const launched: string[][] = []
+    const service = new DebugService({ resolveRoot: () => root, publish: () => {}, launch: (args) => (launched.push(args), proc as never) })
+    await service.start({ projectId: 'p', program: 'a.js', args: ['run'], breakpoints: [], inspectChild: true })
+    expect(launched[0]).toEqual([join(await realpath(root), 'a.js'), 'run'])
     service.dispose()
   })
 

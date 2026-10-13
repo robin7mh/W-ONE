@@ -55,9 +55,12 @@ import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
 import { registerMigrateIpc } from '../../../electron/ipc/migrate.ipc'
 import { registerLiveIpc } from '../../../electron/ipc/live.ipc'
 import { registerSftpIpc } from '../../../electron/ipc/sftp.ipc'
+import { registerTestsIpc } from '../../../electron/ipc/tests.ipc'
+import { registerNotebookIpc } from '../../../electron/ipc/notebook.ipc'
 import { registerGitHubIpc } from '../../../electron/ipc/github.ipc'
 import { registerMongoIpc } from '../../../electron/ipc/mongo.ipc'
 import { registerRemoteIpc } from '../../../electron/ipc/remote.ipc'
+import { registerLintIpc } from '../../../electron/ipc/lint.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
 import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
 
@@ -287,7 +290,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       [
         ['migrate:scan', undefined, 'scan', []],
         ['migrate:apply', { app: 'Code' }, 'apply', ['Code']],
-        ['editor:settings', undefined, 'editor', []]
+        ['editor:settings', undefined, 'editor', []],
+        ['editor:update', { prettier: true }, 'updateEditor', [{ prettier: true }]]
       ]
     ],
     [
@@ -344,6 +348,40 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['mongo:delete', { id: 'c', db: 'd', collection: 'u', docId: '1' }, 'delete', ['c', 'd', 'u', '1']],
         ['mongo:aggregate', { id: 'c', db: 'd', collection: 'u', pipeline: '[]' }, 'aggregate', ['c', 'd', 'u', '[]']],
         ['mongo:indexes', { id: 'c', db: 'd', collection: 'u' }, 'indexes', ['c', 'd', 'u']]
+      ]
+    ],
+    [
+      'lint',
+      registerLintIpc,
+      [
+        ['lint:file', { projectId: 'p', path: 'a.js', text: 'x' }, 'lint', ['p', 'a.js', 'x']],
+        ['lint:fix', { projectId: 'p', path: 'a.js', text: 'x' }, 'fix', ['p', 'a.js', 'x']],
+        ['lint:restart', undefined, 'restart', []],
+        ['format:document', { projectId: 'p', path: 'a.js', text: 'x', prettier: true, options: { semi: false } }, 'format', ['p', 'a.js', 'x', { prettier: true, options: { semi: false } }]]
+      ]
+    ],
+    [
+      'notebook',
+      registerNotebookIpc,
+      [
+        ['notebook:kernels', { projectId: 'p' }, 'kernels', ['p']],
+        ['notebook:setup', { projectId: 'p' }, 'setup', ['p']],
+        ['notebook:start', { projectId: 'p', path: 'a.ipynb', kernel: 'python3' }, 'start', ['p', 'a.ipynb', 'python3']],
+        ['notebook:execute', { projectId: 'p', path: 'a.ipynb', cell: 'c1', code: 'x' }, 'execute', ['p', 'a.ipynb', 'c1', 'x']],
+        ['notebook:interrupt', { projectId: 'p', path: 'a.ipynb' }, 'interrupt', ['p', 'a.ipynb']],
+        ['notebook:restart', { projectId: 'p', path: 'a.ipynb' }, 'restart', ['p', 'a.ipynb']],
+        ['notebook:shutdown', { projectId: 'p', path: 'a.ipynb' }, 'shutdown', ['p', 'a.ipynb']]
+      ]
+    ],
+    [
+      'tests',
+      registerTestsIpc,
+      [
+        ['tests:discover', { projectId: 'p' }, 'discover', ['p']],
+        ['tests:state', { projectId: 'p' }, 'state', ['p']],
+        ['tests:run', { projectId: 'p', id: 'a.test.ts' }, 'run', ['p', 'a.test.ts']],
+        ['tests:cancel', { projectId: 'p' }, 'cancel', ['p']],
+        ['tests:debug', { projectId: 'p', id: 'a.test.ts', breakpoints: [] }, 'debug', ['p', 'a.test.ts', []]]
       ]
     ],
     [

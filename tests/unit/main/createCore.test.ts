@@ -165,6 +165,22 @@ describe('createCore', () => {
     // The user's ssh, nobody listening: the connection fails (and the license knows no remote window is open).
     expect(await c.router.dispatch('remote:ssh', { target: 'nobody@127.0.0.1:1' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'remote-unreachable' } })
     expect(pushed).toContain('remote:changed')
+    // ESLint and Prettier run in the project (none here: nothing to lint, the editor formats).
+    expect(await c.router.dispatch('lint:file', { projectId, path: 'a.js', text: 'x' }, { transport: 'ipc' })).toEqual({ ok: true, data: { available: false, diagnostics: [] } })
+    expect(await c.router.dispatch('format:document', { projectId, path: 'a.js', text: 'x' }, { transport: 'ipc' })).toEqual({ ok: true, data: null })
+    expect(await c.router.dispatch('editor:update', { tabSize: 3 }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { tabSize: 3 } })
+    // AI in the editor: suggestions are off until switched on; an edit needs a key.
+    expect(await c.router.dispatch('ai:inlineComplete', { requestId: 'r', path: 'a.ts', language: 'typescript', prefix: 'x', suffix: '' }, { transport: 'ipc' })).toEqual({ ok: true, data: '' })
+    expect(await c.router.dispatch('ai:inlineCancel', { requestId: 'r' }, { transport: 'ipc' })).toEqual({ ok: true, data: undefined })
+    expect(await c.router.dispatch('ai:inlineEdit', { requestId: 'e', path: 'a.ts', language: 'typescript', before: '', selection: '', after: '', instruction: 'x' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'no-key' } })
+    // Notebooks: no kernel before one starts; closing one without a kernel is fine.
+    expect(await c.router.dispatch('notebook:execute', { projectId, path: 'a.ipynb', cell: 'c', code: 'x' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-started' } })
+    expect(await c.router.dispatch('notebook:shutdown', { projectId, path: 'a.ipynb' }, { transport: 'ipc' })).toEqual({ ok: true, data: undefined })
+    expect(await c.router.dispatch('notebook:start', { projectId, path: '../a.ipynb', kernel: 'python3' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    // The test explorer finds the project's tests (none here) and runs them with W-ONE's debugger at hand.
+    expect(await c.router.dispatch('tests:discover', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    expect(await c.router.dispatch('tests:state', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: { projectId, running: false, results: {}, output: '' } })
+    expect(await c.router.dispatch('tests:debug', { projectId, id: 'none', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: false })
     expect(await c.router.dispatch('cloud:adopt', { token: 'wone1.x.y.zzzz', account: { email: 'a@b', name: null } }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-follower' } })

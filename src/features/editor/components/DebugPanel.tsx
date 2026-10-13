@@ -73,7 +73,7 @@ export function DebugPanel() {
   const t = useT()
   const d = t.debug
   const projectId = useEditor((s) => s.projectId)!
-  const shown = useEditor((s) => s.tabs.find((x) => x.id === s.activeId))
+  const shown = useEditor((s) => s.tabs.find((x) => x.id === s.focusedId()))
   const { session, frame, breakpoints, program, args, build, watches, watchValues, stopOnEntry, error } = useDebug()
   const [watchInput, setWatchInput] = useState('')
   const [showInternal, setShowInternal] = useState(false)

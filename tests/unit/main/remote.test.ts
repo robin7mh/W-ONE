@@ -263,9 +263,9 @@ describe('Remote-SSH', () => {
     await expect(slow.svc.ssh('box')).rejects.toMatchObject({ message: 'The remote W-ONE did not start in time' })
 
     const unlicensed = await setup({ api: api({ adopt: 'fail' }) })
-    await expect(unlicensed.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-rpc', message: 'bad-entitlement' })
+    await expect(unlicensed.svc.ssh('box')).rejects.toMatchObject({ code: 'remote-license', message: expect.stringContaining('(bad-entitlement)') })
     const garbled = await setup({ api: api({ adopt: 'garbage' }) })
-    await expect(garbled.svc.ssh('box')).rejects.toMatchObject({ message: 'HTTP 502' })
+    await expect(garbled.svc.ssh('box')).rejects.toMatchObject({ message: expect.stringContaining('(HTTP 502)') })
 
     // Ready, then the core goes away: the connection fails, the window closes.
     const t = await setup()

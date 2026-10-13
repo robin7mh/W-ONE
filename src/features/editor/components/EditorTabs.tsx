@@ -26,6 +26,7 @@ export function EditorTabs({ projectNames }: { projectNames: Map<string, string>
   const tr = useT()
   const tabs = useEditor((s) => s.tabs)
   const activeId = useEditor((s) => s.activeId)
+  const splitId = useEditor((s) => s.splitId)
   const hint = hints(tabs, projectNames)
   const { setActive, requestClose } = useEditor.getState()
 
@@ -53,6 +54,7 @@ export function EditorTabs({ projectNames }: { projectNames: Map<string, string>
             )}
           >
             {active && <span className="absolute inset-x-0 top-0 h-px bg-cyan" />}
+            {t.id === splitId && <span aria-label={tr.editor.inSplit} title={tr.editor.inSplit} className="absolute inset-x-0 bottom-0 h-px bg-purple" />}
             <Icon size={13} className={cn('shrink-0', tint)} />
             <span className={cn(t.deleted && 'line-through')}>{t.name}</span>
             {hint.has(t.id) && <span className="font-mono text-[10px] text-text-muted">{hint.get(t.id)}</span>}

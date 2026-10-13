@@ -258,6 +258,10 @@ describe('starting debug adapters', () => {
     const { transport, launch } = await startAdapter('python', { root, program: join(root, 'app.py'), args: ['-v'], debugger: '/tools/debugpy', output: () => {} }, run)
     expect(calls[0]).toEqual(['python3', ['-m', 'debugpy.adapter'], root, { PYTHONPATH: '/tools/debugpy' }])
     expect(launch).toMatchObject({ adapterID: 'debugpy', arguments: { type: 'python', program: join(root, 'app.py'), args: ['-v'], python: ['python3'], console: 'internalConsole' } })
+    // A test: pytest runs as a module.
+    const tests = await startAdapter('python', { root, program: join(root, 'test_a.py'), args: ['test_a.py::test_x'], debugger: '/tools/debugpy', output: () => {}, module: 'pytest' }, () => new FakeProc() as never)
+    expect(tests.launch.arguments).toMatchObject({ module: 'pytest', args: ['test_a.py::test_x'] })
+    expect(tests.launch.arguments).not.toHaveProperty('program')
     const got: string[] = []
     transport.onData((d) => got.push(d.toString()))
     let closed = false
@@ -302,6 +306,13 @@ describe('starting debug adapters', () => {
     expect(out).toEqual(['stderr:warming up\n', 'stdout:program says hi\n'])
     launch.kill()
     expect(proc.killed).toBe(1)
+    // A test: Delve builds the package's tests.
+    const testProc = new FakeProc()
+    const testing = startAdapter('go', { root: '/r', program: '/r/pkg/a_test.go', args: ['-test.run', '^TestA$'], debugger: 'dlv', output: () => {}, goTest: true }, () => testProc as never)
+    testProc.stdout.write(`DAP server listening at: 127.0.0.1:${port}\n`)
+    const test = await testing
+    expect(test.launch.arguments).toMatchObject({ mode: 'test', program: '/r/pkg', args: ['-test.run', '^TestA$'] })
+    test.transport.close()
   })
 
   it('Go: Delve that never listens, or can’t start, or a port nobody answers', async () => {

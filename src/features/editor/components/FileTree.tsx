@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ChevronRight,
+  Columns2,
   ChevronsDownUp,
   Copy,
   File,
@@ -228,6 +229,7 @@ function ContextMenu({ menu, onClose, readOnly }: { menu: Menu; onClose: () => v
       action: run(() => useSftp.getState().download([remotePath(target!.path, sftpTarget!.context)])),
       hidden: noSftp
     },
+    { label: t.editor.openToSide, icon: Columns2, action: run(() => useEditor.getState().openToSide(target!.path)), hidden: !target || target.kind !== 'file' },
     { label: t.live.openWithLiveServer, icon: Radio, action: run(() => useLive.getState().start(target!.path)), hidden: readOnly || !target || !/\.html?$/i.test(target.path) },
     { label: t.explorer.delete, icon: Trash2, hint: isMac ? '⌘⌫' : 'Entf', action: run(() => useEditor.getState().requestDelete(target!.path)), hidden: readOnly || !target, danger: true }
   ]

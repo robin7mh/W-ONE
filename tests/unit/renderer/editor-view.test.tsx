@@ -22,6 +22,12 @@ vi.mock('@/features/editor/components/CodeEditor', () => ({
   }
 }))
 
+vi.mock('@/features/editor/components/NotebookView', () => ({
+  default: ({ tab, readOnly, onRaw }: { tab: EditorTab; readOnly: boolean; onRaw: () => void }) => (
+    <button type="button" onClick={onRaw}>{`notebook ${tab.path}${readOnly ? ' (read-only)' : ''}`}</button>
+  )
+}))
+
 import { EditorView } from '@/features/editor/components/EditorView'
 import { FileTree, fileIcon } from '@/features/editor/components/FileTree'
 import { EditorTabs } from '@/features/editor/components/EditorTabs'
@@ -275,6 +281,23 @@ describe('EditorView', () => {
     expect(screen.getByText('EROFS: read-only file system')).toBeInTheDocument()
     expect(screen.getByText('Saved')).toBeInTheDocument()
     expect(bridge.invoke).not.toHaveBeenCalledWith('files:write', expect.anything())
+  })
+
+  it('notebooks show as notebooks over their file (both sides of a split), or as JSON', async () => {
+    installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
+    useProjects.setState({ projects: [project('p')] })
+    useEditor.setState({ tabs: [tab('a.ipynb'), tab('b.IPYNB'), tab('c.ipynb', { content: undefined, loading: true })], activeId: 'p:a.ipynb', splitId: 'p:b.IPYNB' })
+    render(view())
+    await act(settle)
+    expect(await screen.findByText('notebook a.ipynb')).toBeInTheDocument()
+    expect(await screen.findByText('notebook b.IPYNB')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('notebook a.ipynb'))
+    expect(screen.queryByText('notebook a.ipynb')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show as notebook' }))
+    expect(await screen.findByText('notebook a.ipynb')).toBeInTheDocument()
+    // Still loading: no notebook yet.
+    act(() => useEditor.setState({ activeId: 'p:c.ipynb', splitId: undefined }))
+    expect(screen.queryByText(/^notebook/)).toBeNull()
   })
 
   it('a file without cursor info yet shows only its path and state', async () => {

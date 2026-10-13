@@ -102,6 +102,7 @@ describe('command palette: commands', () => {
     setEditorActions({
       list: () => [
         { id: 'editor.action.formatDocument', label: 'Format Document' },
+        { id: 'wone.formatDocument', label: 'Format Document' },
         { id: 'editor.action.quickCommand', label: 'Command Palette' },
         { id: 'editor.action.gotoLine', label: 'Go to Line' },
         { id: 'editor.action.transformToUppercase', label: 'Transform to Uppercase' }
@@ -112,7 +113,7 @@ describe('command palette: commands', () => {
     const editor = items.filter((i) => i.label.startsWith('Editor:'))
     expect(editor.map((i) => `${i.label}${i.keys ? ` [${i.keys}]` : ''}`)).toEqual(['Editor: Format Document [⇧⌥F]', 'Editor: Transform to Uppercase'])
     editor.forEach((i) => void i.run())
-    expect(ran).toEqual(['editor.action.formatDocument', 'editor.action.transformToUppercase'])
+    expect(ran).toEqual(['wone.formatDocument', 'editor.action.transformToUppercase'])
     expect(editorActions()).not.toBeNull()
   })
 

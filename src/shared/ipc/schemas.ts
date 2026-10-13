@@ -132,7 +132,10 @@ export const REQUEST_SCHEMAS: Schemas = {
     args: z.array(text(4096)).max(100).optional(),
     stopOnEntry: z.boolean().optional(),
     breakpoints: z.array(breakpoint).max(1000),
-    build: text(4096).optional()
+    build: text(4096).optional(),
+    inspectChild: z.boolean().optional(),
+    module: z.string().regex(/^[\w.]+$/).max(200).optional(),
+    goTest: z.boolean().optional()
   }),
   'debug:stop': none,
   'debug:session': none,
@@ -147,7 +150,24 @@ export const REQUEST_SCHEMAS: Schemas = {
   'migrate:scan': none,
   'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
   'editor:settings': none,
+  'editor:update': z.record(z.string(), z.unknown()),
+  'lint:file': z.object({ projectId: id, path, text: text(5_000_000) }),
+  'lint:fix': z.object({ projectId: id, path, text: text(5_000_000) }),
+  'lint:restart': none,
+  'format:document': z.object({ projectId: id, path, text: text(5_000_000), prettier: z.boolean().optional(), options: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional() }),
+  'tests:discover': z.object({ projectId: id }),
+  'tests:state': z.object({ projectId: id }),
+  'tests:run': z.object({ projectId: id, id: text(10_000).optional() }),
+  'tests:cancel': z.object({ projectId: id }),
+  'tests:debug': z.object({ projectId: id, id: text(10_000).min(1), breakpoints: z.array(breakpoint).max(1000) }),
 
+  'notebook:kernels': z.object({ projectId: id }),
+  'notebook:setup': z.object({ projectId: id }),
+  'notebook:start': z.object({ projectId: id, path, kernel: z.string().regex(/^[\w.+-]{1,100}$/) }),
+  'notebook:execute': z.object({ projectId: id, path, cell: id, code: z.string().max(1_000_000) }),
+  'notebook:interrupt': z.object({ projectId: id, path }),
+  'notebook:restart': z.object({ projectId: id, path }),
+  'notebook:shutdown': z.object({ projectId: id, path }),
   'liveServer:status': none,
   'liveServer:start': z.object({ projectId: id, page: path.optional() }),
   'liveServer:stop': z.object({ projectId: id }),
@@ -215,7 +235,12 @@ export const REQUEST_SCHEMAS: Schemas = {
   'ai:status': none,
   'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
   'ai:clearKey': none,
-  'ai:configure': z.object({ model: z.string().min(1).max(100).optional(), effort: z.enum(EFFORTS).optional() }),
+  'ai:configure': z.object({
+    model: z.string().min(1).max(100).optional(),
+    effort: z.enum(EFFORTS).optional(),
+    inline: z.boolean().optional(),
+    inlineModel: z.string().min(1).max(100).optional()
+  }),
   'ai:agents': none,
   'ai:tools': none,
   'ai:conversations': none,
@@ -232,6 +257,23 @@ export const REQUEST_SCHEMAS: Schemas = {
     .object({ limit: z.number().int().min(1).max(200).optional() })
     .optional()
     .transform((v) => v ?? {}),
+  'ai:inlineComplete': z.object({
+    requestId: id,
+    path: z.string().max(4096),
+    language: z.string().max(100),
+    prefix: z.string().max(100_000),
+    suffix: z.string().max(100_000)
+  }),
+  'ai:inlineEdit': z.object({
+    requestId: id,
+    path: z.string().max(4096),
+    language: z.string().max(100),
+    before: z.string().max(500_000),
+    selection: z.string().max(200_000),
+    after: z.string().max(500_000),
+    instruction: z.string().trim().min(1).max(4000)
+  }),
+  'ai:inlineCancel': z.object({ requestId: id }),
 
   'permission:pending': none,
   'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),

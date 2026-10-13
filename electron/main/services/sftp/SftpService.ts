@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 import { dirname, join, posix, relative, sep } from 'node:path'
 import ignore from 'ignore'
 import type { SftpEntry, SftpProgress, SftpTarget } from '@shared/types/sftp'
@@ -193,7 +193,8 @@ export class SftpService {
     return {
       host: raw.host,
       port: raw.port ?? 22,
-      username: raw.username,
+      // Like ssh: without a user name, the one signed in here.
+      username: raw.username || userInfo().username,
       password: raw.password,
       privateKey: key,
       passphrase: raw.passphrase,

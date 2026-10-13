@@ -1,4 +1,5 @@
 import { copyFile, mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
+import { userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
@@ -125,6 +126,7 @@ describe('SFTP (.vscode/sftp.json like the VS Code extension)', () => {
     await make(agent.root, agentServer.client).service.list('p', 'A')
     process.env.SSH_AUTH_SOCK = before
     expect(agentServer.connects[0]).toMatchObject({ agent: '/tmp/agent.sock' })
+    expect(agentServer.connects[0].username).toBe(userInfo().username) // none configured: like ssh
     // Without a context the whole project syncs (never .vscode).
     expect(await make(agent.root, agentServer.client).service.sync('p', 'A', 'up')).toBe(4)
     expect(await readdir(agent.remote)).toEqual(['other.txt', 'site'])

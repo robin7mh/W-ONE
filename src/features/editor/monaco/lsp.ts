@@ -2,11 +2,13 @@ import { ipc, onEvent } from '@shared/ipc/client'
 import type { LspDiagnostic, LspFileEdits, LspRange, LspTextEdit } from '@shared/types/lsp'
 import { LANGUAGES as SERVED_LANGUAGES } from '@shared/types/languages'
 import { monaco } from './setup'
+import { fileOf } from './uri'
 import { tabKey, useEditor } from '../store'
 import { useProblems } from '../problems'
 import { useLanguages } from '../languages'
 
 type File = { projectId: string; path: string }
+export { fileOf }
 type Model = monaco.editor.ITextModel
 
 /** Monaco languages with a language service: TypeScript / JavaScript (tsserver) and every registry language. */
@@ -19,11 +21,6 @@ const DIAGNOSTICS_MS = 500
 /** Peeking at references loads at most this many files that are not open. */
 const MAX_PEEK_FILES = 30
 
-/** The project file behind a model — the editor's models live at `/<projectId>/<path>`. */
-export function fileOf(uri: monaco.Uri): File | undefined {
-  const m = uri.scheme === 'file' ? /^\/([^/]+)\/(.+)$/.exec(uri.path) : null
-  return m ? { projectId: m[1], path: m[2] } : undefined
-}
 
 const uriOf = (f: File) => monaco.Uri.file(`/${f.projectId}/${f.path}`)
 const toRange = (r: LspRange) => new monaco.Range(r.start.line, r.start.offset, r.end.line, r.end.offset)

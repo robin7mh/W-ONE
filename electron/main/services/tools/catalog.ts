@@ -76,13 +76,18 @@ export function javaDebugJar(tools: string): string | undefined {
   return jar && join(dir, jar)
 }
 
-/** A Python interpreter: the project's virtualenv, else python3. */
-export function pythonFor(root: string): string {
-  for (const venv of ['.venv', 'venv', 'env']) {
-    const python = join(root, venv, 'bin', 'python')
-    if (existsSync(python)) return python
-  }
-  return 'python3'
+/** The project's virtualenv interpreter (`bin/python`, on Windows `Scripts\\python.exe`), if it has one. */
+export function venvPython(root: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  const inVenv = platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']
+  return ['.venv', 'venv', 'env'].map((venv) => join(root, venv, ...inVenv)).find((python) => existsSync(python))
+}
+
+/** The Python on the PATH: `python3` (Windows installs call it `python`). */
+export const systemPython = (platform: NodeJS.Platform = process.platform): string => (platform === 'win32' ? 'python' : 'python3')
+
+/** A Python interpreter: the project's virtualenv, else the system's. */
+export function pythonFor(root: string, platform: NodeJS.Platform = process.platform): string {
+  return venvPython(root, platform) ?? systemPython(platform)
 }
 
 /**

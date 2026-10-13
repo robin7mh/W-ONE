@@ -134,6 +134,12 @@ export interface DebugStart {
   stopOnEntry?: boolean
   breakpoints: DebugBreakpoint[]
   build?: string
+  /** Node: the program opens the inspector in a child it starts (Vitest's worker) — attach there, not to the program. */
+  inspectChild?: boolean
+  /** Python: run this module (`pytest`) instead of the program file. */
+  module?: string
+  /** Go: run the package's tests (Delve's test mode). */
+  goTest?: boolean
 }
 
 /**
@@ -170,7 +176,8 @@ export class DebugService {
     this.dap = undefined
     // TypeScript runs as is: Node strips the types (positions stay, so breakpoints match). Default from Node 22.18 on.
     const ts = /\.[cm]?ts$/.test(program) ? ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] : []
-    const proc = (this.opts.launch ?? launchNode)(['--inspect-brk=127.0.0.1:0', ...ts, program, ...(req.args ?? [])], root)
+    const inspect = req.inspectChild ? [] : ['--inspect-brk=127.0.0.1:0']
+    const proc = (this.opts.launch ?? launchNode)([...inspect, ...ts, program, ...(req.args ?? [])], root)
     const run: Running = {
       session: { id: randomUUID(), projectId: req.projectId, program: req.program, status: 'starting', frames: [] },
       root,
@@ -306,6 +313,8 @@ export class DebugService {
       args: req.args ?? [],
       debugger: debuggerPath,
       output: (stream, text) => dap && output(stream, text),
+      module: req.module,
+      goTest: req.goTest,
       command: (command, args) => this.opts.lsp!.executeCommand(req.projectId, language, command, args)
     })
     dap = new DapSession(new DapClient(transport), launch, { id, projectId: req.projectId, program: req.program, root, publish: this.opts.publish })

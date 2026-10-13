@@ -10,27 +10,32 @@ export interface Problem {
   code?: number | string
   /** The reporting tool; absent for TypeScript. */
   source?: string
+  /** Who reported it: the language service ('lsp') or ESLint ('eslint') — each replaces only its own. */
+  owner?: string
 }
 
 interface ProblemsState {
   /** Errors and warnings per `projectId:path` (suggestions stay in the editor only). */
   byFile: Record<string, Problem[]>
-  /** Fresh diagnostics of these files replace what was known about them. */
-  report: (projectId: string, result: Record<string, LspDiagnostic[]>) => void
+  /** Fresh diagnostics of these files replace what this owner knew about them. */
+  report: (projectId: string, result: Record<string, LspDiagnostic[]>, owner?: string) => void
   /** A file closed: its problems leave the list. */
   forget: (projectId: string, path: string) => void
 }
 
-/** The problems TypeScript found in the open files — the status bar counts them, the palette lists them. */
+/** The problems the language services and ESLint found in the open files — the status bar counts them, the palette lists them. */
 export const useProblems = create<ProblemsState>((set) => ({
   byFile: {},
-  report: (projectId, result) =>
+  report: (projectId, result, owner = 'lsp') =>
     set((s) => {
       const byFile = { ...s.byFile }
       for (const [path, diags] of Object.entries(result)) {
-        byFile[`${projectId}:${path}`] = diags
+        const key = `${projectId}:${path}`
+        const others = (byFile[key] ?? []).filter((p) => (p.owner ?? 'lsp') !== owner)
+        const mine = diags
           .filter((d) => d.severity === 'error' || d.severity === 'warning')
-          .map((d) => ({ path, line: d.range.start.line, col: d.range.start.offset, message: d.message, severity: d.severity as Problem['severity'], code: d.code, source: d.source }))
+          .map((d): Problem => ({ path, line: d.range.start.line, col: d.range.start.offset, message: d.message, severity: d.severity as Problem['severity'], code: d.code, source: d.source, ...(owner === 'lsp' ? {} : { owner }) }))
+        byFile[key] = [...others, ...mine].sort((a, b) => a.line - b.line || a.col - b.col)
       }
       return { byFile }
     }),

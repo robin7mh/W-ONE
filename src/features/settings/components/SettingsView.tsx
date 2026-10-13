@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
-import { EFFORTS, MODELS, type Effort } from '@shared/types/ai'
+import { EFFORTS, INLINE_MODELS, MODELS, type Effort } from '@shared/types/ai'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
@@ -20,26 +20,8 @@ import { useSettings } from '../store'
 import { AppearanceCard } from './AppearanceCard'
 import { LanguagesCard } from './LanguagesCard'
 import { MigrateCard } from './MigrateCard'
-
-function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className={cn('flex items-start gap-3 py-1.5', disabled && 'opacity-50')}>
-      <input
-        type="checkbox"
-        role="switch"
-        aria-label={label}
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 accent-cyan"
-      />
-      <span>
-        <span className="block font-sans text-[13px] text-text-primary">{label}</span>
-        {hint && <span className="block font-sans text-[11.5px] text-text-muted">{hint}</span>}
-      </span>
-    </label>
-  )
-}
+import { EditorCard } from './EditorCard'
+import { Toggle } from './Toggle'
 
 const input =
   'rounded-md border border-hud/70 bg-surface/70 px-2.5 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-cyan/60'
@@ -141,6 +123,19 @@ function AiCard() {
         </div>
       </div>
       <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.settings.effortHint}</p>
+      <p className="mt-1 font-sans text-[11.5px] text-text-muted">{t.inlineAi.editHint}</p>
+      <div className="mt-3 space-y-2 border-t border-hud/60 pt-3">
+        <Toggle label={t.inlineAi.suggestions} hint={t.inlineAi.suggestionsHint} checked={!!status?.settings.inline} disabled={!status} onChange={(inline) => void configure({ inline })} />
+        <div className="flex min-w-0 flex-col gap-1">
+          <TechLabel className="text-text-muted">{t.inlineAi.suggestionsModel}</TechLabel>
+          <Select
+            label={t.inlineAi.suggestionsModel}
+            value={status?.settings.inlineModel ?? INLINE_MODELS[0].id}
+            onChange={(inlineModel) => void configure({ inlineModel })}
+            options={INLINE_MODELS.map((m) => ({ value: m.id, label: m.label, hint: m.note }))}
+          />
+        </div>
+      </div>
     </Card>
   )
 }
@@ -400,6 +395,7 @@ export function SettingsView() {
           <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
         </Card>
         <AgentsCard />
+        <EditorCard />
         <MigrateCard />
         <LanguagesCard />
         <AiCard />

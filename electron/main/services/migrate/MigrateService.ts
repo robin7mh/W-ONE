@@ -9,6 +9,7 @@ import {
   type EditorSettings,
   type LanguageSettings,
   type LiveServerSettings,
+  type VimMapping,
   type SassFormat,
   type SassSettings,
   type MigrationExtension,
@@ -101,7 +102,9 @@ const SETTINGS: [string, keyof EditorSettings, (v: unknown) => unknown][] = [
   ['editor.stickyScroll.enabled', 'stickyScroll', (v) => (typeof v === 'boolean' ? v : undefined)],
   ['editor.smoothScrolling', 'smoothScrolling', (v) => (typeof v === 'boolean' ? v : undefined)],
   ['editor.bracketPairColorization.enabled', 'bracketPairColorization', (v) => (typeof v === 'boolean' ? v : undefined)],
-  ['editor.formatOnSave', 'formatOnSave', (v) => (typeof v === 'boolean' ? v : undefined)]
+  ['editor.formatOnSave', 'formatOnSave', (v) => (typeof v === 'boolean' ? v : undefined)],
+  // Prettier as the formatter (also per language: "[markdown]": { "editor.defaultFormatter": … }).
+  ['editor.defaultFormatter', 'prettier', (v) => (typeof v === 'string' ? v === 'esbenp.prettier-vscode' : undefined)]
 ]
 
 /** The editor settings W-ONE understands in a VS Code settings object, and how many. */
@@ -121,6 +124,44 @@ const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string =>
 const defined = <T extends object>(o: T): T | undefined => {
   const kept = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
   return Object.keys(kept).length ? kept : undefined
+}
+
+/** editor.codeActionsOnSave asks for ESLint's fixes ({ "source.fixAll.eslint": "explicit" } or a list). */
+export function fixesEslintOnSave(v: unknown): boolean {
+  if (Array.isArray(v)) return v.includes('source.fixAll.eslint') || v.includes('source.fixAll')
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return [o['source.fixAll.eslint'], o['source.fixAll']].some((x) => x === true || x === 'explicit' || x === 'always')
+}
+
+/** The Prettier extension's prettier.* settings → Prettier options. */
+export function prettierSettings(raw: Record<string, unknown>): Record<string, string | number | boolean> | undefined {
+  const options = Object.fromEntries(
+    Object.entries(raw)
+      .filter(([k, v]) => k.startsWith('prettier.') && ['string', 'number', 'boolean'].includes(typeof v))
+      .map(([k, v]) => [k.slice('prettier.'.length), v as string | number | boolean])
+      // The extension's own switches aren't Prettier's options.
+      .filter(([k]) => !['enable', 'requireConfig', 'resolveGlobalModules', 'prettierPath', 'configPath', 'ignorePath', 'withNodeModules', 'useEditorConfig', 'documentSelectors', 'enableDebugLogs'].includes(k as string))
+  )
+  return Object.keys(options).length ? options : undefined
+}
+
+/** VSCodeVim's remappings (keys → keys; command bindings have no equivalent) in Vim's notation. */
+export function vimMappings(raw: Record<string, unknown>): VimMapping[] | undefined {
+  const leader = typeof raw['vim.leader'] === 'string' && raw['vim.leader'] ? (raw['vim.leader'] as string) : '\\'
+  const keys = (list: unknown) => (Array.isArray(list) && list.length && list.every((k) => typeof k === 'string') ? (list as string[]).join('').split('<leader>').join(leader) : undefined)
+  const out: VimMapping[] = []
+  for (const mode of ['normal', 'insert', 'visual'] as const) {
+    for (const suffix of ['KeyBindings', 'KeyBindingsNonRecursive']) {
+      const list = raw[`vim.${mode}Mode${suffix}`]
+      for (const entry of Array.isArray(list) ? (list as { before?: unknown; after?: unknown }[]) : []) {
+        const before = keys(entry?.before)
+        const after = keys(entry?.after)
+        if (before && after) out.push({ mode, before, after })
+      }
+    }
+  }
+  return out.length ? out : undefined
 }
 
 /** liveServer.settings.* → W-ONE's Live Server settings. */
@@ -222,6 +263,13 @@ export class MigrateService {
     return { settings: f.settingsCount, keybindings: keybindings.length, snippets: f.snippets.length }
   }
 
+  /** Change some editor settings (Settings → Editor). */
+  async updateEditor(patch: Partial<EditorSettings>): Promise<EditorSettings> {
+    const editor = { ...this.opts.settings.get().editor, ...patch }
+    await this.opts.settings.update({ editor })
+    return editor
+  }
+
   /** The editor's settings and snippets, as the editor applies them. */
   async editor(): Promise<{ settings: EditorSettings; snippets: Snippet[] }> {
     const snippets = (await readJsonc(this.opts.snippetsFile)) as Snippet[] | undefined
@@ -283,6 +331,26 @@ export class MigrateService {
     if (sass) {
       settings.sass = sass
       settingsCount += Object.keys(sass).length
+    }
+    // ESLint fixed on save; Prettier's own defaults (used where a project has no config).
+    if (fixesEslintOnSave(raw['editor.codeActionsOnSave'])) {
+      settings.eslintFixOnSave = true
+      settingsCount += 1
+    }
+    const prettierOptions = prettierSettings(raw)
+    if (prettierOptions) {
+      settings.prettierOptions = prettierOptions
+      settingsCount += Object.keys(prettierOptions).length
+    }
+    // VSCodeVim installed: Vim keys here too, with the user's remappings.
+    if (extensions.some((e) => e.id === 'vscodevim.vim')) {
+      settings.vim = true
+      settingsCount += 1
+      const mappings = vimMappings(raw)
+      if (mappings) {
+        settings.vimMappings = mappings
+        settingsCount += mappings.length
+      }
     }
     // Blank Line Organizer installed: it ran on every save — so does W-ONE's.
     if (extensions.some((e) => e.id === 'ctf0.blank-line-organizer')) {

@@ -6,4 +6,5 @@ export function registerMigrateIpc(router: Router, service: MigrateService): voi
   router.register('migrate:scan', () => service.scan())
   router.register('migrate:apply', ({ app }) => service.apply(app))
   router.register('editor:settings', () => service.editor())
+  router.register('editor:update', (patch) => service.updateEditor(patch))
 }

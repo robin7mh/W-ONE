@@ -48,9 +48,9 @@ function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
     'memory:pickVault': () => ({ root: '/picked', defaultRoot: '/v', name: 'picked', isDefault: false, exists: false, noteCount: 0, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'memory:setVault': ({ path }: { path: string }) => ({ root: path, defaultRoot: '/v', name: 'x', isDefault: false, exists: true, noteCount: 1, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'fs:dirs': () => ({ path: '/srv/notes', parent: '/srv', home: '/root', dirs: [] }),
-    'ai:setKey': () => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high' } }),
-    'ai:clearKey': () => ({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high' } }),
-    'ai:configure': (p: Record<string, unknown>) => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', ...p } }),
+    'ai:setKey': () => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }),
+    'ai:clearKey': () => ({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }),
+    'ai:configure': (p: Record<string, unknown>) => ({ configured: true, source: 'stored', keyHint: 'NEW1', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', ...p } }),
     ...over
   }
 }
@@ -207,7 +207,7 @@ describe('SettingsView', () => {
   it('desktop: AI key + model, server toggles, pairing, devices, grants, vault, about', async () => {
     installBridge(settingsCore())
     localStorage.setItem('wone.deviceId', 'd2')
-    useAssistant.setState({ status: { configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high' } } })
+    useAssistant.setState({ status: { configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } } })
     useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false } })
     render(<SettingsView />)
     await act(settle)
@@ -224,6 +224,14 @@ describe('SettingsView', () => {
     expect(useAssistant.getState().status?.settings.effort).toBe('low')
     choose('Model', /^Claude Sonnet 5\.5/)
     await act(settle)
+    // Suggestions while typing: opt-in, with their own (faster) model.
+    expect(screen.getByText(/⌘K in the editor rewrites the selection/)).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Suggestions while typing'))
+    await act(settle)
+    expect(useAssistant.getState().status?.settings.inline).toBe(true)
+    choose('Model for suggestions', /^Claude Haiku 5\.5/)
+    await act(settle)
+    expect(useAssistant.getState().status?.settings.inlineModel).toBe('claude-haiku-5-5')
     fireEvent.click(screen.getByLabelText('Remove key'))
     await act(settle)
     expect(screen.getByText('No API key yet')).toBeInTheDocument()
@@ -285,7 +293,7 @@ describe('SettingsView', () => {
         'memory:setVault': () => fail('That folder does not exist')
       })
     )
-    useAssistant.setState({ status: { configured: true, source: 'env', keyHint: '9999', settings: { model: 'claude-opus-5-5', effort: 'high' } }, error: 'ai problem' })
+    useAssistant.setState({ status: { configured: true, source: 'env', keyHint: '9999', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, error: 'ai problem' })
     useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } })
     render(<SettingsView />)
     await act(settle)

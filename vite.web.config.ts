@@ -9,11 +9,15 @@ export default defineConfig({
   root: '.',
   base: './',
   resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      '@shared': resolve(__dirname, 'src/shared')
-    }
+    alias: [
+      // monaco-vim's deep imports into Monaco (see electron.vite.config.ts).
+      { find: /^monaco-editor\/esm\/vs\/(.*?)(\.js)?$/, replacement: `${resolve(__dirname, 'node_modules/monaco-editor/esm/vs')}/$1.js` },
+      { find: /^monaco-vim$/, replacement: resolve(__dirname, 'node_modules/monaco-vim/dist/index.mjs') },
+      { find: '@', replacement: resolve(__dirname, 'src') },
+      { find: '@shared', replacement: resolve(__dirname, 'src/shared') }
+    ]
   },
+  optimizeDeps: { exclude: ['monaco-vim'] },
   plugins: [react()],
   server: {
     proxy: {

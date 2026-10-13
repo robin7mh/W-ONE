@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Database, Radio, Paintbrush, Server, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, BookOpen, Bug, CircleX, Database, FlaskConical, Radio, Paintbrush, Server, Code2, ExternalLink, Files, FileWarning, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { isMac } from '@/lib/platform'
@@ -32,9 +32,12 @@ import { PullsPanel } from './PullsPanel'
 import { PullDetail } from './PullDetail'
 import { useGitHub } from '../github'
 import { MongoPanel } from './MongoPanel'
+import { TestsPanel } from './TestsPanel'
+import { useTests } from '../tests'
 import { MongoView } from './MongoView'
 import { useMongo } from '../mongo'
 import { useRemote } from '@/features/remote/store'
+import { useLintStatus } from '../lintStatus'
 import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
@@ -42,6 +45,9 @@ import type { CursorInfo } from './CodeEditor'
 // Monaco is a few MB — it loads the first time the Editor module opens.
 const CodeEditor = lazy(() => import('./CodeEditor'))
 const DiffView = lazy(() => import('./DiffView'))
+const NotebookView = lazy(() => import('./NotebookView'))
+
+const isNotebook = (tab?: { path: string }) => !!tab?.path.toLowerCase().endsWith('.ipynb')
 
 const PANES: { id: EditorPane; icon: LucideIcon }[] = [
   { id: 'files', icon: Files },
@@ -49,6 +55,7 @@ const PANES: { id: EditorPane; icon: LucideIcon }[] = [
   { id: 'scm', icon: GitBranch },
   { id: 'graph', icon: GraphIcon },
   { id: 'debug', icon: Bug },
+  { id: 'tests', icon: FlaskConical },
   // Only for git repositories.
   { id: 'prs', icon: GitPullRequest },
   { id: 'mongo', icon: Database },
@@ -94,7 +101,7 @@ function ActivityBar() {
 /** Live Server and the Sass watcher in the command palette. */
 function liveCommands(t: ReturnType<typeof useT>): PickItem[] {
   const live = () => useLive.getState()
-  const shown = () => useEditor.getState().tabs.find((x) => x.id === useEditor.getState().activeId)
+  const shown = () => useEditor.getState().tabs.find((x) => x.id === useEditor.getState().focusedId())
   return [
     { id: 'live.start', label: `Live Server: ${t.live.goLive}`, run: () => live().start(shown()?.path.match(/\.html?$/i) ? shown()!.path : undefined) },
     { id: 'live.stop', label: `Live Server: ${t.live.stop}`, run: () => live().stop() },
@@ -119,6 +126,26 @@ function remoteCommands(t: ReturnType<typeof useT>): PickItem[] {
       }
     },
     { id: 'remote.container', label: t.remote.paletteContainer, run: () => remote().container(useEditor.getState().projectId!) }
+  ]
+}
+
+/** The test explorer in the command palette. */
+function testCommands(t: ReturnType<typeof useT>): PickItem[] {
+  const run = (id?: string) => {
+    useScm.getState().setPane('tests')
+    return useTests.getState().runTests(id)
+  }
+  return [
+    { id: 'tests.runAll', label: t.tests.paletteRunAll, run: () => run() },
+    {
+      id: 'tests.runFile',
+      label: t.tests.paletteRunFile,
+      run: () => {
+        const editor = useEditor.getState()
+        const path = editor.tabs.find((x) => x.id === editor.focusedId())?.path
+        return path && run(path)
+      }
+    }
   ]
 }
 
@@ -174,8 +201,8 @@ function debugKey(e: KeyboardEvent): boolean {
 /** The cursor line of the file on screen, for F9. */
 let cursorLine = 1
 function toggleBreakpointAtCursor(): void {
-  const { tabs, activeId } = useEditor.getState()
-  const tab = tabs.find((x) => x.id === activeId)
+  const { tabs, focusedId } = useEditor.getState()
+  const tab = tabs.find((x) => x.id === focusedId())
   if (tab) useDebug.getState().toggleBreakpoint(tab.projectId, tab.path, cursorLine)
 }
 
@@ -251,6 +278,34 @@ function Placeholder({ tab, onExternal }: { tab?: EditorTab; onExternal?: () => 
   )
 }
 
+
+/** Tabs showing their notebook as JSON (the text editor underneath). */
+const rawNotebooks = new Set<string>()
+
+/** A notebook over its file's text editor — or the JSON, with the way back. */
+function NotebookLayer({ tab, readOnly }: { tab: EditorTab; readOnly: boolean }) {
+  const t = useT()
+  const [raw, setRaw] = useState(rawNotebooks.has(tab.id))
+  const toggle = () => {
+    if (raw) rawNotebooks.delete(tab.id)
+    else rawNotebooks.add(tab.id)
+    setRaw(!raw)
+  }
+  if (raw)
+    return (
+      <button type="button" onClick={toggle} className="absolute right-6 top-2 z-10 flex items-center gap-1 rounded border border-cyan/40 bg-elevated/95 px-2 py-1 font-sans text-[11.5px] text-cyan hover:bg-elevated">
+        <BookOpen size={12} /> {t.notebook.notebook}
+      </button>
+    )
+  return (
+    <div className="absolute inset-0 z-[5]">
+      <Suspense fallback={null}>
+        <NotebookView key={tab.id} tab={tab} readOnly={readOnly} onRaw={toggle} />
+      </Suspense>
+    </div>
+  )
+}
+
 /**
  * The Editor module: a project's files on the left, open files as tabs, and
  * Monaco — VS Code's editor core — in the middle. Saving is explicit (⌘S);
@@ -261,8 +316,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const t = useT()
   const projects = useProjects((s) => s.projects)
   const [projectsLoaded, setProjectsLoaded] = useState(projects.length > 0)
-  const { projectId, tabs, activeId, closing } = useEditor()
+  const { projectId, tabs, activeId, closing, splitId, focusRight } = useEditor()
   const tab = tabs.find((x) => x.id === activeId)
+  const splitTab = tabs.find((x) => x.id === splitId)
+  /** The file of the focused editor (of a split) — the status bar and file commands are about it. */
+  const focused = focusRight && splitTab ? splitTab : tab
   const closingTab = tabs.find((x) => x.id === closing)
   const info = useSession((s) => s.info)
   const desktop = isDesktop()
@@ -272,7 +330,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const [cursor, setCursor] = useState<CursorInfo>()
   cursorLine = cursor?.line ?? 1
   const session = useDebug((s) => s.session)
-  const fileLanguage = useLanguages((s) => (tab ? s.files[tab.id] : undefined))
+  const fileLanguage = useLanguages((s) => (focused ? s.files[focused.id] : undefined))
   const live = useLive()
   const server = live.servers.find((x) => x.projectId === projectId)
   const sassOn = !!(projectId && live.sassWatching[projectId])
@@ -286,12 +344,13 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // So does a MongoDB collection while the databases pane is open.
   const mongoOpen = useMongo((s) => !!s.open) && pane === 'mongo'
   const mongoError = useMongo((s) => s.error)
+  const lintError = useLintStatus((s) => (projectId ? s.errors[projectId] : undefined))
   const commands = useRef<() => PickItem[]>()
   commands.current = () =>
     buildCommands(t, {
       onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
     })
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
@@ -351,7 +410,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       else if (key === 'p') scm.setQuickOpen(true, e.shiftKey ? '>' : '')
       else if (key === 'f' && e.shiftKey) scm.setPane('search')
       else if (key === 'g' && e.shiftKey) scm.setPane('scm')
-      else return
+      else if (key === '\\') {
+        const editor = useEditor.getState()
+        if (editor.splitId) editor.closeSplit()
+        else editor.split()
+      } else return
       e.preventDefault()
     }
     check()
@@ -372,7 +435,12 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // SFTP: the project's targets, upload on save.
   useEffect(() => {
     void useSftp.getState().load()
-    return useSftp.getState().connect()
+    const offTests = useTests.getState().connect()
+    const offSftp = useSftp.getState().connect()
+    return () => {
+      offTests()
+      offSftp()
+    }
   }, [])
   // Settings, keybindings and snippets taken over from VS Code / Cursor.
   useEffect(() => void useEditorPrefs.getState().load(), [])
@@ -390,8 +458,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   const openExternal = desktop
     ? () => {
-        const call = tab
-          ? ipc('projects:openFile', { id: tab.projectId, file: tab.path, line: cursor?.line })
+        const call = focused
+          ? ipc('projects:openFile', { id: focused.projectId, file: focused.path, line: cursor?.line })
           : ipc('projects:openInEditor', { id: projectId! })
         void call.catch(() => {})
       }
@@ -461,6 +529,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           <PullsPanel />
         ) : pane === 'mongo' ? (
           <MongoPanel />
+        ) : pane === 'tests' ? (
+          projectId && <TestsPanel key={projectId} />
         ) : pane === 'debug' ? (
           projectId && <DebugPanel />
         ) : (
@@ -558,14 +628,40 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
             </Banner>
           ) : null}
 
-          <div className="relative min-h-0 flex-1">
-            <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
-              <CodeEditor tab={tab} readOnly={readOnly} onCursor={setCursor} />
-            </Suspense>
-            {!hasText && (
-              <div className="absolute inset-0 bg-panel/80">
-                <Placeholder tab={tab} onExternal={openExternal} />
-              </div>
+          <div className="flex min-h-0 flex-1">
+            <div className={cn('relative min-h-0 min-w-0 flex-1', splitTab && 'border-r border-hud/60')} onMouseDown={() => useEditor.getState().focusGroup(false)}>
+              {splitTab && <span aria-hidden className={cn('absolute inset-x-0 top-0 z-10 h-px', focusRight ? 'bg-transparent' : 'bg-cyan')} />}
+              <Suspense fallback={<Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.editor.starting} />}>
+                <CodeEditor tab={tab} readOnly={readOnly} onCursor={setCursor} />
+              </Suspense>
+              {hasText && isNotebook(tab) && <NotebookLayer tab={tab!} readOnly={readOnly} />}
+              {!hasText && (
+                <div className="absolute inset-0 bg-panel/80">
+                  <Placeholder tab={tab} onExternal={openExternal} />
+                </div>
+              )}
+            </div>
+            {splitTab && (
+              <section aria-label={t.editor.splitLabel(splitTab.name)} className="flex min-h-0 min-w-0 flex-1 flex-col" onMouseDown={() => useEditor.getState().focusGroup(true)}>
+                <div className={cn('flex h-7 shrink-0 items-center gap-1.5 border-b px-2 font-sans text-[12px]', focusRight ? 'border-cyan/50 text-text-primary' : 'border-hud/60 text-text-muted')}>
+                  <span className="truncate">{splitTab.name}</span>
+                  {splitTab.dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-secondary" />}
+                  <button type="button" aria-label={t.editor.closeSplit} title={t.editor.closeSplit} onClick={() => useEditor.getState().closeSplit()} className="ml-auto rounded p-0.5 text-text-muted hover:bg-elevated hover:text-text-primary">
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="relative min-h-0 flex-1">
+                  <Suspense fallback={null}>
+                    <CodeEditor secondary tab={splitTab} readOnly={readOnly} onCursor={setCursor} />
+                  </Suspense>
+                  {splitTab.content !== undefined && isNotebook(splitTab) && <NotebookLayer tab={splitTab} readOnly={readOnly} />}
+                  {splitTab.content === undefined && (
+                    <div className="absolute inset-0 bg-panel/80">
+                      <Placeholder tab={splitTab} onExternal={openExternal} />
+                    </div>
+                  )}
+                </div>
+              </section>
             )}
           </div>
 
@@ -574,6 +670,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         {consoleOpen && <DebugConsole />}
 
         <footer className="flex h-7 shrink-0 items-center gap-4 border-t border-hud/60 px-3 font-mono text-[11px] text-text-muted">
+          {lintError && (
+            <button type="button" title={t.lint.error(lintError)} onClick={() => void useLintStatus.getState().restart()} className="shrink-0 text-amber hover:text-text-primary">
+              {t.lint.failed}
+            </button>
+          )}
           {session && session.status !== 'exited' && (
             <button
               type="button"
@@ -609,17 +710,17 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               )}
             </span>
           )}
-          {!readOnly && (server || tab?.path.match(/\.html?$/i)) && (
+          {!readOnly && (server || focused?.path.match(/\.html?$/i)) && (
             <button
               type="button"
               title={server ? t.live.stopServer(server.url) : t.live.goLive}
-              onClick={() => void (server ? useLive.getState().stop() : useLive.getState().start(tab?.path))}
+              onClick={() => void (server ? useLive.getState().stop() : useLive.getState().start(focused?.path))}
               className={cn('flex shrink-0 items-center gap-1 hover:text-text-primary', server && 'text-cyan')}
             >
               <Radio size={11} /> {server ? t.live.port(server.port) : t.live.goLive}
             </button>
           )}
-          {!readOnly && (sassOn || (tab && isSassFile(tab.path))) && (
+          {!readOnly && (sassOn || (focused && isSassFile(focused.path))) && (
             <button
               type="button"
               title={sassOn && live.sass?.projectId === projectId && live.sass.written.length ? t.live.compiled(live.sass.written.join(', ')) : t.live.watchSassHint}
@@ -639,10 +740,10 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               </span>
             </button>
           )}
-          {tab && hasText && (
+          {focused && focused.content !== undefined && (
             <>
               <span className="min-w-0 flex-1 truncate">
-                {names.get(tab.projectId)} › {tab.path.split('/').join(' › ')}
+                {names.get(focused.projectId)} › {focused.path.split('/').join(' › ')}
               </span>
               {readOnly && (
                 <span className="flex items-center gap-1" title={t.editor.readOnlyHint}>
@@ -658,7 +759,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
                 </button>
               )}
               {cursor && <span>{cursor.language}</span>}
-              <span className={cn(tab.dirty && 'text-amber')}>{tab.saving ? t.editor.saving : tab.dirty ? t.editor.unsaved : t.editor.saved}</span>
+              <span className={cn(focused.dirty && 'text-amber')}>{focused.saving ? t.editor.saving : focused.dirty ? t.editor.unsaved : t.editor.saved}</span>
             </>
           )}
         </footer>

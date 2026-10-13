@@ -2,18 +2,25 @@ import { useEffect, useRef } from 'react'
 import { applyMonacoTheme, languageName, monaco, THEME } from '../monaco/setup'
 import { setBufferHost, useEditor, type EditorTab } from '../store'
 import { useScm } from '../scm'
-import { setEditorActions } from '../actions'
+import { setEditorActions, type EditorActionHost } from '../actions'
 import { attachGutter } from '../monaco/gutter'
 import { setupLsp } from '../monaco/lsp'
 import { attachBreakpoints } from '../monaco/breakpoints'
 import { setupUserPrefs } from '../monaco/userPrefs'
 import { monacoOptions, settingsFor, useEditorPrefs } from '../prefs'
-import { addEditorActions, replaceText, setupExtras } from '../monaco/extras'
+import { addEditorActions, formatModel, replaceText, setupExtras } from '../monaco/extras'
+import { fixAll, setupLint } from '../monaco/lint'
+import { setupTestMarkers } from '../monaco/testMarkers'
+import { addInlineEdit, setupInlineAi } from '../monaco/inlineAi'
+import { attachVim } from '../monaco/vim'
 import { tidyBlankLines } from '../text'
-
-/** Formatting before a save gives up after this long (a slow formatter never blocks saving). */
-const FORMAT_TIMEOUT_MS = 2000
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
+
+/** An editor action's id without the instance prefix Monaco gives actions added to one editor. */
+export const actionId = (id: string) => id.replace(/^vs\.editor\.ICodeEditor:\d+:/, '')
+
+/** Formatting / fixing before a save waits at most this long (Prettier's or ESLint's first run starts a worker). */
+const FORMAT_TIMEOUT_MS = 5000
 
 export interface CursorInfo {
   line: number
@@ -27,8 +34,29 @@ interface Buffer {
   revision: number
   /** Alternative version id of the text on disk — differs ⇔ unsaved edits. */
   clean: number
-  view: monaco.editor.ICodeEditorViewState | null
 }
+
+/** An editor on screen (one, or two side by side): what it shows, and how to let go of a file. */
+interface Viewer {
+  editor: monaco.editor.IStandaloneCodeEditor
+  shown: () => string | undefined
+  /** The file closed: show nothing. */
+  forget: () => void
+  /** The file was renamed: its text lives in a new model now. */
+  moved: (next: string, model: monaco.editor.ITextModel) => void
+}
+
+/**
+ * Every open file's buffer — one model per file, shared by both editors of a
+ * split (edits show on both sides at once, undo and "unsaved" are the file's).
+ */
+const buffers = new Map<string, Buffer>()
+const viewers = new Set<Viewer>()
+/** The left editor's palette actions, back in charge when the right one closes. */
+let primaryActions: EditorActionHost | null = null
+
+/** The editor showing a file (for the formatter that needs one). */
+const showing = (id: string) => [...viewers].find((v) => v.shown() === id)?.editor
 
 const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
   model: null,
@@ -69,24 +97,96 @@ function watchDirty(id: string, buf: Buffer): void {
   buf.model.onDidChangeContent(() => useEditor.getState().setDirty(id, buf.model.getAlternativeVersionId() !== buf.clean))
 }
 
+/** A tab's buffer: created on first sight, or brought up to a newer disk read (as one undoable edit). */
+function ensureBuffer(tab: EditorTab, text: string): Buffer {
+  const buf = buffers.get(tab.id)
+  if (!buf) {
+    const model = createBufferModel(text, tab)
+    const created: Buffer = { model, revision: tab.revision, clean: model.getAlternativeVersionId() }
+    watchDirty(tab.id, created)
+    buffers.set(tab.id, created)
+    return created
+  }
+  if (buf.revision !== tab.revision) {
+    // Re-read from disk: one undoable edit, so the old text is a ⌘Z away.
+    buf.model.pushEditOperations([], [{ range: buf.model.getFullModelRange(), text }], () => null)
+    buf.revision = tab.revision
+    buf.clean = buf.model.getAlternativeVersionId()
+    useEditor.getState().setDirty(tab.id, false)
+  }
+  return buf
+}
+
+/** The buffers' side of saving, closing and renaming — one host, whichever editors show them. */
+function registerBufferHost(): void {
+  setBufferHost({
+    // Before a save: tidy blank lines, format the document — as the user's settings for the language say.
+    prepare: async (id) => {
+      const b = buffers.get(id)
+      // A notebook's JSON is written as Jupyter writes it: no formatter touches it.
+      if (!b || b.model.uri.path.toLowerCase().endsWith('.ipynb')) return
+      const prefs = settingsFor(useEditorPrefs.getState().settings, b.model.getLanguageId())
+      if (prefs.blankLines?.onSave) replaceText(b.model, tidyBlankLines(b.model.getValue(), prefs.blankLines.keepOne))
+      const limit = (work: Promise<unknown>) => Promise.race([work, new Promise((r) => setTimeout(r, FORMAT_TIMEOUT_MS))]).catch(() => {})
+      if (prefs.formatOnSave) await limit(formatModel(b.model, prefs, showing(id)))
+      if (prefs.eslintFixOnSave) await limit(fixAll(b.model))
+    },
+    snapshot: (id) => {
+      const b = buffers.get(id)
+      return b && { text: b.model.getValue(), version: b.model.getAlternativeVersionId() }
+    },
+    markClean: (id, version) => {
+      const b = buffers.get(id)
+      if (!b) return
+      b.clean = version
+      useEditor.getState().setDirty(id, b.model.getAlternativeVersionId() !== version)
+    },
+    drop: (id) => {
+      const b = buffers.get(id)
+      if (!b) return
+      viewers.forEach((v) => v.shown() === id && v.forget())
+      b.model.dispose()
+      buffers.delete(id)
+    },
+    rekey: (id, next) => {
+      const b = buffers.get(id)
+      if (!b) return
+      // A model's URI is fixed: the text moves into a new one (the undo history stays behind).
+      const dirty = b.model.getAlternativeVersionId() !== b.clean
+      const model = createBufferModel(b.model.getValue(), next)
+      const moved: Buffer = { model, revision: b.revision, clean: dirty ? -1 : model.getAlternativeVersionId() }
+      watchDirty(next.id, moved)
+      buffers.set(next.id, moved)
+      buffers.delete(id)
+      viewers.forEach((v) => v.shown() === id && v.moved(next.id, model))
+      b.model.dispose()
+    }
+  })
+}
+
 interface Props {
   /** The tab to show — one without loaded text shows no buffer. */
   tab?: EditorTab
   readOnly: boolean
   onCursor: (info: CursorInfo) => void
+  /** The right-hand editor of a split (the left one owns the buffers). */
+  secondary?: boolean
 }
 
 /**
- * One Monaco editor for the whole module; every open file is a model (its own
- * text, undo history and scroll position) that is swapped in when its tab
- * becomes active. Edits stay in the model — the store only learns "dirty or
- * not" (from Monaco's version ids, so undoing back to the saved text is clean
- * again) and asks for the text when it saves.
+ * A Monaco editor; every open file is a model (its own text, undo history and
+ * scroll position per editor) that is swapped in when its tab becomes active.
+ * Edits stay in the model — the store only learns "dirty or not" (from
+ * Monaco's version ids, so undoing back to the saved text is clean again) and
+ * asks for the text when it saves. A split shows a second editor on the same
+ * models.
  */
-export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
+export default function CodeEditor({ tab, readOnly, onCursor, secondary = false }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const vimRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
-  const buffers = useRef(new Map<string, Buffer>()).current
+  /** Scroll position and selection per file, in this editor. */
+  const views = useRef(new Map<string, monaco.editor.ICodeEditorViewState | null>()).current
   const shown = useRef<string>()
   const cursorRef = useRef(onCursor)
   cursorRef.current = onCursor
@@ -109,7 +209,10 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     setupLsp()
     setupUserPrefs()
     setupExtras()
-    const actions = addEditorActions(editor)
+    setupLint()
+    setupTestMarkers()
+    setupInlineAi()
+    const actions = [...addEditorActions(editor), ...addInlineEdit(editor)]
     // The user's editor settings (moved over from VS Code / Cursor) for the file's language — now, on a switch, on a change.
     const applyPrefs = () => editor.updateOptions(monacoOptions(settingsFor(useEditorPrefs.getState().settings, editor.getModel()?.getLanguageId())))
     applyPrefs()
@@ -120,63 +223,47 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     const shownTab = () => useEditor.getState().tabs.find((t) => t.id === shown.current)
     const detachGutter = attachGutter(editor, shownTab)
     const detachBreakpoints = attachBreakpoints(editor, shownTab)
-    setEditorActions({
-      list: () => (editor.getModel() ? editor.getSupportedActions().map((a) => ({ id: a.id, label: a.label })) : []),
+    const detachVim = attachVim(editor, vimRef.current!)
+    const actionHost: EditorActionHost = {
+      // Actions added to this editor carry an instance prefix ("vs.editor.ICodeEditor:4:wone.…"): the palette knows them by their own id.
+      list: () => (editor.getModel() ? editor.getSupportedActions().map((a) => ({ id: actionId(a.id), label: a.label })) : []),
       run: (id) => {
         editor.focus()
-        void editor.getAction(id)?.run()
+        void editor
+          .getSupportedActions()
+          .find((a) => actionId(a.id) === id)
+          ?.run()
       }
-    })
-
-    setBufferHost({
-      // Before a save: tidy blank lines, format the document — as the user's settings for the language say.
-      prepare: async (id) => {
-        const b = buffers.get(id)
-        if (!b) return
-        const prefs = settingsFor(useEditorPrefs.getState().settings, b.model.getLanguageId())
-        if (prefs.blankLines?.onSave) replaceText(b.model, tidyBlankLines(b.model.getValue(), prefs.blankLines.keepOne))
-        const format = prefs.formatOnSave && shown.current === id ? editor.getAction('editor.action.formatDocument') : null
-        if (format) await Promise.race([format.run(), new Promise((r) => setTimeout(r, FORMAT_TIMEOUT_MS))]).catch(() => {})
+    }
+    if (!secondary) {
+      primaryActions = actionHost
+      setEditorActions(actionHost)
+      registerBufferHost()
+    }
+    // The focused editor of a split gets the palette's editor commands, opens files and saves.
+    subs.push(
+      editor.onDidFocusEditorText(() => {
+        setEditorActions(actionHost)
+        useEditor.getState().focusGroup(secondary)
+        report()
+      })
+    )
+    const viewer: Viewer = {
+      editor,
+      shown: () => shown.current,
+      forget: () => {
+        editor.setModel(null)
+        shown.current = undefined
       },
-      snapshot: (id) => {
-        const b = buffers.get(id)
-        return b && { text: b.model.getValue(), version: b.model.getAlternativeVersionId() }
-      },
-      markClean: (id, version) => {
-        const b = buffers.get(id)
-        if (!b) return
-        b.clean = version
-        useEditor.getState().setDirty(id, b.model.getAlternativeVersionId() !== version)
-      },
-      drop: (id) => {
-        const b = buffers.get(id)
-        if (!b) return
-        if (shown.current === id) {
-          editor.setModel(null)
-          shown.current = undefined
-        }
-        b.model.dispose()
-        buffers.delete(id)
-      },
-      rekey: (id, next) => {
-        const b = buffers.get(id)
-        if (!b) return
-        // A model's URI is fixed: the text moves into a new one (the undo history stays behind).
-        const dirty = b.model.getAlternativeVersionId() !== b.clean
-        const model = createBufferModel(b.model.getValue(), next)
-        const moved: Buffer = { model, revision: b.revision, clean: dirty ? -1 : model.getAlternativeVersionId(), view: b.view }
-        watchDirty(next.id, moved)
-        buffers.set(next.id, moved)
-        buffers.delete(id)
-        if (shown.current === id) {
-          moved.view = editor.saveViewState()
-          editor.setModel(model)
-          editor.restoreViewState(moved.view)
-          shown.current = next.id
-        }
-        b.model.dispose()
+      moved: (next, model) => {
+        const view = editor.saveViewState()
+        editor.setModel(model)
+        editor.restoreViewState(view)
+        views.set(next, view)
+        shown.current = next
       }
-    })
+    }
+    viewers.add(viewer)
 
     // Follow the appearance settings (theme, accent, background).
     const theme = new MutationObserver(applyMonacoTheme)
@@ -185,60 +272,55 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     void document.fonts?.ready.then(() => monaco.editor.remeasureFonts())
 
     return () => {
-      setBufferHost(null)
-      setEditorActions(null)
+      viewers.delete(viewer)
+      if (secondary) setEditorActions(primaryActions)
+      else {
+        setBufferHost(null)
+        setEditorActions(null)
+        primaryActions = null
+      }
       actions.forEach((a) => a.dispose())
       detachGutter()
       detachBreakpoints()
+      detachVim()
       unsubscribePrefs()
       theme.disconnect()
       subs.forEach((s) => s.dispose())
       editor.dispose()
-      buffers.forEach((b) => b.model.dispose())
-      buffers.clear()
+      if (!secondary) {
+        buffers.forEach((b) => b.model.dispose())
+        buffers.clear()
+      }
+      views.clear()
       shown.current = undefined
       editorRef.current = null
     }
-  }, [buffers])
+  }, [views, secondary])
 
   useEffect(() => {
     editorRef.current!.updateOptions({ readOnly })
   }, [readOnly])
 
-  // Show the active tab: create its model on first sight, apply disk reloads.
+  // Show the tab: create its model on first sight, apply disk reloads.
   const text = tab?.content
   useEffect(() => {
     const editor = editorRef.current!
-    if (shown.current) buffers.get(shown.current)!.view = editor.saveViewState()
+    if (shown.current && buffers.has(shown.current)) views.set(shown.current, editor.saveViewState())
     if (!tab || text === undefined) {
       editor.setModel(null)
       shown.current = undefined
       return
     }
-
-    let buf = buffers.get(tab.id)
-    if (!buf) {
-      const model = createBufferModel(text, tab)
-      const created: Buffer = { model, revision: tab.revision, clean: model.getAlternativeVersionId(), view: null }
-      watchDirty(tab.id, created)
-      buffers.set(tab.id, created)
-      buf = created
-    } else if (buf.revision !== tab.revision) {
-      // Re-read from disk: one undoable edit, so the old text is a ⌘Z away.
-      buf.model.pushEditOperations([], [{ range: buf.model.getFullModelRange(), text }], () => null)
-      buf.revision = tab.revision
-      buf.clean = buf.model.getAlternativeVersionId()
-      useEditor.getState().setDirty(tab.id, false)
-    }
-
+    const buf = ensureBuffer(tab, text)
     const switched = shown.current !== tab.id
     if (switched) {
       editor.setModel(buf.model)
       shown.current = tab.id
     }
-    if (buf.view) editor.restoreViewState(buf.view)
+    const view = views.get(tab.id)
+    if (view) editor.restoreViewState(view)
     if (switched) editor.focus()
-  }, [buffers, tab?.id, tab?.revision, text === undefined])
+  }, [views, tab?.id, tab?.revision, text === undefined])
 
   // A search result asked for a line: scroll there once its tab is on screen.
   const reveal = useEditor((s) => s.reveal)
@@ -251,5 +333,11 @@ export default function CodeEditor({ tab, readOnly, onCursor }: Props) {
     useEditor.setState({ reveal: undefined })
   }, [reveal, tab?.id, text === undefined])
 
-  return <div ref={hostRef} className="absolute inset-0" />
+  return (
+    <>
+      <div ref={hostRef} className="absolute inset-0" />
+      {/* Vim's mode, pending keys and `:` command line. */}
+      <div ref={vimRef} aria-label="Vim" className="absolute bottom-1 left-14 z-10 rounded bg-elevated/90 px-2 py-0.5 font-mono text-[11px] text-text-secondary [&_input]:bg-transparent [&_input]:text-text-primary [&_input]:outline-none" />
+    </>
+  )
 }

@@ -7,6 +7,8 @@ type Block = Anthropic.Beta.BetaContentBlock
 type BlockParam = Anthropic.Beta.BetaContentBlockParam
 
 const STOP_REASONS: readonly StopReason[] = ['end_turn', 'tool_use', 'max_tokens', 'refusal', 'pause_turn']
+/** Models the API reroutes on a refusal (server-side fallback); Haiku has none. */
+const FALLBACK_MODELS = /^claude-(opus|sonnet|fable)-/
 
 /** Internal message → Messages API param. Blocks the model produced replay byte-for-byte. */
 export function toApiMessage(m: LlmMessage): Anthropic.Beta.BetaMessageParam {
@@ -95,8 +97,7 @@ export class AnthropicProvider implements LlmProvider {
           messages: req.messages.map(toApiMessage),
           ...(tools.length ? { tools } : {}),
           output_config: { effort: req.effort },
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default'
+          ...(FALLBACK_MODELS.test(req.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
         },
         { signal: req.signal }
       )

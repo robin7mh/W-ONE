@@ -2,6 +2,15 @@ import { getT } from '@/lib/i18n'
 import { monaco } from './setup'
 import { phpAccessors, phpClassEnd, phpProperties } from '../php'
 import { tidyBlankLines } from '../text'
+import type { EditorSettings } from '@shared/types/migrate'
+import { settingsFor, useEditorPrefs } from '../prefs'
+import { fixAll, formatWithPrettier, restartLint } from './lint'
+
+/** Format a model: Prettier where it is responsible, else the editor's own formatter (needs the editor showing it). */
+export async function formatModel(model: monaco.editor.ITextModel, prefs: EditorSettings, editor?: monaco.editor.ICodeEditor): Promise<void> {
+  if (await formatWithPrettier(model, prefs)) return
+  if (editor?.getModel() === model) await editor.getAction('editor.action.formatDocument')?.run()
+}
 
 /** Replace a model's whole text as one undoable edit (no-op when nothing changes). */
 export function replaceText(model: monaco.editor.ITextModel, text: string): void {
@@ -40,9 +49,28 @@ export function setupExtras(): void {
   monaco.languages.registerCodeActionProvider('php', phpActions)
 }
 
-/** Actions of one editor instance (the palette lists them): tidy blank lines. */
+/** Actions of one editor instance (the palette lists them): format (Prettier first), ESLint, tidy blank lines. */
 export function addEditorActions(editor: monaco.editor.IStandaloneCodeEditor): monaco.IDisposable[] {
+  const t = getT()
   return [
+    editor.addAction({
+      id: 'wone.formatDocument',
+      label: t.palette.editor.format,
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+      run: async (ed) => {
+        const model = ed.getModel()
+        if (model) await formatModel(model, settingsFor(useEditorPrefs.getState().settings, model.getLanguageId()), ed)
+      }
+    }),
+    editor.addAction({
+      id: 'wone.eslint.fixAll',
+      label: t.lint.paletteFixAll,
+      run: async (ed) => {
+        const model = ed.getModel()
+        if (model) await fixAll(model)
+      }
+    }),
+    editor.addAction({ id: 'wone.eslint.restart', label: t.lint.restart, run: () => restartLint() }),
     editor.addAction({
       id: 'wone.tidyBlankLines',
       label: getT().editorExtras.tidyBlankLines,

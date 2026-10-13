@@ -31,6 +31,20 @@ export interface EditorSettings {
   bracketPairColorization?: boolean
   /** Format the document when saving (VS Code's editor.formatOnSave). */
   formatOnSave?: boolean
+  /**
+   * Prettier formats (VS Code's editor.defaultFormatter = Prettier) — the
+   * project's own, else W-ONE's. Without it, Prettier formats only projects
+   * that use Prettier; the rest the editor's own formatters.
+   */
+  prettier?: boolean
+  /** Prettier's options where a project has no config (the extension's `prettier.*` settings). */
+  prettierOptions?: Record<string, string | number | boolean>
+  /** Apply ESLint's fixes when saving (editor.codeActionsOnSave: source.fixAll.eslint). */
+  eslintFixOnSave?: boolean
+  /** Vim keys in the editor (VSCodeVim installed, or switched on here). */
+  vim?: boolean
+  /** VSCodeVim's key remappings (`vim.insertModeKeyBindings` …), e.g. jj → <Esc>. */
+  vimMappings?: VimMapping[]
   /** Blank Line Organizer: on save, squeeze runs of blank lines — to one, or away entirely. */
   blankLines?: { onSave: boolean; keepOne: boolean }
   /** Live Server (ritwickdey.liveserver's settings). */
@@ -76,7 +90,17 @@ export interface SassSettings {
 }
 
 /** What a language may override. */
-export type LanguageSettings = Omit<EditorSettings, 'languages' | 'keybindings' | 'importedFrom' | 'blankLines' | 'liveServer' | 'sass'>
+export interface VimMapping {
+  mode: 'normal' | 'insert' | 'visual'
+  /** Keys in Vim's notation: `jj`, `<leader>w`, `<C-d>`. */
+  before: string
+  after: string
+}
+
+export type LanguageSettings = Omit<
+  EditorSettings,
+  'languages' | 'keybindings' | 'importedFrom' | 'blankLines' | 'liveServer' | 'sass' | 'prettierOptions' | 'eslintFixOnSave' | 'vim' | 'vimMappings'
+>
 
 export interface Snippet {
   name: string
@@ -199,6 +223,8 @@ export const KNOWN_EXTENSIONS: Record<string, { fate: ExtensionFate; language?: 
   'ritwickdey.liveserver': { fate: 'built-in' },
   'glenn2223.live-sass': { fate: 'built-in' },
   'natizyskunk.sftp': { fate: 'built-in' },
+  'dbaeumer.vscode-eslint': { fate: 'built-in' },
+  'esbenp.prettier-vscode': { fate: 'built-in' },
   'github.vscode-pull-request-github': { fate: 'built-in' },
   'mongodb.mongodb-vscode': { fate: 'built-in' },
   // Remote-SSH and Dev Containers (VS Code's and Cursor's).
@@ -208,5 +234,11 @@ export const KNOWN_EXTENSIONS: Record<string, { fate: ExtensionFate; language?: 
   'ms-vscode-remote.remote-containers': { fate: 'built-in' },
   'anysphere.remote-ssh': { fate: 'built-in' },
   'anysphere.remote-containers': { fate: 'built-in' },
-  'liximomo.sftp': { fate: 'built-in' }
+  'liximomo.sftp': { fate: 'built-in' },
+  'vscodevim.vim': { fate: 'built-in' },
+  // Jupyter notebooks (kernels through the project's Python).
+  'ms-toolsai.jupyter': { fate: 'built-in' },
+  'ms-toolsai.jupyter-renderers': { fate: 'built-in' },
+  'ms-toolsai.jupyter-keymap': { fate: 'built-in' },
+  'ms-toolsai.vscode-jupyter-cell-tags': { fate: 'built-in' }
 }

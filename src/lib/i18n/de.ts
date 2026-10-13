@@ -544,6 +544,106 @@ agents: {
 
 
 
+
+
+  editorSettings: {
+    vim: 'Vim-Modus',
+    vimHint: 'Modi, Bewegungen, Operatoren und :-Befehle — die Umbelegungen aus VSCodeVim kommen beim Umzug mit',
+    title: 'Editor',
+    hint: 'Wie der Editor schreibt und speichert — aus VS Code übernommen oder hier eingestellt.',
+    formatOnSave: 'Beim Speichern formatieren',
+    formatOnSaveHint: 'Mit Prettier, wo das Projekt es nutzt, sonst mit dem eingebauten Formatter',
+    prettier: 'Prettier für jedes Projekt',
+    prettierHint: 'Auch in Projekten ohne Prettier (W-ONE bringt es mit)',
+    eslintFix: 'ESLint-Korrekturen beim Speichern',
+    eslintFixHint: 'In Projekten mit ESLint: alles, was es selbst beheben kann',
+    minimap: 'Minimap',
+    wordWrap: 'Lange Zeilen umbrechen',
+    stickyScroll: 'Sticky Scroll (die umgebende Funktion bleibt oben)',
+    fontSize: 'Schriftgröße',
+    tabSize: 'Tab-Breite'
+  },
+
+  inlineAi: {
+    palette: 'Mit KI bearbeiten…',
+    label: 'Was soll die KI ändern?',
+    placeholder: 'Mit KI bearbeiten — Änderung beschreiben, dann ⏎ (Esc schließt)',
+    placeholderInsert: 'Mit KI schreiben — was gehört hierher? ⏎ (Esc schließt)',
+    writing: (n) => `schreibt… ${n} ${n === 1 ? 'Zeile' : 'Zeilen'}`,
+    stop: 'Stopp',
+    accept: 'Übernehmen ⌘⏎',
+    reject: 'Verwerfen Esc',
+    noKey: 'Kein API-Schlüssel — in Einstellungen → KI hinterlegen',
+    failed: (msg) => `Fehlgeschlagen: ${msg}`,
+    suggestions: 'Vorschläge beim Tippen',
+    suggestionsHint: 'Grauer Text am Cursor, Tab übernimmt ihn. Fragt das Modell bei jeder Tipp-Pause — das kostet Tokens.',
+    suggestionsModel: 'Modell für Vorschläge',
+    editHint: '⌘K im Editor schreibt die Auswahl um (oder schreibt am Cursor) — mit dem Modell oben.'
+  },
+  notebook: {
+    toolbar: 'Notebook',
+    kernel: 'Kernel',
+    noKernel: 'Für das Python dieses Projekts ist kein Jupyter-Kernel installiert.',
+    notReady: 'Jupyter ist für das Python dieses Projekts nicht eingerichtet — erst einrichten.',
+    states: { off: 'Kernel nicht gestartet', starting: 'Kernel startet…', idle: 'Kernel bereit', busy: 'Kernel arbeitet', restarting: 'Kernel startet neu…', dead: 'Kernel beendet' },
+    runAll: 'Alle ausführen',
+    interrupt: 'Unterbrechen',
+    restart: 'Neu starten',
+    clearOutputs: 'Ausgaben leeren',
+    addCode: 'Code',
+    addMarkdown: 'Markdown',
+    raw: 'Als JSON anzeigen',
+    notebook: 'Als Notebook anzeigen',
+    run: 'Zelle ausführen (⇧⏎ führt aus und springt weiter, ⌥⏎ fügt eine Zelle an)',
+    delete: 'Zelle löschen',
+    moveUp: 'Nach oben',
+    moveDown: 'Nach unten',
+    toCode: 'In Code-Zelle umwandeln',
+    toMarkdown: 'In Markdown-Zelle umwandeln',
+    done: 'Gerendert anzeigen (⇧⏎)',
+    outputs: 'Ausgaben',
+    setup: 'Jupyter einrichten',
+    setupHint: (venv) => (venv ? 'Installiert ipykernel in die virtuelle Umgebung des Projekts.' : 'Legt .venv im Projekt an und installiert ipykernel hinein.'),
+    settingUp: 'Wird eingerichtet…',
+    invalid: (msg) => `Diese Datei lässt sich nicht als Notebook anzeigen: ${msg}`,
+    emptyMarkdown: 'Leere Markdown-Zelle — Doppelklick zum Schreiben',
+    readOnly: 'hier nur lesend',
+    cell: (n) => `Zelle ${n}`,
+    dismiss: 'Schließen'
+  },
+  tests: {
+    title: 'Tests',
+    runAll: 'Alle Tests ausführen',
+    runOne: 'Ausführen',
+    debugOne: 'Debuggen',
+    run: (name) => `${name} ausführen`,
+    debug: (name) => `${name} debuggen`,
+    expand: (name) => `${name} öffnen`,
+    collapse: (name) => `${name} schließen`,
+    stop: 'Lauf abbrechen',
+    refresh: 'Tests neu suchen',
+    output: 'Ausgabe des letzten Laufs',
+    noOutput: 'Noch nichts ausgeführt.',
+    none: 'Keine Tests gefunden — erkannt werden Vitest, Jest, pytest und go test.',
+    failedOnly: 'Nur fehlgeschlagene',
+    passed: (n) => `${n} bestanden`,
+    failed: (n) => `${n} fehlgeschlagen`,
+    skipped: (n) => `${n} übersprungen`,
+    total: (n) => `von ${n}`,
+    markerFailed: (name) => `${name} ist fehlgeschlagen`,
+    states: { running: 'läuft', passed: 'bestanden', failed: 'fehlgeschlagen', skipped: 'übersprungen', none: 'noch nicht gelaufen' },
+    paletteRunAll: 'Test: Alle Tests ausführen',
+    paletteRunFile: 'Test: Tests dieser Datei ausführen'
+  },
+  lint: {
+    fix: (rule) => `Beheben: ${rule} (ESLint)`,
+    disable: (rule) => `${rule} für diese Zeile abschalten`,
+    fixAll: 'Alle automatisch behebbaren ESLint-Probleme beheben',
+    restart: 'ESLint: Neu starten',
+    paletteFixAll: 'ESLint: Alle automatisch behebbaren Probleme beheben',
+    error: (message) => `ESLint: ${message} — klicken zum Neustarten`,
+    failed: 'ESLint ⚠'
+  },
   remote: {
     button: 'Remote',
     hint: 'W-ONE auf einem anderen Rechner per SSH oder im Dev Container eines Projekts — in einem eigenen Fenster.',
@@ -689,6 +789,7 @@ agents: {
   },
 
   palette: {
+    split: 'Editor teilen (an / aus)',
     placeholder: 'Befehl eingeben',
     noCommands: 'Keine passenden Befehle',
     noMatches: 'Keine Treffer',
@@ -726,7 +827,7 @@ agents: {
   },
 
   scm: {
-    panes: { files: 'Explorer', search: 'Suche', scm: 'Quellcodeverwaltung', graph: 'Git-Graph', debug: 'Ausführen und Debuggen', remote: 'Remote-Dateien', prs: 'Pull Requests', mongo: 'Datenbanken' },
+    panes: { files: 'Explorer', search: 'Suche', scm: 'Quellcodeverwaltung', graph: 'Git-Graph', debug: 'Ausführen und Debuggen', remote: 'Remote-Dateien', prs: 'Pull Requests', mongo: 'Datenbanken', tests: 'Tests' },
     notRepo: 'Dieses Projekt ist noch kein Git-Repository.',
     init: 'Repository initialisieren',
     branch: 'Branch',
@@ -776,6 +877,10 @@ agents: {
 
 
   editor: {
+    openToSide: 'Zur Seite öffnen',
+    closeSplit: 'Teilung schließen',
+    inSplit: 'Rechts geöffnet',
+    splitLabel: (name) => `Rechter Editor: ${name}`,
     title: 'Editor',
     openFromExplorer: 'Öffne eine Datei aus dem Explorer',
     shortcuts: (key) => `${key}P Datei öffnen · ⇧${key}P alle Befehle · ${key}S speichern`,

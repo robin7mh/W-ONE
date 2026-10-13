@@ -44,7 +44,7 @@ describe('Dashboard ask bar', () => {
     const { useAgents } = await import('@/features/agents/sessions')
     const send = vi.fn(async () => true)
     const newChat = vi.fn()
-    useAssistant.setState({ send, newChat, status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high' } } })
+    useAssistant.setState({ send, newChat, status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } } })
     const onNavigate = vi.fn()
     render(<Dashboard onNavigate={onNavigate} />)
     await act(settle)

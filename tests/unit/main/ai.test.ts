@@ -144,6 +144,11 @@ describe('AnthropicProvider', () => {
       expect(turn.stopReason).toBe(r === 'stop_sequence' ? 'other' : r)
     }
     expect(seen[0].body).not.toHaveProperty('tools')
+    // Haiku has no server-side fallback: none asked for.
+    await provider.stream(request({ model: 'claude-haiku-5-5' }), () => {})
+    const haiku = seen[seen.length - 1]
+    expect(haiku.body).not.toHaveProperty('fallbacks')
+    expect(haiku.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback')
   })
 
   it('turns API failures into coded errors', async () => {
@@ -257,7 +262,7 @@ describe('AiService', () => {
 
   it('reports, verifies, stores and clears the key; env wins', async () => {
     const { ai, verify, factory } = await setup()
-    expect(await ai.status()).toEqual({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high' } })
+    expect(await ai.status()).toEqual({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } })
     await expect(ai.provider()).rejects.toMatchObject({ code: 'no-key' })
     await expect(ai.setKey('short')).rejects.toMatchObject({ code: 'bad-key' })
     verify.mockRejectedValueOnce(aiError('bad-key', 'rejected'))
@@ -275,8 +280,12 @@ describe('AiService', () => {
   it('validates model and effort; defaults to the Anthropic provider', async () => {
     const { ai, settings } = await setup()
     expect(await ai.configure({ model: 'claude-sonnet-5-5', effort: 'low' })).toMatchObject({ settings: { model: 'claude-sonnet-5-5', effort: 'low' } })
-    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', effort: 'low' })
+    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' })
+    expect(await ai.configure({ inline: true, inlineModel: 'claude-haiku-5-5' })).toMatchObject({ settings: { inline: true, inlineModel: 'claude-haiku-5-5' } })
     await expect(ai.configure({ model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-model' })
+    // Haiku suggests while typing; it isn't one of the assistant's models.
+    await expect(ai.configure({ model: 'claude-haiku-5-5' })).rejects.toMatchObject({ code: 'bad-model' })
+    await expect(ai.configure({ inlineModel: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-model' })
     await expect(ai.configure({ effort: 'extreme' as never })).rejects.toMatchObject({ code: 'bad-effort' })
 
     const dir = await tempDir()

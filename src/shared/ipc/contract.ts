@@ -35,6 +35,8 @@ import type { LiveServerStatus, SassResult } from '@shared/types/live'
 import type { SftpEntry, SftpProgress, SftpTarget } from '@shared/types/sftp'
 import type { SyncStatus, SyncUi } from '@shared/types/sync'
 import type { RemoteConnection, SshHost } from '@shared/types/remote'
+import type { LintResult } from '@shared/types/lint'
+import type { TestItem, TestRunState } from '@shared/types/tests'
 import type { MongoCollection, MongoConnection, MongoDatabase, MongoDocuments, MongoIndex, MongoQuery } from '@shared/types/mongo'
 import type { GitHubStatus, MergeMethod, PullCreate, PullDetail, PullFileDiff, PullFilter, PullListState, PullSummary, ReviewAction } from '@shared/types/github'
 import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
@@ -58,6 +60,7 @@ import type {
   ServerStatus,
   UpdateStatus
 } from '@shared/types/server'
+import type { KernelInfo, NotebookEvent } from '@shared/types/notebook'
 import type {
   AgentInfo,
   AgentRun,
@@ -68,6 +71,9 @@ import type {
   ApprovalDecision,
   Conversation,
   ConversationSummary,
+  InlineCompleteRequest,
+  InlineDelta,
+  InlineEditRequest,
   PermissionGrant,
   PermissionRequest,
   SendRequest,
@@ -191,7 +197,7 @@ export interface IpcChannels {
 
   /** Run & Debug: a program under Node's inspector or its language's debug adapter (one session at a time); `build` runs first. */
   'debug:start': {
-    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[]; build?: string }
+    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[]; build?: string; inspectChild?: boolean; module?: string; goTest?: boolean }
     response: DebugSession
   }
   'debug:stop': { request: void; response: void }
@@ -210,6 +216,25 @@ export interface IpcChannels {
   'migrate:apply': { request: { app: string }; response: MigrationResult }
   /** The editor's preferences, keybindings and snippets. */
   'editor:settings': { request: void; response: { settings: EditorSettings; snippets: Snippet[] } }
+  'editor:update': { request: Partial<EditorSettings>; response: EditorSettings }
+  /** ESLint and Prettier from the project's node_modules (they run the project's config code: remote shells only). */
+  'lint:file': { request: { projectId: string; path: string; text: string }; response: LintResult }
+  'lint:fix': { request: { projectId: string; path: string; text: string }; response: string | null }
+  'lint:restart': { request: void; response: void }
+  'format:document': { request: { projectId: string; path: string; text: string; prettier?: boolean; options?: Record<string, string | number | boolean> }; response: string | null }
+  /** The test explorer: tests found without running anything; runs and debugs with the project's runner (project code: remote shells only). */
+  'tests:discover': { request: { projectId: string }; response: TestItem[] }
+  'tests:state': { request: { projectId: string }; response: TestRunState }
+  'tests:run': { request: { projectId: string; id?: string }; response: TestRunState }
+  'tests:cancel': { request: { projectId: string }; response: void }
+  'tests:debug': { request: { projectId: string; id: string; breakpoints: DebugBreakpoint[] }; response: DebugSession }
+  'notebook:kernels': { request: { projectId: string }; response: KernelInfo }
+  'notebook:setup': { request: { projectId: string }; response: string }
+  'notebook:start': { request: { projectId: string; path: string; kernel: string }; response: void }
+  'notebook:execute': { request: { projectId: string; path: string; cell: string; code: string }; response: void }
+  'notebook:interrupt': { request: { projectId: string; path: string }; response: void }
+  'notebook:restart': { request: { projectId: string; path: string }; response: void }
+  'notebook:shutdown': { request: { projectId: string; path: string }; response: void }
 
   /** Live Server: a project served on 127.0.0.1 with reload on change; `page` opens in the browser. */
   'liveServer:status': { request: void; response: LiveServerStatus[] }
@@ -279,6 +304,9 @@ export interface IpcChannels {
   'ai:cancel': { request: { conversationId: string }; response: void }
   'ai:deleteConversation': { request: { id: string }; response: void }
   'ai:runs': { request: { limit?: number }; response: AgentRun[] }
+  'ai:inlineComplete': { request: InlineCompleteRequest; response: string }
+  'ai:inlineEdit': { request: InlineEditRequest; response: string }
+  'ai:inlineCancel': { request: { requestId: string }; response: void }
 
   'permission:pending': { request: void; response: PermissionRequest[] }
   'permission:respond': { request: { id: string; decision: ApprovalDecision }; response: void }
@@ -438,6 +466,23 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'migrate:scan': 'desktop',
   'migrate:apply': 'desktop',
   'editor:settings': 'any',
+  'editor:update': 'terminal',
+  'lint:file': 'terminal',
+  'lint:fix': 'terminal',
+  'lint:restart': 'terminal',
+  'format:document': 'terminal',
+  'tests:discover': 'any',
+  'tests:state': 'any',
+  'tests:run': 'terminal',
+  'tests:cancel': 'terminal',
+  'tests:debug': 'terminal',
+  'notebook:kernels': 'terminal',
+  'notebook:setup': 'terminal',
+  'notebook:start': 'terminal',
+  'notebook:execute': 'terminal',
+  'notebook:interrupt': 'terminal',
+  'notebook:restart': 'terminal',
+  'notebook:shutdown': 'terminal',
   'liveServer:status': 'any',
   // Serving and compiling write / expose project files on the core's machine.
   'liveServer:start': 'terminal',
@@ -500,6 +545,9 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'ai:cancel': 'any',
   'ai:deleteConversation': 'any',
   'ai:runs': 'any',
+  'ai:inlineComplete': 'any',
+  'ai:inlineEdit': 'any',
+  'ai:inlineCancel': 'any',
   'permission:pending': 'any',
   'permission:respond': 'any',
   'permission:grants': 'any',
@@ -553,6 +601,7 @@ export interface IpcEvents {
   'terminal:data': TerminalData
   'terminal:exit': TerminalExit
   'ai:delta': AiDelta
+  'ai:inlineDelta': InlineDelta
   'ai:message': AiMessageUpdate
   'ai:conversationsChanged': { reason: 'created' | 'updated' | 'deleted'; id: string }
   'permission:request': PermissionRequest
@@ -570,6 +619,8 @@ export interface IpcEvents {
   'liveServer:changed': LiveServerStatus[]
   'sftp:progress': SftpProgress
   'remote:changed': RemoteConnection[]
+  'tests:changed': TestRunState
+  'notebook:event': NotebookEvent
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -582,6 +633,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'terminal:data',
   'terminal:exit',
   'ai:delta',
+  'ai:inlineDelta',
   'ai:message',
   'ai:conversationsChanged',
   'permission:request',
@@ -597,8 +649,10 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'tools:progress',
   'liveServer:changed',
   'sftp:progress',
-  'remote:changed'
+  'remote:changed',
+  'tests:changed',
+  'notebook:event'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
-export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output']
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output', 'notebook:event']

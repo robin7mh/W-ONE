@@ -355,3 +355,16 @@
 .monaco-editor .margin-view-overlays .cgmr {
   cursor: pointer;
 }
+
+/* ⌘K: what the AI wrote, until it is accepted or rejected. */
+.monaco-editor .wone-ai-added {
+  background: rgb(var(--accent-green) / 0.1);
+}
+.monaco-editor .wone-ai-added-gutter {
+  margin-left: 4px;
+  width: 3px !important;
+  background: rgb(var(--accent-green));
+}
+.monaco-editor .wone-ai-target {
+  background: rgb(var(--accent-cyan) / 0.08);
+}

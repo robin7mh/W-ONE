@@ -275,10 +275,18 @@ describe('explorer view', () => {
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'a.ts' }))
     expect(e().selection).toEqual({ path: 'src/a.ts', kind: 'file' })
     const menu = screen.getByRole('menu')
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['New File', 'New Folder', 'RenameF2', 'Copy Relative Path', 'Delete⌘⌫'])
+    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['New File', 'New Folder', 'RenameF2', 'Copy Relative Path', 'Open to the Side', 'Delete⌘⌫'])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy Relative Path' }))
     expect(writeText).toHaveBeenCalledWith('src/a.ts')
     expect(screen.queryByRole('menu')).toBeNull()
+    const toSide = vi.spyOn(useEditor.getState(), 'openToSide').mockResolvedValue()
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'a.ts' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open to the Side' }))
+    expect(toSide).toHaveBeenCalledWith('src/a.ts')
+    // A folder doesn't open to the side.
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'src' }))
+    expect(screen.queryByRole('menuitem', { name: 'Open to the Side' })).toBeNull()
+    fireEvent.keyDown(window, { key: 'Escape' })
 
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'a.ts' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /Rename/ }))
@@ -324,7 +332,7 @@ describe('explorer view', () => {
     fireEvent.contextMenu(screen.getByRole('tree'))
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'a.ts' }))
-    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Copy Relative Path'])
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Copy Relative Path', 'Open to the Side'])
   })
 
   it('keys: F2 renames, Delete / ⌘⌫ ask to delete — only with a selection and when editable', async () => {

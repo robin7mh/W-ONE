@@ -27,7 +27,8 @@ export const DEFAULTS: Required<Omit<LanguageSettings, 'fontFamily'>> = {
   stickyScroll: true,
   smoothScrolling: true,
   bracketPairColorization: true,
-  formatOnSave: false
+  formatOnSave: false,
+  prettier: false
 }
 
 /** The settings for a file of this language: W-ONE's defaults, the user's, the language's overrides. */
@@ -63,6 +64,8 @@ interface PrefsState {
   snippets: Snippet[]
   /** Fetch them from the core (on start, and after moving over from VS Code). */
   load: () => Promise<void>
+  /** Change some (Settings → Editor); the editor follows at once. */
+  update: (patch: Partial<EditorSettings>) => Promise<void>
 }
 
 /** The editor's preferences, keybindings and snippets — as moved over from VS Code / Cursor. */
@@ -72,5 +75,8 @@ export const useEditorPrefs = create<PrefsState>((set) => ({
   load: async () => {
     const prefs = await ipc('editor:settings').catch(() => null)
     if (prefs) set(prefs)
+  },
+  update: async (patch) => {
+    set({ settings: await ipc('editor:update', patch) })
   }
 }))

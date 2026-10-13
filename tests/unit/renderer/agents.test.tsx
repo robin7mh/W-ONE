@@ -18,7 +18,7 @@ beforeEach(() => {
   useProjects.setState({ projects: [], load: vi.fn(async () => {}) })
 })
 
-const status = (over: Partial<AiStatus> = {}): AiStatus => ({ configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high' }, ...over })
+const status = (over: Partial<AiStatus> = {}): AiStatus => ({ configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }, ...over })
 const agents: AgentInfo[] = [
   { id: 'assistant', name: 'Assistant', description: 'Personal', tools: ['memory_search'], web: false },
   { id: 'research', name: 'Research', description: 'Web', tools: [], web: true },
@@ -142,7 +142,7 @@ function core(over: Record<string, (p: never) => unknown> = {}) {
     'permission:respond': () => undefined,
     'ai:setKey': () => status({ keyHint: 'WXYZ' }),
     'ai:clearKey': () => status({ configured: false, source: null }),
-    'ai:configure': (p: { effort: string }) => status({ settings: { model: 'claude-opus-5-5', effort: p.effort as never } }),
+    'ai:configure': (p: { effort: string }) => status({ settings: { model: 'claude-opus-5-5', effort: p.effort as never, inline: false, inlineModel: 'claude-opus-5-5' } }),
     ...over
   })
 }

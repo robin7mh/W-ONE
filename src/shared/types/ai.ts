@@ -17,12 +17,50 @@ export const MODELS: readonly ModelOption[] = [
   { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Faster · lower cost' }
 ]
 
+/** Models for suggestions while typing (Tab) — the first one is the default; the faster ones answer sooner. */
+export const INLINE_MODELS: readonly ModelOption[] = [
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'Best suggestions · default' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Faster · lower cost' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'Fastest · lowest cost' }
+]
+
 export interface AiSettings {
   model: string
   effort: Effort
+  /** Suggestions while typing, accepted with Tab (they cost tokens on every pause, so they're opt-in). */
+  inline: boolean
+  /** The model behind them. */
+  inlineModel: string
 }
 
-export const DEFAULT_AI_SETTINGS: AiSettings = { model: 'claude-opus-5-5', effort: 'high' }
+export const DEFAULT_AI_SETTINGS: AiSettings = { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }
+
+/** A suggestion at the cursor: the file around it. */
+export interface InlineCompleteRequest {
+  requestId: string
+  /** Project-relative, for the model's orientation. */
+  path: string
+  language: string
+  prefix: string
+  suffix: string
+}
+
+/** ⌘K: rewrite the selection (or write at the cursor) as asked. */
+export interface InlineEditRequest {
+  requestId: string
+  path: string
+  language: string
+  before: string
+  selection: string
+  after: string
+  instruction: string
+}
+
+/** Text of a ⌘K edit as it is written. */
+export interface InlineDelta {
+  requestId: string
+  text: string
+}
 
 export interface AiStatus {
   /** An API key is available. */

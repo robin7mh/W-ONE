@@ -1,9 +1,9 @@
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
-import { inject, listen, LiveServerService, matchesGlob, RELOAD_SCRIPT } from '../../../electron/main/services/live/LiveServerService'
+import { inject, listen, LiveServerService, matchesGlob, RELOAD_SCRIPT, unchanged } from '../../../electron/main/services/live/LiveServerService'
 import { outputPath, SassService, type SassCompiler } from '../../../electron/main/services/live/SassService'
 import { liveServerSettings, sassSettings } from '../../../electron/main/services/migrate/MigrateService'
 import type { LiveServerSettings, SassSettings } from '@shared/types/migrate'
@@ -105,6 +105,21 @@ describe('Live Server', () => {
     await writeFile(join(root, 'public/css/site.css'), 'h1 { color: blue }')
     expect(await swap).toBe('css')
 
+    // A stylesheet and a page in the same moment (one window): the page needs a reload.
+    const calm = make(root, { port: 0, wait: 400, noBrowser: true })
+    const third = await calm.service.start('r')
+    const both = nextEvent(third.url)
+    await new Promise((r) => setTimeout(r, 100))
+    await writeFile(join(root, 'public/css/site.css'), 'h1 { color: red }')
+    await writeFile(join(root, 'public/index.html'), '<body>v3</body>')
+    expect(await both).toBe('reload')
+    // A deleted page reloads too.
+    const gone = nextEvent(third.url)
+    await new Promise((r) => setTimeout(r, 100))
+    await rm(join(root, 'public/index.html'))
+    expect(await gone).toBe('reload')
+    await writeFile(join(root, 'public/index.html'), '<body>back</body>')
+
     const full = make(root, { port: 0, fullReload: true, noBrowser: true })
     const second = await full.service.start('q', 'public/index.html')
     expect(full.opened).toEqual([])
@@ -113,6 +128,23 @@ describe('Live Server', () => {
     await writeFile(join(root, 'public/css/site.css'), 'h1 { color: green }')
     expect(await again).toBe('reload')
   }, 20_000)
+
+  it('a new folder (and events replayed from before the watch) change nothing: a style still swaps in place', async () => {
+    const root = await site() // fresh: no late events from other writes
+    const { service } = make(root, { port: 0, wait: 10, noBrowser: true })
+    const { url } = await service.start('p')
+    const swap = nextEvent(url)
+    await new Promise((r) => setTimeout(r, 100))
+    await mkdir(join(root, 'public/fresh'))
+    await new Promise((r) => setTimeout(r, 100))
+    await writeFile(join(root, 'public/css/site.css'), 'h1 { color: blue }')
+    expect(await swap).toBe('css')
+  }, 10_000)
+
+  it('what a watch event means: folders and files older than the watch changed nothing; deleted files did', () => {
+    const file = (mtimeMs: number, dir = false) => ({ isDirectory: () => dir, mtimeMs })
+    expect([unchanged(file(5, true), 10), unchanged(file(5), 10), unchanged(file(15), 10), unchanged(null, 10)]).toEqual([true, true, false, false])
+  })
 
   it('refuses unknown projects and roots that aren’t folders; takes the next free port', async () => {
     const root = await site()

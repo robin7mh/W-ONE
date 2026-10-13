@@ -309,7 +309,11 @@ export class RemoteService {
   /** The remote core runs on this desktop's license (it can't sign in itself). */
   private async handLicense(url: string, token: string): Promise<void> {
     const entitlement = this.opts.entitlement()
-    if (entitlement) await this.rpc(url, token, 'cloud:adopt', entitlement)
+    if (!entitlement) return
+    await this.rpc(url, token, 'cloud:adopt', entitlement).catch((err: Error) => {
+      // Its package verifies with the key built into it — the same as this app's.
+      throw coded('remote-license', `The remote W-ONE can't verify this license (${err.message}) — its server package must come from the same release`)
+    })
   }
 
   private async rpc(url: string, token: string, channel: string, payload?: unknown): Promise<unknown> {

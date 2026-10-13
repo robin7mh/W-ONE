@@ -48,6 +48,10 @@ export interface AdapterContext {
   output: (stream: 'stdout' | 'stderr', text: string) => void
   /** A command of the language's server (jdtls starts Java debug sessions). */
   command?: (command: string, args: unknown[]) => Promise<unknown>
+  /** Python: run this module (pytest) rather than the program file. */
+  module?: string
+  /** Go: run the package's tests. */
+  goTest?: boolean
 }
 
 export type Spawn = (command: string, args: string[], cwd: string, env?: Record<string, string>) => ChildProcess
@@ -91,7 +95,18 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
       launch: {
         adapterID: 'debugpy',
         kill: () => void proc.kill(),
-        arguments: { type: 'python', request: 'launch', name: 'W-ONE', program: ctx.program, args: ctx.args, cwd: ctx.root, python: [python], console: 'internalConsole', justMyCode: true, redirectOutput: true }
+        arguments: {
+          type: 'python',
+          request: 'launch',
+          name: 'W-ONE',
+          ...(ctx.module ? { module: ctx.module } : { program: ctx.program }),
+          args: ctx.args,
+          cwd: ctx.root,
+          python: [python],
+          console: 'internalConsole',
+          justMyCode: true,
+          redirectOutput: true
+        }
       }
     }
   }
@@ -175,7 +190,7 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
     launch: {
       adapterID: 'go',
       kill: () => void proc.kill(),
-      arguments: { request: 'launch', mode: 'debug', program: dirname(ctx.program), args: ctx.args, cwd: ctx.root }
+      arguments: { request: 'launch', mode: ctx.goTest ? 'test' : 'debug', program: dirname(ctx.program), args: ctx.args, cwd: ctx.root }
     }
   }
 }

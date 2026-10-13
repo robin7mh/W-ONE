@@ -1,4 +1,4 @@
-import { DEFAULT_AI_SETTINGS, EFFORTS, MODELS, type AiSettings, type AiStatus } from '@shared/types/ai'
+import { DEFAULT_AI_SETTINGS, EFFORTS, INLINE_MODELS, MODELS, type AiSettings, type AiStatus } from '@shared/types/ai'
 import type { SettingsService } from '../settings/SettingsService'
 import type { SecretStore } from './SecretStore'
 import { AnthropicProvider } from './AnthropicProvider'
@@ -56,6 +56,7 @@ export class AiService {
     const next = { ...this.settings(), ...patch }
     if (!MODELS.some((m) => m.id === next.model)) throw aiError('bad-model', `Unknown model: ${next.model}`)
     if (!EFFORTS.includes(next.effort)) throw aiError('bad-effort', `Unknown effort: ${next.effort}`)
+    if (!INLINE_MODELS.some((m) => m.id === next.inlineModel)) throw aiError('bad-model', `Unknown model: ${next.inlineModel}`)
     await this.deps.settings.update({ ai: next })
     return this.status()
   }

@@ -188,7 +188,7 @@ export const useDebug = create<DebugState>((set, get) => {
       const editor = useEditor.getState()
       const projectId = editor.projectId
       if (!projectId) return
-      const shown = editor.tabs.find((t) => t.id === editor.activeId && t.projectId === projectId)
+      const shown = editor.tabs.find((t) => t.id === editor.focusedId() && t.projectId === projectId)
       const program = get().program[projectId]?.trim() || shown?.path
       if (!program) return set({ error: 'no-program' })
       // Unsaved edits would not be what runs.

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "W-ONE — a dark, futuristic Sci-Fi command-center desktop app.",
   "author": "Robin Hinkelmann",
+  "desktopName": "w-one.desktop",
   "license": "SEE LICENSE IN LICENSE",
   "main": "out/main/index.js",
   "scripts": {
@@ -34,6 +35,8 @@
     "test:all": "npm run typecheck && npm run test:coverage && npm run test:e2e",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:mac:dir": "npm run build && electron-builder --mac --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
     "release:mac": "npm run build && electron-builder --mac --publish always"
   },
   "dependencies": {
@@ -53,8 +56,10 @@
     "lucide-react": "^0.427.0",
     "marked": "^18.0.14",
     "monaco-editor": "^0.57.0",
+    "monaco-vim": "^0.4.4",
     "mongodb": "^7.7.0",
     "node-pty": "^1.1.0",
+    "prettier": "^3.9.10",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

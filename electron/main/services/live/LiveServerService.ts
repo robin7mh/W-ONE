@@ -63,12 +63,21 @@ export function matchesGlob(path: string, glob: string): boolean {
 
 const IGNORED = /(^|\/)(\.git|node_modules)(\/|$)/
 
+/** A watch event that changed nothing a page shows: a folder (its files report themselves), or a file older than the watch (macOS replays recent events). Gone files did change. */
+export function unchanged(info: { isDirectory(): boolean; mtimeMs: number } | null, since: number): boolean {
+  return !!info && (info.isDirectory() || info.mtimeMs < since)
+}
+
 interface Running {
   status: LiveServerStatus
   server: Server
   clients: Set<ServerResponse>
   watcher: FSWatcher
   timer?: NodeJS.Timeout
+  /** When watching began — macOS replays recent changes at the start; older files don't count. */
+  since: number
+  /** A change in this window needs a full reload (anything but a stylesheet changed). */
+  reload: boolean
 }
 
 export interface LiveServerOptions {
@@ -117,8 +126,8 @@ export class LiveServerService {
     const server = createServer((req, res) => void this.serve(root, clients, req, res))
     const port = await listen(server, settings.port ?? 5500)
     const status: LiveServerStatus = { projectId, url: `http://127.0.0.1:${port}`, port, root: rootRel }
-    const run: Running = { status, server, clients, watcher: watch(root, { recursive: true }) }
-    run.watcher.on('change', (_event, file) => this.changed(run, root, String(file), settings))
+    const run: Running = { status, server, clients, watcher: watch(root, { recursive: true }), since: Date.now(), reload: false }
+    run.watcher.on('change', (_event, file) => void this.changed(run, root, String(file), settings))
     run.watcher.on('error', () => {})
     this.running.set(projectId, run)
     this.publish()
@@ -151,13 +160,18 @@ export class LiveServerService {
     await this.opts.open(`${status.url}/${rel.split('/').map(encodeURIComponent).join('/')}`)
   }
 
-  private changed(run: Running, root: string, file: string, settings: LiveServerSettings): void {
+  private async changed(run: Running, root: string, file: string, settings: LiveServerSettings): Promise<void> {
     const rel = file.split(sep).join('/')
     if (IGNORED.test(rel) || settings.ignore?.some((g) => matchesGlob(rel, g))) return
-    const css = !settings.fullReload && extname(rel) === '.css'
+    // A folder (its files report themselves) or a file untouched since watching began (a replayed event): nothing changed.
+    if (unchanged(await stat(join(root, file)).catch(() => null), run.since)) return
+    // Within one window: stylesheets swap in place only if nothing else changed.
+    run.reload ||= settings.fullReload || extname(rel) !== '.css'
     clearTimeout(run.timer)
     run.timer = setTimeout(() => {
-      for (const c of run.clients) c.write(`data: ${css ? 'css' : 'reload'}\n\n`)
+      const kind = run.reload ? 'reload' : 'css'
+      run.reload = false
+      for (const c of run.clients) c.write(`data: ${kind}\n\n`)
     }, settings.wait ?? 100)
   }
 

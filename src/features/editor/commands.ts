@@ -7,7 +7,7 @@ import { editorActions } from './actions'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
 const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string][] = [
-  ['editor.action.formatDocument', 'format', '⇧⌥F'],
+  ['wone.formatDocument', 'format', '⇧⌥F'],
   ['editor.action.commentLine', 'comment', '⌘/'],
   ['editor.action.revealDefinition', 'definition', 'F12'],
   ['editor.action.goToReferences', 'references', '⇧F12'],
@@ -22,7 +22,7 @@ const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string]
 ]
 
 /** Monaco actions the palette leaves out: its own palette, and duplicates of ours. */
-const HIDDEN = new Set(['editor.action.quickCommand', 'editor.action.gotoLine', ...CURATED.map(([id]) => id)])
+const HIDDEN = new Set(['editor.action.quickCommand', 'editor.action.gotoLine', 'editor.action.formatDocument', ...CURATED.map(([id]) => id)])
 
 const MODULES: Exclude<ModuleId, 'editor' | 'account'>[] = ['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings']
 
@@ -117,9 +117,10 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
       { id: 'file.save', label: `${p.file}: ${t.common.save}`, keys: '⌘S', run: () => editor().save() },
       { id: 'file.saveAll', label: `${p.file}: ${p.saveAll}`, keys: '⌥⌘S', run: () => editor().saveAll() }
     ]),
-    { id: 'file.close', label: `${p.file}: ${p.closeEditor}`, run: () => editor().activeId && editor().requestClose(editor().activeId!) },
+    { id: 'file.close', label: `${p.file}: ${p.closeEditor}`, run: () => editor().focusedId() && editor().requestClose(editor().focusedId()!) },
     { id: 'go.file', label: `${p.go}: ${t.scm.quickOpen}`, keys: '⌘P', run: () => scm().setQuickOpen(true) },
     { id: 'go.line', label: `${p.go}: ${p.goToLine}`, keys: '⌃G', run: () => scm().setQuickOpen(true, ':') },
+    { id: 'view.split', label: `${p.view}: ${p.split}`, keys: '⌘\\', run: () => (editor().splitId ? editor().closeSplit() : editor().split()) },
     pane('files', t.explorer.title),
     pane('search', t.scm.panes.search, '⇧⌘F'),
     pane('scm', t.scm.panes.scm, '⇧⌘G'),

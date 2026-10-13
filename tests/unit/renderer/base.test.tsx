@@ -203,6 +203,7 @@ describe('data & shared constants', () => {
       'terminal:data',
       'terminal:exit',
       'ai:delta',
+      'ai:inlineDelta',
       'ai:message',
       'ai:conversationsChanged',
       'permission:request',
@@ -218,7 +219,9 @@ describe('data & shared constants', () => {
       'tools:progress',
       'liveServer:changed',
       'sftp:progress',
-      'remote:changed'
+      'remote:changed',
+      'tests:changed',
+      'notebook:event'
     ])
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
