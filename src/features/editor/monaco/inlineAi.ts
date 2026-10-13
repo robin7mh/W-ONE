@@ -21,8 +21,8 @@ const WIDGET_HEIGHT = 46
 let status: AiStatus | undefined
 let registered = false
 
-/** Suggestions while typing: switched on in Settings → AI, with a key. */
-export const suggesting = () => !!status?.configured && !!status.settings.inline
+/** Suggestions while typing: switched on in Settings → AI, with the user's own key (never on the account's credit). */
+export const suggesting = () => (status?.source === 'env' || status?.source === 'stored') && !!status.settings.inline
 
 const newId = () => crypto.randomUUID()
 

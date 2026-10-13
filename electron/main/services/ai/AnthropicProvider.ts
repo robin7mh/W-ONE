@@ -7,6 +7,16 @@ type Block = Anthropic.Beta.BetaContentBlock
 type BlockParam = Anthropic.Beta.BetaContentBlockParam
 
 const STOP_REASONS: readonly StopReason[] = ['end_turn', 'tool_use', 'max_tokens', 'refusal', 'pause_turn']
+/** Mindeck Cloud's refusals → the codes the app branches on. */
+const CLOUD_CODES: Record<string, string> = {
+  ai_credit_exhausted: 'ai-credit-exhausted',
+  license_required: 'license-required',
+  ai_unavailable: 'ai-unavailable',
+  ai_rate_limited: 'rate-limited',
+  session_invalid: 'session_expired',
+  unauthorized: 'session_expired'
+}
+
 /** Models the API reroutes on a refusal (server-side fallback); Haiku has none. */
 const FALLBACK_MODELS = /^claude-(opus|sonnet|fable)-/
 
@@ -59,10 +69,19 @@ function summarizeServerResult(block: Anthropic.Beta.BetaWebSearchToolResultBloc
  * the recommended model instead of failing.
  */
 export class AnthropicProvider implements LlmProvider {
-  constructor(private readonly client: Client) {}
+  constructor(
+    private readonly client: Client,
+    /** Through Mindeck Cloud: it adds the fallback itself and offers no server tools. */
+    private readonly cloud = false
+  ) {}
 
   static fromKey(apiKey: string): AnthropicProvider {
     return new AnthropicProvider(new Anthropic({ apiKey }))
+  }
+
+  /** Mindeck Cloud speaks the Messages API below `baseUrl`, signed in with the account's session — never with a key from the environment. */
+  static forCloud(baseUrl: string, token: string): AnthropicProvider {
+    return new AnthropicProvider(new Anthropic({ apiKey: null, authToken: token, baseURL: baseUrl }), true)
   }
 
   /** Cheap key check (no tokens spent): look up the model. */
@@ -82,7 +101,7 @@ export class AnthropicProvider implements LlmProvider {
       description: t.description,
       input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema
     }))
-    if (req.webTools) {
+    if (req.webTools && !this.cloud) {
       tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: 5 })
       tools.push({ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 })
     }
@@ -97,9 +116,9 @@ export class AnthropicProvider implements LlmProvider {
           messages: req.messages.map(toApiMessage),
           ...(tools.length ? { tools } : {}),
           output_config: { effort: req.effort },
-          ...(FALLBACK_MODELS.test(req.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
+          ...(FALLBACK_MODELS.test(req.model) && !this.cloud ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
         },
-        { signal: req.signal }
+        { signal: req.signal, ...(this.cloud ? { headers: { 'x-mindeck-ai-kind': req.kind ?? 'assistant' } } : {}) }
       )
       stream.on('text', (delta) => onText(delta))
       const message = await stream.finalMessage()
@@ -114,6 +133,9 @@ export class AnthropicProvider implements LlmProvider {
       }
     } catch (err) {
       if (req.signal?.aborted || err instanceof Anthropic.APIUserAbortError) throw aiError('cancelled', 'Cancelled')
+      // Mindeck Cloud says why in its own words: { error: { code, message } }.
+      const cloudError = this.cloud && err instanceof Anthropic.APIError ? (err.error as { error?: { code?: string; message?: string } } | undefined)?.error : undefined
+      if (cloudError?.code) throw aiError(CLOUD_CODES[cloudError.code] ?? 'ai-error', cloudError.message ?? cloudError.code)
       if (err instanceof Anthropic.AuthenticationError) throw aiError('bad-key', 'The API key was rejected by Anthropic')
       if (err instanceof Anthropic.RateLimitError) throw aiError('rate-limited', 'Rate limited by Anthropic — try again shortly')
       if (err instanceof Anthropic.APIConnectionError) throw aiError('ai-unavailable', `Anthropic API unreachable: ${err.message}`)

@@ -99,12 +99,14 @@ export const useAssistant = create<AssistantState>((set, get) => {
           return list ? { messages: { ...s.messages, [conversationId]: applyDelta(list, messageId, text) } } : {}
         })
       ),
-      onEvent('ai:message', ({ conversationId, message, running }) =>
+      onEvent('ai:message', ({ conversationId, message, running }) => {
         set((s) => ({
           messages: { ...s.messages, [conversationId]: upsertMessage(s.messages[conversationId] ?? [], message) },
           running: { ...s.running, [conversationId]: running }
         }))
-      ),
+        // An answer finished: the credit through Mindeck Cloud changed.
+        if (!running && get().status?.source === 'cloud') void ipc('ai:status').then((status) => set({ status }), () => {})
+      }),
       onEvent('ai:conversationsChanged', ({ reason, id }) => {
         if (reason === 'deleted' && get().activeId === id) set({ activeId: undefined })
         void loadConversations().catch(fail)

@@ -135,7 +135,8 @@ async function harness(opts: { script?: Step[]; agents?: AgentDefinition[]; remo
         if (opts.noKey) throw aiError('no-key', 'No key')
         return provider
       },
-      settings: () => ({ model: 'claude-opus-5-5', effort: 'medium' })
+      settings: () => ({ model: 'claude-opus-5-5', effort: 'medium' }),
+      model: async () => 'claude-opus-5-5'
     } as never,
     store,
     runs,

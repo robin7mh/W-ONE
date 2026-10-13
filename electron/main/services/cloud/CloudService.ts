@@ -1,3 +1,4 @@
+import type { AiCredit, AiStatus } from '@shared/types/ai'
 import { randomUUID, type KeyObject } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -159,6 +160,18 @@ export class CloudService {
 
   dispose(): void {
     clearInterval(this.timer)
+  }
+
+  /** The account's session (null when signed out) — the AI through the cloud signs in with it. */
+  async sessionToken(): Promise<string | null> {
+    return (this.data.account && (await this.opts.secrets.get(SESSION_SECRET))) || null
+  }
+
+  /** The account's AI credit and models — null when signed out, offline, a follower or the cloud offers no AI. */
+  async aiInfo(): Promise<AiStatus['cloud']> {
+    if (!this.data.account || this.opts.follower) return null
+    const res = await this.call<{ available: boolean; credit: AiCredit | null; models: { id: string; label: string; costFactor: number }[] }>('GET', '/v1/me/ai').catch(() => null)
+    return res?.available && res.credit ? { credit: res.credit, models: res.models } : null
   }
 
   status(): CloudStatus {

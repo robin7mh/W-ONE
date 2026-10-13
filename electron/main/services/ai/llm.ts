@@ -34,6 +34,8 @@ export interface LlmRequest {
   webTools: boolean
   maxTokens: number
   signal?: AbortSignal
+  /** What the request is for — Mindeck Cloud books it so. */
+  kind?: 'assistant' | 'agent' | 'edit'
 }
 
 export type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'pause_turn' | 'other'

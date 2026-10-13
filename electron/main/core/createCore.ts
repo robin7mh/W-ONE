@@ -220,7 +220,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   // The assistant: provider, context engine, tools behind the permission gate.
   // One store for every secret (LLM key, cloud session) — one writer per file.
   const secrets = new SecretStore(paths.secretsFile, opts.cipher)
-  const ai = new AiService({ settings, secrets, factory: opts.providerFactory })
+  // Without a key of one's own, the assistant asks Mindeck Cloud (signed in, with the account's AI credit).
+  const ai = new AiService({
+    settings,
+    secrets,
+    factory: opts.providerFactory,
+    cloud: { baseUrl: `${(opts.cloud ?? cloudConfig(false)).url}/ai`, token: () => cloud.sessionToken(), info: () => cloud.aiInfo() }
+  })
 
   // The Mindeck account: sign-in, the trial clock and the license (Mindeck Cloud).
   const cloudCfg: CloudConfig & { fetch?: typeof fetch } = opts.cloud ?? cloudConfig(false)

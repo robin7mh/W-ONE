@@ -24,8 +24,17 @@ export const INLINE_MODELS: readonly ModelOption[] = [
   { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'Fastest · lowest cost' }
 ]
 
+/** Models Mindeck Cloud offers (the first one is the default); the cloud may offer fewer. */
+export const CLOUD_MODELS: readonly ModelOption[] = [
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'Fast · light on credit · default' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Stronger · about 20× the credit' }
+]
+
 export interface AiSettings {
+  /** The model with the user's own API key. */
   model: string
+  /** The model through Mindeck Cloud (no key of one's own). */
+  cloudModel: string
   effort: Effort
   /** Suggestions while typing, accepted with Tab (they cost tokens on every pause, so they're opt-in). */
   inline: boolean
@@ -33,7 +42,7 @@ export interface AiSettings {
   inlineModel: string
 }
 
-export const DEFAULT_AI_SETTINGS: AiSettings = { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }
+export const DEFAULT_AI_SETTINGS: AiSettings = { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }
 
 /** A suggestion at the cursor: the file around it. */
 export interface InlineCompleteRequest {
@@ -62,13 +71,27 @@ export interface InlineDelta {
   text: string
 }
 
+/** The AI credit through Mindeck Cloud (euro cents). */
+export interface AiCredit {
+  /** Lifetime license: per calendar month; trial: once. */
+  period: 'month' | 'trial'
+  allowanceCents: number
+  usedCents: number
+  remainingCents: number
+  renewsAt: string | null
+}
+
 export interface AiStatus {
-  /** An API key is available. */
+  /** The assistant can be used: an API key of one's own, or Mindeck Cloud. */
   configured: boolean
-  /** Where the key comes from: the environment wins over the stored one. */
-  source: 'env' | 'stored' | null
-  /** Last four characters, for recognition only. */
+  /** Where it comes from: the environment wins over the stored key, either over the cloud. */
+  source: 'env' | 'stored' | 'cloud' | null
+  /** Last four characters of one's own key, for recognition only. */
   keyHint?: string
+  /** The model in use right now. */
+  model: string
+  /** Mindeck Cloud's AI (signed in): credit and models; null when signed out or the cloud offers none. */
+  cloud: { credit: AiCredit; models: { id: string; label: string; costFactor: number }[] } | null
   settings: AiSettings
 }
 
@@ -124,6 +147,8 @@ export interface ChatMessage {
   createdAt: string
   status: ChatStatus
   error?: string
+  /** Why it failed, for the app to say in its own words (`ai-credit-exhausted`, `license-required` …). */
+  errorCode?: string
   model?: string
   usage?: { inputTokens: number; outputTokens: number }
 }

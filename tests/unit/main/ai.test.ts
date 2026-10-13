@@ -151,6 +151,48 @@ describe('AnthropicProvider', () => {
     expect(haiku.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback')
   })
 
+  it('through Mindeck Cloud: the account’s session (never a key from the environment), what it’s for, no web or fallback; the cloud’s refusals by code', async () => {
+    let status = 200
+    let error: Record<string, unknown> = {}
+    const { url, seen } = await fakeApi(() =>
+      status === 200 ? { status, sse: [start('claude-haiku-5-5'), block(0, { type: 'text', text: '' }), delta(0, { type: 'text_delta', text: 'Hi' }), stop(0), ...end('end_turn')] } : { status, json: { error } }
+    )
+    const saved = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-users-own-key'
+    try {
+      const cloud = AnthropicProvider.forCloud(`${url}/ai`, 'ws_session')
+      const turn = await cloud.stream(request({ model: 'claude-sonnet-5-5', webTools: true, kind: 'edit' }), () => {})
+      expect(turn.message.blocks).toMatchObject([{ type: 'text', text: 'Hi' }])
+      const sent = seen[0]
+      expect(sent.url).toBe('/ai/v1/messages?beta=true')
+      expect(sent.headers.authorization).toBe('Bearer ws_session')
+      expect(sent.headers['x-api-key']).toBeUndefined()
+      expect(sent.headers['x-mindeck-ai-kind']).toBe('edit')
+      expect(sent.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback')
+      expect(sent.body).not.toHaveProperty('fallbacks')
+      expect(sent.body).not.toHaveProperty('tools')
+      await cloud.stream(request(), () => {})
+      expect(seen[1].headers['x-mindeck-ai-kind']).toBe('assistant')
+
+      const refused = async (s: number, e: Record<string, unknown>) => {
+        status = s
+        error = e
+        return cloud.stream(request(), () => {}).catch((err: { code: string; message: string }) => ({ code: err.code, message: err.message }))
+      }
+      expect(await refused(402, { code: 'ai_credit_exhausted', message: 'Guthaben aufgebraucht.' })).toEqual({ code: 'ai-credit-exhausted', message: 'Guthaben aufgebraucht.' })
+      expect(await refused(403, { code: 'license_required', message: 'Lizenz fehlt.' })).toMatchObject({ code: 'license-required' })
+      expect(await refused(503, { code: 'ai_unavailable', message: 'Pause.' })).toMatchObject({ code: 'ai-unavailable' })
+      expect(await refused(429, { code: 'ai_rate_limited', message: 'Busy.' })).toMatchObject({ code: 'rate-limited' })
+      expect(await refused(401, { code: 'session_invalid', message: 'Session expired or revoked' })).toMatchObject({ code: 'session_expired' })
+      expect(await refused(400, { code: 'invalid_input' })).toEqual({ code: 'ai-error', message: 'invalid_input' })
+      // Not the cloud's words (a proxy in between): as for Anthropic itself.
+      expect(await refused(500, {})).toMatchObject({ code: 'ai-error' })
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = saved
+    }
+  })
+
   it('turns API failures into coded errors', async () => {
     let status = 401
     const { provider } = await fakeApi(() => ({ status, json: { type: 'error', error: { type: 'x', message: 'nope' } } }))
@@ -251,18 +293,36 @@ describe('SecretStore', () => {
 })
 
 describe('AiService', () => {
-  const setup = async (env: NodeJS.ProcessEnv = {}) => {
+  const CLOUD = { credit: { period: 'trial' as const, allowanceCents: 30, usedCents: 1, remainingCents: 29, renewsAt: null }, models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }] }
+  const setup = async (env: NodeJS.ProcessEnv = {}, cloud?: { token: string | null; info: typeof CLOUD | null | Error }) => {
     const dir = await tempDir()
     const settings = new SettingsService(join(dir, 'settings.json'))
     await settings.init()
     const verify = vi.fn(async () => {})
-    const factory = { create: vi.fn((key: string) => ({ key, verify, stream: vi.fn() }) as never) }
-    return { ai: new AiService({ settings, secrets: new SecretStore(join(dir, 's.json')), env, factory }), verify, factory, settings }
+    const factory = {
+      create: vi.fn((key: string) => ({ key, verify, stream: vi.fn() }) as never),
+      cloud: vi.fn((baseUrl: string, token: string) => ({ baseUrl, token, stream: vi.fn() }) as never)
+    }
+    const cloudAi = cloud && {
+      baseUrl: 'https://api.mindeck.test/ai',
+      token: async () => cloud.token,
+      info: async () => {
+        if (cloud.info instanceof Error) throw cloud.info
+        return cloud.info
+      }
+    }
+    return { ai: new AiService({ settings, secrets: new SecretStore(join(dir, 's.json')), env, factory, cloud: cloudAi }), verify, factory, settings }
   }
 
   it('reports, verifies, stores and clears the key; env wins', async () => {
     const { ai, verify, factory } = await setup()
-    expect(await ai.status()).toEqual({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } })
+    expect(await ai.status()).toEqual({
+      configured: false,
+      source: null,
+      model: 'claude-opus-5-5',
+      cloud: null,
+      settings: { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }
+    })
     await expect(ai.provider()).rejects.toMatchObject({ code: 'no-key' })
     await expect(ai.setKey('short')).rejects.toMatchObject({ code: 'bad-key' })
     verify.mockRejectedValueOnce(aiError('bad-key', 'rejected'))
@@ -277,10 +337,35 @@ describe('AiService', () => {
     expect(await envAi.status()).toMatchObject({ configured: true, source: 'env', keyHint: '1234' })
   })
 
+  it('without a key of one’s own: Mindeck Cloud with the account (its model, its credit); a key of one’s own wins', async () => {
+    const { ai, factory } = await setup({}, { token: 'ws_session', info: CLOUD })
+    expect(await ai.status()).toMatchObject({ configured: true, source: 'cloud', model: 'claude-haiku-5-5', cloud: CLOUD })
+    expect(await ai.ownKey()).toBe(false)
+    expect(await ai.model()).toBe('claude-haiku-5-5')
+    const p1 = await ai.provider()
+    expect(await ai.provider()).toBe(p1) // cached per session
+    expect(factory.cloud).toHaveBeenCalledWith('https://api.mindeck.test/ai', 'ws_session')
+    // A key of one's own: the assistant uses it; the credit is still shown.
+    await ai.setKey('sk-ant-xxxxxxxxxxxxxxxxWXYZ')
+    expect(await ai.status()).toMatchObject({ configured: true, source: 'stored', keyHint: 'WXYZ', model: 'claude-opus-5-5', cloud: CLOUD })
+    expect(await ai.model()).toBe('claude-opus-5-5')
+    expect(await ai.provider()).not.toBe(p1)
+
+    // Signed in, but the cloud offers no AI (or can't be reached): not configured — yet the session still asks it (the cloud says why).
+    const offline = await setup({}, { token: 'ws_session', info: new Error('offline') })
+    expect(await offline.ai.status()).toMatchObject({ configured: false, source: null, cloud: null })
+    expect(await offline.ai.provider()).toBeTruthy()
+    // Signed out: setup.
+    const out = await setup({}, { token: null, info: null })
+    await expect(out.ai.provider()).rejects.toMatchObject({ code: 'no-key', message: expect.stringContaining('Sign in') })
+  })
+
   it('validates model and effort; defaults to the Anthropic provider', async () => {
     const { ai, settings } = await setup()
     expect(await ai.configure({ model: 'claude-sonnet-5-5', effort: 'low' })).toMatchObject({ settings: { model: 'claude-sonnet-5-5', effort: 'low' } })
-    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' })
+    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', cloudModel: 'claude-haiku-5-5', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' })
+    expect(await ai.configure({ cloudModel: 'claude-sonnet-5-5' })).toMatchObject({ settings: { cloudModel: 'claude-sonnet-5-5' } })
+    await expect(ai.configure({ cloudModel: 'claude-opus-5-5' })).rejects.toMatchObject({ code: 'bad-model' })
     expect(await ai.configure({ inline: true, inlineModel: 'claude-haiku-5-5' })).toMatchObject({ settings: { inline: true, inlineModel: 'claude-haiku-5-5' } })
     await expect(ai.configure({ model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-model' })
     // Haiku suggests while typing; it isn't one of the assistant's models.
@@ -293,6 +378,8 @@ describe('AiService', () => {
     await s2.init()
     const real = new AiService({ settings: s2, secrets: new SecretStore(join(dir, 'y.json')), env: { ANTHROPIC_API_KEY: 'sk-real-key' } })
     expect(await real.provider()).toBeInstanceOf(AnthropicProvider)
+    const viaCloud = new AiService({ settings: s2, secrets: new SecretStore(join(dir, 'w.json')), env: {}, cloud: { baseUrl: 'http://127.0.0.1:1/ai', token: async () => 'ws_x', info: async () => null } })
+    expect(await viaCloud.provider()).toBeInstanceOf(AnthropicProvider)
     const saved = process.env.ANTHROPIC_API_KEY
     delete process.env.ANTHROPIC_API_KEY
     try {

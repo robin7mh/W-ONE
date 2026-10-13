@@ -264,7 +264,15 @@ agents: {
     // assistant pane
     newChatWith: (name: string) => `New chat · ${name}`,
     assistantName: 'Assistant',
-    addKey: 'Add an API key in Settings to use the Mindeck Assistant →',
+    addKey: 'Sign in to your Mindeck account to use the Assistant — or add your own API key in Settings →',
+    aiErrors: {
+      'ai-credit-exhausted': 'Your AI credit is used up. It renews at the start of next month — or add your own API key in Settings to go on now.',
+      'ai-credit-exhausted-trial': 'The AI credit of the trial is used up. With a license you get new credit every month — or add your own API key in Settings.',
+      'license-required': 'The AI needs an active trial or license.',
+      'ai-unavailable': 'The AI is not available right now — please try again later.',
+      'rate-limited': 'The AI is busy — please try again in a moment.',
+      session_expired: 'Please sign in to your Mindeck account again.'
+    },
     messageTo: (name: string) => `Message ${name}…`,
     theAssistant: 'the assistant',
     personas: {
@@ -591,6 +599,7 @@ agents: {
     suggestions: 'Suggestions while typing',
     suggestionsHint: 'Ghost text at the cursor, Tab accepts it. Asks the model on every pause in typing — that costs tokens.',
     suggestionsModel: 'Model for suggestions',
+    suggestionsOwnKey: 'Ghost text at the cursor, Tab accepts it — with your own API key only (it asks on every pause in typing).',
     editHint: '⌘K in the editor rewrites the selection (or writes at the cursor) with the model above.'
   },
   notebook: {
@@ -1041,9 +1050,21 @@ agents: {
     agentsCard: 'Coding agents',
     agentsIntro: 'Your own agents, signed in with your own accounts — Mindeck starts them, shows their work and asks you before anything risky.',
     checkAgain: 'Check again',
-    aiCard: 'Mindeck Assistant (API key)',
+    aiCard: 'Mindeck Assistant (AI)',
+    locale: 'en-US',
+    viaCloud: (model: string) => `Through your Mindeck account · ${model}`,
+    aiSignIn: 'Sign in to your Mindeck account to use the AI',
+    creditLabel: 'AI credit',
+    creditUsed: (used: string, of: string) => `${used} of ${of} used`,
+    creditRenews: (date: string) => `this month · renews on ${date}`,
+    creditTrial: 'credit of the trial (once)',
+    cloudModel: 'Model (Mindeck account)',
+    cloudDefault: 'fast · light on credit',
+    costFactor: (n: number) => `about ${n}× the credit`,
+    ownKeyWins: 'Your own API key is set: the assistant uses it instead of this credit.',
+    ownKeyTitle: 'Your own API key (optional)',
+    ownKeyHint: 'For heavy use: requests go straight to Anthropic, on your bill — no credit, every model, suggestions while typing.',
     keyFrom: (env: boolean, hint?: string) => `Anthropic key ${env ? 'from the environment' : 'stored'} · …${hint}`,
-    noKey: 'No API key yet',
     newKey: 'New API key',
     replaceKey: 'Replace key…',
     removeKey: 'Remove key',

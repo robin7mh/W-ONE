@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
-import { EFFORTS, INLINE_MODELS, MODELS, type Effort } from '@shared/types/ai'
+import { AlertTriangle, Check, Info, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
@@ -11,7 +10,6 @@ import { useT } from '@/lib/i18n'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { FolderPicker } from '@/components/ui/FolderPicker'
 import { cn } from '@/lib/cn'
-import { Select } from '@/components/ui/Select'
 import { useSession } from '@/features/session/store'
 import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
@@ -21,6 +19,7 @@ import { AppearanceCard } from './AppearanceCard'
 import { LanguagesCard } from './LanguagesCard'
 import { MigrateCard } from './MigrateCard'
 import { EditorCard } from './EditorCard'
+import { AiCard } from './AiCard'
 import { Toggle } from './Toggle'
 
 const input =
@@ -57,85 +56,6 @@ function AgentsCard() {
       <button type="button" className={cn(button, 'mt-3')} disabled={detecting} onClick={() => void useAgents.getState().detect()}>
         <RefreshCw size={12} className={cn(detecting && 'animate-spin')} /> {t.settings.checkAgain}
       </button>
-    </Card>
-  )
-}
-
-function AiCard() {
-  const t = useT()
-  const status = useAssistant((s) => s.status)
-  const { setKey, clearKey, configure } = useAssistant.getState()
-  const [key, setKeyText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const save = async () => {
-    setBusy(true)
-    if (await setKey(key)) setKeyText('')
-    setBusy(false)
-  }
-  return (
-    <Card icon={BrainCircuit} title={t.settings.aiCard}>
-      <div className="flex items-center gap-2">
-        <StatusDot tone={status?.configured ? 'ok' : 'warn'} pulse={false} />
-        <span className="font-sans text-[13px] text-text-primary">
-          {status?.configured
-            ? t.settings.keyFrom(status.source === 'env', status.keyHint)
-            : t.settings.noKey}
-        </span>
-      </div>
-      {status?.source !== 'env' && (
-        <div className="mt-3 flex gap-2">
-          <input
-            type="password"
-            aria-label={t.settings.newKey}
-            placeholder={status?.configured ? t.settings.replaceKey : 'sk-ant-…'}
-            value={key}
-            onChange={(e) => setKeyText(e.target.value)}
-            className={cn(input, 'min-w-0 flex-1')}
-          />
-          <button type="button" className={button} disabled={!key.trim() || busy} onClick={() => void save()}>
-            <KeyRound size={13} /> {t.common.save}
-          </button>
-          {status?.source === 'stored' && (
-            <button type="button" aria-label={t.settings.removeKey} className={cn(button, 'hover:border-danger/50 hover:text-danger')} onClick={() => void clearKey()}>
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="flex min-w-0 flex-col gap-1">
-          <TechLabel className="text-text-muted">{t.settings.model}</TechLabel>
-          <Select
-            label={t.settings.model}
-            value={status?.settings.model ?? MODELS[0].id}
-            onChange={(model) => void configure({ model })}
-            options={MODELS.map((m) => ({ value: m.id, label: m.label, hint: m.note }))}
-          />
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          <TechLabel className="text-text-muted">{t.settings.effort}</TechLabel>
-          <Select
-            label={t.settings.effort}
-            value={status?.settings.effort ?? 'high'}
-            onChange={(effort) => void configure({ effort: effort as Effort })}
-            options={EFFORTS.map((e) => ({ value: e, label: e }))}
-          />
-        </div>
-      </div>
-      <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.settings.effortHint}</p>
-      <p className="mt-1 font-sans text-[11.5px] text-text-muted">{t.inlineAi.editHint}</p>
-      <div className="mt-3 space-y-2 border-t border-hud/60 pt-3">
-        <Toggle label={t.inlineAi.suggestions} hint={t.inlineAi.suggestionsHint} checked={!!status?.settings.inline} disabled={!status} onChange={(inline) => void configure({ inline })} />
-        <div className="flex min-w-0 flex-col gap-1">
-          <TechLabel className="text-text-muted">{t.inlineAi.suggestionsModel}</TechLabel>
-          <Select
-            label={t.inlineAi.suggestionsModel}
-            value={status?.settings.inlineModel ?? INLINE_MODELS[0].id}
-            onChange={(inlineModel) => void configure({ inlineModel })}
-            options={INLINE_MODELS.map((m) => ({ value: m.id, label: m.label, hint: m.note }))}
-          />
-        </div>
-      </div>
     </Card>
   )
 }

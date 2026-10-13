@@ -323,7 +323,7 @@ describe('NewChatDialog', () => {
 
   it('Mindeck Assistant: chosen when no agent is ready; sends the first message into a new assistant chat', async () => {
     const a = { newChat: vi.fn(), setProject: vi.fn(), send: vi.fn(async () => true) }
-    useAssistant.setState({ status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, ...a })
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }, ...a })
     useAgents.setState({ availability: [claude({ ready: false, signedIn: false, hint: 'Sign in once: claude auth login' })] })
     dialog({ prompt: 'Hello' })
     await act(settle)
@@ -341,7 +341,7 @@ describe('NewChatDialog', () => {
 
   it('assistant without a first message; switching between agents', async () => {
     const a = { newChat: vi.fn(), setProject: vi.fn(), send: vi.fn(async () => true) }
-    useAssistant.setState({ status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } }, ...a })
+    useAssistant.setState({ status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }, ...a })
     useAgents.setState({ availability: [claude()], create: vi.fn(async () => true) })
     dialog()
     fireEvent.click(screen.getByRole('button', { name: /Mindeck Assistant/ }))
@@ -808,7 +808,7 @@ describe('AssistantPane', () => {
     }
     useAssistant.setState({
       ...a,
-      status: { configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } },
+      status: { configured: false, model: 'claude-opus-5-5', cloud: null, source: null, settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } },
       agents: [
         { id: 'assistant', name: 'Assistant', description: 'Personal', tools: [], web: false },
         { id: 'research', name: 'Research', description: 'Web', tools: [], web: true },
@@ -821,7 +821,7 @@ describe('AssistantPane', () => {
     expect(screen.getByText('Mindeck Assistant · claude-opus-5-5 · high')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Research' }))
     expect(a.newChat).toHaveBeenCalledWith('research')
-    fireEvent.click(screen.getByText(/Add an API key in Settings/))
+    fireEvent.click(screen.getByText(/Sign in to your Mindeck account to use the Assistant/))
     expect(onOpenSettings).toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('Dismiss'))
     expect(a.clearError).toHaveBeenCalled()
@@ -829,7 +829,7 @@ describe('AssistantPane', () => {
 
     act(() =>
       useAssistant.setState({
-        status: { configured: true, source: 'stored', settings: { model: 'm', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' } },
+        status: { configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', settings: { model: 'm', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } },
         error: undefined,
         conversations: [{ id: 'c1', title: 'Chat one', agentId: 'odd', createdAt: '', updatedAt: '', running: true }],
         activeId: 'c1',

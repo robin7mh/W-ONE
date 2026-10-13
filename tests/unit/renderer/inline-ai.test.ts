@@ -130,10 +130,12 @@ function fakeEditor(model: InstanceType<typeof mon.Model> | null, selection = ne
 
 type FakeEditor = ReturnType<typeof fakeEditor>
 const ed = (e: FakeEditor) => e as never
-const STATUS = (over: Partial<AiStatus['settings']> = {}, configured = true): AiStatus => ({
+const STATUS = (over: Partial<AiStatus['settings']> = {}, configured = true, source: AiStatus['source'] = configured ? 'stored' : null): AiStatus => ({
   configured,
-  source: 'stored',
-  settings: { model: 'claude-opus-5-5', effort: 'high', inline: true, inlineModel: 'claude-opus-5-5', ...over }
+  source,
+  model: 'claude-opus-5-5',
+  cloud: null,
+  settings: { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high', inline: true, inlineModel: 'claude-opus-5-5', ...over }
 })
 
 const input = () => document.querySelector<HTMLInputElement>('input[aria-label="What should the AI change?"]')
@@ -166,6 +168,11 @@ describe('suggestions while typing', () => {
     expect(suggesting()).toBe(false)
     useAssistant.setState({ status: STATUS({}, false) })
     expect(suggesting()).toBe(false)
+    // Through Mindeck Cloud: not on the account's credit.
+    useAssistant.setState({ status: STATUS({}, true, 'cloud') })
+    expect(suggesting()).toBe(false)
+    useAssistant.setState({ status: STATUS({}, true, 'env') })
+    expect(suggesting()).toBe(true)
     inlineCompletions.disposeInlineCompletions({ items: [] }, 'lostRace' as never)
   })
 

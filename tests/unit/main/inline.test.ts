@@ -5,7 +5,7 @@ import { aiError, type LlmProvider, type LlmRequest, type StopReason } from '../
 import type { AiService } from '../../../electron/main/services/ai/AiService'
 
 /** A provider that answers with the given chunks (streamed) or waits until aborted. */
-function harness(settings: Partial<AiSettings> = {}, answer: (req: LlmRequest) => { chunks: string[]; stop?: StopReason } | 'hang' | Error = () => ({ chunks: ['x'] })) {
+function harness(settings: Partial<AiSettings> & { ownKey?: boolean } = {}, answer: (req: LlmRequest) => { chunks: string[]; stop?: StopReason } | 'hang' | Error = () => ({ chunks: ['x'] })) {
   const requests: LlmRequest[] = []
   const deltas: InlineDelta[] = []
   const provider: LlmProvider = {
@@ -21,7 +21,13 @@ function harness(settings: Partial<AiSettings> = {}, answer: (req: LlmRequest) =
       return { message: { role: 'assistant', blocks: [{ type: 'opaque', data: {} }, { type: 'text', text: chunks.join('') }] }, stopReason: stop, model: req.model, usage: { inputTokens: 1, outputTokens: 1 }, serverTools: [] }
     }
   }
-  const ai = { settings: () => ({ ...DEFAULT_AI_SETTINGS, inline: true, ...settings }), provider: async () => provider } as unknown as AiService
+  const all = { ...DEFAULT_AI_SETTINGS, inline: true, ...settings }
+  const ai = {
+    settings: () => all,
+    provider: async () => provider,
+    ownKey: async () => settings.ownKey ?? true,
+    model: async () => ((settings.ownKey ?? true) ? all.model : all.cloudModel)
+  } as unknown as AiService
   return { service: new InlineService({ ai, publish: (d) => deltas.push(d) }), requests, deltas }
 }
 
@@ -62,6 +68,10 @@ describe('InlineService', () => {
     const off = harness({ inline: false })
     expect(await off.service.complete(complete())).toBe('')
     expect(off.requests).toEqual([])
+    // Through Mindeck Cloud (no key of one's own): never on the account's credit.
+    const cloud = harness({ ownKey: false })
+    expect(await cloud.service.complete(complete())).toBe('')
+    expect(cloud.requests).toEqual([])
 
     const h = harness({}, (req) => ((req.messages[0].blocks[0] as { text: string }).text.includes('first') ? 'hang' : { chunks: ['2'] }))
     const first = h.service.complete(complete({ requestId: 'a', prefix: 'first ' }))
@@ -83,12 +93,18 @@ describe('InlineService', () => {
   it('edits with the assistant’s model: the file with the selection marked, the instruction, text as it comes', async () => {
     const h = harness({ model: 'claude-sonnet-5-5' }, () => ({ chunks: ['```js\n', 'const x = 1', '\n```'] }))
     expect(await h.service.edit(edit)).toBe('const x = 1')
-    expect(h.requests[0]).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium', maxTokens: 64_000 })
+    expect(h.requests[0]).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium', maxTokens: 32_000, kind: 'edit' })
     expect((h.requests[0].messages[0].blocks[0] as { text: string }).text).toBe(
       '<file path="a.js" language="javascript">\ntop\n<SELECTION>var x = 1</SELECTION>\nend\n</file>\n\n<instruction>\nuse const\n</instruction>'
     )
     expect(h.deltas.map((d) => d.text)).toEqual(['```js\n', 'const x = 1', '\n```'])
     expect(h.deltas.every((d) => d.requestId === 'e1')).toBe(true)
+  })
+
+  it('through Mindeck Cloud an edit uses the cloud’s model', async () => {
+    const h = harness({ ownKey: false, cloudModel: 'claude-haiku-5-5' }, () => ({ chunks: ['x'] }))
+    await h.service.edit(edit)
+    expect(h.requests[0]).toMatchObject({ model: 'claude-haiku-5-5', kind: 'edit' })
   })
 
   it('a declined or cancelled edit fails', async () => {

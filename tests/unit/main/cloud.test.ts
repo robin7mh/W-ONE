@@ -42,6 +42,11 @@ function fakeCloud(clock: { now: number }) {
     down: false,
     lease: true as boolean | 'forged' | 'broken',
     fail: {} as Record<string, { status: number; body?: unknown }>,
+    ai: {
+      available: true,
+      credit: { period: 'trial', allowanceCents: 30, usedCents: 2, remainingCents: 28, renewsAt: null },
+      models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }]
+    } as Record<string, unknown>,
     calls: [] as Call[]
   }
   const license = () => ({ plan: s.plan, trial: { limitSeconds: 25_200, usedSeconds: s.used, remainingSeconds: 25_200 - s.used } })
@@ -70,6 +75,8 @@ function fakeCloud(clock: { now: number }) {
       }
       case '/v1/billing/checkout':
         return json({ url: 'https://checkout.stripe.test/1' })
+      case '/v1/me/ai':
+        return json(s.ai)
       default:
         return new Response(null, { status: 204 })
     }
@@ -268,6 +275,26 @@ describe('CloudService', () => {
     const file = await readFile(join(t.dir, 'cloud.json'), 'utf8')
     expect(file).not.toContain('ws_secret')
     expect(t.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'active' }))
+  })
+
+  it('the AI through the cloud: the session for it, the account’s credit and models — nothing when signed out, offline or not offered', async () => {
+    const t = await setup()
+    expect(await t.svc.sessionToken()).toBeNull()
+    expect(await t.svc.aiInfo()).toBeNull()
+    await t.signIn()
+    expect(await t.svc.sessionToken()).toBe('ws_secret')
+    expect(await t.svc.aiInfo()).toEqual({
+      credit: { period: 'trial', allowanceCents: 30, usedCents: 2, remainingCents: 28, renewsAt: null },
+      models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }]
+    })
+    expect(t.cloud.last('/v1/me/ai')).toMatchObject({ method: 'GET', auth: 'Bearer ws_secret' })
+    t.cloud.s.ai = { available: false, credit: null, models: [] }
+    expect(await t.svc.aiInfo()).toBeNull()
+    t.cloud.s.down = true
+    expect(await t.svc.aiInfo()).toBeNull()
+    // A core the desktop runs elsewhere has no account of its own.
+    const follower = await setup({ follower: true })
+    expect(await follower.svc.aiInfo()).toBeNull()
   })
 
   it('registers with name and language', async () => {
