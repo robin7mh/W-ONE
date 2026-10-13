@@ -1,0 +1,13 @@
+# Python env + render output (regenerable)
+.venv/
+__pycache__/
+out/
+probe/
+sub*/
+draft/
+# Downloaded third-party media stays under its own license, fetched by script, never committed
+**/audio/
+**/sfx/
+*.mp3
+*.wav
+*.mp4
