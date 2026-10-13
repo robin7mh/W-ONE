@@ -9,4 +9,7 @@ export function registerFilesIpc(router: Router, service: FilesService): void {
   router.register('files:write', ({ projectId, path, content, expectedMtime }) =>
     service.write(projectId, path, content, expectedMtime)
   )
+  router.register('files:create', ({ projectId, path, kind }) => service.create(projectId, path, kind))
+  router.register('files:rename', ({ projectId, from, to }) => service.rename(projectId, from, to))
+  router.register('files:delete', ({ projectId, path }) => service.remove(projectId, path))
 }

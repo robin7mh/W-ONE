@@ -3,7 +3,6 @@ import { chmod, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/pro
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
-import { newDb } from 'pg-mem'
 import { tempDir, tick } from './helpers'
 import { AnthropicProvider, fromApiContent, toApiMessage } from '../../../electron/main/services/ai/AnthropicProvider'
 import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
@@ -20,12 +19,10 @@ import { aiError, type LlmProvider, type LlmRequest, type LlmTurn } from '../../
 import { EventBus } from '../../../electron/main/services/events/EventBus'
 import { EventLog } from '../../../electron/main/services/events/EventLog'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
-import { DbService } from '../../../electron/main/services/db/DbService'
-import { MIGRATIONS } from '../../../electron/main/services/db/migrations'
 import type { Project } from '@shared/types/project'
 import type { ProjectContext } from '@shared/types/context'
 import type { AgentRun } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 
 // --- a local Messages API that speaks real SSE ---------------------------------
 
@@ -93,12 +90,12 @@ describe('AnthropicProvider', () => {
         delta(0, { type: 'text_delta', text: 'lo' }),
         stop(0),
         block(1, { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: {} }),
-        delta(1, { type: 'input_json_delta', partial_json: '{"query":"w-one"}' }),
+        delta(1, { type: 'input_json_delta', partial_json: '{"query":"mindeck"}' }),
         stop(1),
         block(2, {
           type: 'web_search_tool_result',
           tool_use_id: 'srv_1',
-          content: [{ type: 'web_search_result', title: 'W-ONE', url: 'https://w.one', encrypted_content: 'x', page_age: null }]
+          content: [{ type: 'web_search_result', title: 'Mindeck', url: 'https://w.one', encrypted_content: 'x', page_age: null }]
         }),
         stop(2),
         block(3, { type: 'tool_use', id: 'tu_1', name: 'memory_search', input: {} }),
@@ -118,7 +115,7 @@ describe('AnthropicProvider', () => {
     expect(turn.model).toBe('claude-opus-5-5')
     expect(turn.message.blocks.map((b) => b.type)).toEqual(['text', 'opaque', 'opaque', 'tool_call'])
     expect(turn.message.blocks[3]).toMatchObject({ type: 'tool_call', id: 'tu_1', name: 'memory_search', input: { query: 'x' } })
-    expect(turn.serverTools).toEqual([{ id: 'srv_1', name: 'web_search', input: { query: 'w-one' }, output: 'W-ONE — https://w.one' }])
+    expect(turn.serverTools).toEqual([{ id: 'srv_1', name: 'web_search', input: { query: 'mindeck' }, output: 'Mindeck — https://w.one' }])
 
     const body = seen[0].body
     expect(seen[0].headers['anthropic-beta']).toContain('server-side-fallback-2026-07-01')
@@ -147,6 +144,53 @@ describe('AnthropicProvider', () => {
       expect(turn.stopReason).toBe(r === 'stop_sequence' ? 'other' : r)
     }
     expect(seen[0].body).not.toHaveProperty('tools')
+    // Haiku has no server-side fallback: none asked for.
+    await provider.stream(request({ model: 'claude-haiku-5-5' }), () => {})
+    const haiku = seen[seen.length - 1]
+    expect(haiku.body).not.toHaveProperty('fallbacks')
+    expect(haiku.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback')
+  })
+
+  it('through Mindeck Cloud: the account’s session (never a key from the environment), what it’s for, no web or fallback; the cloud’s refusals by code', async () => {
+    let status = 200
+    let error: Record<string, unknown> = {}
+    const { url, seen } = await fakeApi(() =>
+      status === 200 ? { status, sse: [start('claude-haiku-5-5'), block(0, { type: 'text', text: '' }), delta(0, { type: 'text_delta', text: 'Hi' }), stop(0), ...end('end_turn')] } : { status, json: { error } }
+    )
+    const saved = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-users-own-key'
+    try {
+      const cloud = AnthropicProvider.forCloud(`${url}/ai`, 'ws_session')
+      const turn = await cloud.stream(request({ model: 'claude-sonnet-5-5', webTools: true, kind: 'edit' }), () => {})
+      expect(turn.message.blocks).toMatchObject([{ type: 'text', text: 'Hi' }])
+      const sent = seen[0]
+      expect(sent.url).toBe('/ai/v1/messages?beta=true')
+      expect(sent.headers.authorization).toBe('Bearer ws_session')
+      expect(sent.headers['x-api-key']).toBeUndefined()
+      expect(sent.headers['x-mindeck-ai-kind']).toBe('edit')
+      expect(sent.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback')
+      expect(sent.body).not.toHaveProperty('fallbacks')
+      expect(sent.body).not.toHaveProperty('tools')
+      await cloud.stream(request(), () => {})
+      expect(seen[1].headers['x-mindeck-ai-kind']).toBe('assistant')
+
+      const refused = async (s: number, e: Record<string, unknown>) => {
+        status = s
+        error = e
+        return cloud.stream(request(), () => {}).catch((err: { code: string; message: string }) => ({ code: err.code, message: err.message }))
+      }
+      expect(await refused(402, { code: 'ai_credit_exhausted', message: 'Guthaben aufgebraucht.' })).toEqual({ code: 'ai-credit-exhausted', message: 'Guthaben aufgebraucht.' })
+      expect(await refused(403, { code: 'license_required', message: 'Lizenz fehlt.' })).toMatchObject({ code: 'license-required' })
+      expect(await refused(503, { code: 'ai_unavailable', message: 'Pause.' })).toMatchObject({ code: 'ai-unavailable' })
+      expect(await refused(429, { code: 'ai_rate_limited', message: 'Busy.' })).toMatchObject({ code: 'rate-limited' })
+      expect(await refused(401, { code: 'session_invalid', message: 'Session expired or revoked' })).toMatchObject({ code: 'session_expired' })
+      expect(await refused(400, { code: 'invalid_input' })).toEqual({ code: 'ai-error', message: 'invalid_input' })
+      // Not the cloud's words (a proxy in between): as for Anthropic itself.
+      expect(await refused(500, {})).toMatchObject({ code: 'ai-error' })
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = saved
+    }
   })
 
   it('turns API failures into coded errors', async () => {
@@ -249,18 +293,36 @@ describe('SecretStore', () => {
 })
 
 describe('AiService', () => {
-  const setup = async (env: NodeJS.ProcessEnv = {}) => {
+  const CLOUD = { credit: { period: 'trial' as const, allowanceCents: 30, usedCents: 1, remainingCents: 29, renewsAt: null }, models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }] }
+  const setup = async (env: NodeJS.ProcessEnv = {}, cloud?: { token: string | null; info: typeof CLOUD | null | Error }) => {
     const dir = await tempDir()
     const settings = new SettingsService(join(dir, 'settings.json'))
     await settings.init()
     const verify = vi.fn(async () => {})
-    const factory = { create: vi.fn((key: string) => ({ key, verify, stream: vi.fn() }) as never) }
-    return { ai: new AiService({ settings, secrets: new SecretStore(join(dir, 's.json')), env, factory }), verify, factory, settings }
+    const factory = {
+      create: vi.fn((key: string) => ({ key, verify, stream: vi.fn() }) as never),
+      cloud: vi.fn((baseUrl: string, token: string) => ({ baseUrl, token, stream: vi.fn() }) as never)
+    }
+    const cloudAi = cloud && {
+      baseUrl: 'https://api.mindeck.test/ai',
+      token: async () => cloud.token,
+      info: async () => {
+        if (cloud.info instanceof Error) throw cloud.info
+        return cloud.info
+      }
+    }
+    return { ai: new AiService({ settings, secrets: new SecretStore(join(dir, 's.json')), env, factory, cloud: cloudAi }), verify, factory, settings }
   }
 
   it('reports, verifies, stores and clears the key; env wins', async () => {
     const { ai, verify, factory } = await setup()
-    expect(await ai.status()).toEqual({ configured: false, source: null, settings: { model: 'claude-opus-5-5', effort: 'high' } })
+    expect(await ai.status()).toEqual({
+      configured: false,
+      source: null,
+      model: 'claude-opus-5-5',
+      cloud: null,
+      settings: { model: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' }
+    })
     await expect(ai.provider()).rejects.toMatchObject({ code: 'no-key' })
     await expect(ai.setKey('short')).rejects.toMatchObject({ code: 'bad-key' })
     verify.mockRejectedValueOnce(aiError('bad-key', 'rejected'))
@@ -275,11 +337,40 @@ describe('AiService', () => {
     expect(await envAi.status()).toMatchObject({ configured: true, source: 'env', keyHint: '1234' })
   })
 
+  it('without a key of one’s own: Mindeck Cloud with the account (its model, its credit); a key of one’s own wins', async () => {
+    const { ai, factory } = await setup({}, { token: 'ws_session', info: CLOUD })
+    expect(await ai.status()).toMatchObject({ configured: true, source: 'cloud', model: 'claude-haiku-5-5', cloud: CLOUD })
+    expect(await ai.ownKey()).toBe(false)
+    expect(await ai.model()).toBe('claude-haiku-5-5')
+    const p1 = await ai.provider()
+    expect(await ai.provider()).toBe(p1) // cached per session
+    expect(factory.cloud).toHaveBeenCalledWith('https://api.mindeck.test/ai', 'ws_session')
+    // A key of one's own: the assistant uses it; the credit is still shown.
+    await ai.setKey('sk-ant-xxxxxxxxxxxxxxxxWXYZ')
+    expect(await ai.status()).toMatchObject({ configured: true, source: 'stored', keyHint: 'WXYZ', model: 'claude-opus-5-5', cloud: CLOUD })
+    expect(await ai.model()).toBe('claude-opus-5-5')
+    expect(await ai.provider()).not.toBe(p1)
+
+    // Signed in, but the cloud offers no AI (or can't be reached): not configured — yet the session still asks it (the cloud says why).
+    const offline = await setup({}, { token: 'ws_session', info: new Error('offline') })
+    expect(await offline.ai.status()).toMatchObject({ configured: false, source: null, cloud: null })
+    expect(await offline.ai.provider()).toBeTruthy()
+    // Signed out: setup.
+    const out = await setup({}, { token: null, info: null })
+    await expect(out.ai.provider()).rejects.toMatchObject({ code: 'no-key', message: expect.stringContaining('Sign in') })
+  })
+
   it('validates model and effort; defaults to the Anthropic provider', async () => {
     const { ai, settings } = await setup()
     expect(await ai.configure({ model: 'claude-sonnet-5-5', effort: 'low' })).toMatchObject({ settings: { model: 'claude-sonnet-5-5', effort: 'low' } })
-    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', effort: 'low' })
+    expect(settings.get().ai).toEqual({ model: 'claude-sonnet-5-5', cloudModel: 'claude-haiku-5-5', effort: 'low', inline: false, inlineModel: 'claude-opus-5-5' })
+    expect(await ai.configure({ cloudModel: 'claude-sonnet-5-5' })).toMatchObject({ settings: { cloudModel: 'claude-sonnet-5-5' } })
+    await expect(ai.configure({ cloudModel: 'claude-opus-5-5' })).rejects.toMatchObject({ code: 'bad-model' })
+    expect(await ai.configure({ inline: true, inlineModel: 'claude-haiku-5-5' })).toMatchObject({ settings: { inline: true, inlineModel: 'claude-haiku-5-5' } })
     await expect(ai.configure({ model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-model' })
+    // Haiku suggests while typing; it isn't one of the assistant's models.
+    await expect(ai.configure({ model: 'claude-haiku-5-5' })).rejects.toMatchObject({ code: 'bad-model' })
+    await expect(ai.configure({ inlineModel: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-model' })
     await expect(ai.configure({ effort: 'extreme' as never })).rejects.toMatchObject({ code: 'bad-effort' })
 
     const dir = await tempDir()
@@ -287,6 +378,8 @@ describe('AiService', () => {
     await s2.init()
     const real = new AiService({ settings: s2, secrets: new SecretStore(join(dir, 'y.json')), env: { ANTHROPIC_API_KEY: 'sk-real-key' } })
     expect(await real.provider()).toBeInstanceOf(AnthropicProvider)
+    const viaCloud = new AiService({ settings: s2, secrets: new SecretStore(join(dir, 'w.json')), env: {}, cloud: { baseUrl: 'http://127.0.0.1:1/ai', token: async () => 'ws_x', info: async () => null } })
+    expect(await viaCloud.provider()).toBeInstanceOf(AnthropicProvider)
     const saved = process.env.ANTHROPIC_API_KEY
     delete process.env.ANTHROPIC_API_KEY
     try {
@@ -548,7 +641,7 @@ describe('agents', () => {
 describe('PermissionService', () => {
   const setup = async (timeoutMs?: number) => {
     const dir = await tempDir()
-    const events: WoneEvent[] = []
+    const events: MindeckEvent[] = []
     const bus = new EventBus({ sink: { persist: () => {} } })
     bus.subscribe('*', (e) => events.push(e))
     const requests: unknown[] = []
@@ -676,16 +769,8 @@ describe('ConversationStore', () => {
   })
 })
 
-const memDb = async () => {
-  const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg()
-  const db = new DbService(new Pool() as never)
-  await db.migrate(MIGRATIONS)
-  return db
-}
-const brokenDb = { query: vi.fn(async () => Promise.reject(new Error('db down'))) }
-
 describe('EventLog', () => {
-  const ev = (id: string, conversationId?: string): WoneEvent => ({
+  const ev = (id: string, conversationId?: string): MindeckEvent => ({
     id,
     type: 'tool.completed',
     ts: new Date(Date.UTC(2026, 9, 1, 0, 0, Number(id.slice(1)))).toISOString(),
@@ -696,36 +781,41 @@ describe('EventLog', () => {
     payload: { n: id }
   })
 
-  it('keeps a bounded ring without a database', async () => {
-    const log = new EventLog(3)
+  it('keeps a bounded ring; without a file it is memory only', async () => {
+    const log = new EventLog(undefined, 3)
+    await log.load()
     for (const id of ['e1', 'e2', 'e3', 'e4']) log.persist(ev(id, id === 'e4' ? 'c' : undefined), 'activity')
+    await log.flush()
     expect((await log.recent()).map((e) => e.id)).toEqual(['e4', 'e3', 'e2'])
     expect((await log.recent({ limit: 1 })).map((e) => e.id)).toEqual(['e4'])
     expect((await log.recent({ conversationId: 'c' })).map((e) => e.id)).toEqual(['e4'])
     expect((await log.recent({ limit: 0 })).length).toBe(1)
   })
 
-  it('writes to and reads from Postgres; falls back to memory when it fails', async () => {
-    const db = await memDb()
-    const log = new EventLog()
-    log.attach(db)
-    log.persist(ev('e1', 'c'), 'audit')
-    log.persist({ ...ev('e2'), actor: { kind: 'system' }, subject: undefined, projectId: undefined }, 'activity')
-    await tick(30)
-    const all = await log.recent()
-    expect(all.map((e) => e.id)).toEqual(['e2', 'e1'])
-    expect(all[1]).toEqual(ev('e1', 'c'))
-    expect(all[0]).toEqual({ id: 'e2', type: 'tool.completed', ts: ev('e2').ts, actor: { kind: 'system' }, payload: { n: 'e2' } })
-    expect((await log.recent({ conversationId: 'c' })).map((e) => e.id)).toEqual(['e1'])
-    expect((await db.query('SELECT class FROM events WHERE id = $1', ['e1']))[0].class).toBe('audit')
+  it('a file in the data folder keeps the history across restarts; it is compacted, damaged lines are skipped', async () => {
+    const file = join(await tempDir(), 'events.jsonl')
+    const log = new EventLog(file, 2)
+    await log.load() // no file yet
+    for (const id of ['e1', 'e2', 'e3', 'e4']) log.persist(ev(id), 'activity')
+    await log.flush()
+    expect((await readFile(file, 'utf8')).trim().split('\n')).toHaveLength(4)
+    log.persist(ev('e5', 'c'), 'audit') // past twice the capacity: rewritten with the newest
+    await log.flush()
+    expect((await readFile(file, 'utf8')).trim().split('\n').map((l) => JSON.parse(l).id)).toEqual(['e4', 'e5'])
+
+    await writeFile(file, `${await readFile(file, 'utf8')}not json\n\n`)
+    const again = new EventLog(file, 2)
+    await again.load()
+    expect((await again.recent()).map((e) => e.id)).toEqual(['e5', 'e4'])
+    expect(await again.recent({ conversationId: 'c' })).toEqual([ev('e5', 'c')])
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    log.attach(brokenDb)
-    log.persist(ev('e3'), 'activity')
-    await tick(10)
+    const broken = new EventLog(join(file, 'not-a-folder', 'events.jsonl'))
+    broken.persist(ev('e6'), 'activity')
+    await broken.flush()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not store tool.completed'))
-    expect((await log.recent()).map((e) => e.id)).toEqual(['e3', 'e2', 'e1'])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('history query failed'))
+    expect((await broken.recent()).map((e) => e.id)).toEqual(['e6']) // memory still has it
+    warn.mockRestore()
   })
 })
 
@@ -744,38 +834,51 @@ describe('RunStore', () => {
     ...over
   })
 
-  it('keeps recent runs in memory and upserts them into Postgres', async () => {
-    const mem = new RunStore(2)
+  it('keeps recent runs in memory; without a file nothing is written', async () => {
+    const mem = new RunStore(undefined, 2)
+    await mem.load()
     await mem.save(runOf('r1'))
     await mem.save(runOf('r2'))
     await mem.save(runOf('r1', { status: 'completed' })) // update moves to newest
     await mem.save(runOf('r3'))
     expect((await mem.list()).map((r) => `${r.id}:${r.status}`)).toEqual(['r3:running', 'r1:completed'])
     expect(await mem.list(0)).toHaveLength(1)
+  })
 
-    const db = await memDb()
-    const store = new RunStore()
-    store.attach(db)
+  it('a file in the data folder keeps them across restarts; damaged or unwritable files never break a run', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'runs.json')
+    const store = new RunStore(file)
+    await store.load() // no file yet
+    const failed = runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' })
     await store.save(runOf('r1', { projectId: 'p' }))
-    await store.save(runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' }))
+    await store.save(failed)
     await store.save(runOf('r2'))
-    const rows = await store.list()
-    expect(rows.map((r) => r.id)).toEqual(['r2', 'r1'])
-    expect(rows[1]).toEqual(runOf('r1', { status: 'failed', endedAt: '2026-10-01T00:05:00.000Z', error: 'boom', iterations: 2, inputTokens: 5, outputTokens: 6, projectId: 'p' }))
-    expect(rows[0]).toEqual(runOf('r2'))
+    const again = new RunStore(file)
+    await again.load()
+    expect(await again.list()).toEqual([runOf('r2'), failed])
+
+    await writeFile(file, '{"version":1}')
+    const empty = new RunStore(file)
+    await empty.load()
+    expect(await empty.list()).toEqual([])
+    await writeFile(file, 'not json')
+    await empty.load()
+    expect(await empty.list()).toEqual([])
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    store.attach(brokenDb)
-    await store.save(runOf('r9'))
+    const broken = new RunStore(join(file, 'not-a-folder', 'runs.json'))
+    await broken.save(runOf('r9'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not store run r9'))
-    expect((await store.list()).map((r) => r.id)).toContain('r9')
+    expect((await broken.list()).map((r) => r.id)).toEqual(['r9'])
+    warn.mockRestore()
   })
 })
 
 // --- context engine ---------------------------------------------------------------
 
 describe('ContextBuilder', () => {
-  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'W-ONE', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
+  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
   const builder = (over: Partial<ConstructorParameters<typeof ContextBuilder>[0]> = {}) =>
     new ContextBuilder({
       user: async () => ({ name: 'Ada' }),

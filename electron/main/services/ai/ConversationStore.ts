@@ -21,7 +21,7 @@ export interface StoredConversation {
 const SAFE_ID = /^[a-zA-Z0-9-]{1,64}$/
 
 /**
- * Conversations as JSON files under ~/W-ONE/data/conversations — the
+ * Conversations as JSON files under ~/Mindeck/data/conversations — the
  * assistant works with or without the database container, and a conversation
  * is backed up by copying one folder.
  */

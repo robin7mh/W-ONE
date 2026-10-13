@@ -1,6 +1,6 @@
 // A tiny stand-in for the Anthropic Messages API (SSE streaming + models),
 // so the assistant can be driven end to end without a key or network.
-// The W-ONE core points the official SDK at it via ANTHROPIC_BASE_URL.
+// The Mindeck core points the official SDK at it via ANTHROPIC_BASE_URL.
 //
 //   node tests/e2e/fake-anthropic.mjs 7799     # manual runs
 //
@@ -82,7 +82,7 @@ export function startFakeAnthropic(port = 0) {
         ], 'tool_use')
       )
     }
-    const context = (texts[0] ?? '').includes('<context>') ? 'I can see your W-ONE context.' : 'No context was attached.'
+    const context = (texts[0] ?? '').includes('<context>') ? 'I can see your Mindeck context.' : 'No context was attached.'
     return sse(res, message(model, textEvents(0, `## Hello from the assistant\n\nYou said: *${said.slice(0, 80)}*.\n\n- ${context}\n- Streaming works.`), 'end_turn'))
   })
   return new Promise((resolve) =>

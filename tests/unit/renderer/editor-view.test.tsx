@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, installRemote, settle } from './bridge'
+import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { Project } from '@shared/types/project'
 import type { CursorInfo } from '@/features/editor/components/CodeEditor'
 import type { EditorTab } from '@/features/editor/store'
@@ -20,6 +20,12 @@ vi.mock('@/features/editor/components/CodeEditor', () => ({
     }, [tab?.id])
     return <div data-testid="monaco">{`${tab?.id ?? 'none'}${readOnly ? ' (read-only)' : ''}`}</div>
   }
+}))
+
+vi.mock('@/features/editor/components/NotebookView', () => ({
+  default: ({ tab, readOnly, onRaw }: { tab: EditorTab; readOnly: boolean; onRaw: () => void }) => (
+    <button type="button" onClick={onRaw}>{`notebook ${tab.path}${readOnly ? ' (read-only)' : ''}`}</button>
+  )
 }))
 
 import { EditorView } from '@/features/editor/components/EditorView'
@@ -180,7 +186,7 @@ describe('EditorView', () => {
     expect(e().projectId).toBe('q')
     expect(screen.getByRole('treeitem', { name: 'q-file.ts' })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p' } })
+    choose('Project', /^Alpha/)
     await act(settle)
     expect(screen.getByRole('treeitem', { name: 'p-file.ts' })).toBeInTheDocument()
     bridge.invoke.mockClear()
@@ -277,6 +283,23 @@ describe('EditorView', () => {
     expect(bridge.invoke).not.toHaveBeenCalledWith('files:write', expect.anything())
   })
 
+  it('notebooks show as notebooks over their file (both sides of a split), or as JSON', async () => {
+    installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
+    useProjects.setState({ projects: [project('p')] })
+    useEditor.setState({ tabs: [tab('a.ipynb'), tab('b.IPYNB'), tab('c.ipynb', { content: undefined, loading: true })], activeId: 'p:a.ipynb', splitId: 'p:b.IPYNB' })
+    render(view())
+    await act(settle)
+    expect(await screen.findByText('notebook a.ipynb')).toBeInTheDocument()
+    expect(await screen.findByText('notebook b.IPYNB')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('notebook a.ipynb'))
+    expect(screen.queryByText('notebook a.ipynb')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show as notebook' }))
+    expect(await screen.findByText('notebook a.ipynb')).toBeInTheDocument()
+    // Still loading: no notebook yet.
+    act(() => useEditor.setState({ activeId: 'p:c.ipynb', splitId: undefined }))
+    expect(screen.queryByText(/^notebook/)).toBeNull()
+  })
+
   it('a file without cursor info yet shows only its path and state', async () => {
     installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
     useProjects.setState({ projects: [project('p')] })
@@ -339,7 +362,7 @@ describe('EditorView', () => {
 
   it('in a browser: no VS Code; read-only when the core does not allow remote edits', async () => {
     installRemote({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
-    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: true } } })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false } })
     useProjects.setState({ projects: [project('p')] })
     useEditor.setState({
       tabs: [tab('a.ts', { conflict: true, dirty: true }), tab('b.png', { content: undefined, unsupported: 'binary' })],
@@ -351,11 +374,17 @@ describe('EditorView', () => {
     expect(screen.getByTestId('monaco')).toHaveTextContent('p:a.ts (read-only)')
     expect(screen.getByText('Read-only')).toBeInTheDocument()
     expect(screen.getByText('Keep mine')).toBeDisabled()
+    // Read-only: the palette has nothing that writes or runs code.
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true })
+    const labels = screen.getAllByRole('option').map((o) => o.textContent)
+    expect(labels.some((l) => l!.startsWith('Debug:'))).toBe(false)
+    expect(labels).not.toContain('File: Save⌘S')
+    fireEvent.keyDown(screen.getByRole('dialog').querySelector('input')!, { key: 'Escape' })
     act(() => useEditor.setState({ activeId: 'p:b.png' }))
     expect(screen.getByText('Binary file')).toBeInTheDocument()
     expect(screen.queryByText('Open in VS Code')).toBeNull()
 
-    act(() => useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true, db: { connected: true } } }))
+    act(() => useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: true } }))
     act(() => useEditor.setState({ activeId: 'p:a.ts' }))
     expect(screen.getByTestId('monaco')).toHaveTextContent(/^p:a\.ts$/)
   })

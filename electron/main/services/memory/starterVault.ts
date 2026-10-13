@@ -27,19 +27,19 @@ export function starterNotes(): { path: string; content: string }[] {
     {
       path: 'Willkommen.md',
       content:
-        frontmatter({ type: 'knowledge', tags: ['w-one'] }) +
-        `Das ist dein **W-ONE Gedächtnis** – ein ganz normaler Obsidian-Vault. Jede Notiz ist eine Markdown-Datei in diesem Ordner.
+        frontmatter({ type: 'knowledge', tags: ['mindeck'] }) +
+        `Das ist dein **Mindeck Gedächtnis** – ein ganz normaler Obsidian-Vault. Jede Notiz ist eine Markdown-Datei in diesem Ordner.
 
 ## So funktioniert's
-- Verbinde Notizen mit \`[[Wikilinks]]\`, z. B. [[Über mich]] oder [[W-ONE]].
+- Verbinde Notizen mit \`[[Wikilinks]]\`, z. B. [[Über mich]] oder [[Mindeck]].
 - Jeder Link wird im **Graph** zu einer Linie. Im bunten Modus bekommt jeder Ordner seine eigene Farbe.
 - Tags wie \`#idee\` oder \`#todo\` machen Notizen auffindbar.
-- Du kannst diesen Ordner zusätzlich in Obsidian öffnen – Änderungen erscheinen in W-ONE sofort.
+- Du kannst diesen Ordner zusätzlich in Obsidian öffnen – Änderungen erscheinen in Mindeck sofort.
 
 ## Bereiche
 - [[Über mich]] – wer du bist, was dir wichtig ist
 - [[Vorlieben]] – wie du arbeitest und was du magst
-- [[W-ONE]] – dein Command Center als Projekt
+- [[Mindeck]] – dein Command Center als Projekt
 - Entscheidungen – was entschieden wurde und warum, z. B. [[2026-10-01 Electron 37]]
 
 Später liest deine KI genau diese Notizen, um dich zu kennen – und schreibt neue Erinnerungen hierher.
@@ -68,7 +68,7 @@ Gehört zu [[Über mich]].
 `
     },
     {
-      path: 'Projekte/W-ONE.md',
+      path: 'Projekte/Mindeck.md',
       content:
         frontmatter({ type: 'project', tags: ['projekt'] }) +
         `Mein persönliches Command Center mit eigenem KI-Gedächtnis (Electron + React).
@@ -84,11 +84,11 @@ Passt zu meinen [[Vorlieben]].
       path: 'Entscheidungen/2026-10-01 Electron 37.md',
       content:
         frontmatter({ type: 'decision' }) +
-        `**Entscheidung:** W-ONE läuft auf Electron 37 statt 31.
+        `**Entscheidung:** Mindeck läuft auf Electron 37 statt 31.
 
 **Warum:** macOS 27 hat die Notarisierung von Electron 31.7.7 widerrufen – Gatekeeper hat die App als Malware in den Papierkorb verschoben.
 
-Projekt: [[W-ONE]]
+Projekt: [[Mindeck]]
 `
     },
     {
@@ -99,7 +99,7 @@ Projekt: [[W-ONE]]
 
 **Warum:** Es war zu viel gleichzeitig los – siehe [[Vorlieben]].
 
-Projekt: [[W-ONE]]
+Projekt: [[Mindeck]]
 `
     }
   ]

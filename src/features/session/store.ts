@@ -10,8 +10,8 @@ import {
 import type { AppInfo } from '@shared/types/server'
 import { getT } from '@/lib/i18n'
 
-const TOKEN_KEY = 'wone.token'
-const DEVICE_KEY = 'wone.deviceId'
+const TOKEN_KEY = 'mindeck.token'
+const DEVICE_KEY = 'mindeck.deviceId'
 
 export type SessionStatus = 'checking' | 'unpaired' | 'unreachable' | 'ready'
 

@@ -99,7 +99,7 @@ describe('TerminalService.create', () => {
     process.env.npm_config_x = 'y'
     process.env.VITE_X = 'z'
     process.env.INIT_CWD = '/x'
-    // markers of a Claude Code session W-ONE was started from (CLAUDE_CODE_*, CLAUDECODE, …)
+    // markers of a Claude Code session Mindeck was started from (CLAUDE_CODE_*, CLAUDECODE, …)
     const claude = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT']
     for (const k of claude) process.env[k] = '1'
     process.env.CLAUDE_CONFIG_DIR = '/kept'
@@ -113,7 +113,7 @@ describe('TerminalService.create', () => {
     expect(pty().args).toEqual(['-l'])
     expect(pty().opts).toMatchObject({ cwd: homedir(), cols: 100, rows: 30 })
     const env = pty().opts.env
-    expect(env).toMatchObject({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'W-ONE' })
+    expect(env).toMatchObject({ TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Mindeck' })
     for (const k of ['ELECTRON_RUN_AS_NODE', 'npm_config_x', 'VITE_X', 'INIT_CWD', 'NODE_ENV', ...claude]) expect(env).not.toHaveProperty(k)
     expect(env.CLAUDE_CONFIG_DIR).toBe('/kept') // the user's own Claude settings stay
     expect(env.LANG).toBeTruthy()
@@ -129,7 +129,7 @@ describe('TerminalService.create', () => {
   it('labels folders under Home with ~', async () => {
     const svc2 = new TerminalService({ emit, resolveProject: () => ({ name: 'h', path: join(homedir()) }) })
     expect((await svc2.create({ projectId: 'any' })).cwdLabel).toBe('~')
-    const under = await mkdtemp(join(homedir(), '.wone-test-'))
+    const under = await mkdtemp(join(homedir(), '.mindeck-test-'))
     const inHome = new TerminalService({ emit, resolveProject: () => ({ name: 'u', path: under }) })
     expect((await inHome.create({ projectId: 'any' })).cwdLabel).toBe(`~${under.slice(homedir().length)}`)
     inHome.killAll()
@@ -248,14 +248,14 @@ describe('TerminalService.spawnProgram (agents)', () => {
       title: 'Claude Code',
       cwd: projectDir,
       command: { file: 'claude', args: ['--session-id', 'abc', '--settings', '{"a":"it\'s"}'] },
-      env: { WONE_HOOK_TOKEN: 't' },
+      env: { MINDECK_HOOK_TOKEN: 't' },
       projectId: 'p1',
       onExit
     })
     expect(info).toMatchObject({ kind: 'agent', title: 'Claude Code', projectId: 'p1', shell: 'zsh' })
     expect(pty().file).toBe('/bin/zsh')
     expect(pty().args).toEqual(['-lc', `exec claude --session-id abc --settings '{"a":"it'\\''s"}'`])
-    expect(pty().opts.env).toMatchObject({ WONE_HOOK_TOKEN: 't', TERM_PROGRAM: 'W-ONE' })
+    expect(pty().opts.env).toMatchObject({ MINDECK_HOOK_TOKEN: 't', TERM_PROGRAM: 'Mindeck' })
     expect(svc.list()).toEqual([]) // the Terminal module only lists shells
     expect(svc.attach(info.id).info.id).toBe(info.id) // but views can attach to it
     await svc.create({})

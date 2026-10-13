@@ -1,0 +1,18 @@
+# Source: W-ONE-Electron/src/index.css (dark theme), checked 2026-10-13
+void      #04060B   background
+surface   #080B12
+panel     #0C111A
+elevated  #111824
+hud       #2A3C54   borders
+hud-strong #426084
+cyan      #38D6E8   THE accent (one accent colour in the film)
+blue      #4A84FF   chart/support only
+purple    #9E7AFF   graph category only
+amber     #F5BF60   graph category / battery only
+green     #60DC96   status dots only
+danger    #FF6070   never in the film
+text      #E2ECF7
+text-2    #96A8BD
+muted     #607085
+fonts     Inter Variable (UI, titles) · JetBrains Mono (labels, HUD, URL)
+label     uppercase, letter-spacing 0.18em

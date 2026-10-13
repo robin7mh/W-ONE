@@ -64,9 +64,10 @@ describe('ui primitives', () => {
 })
 
 describe('shell pieces', () => {
-  it('GlowBackground', () => {
+  it('GlowBackground: the plain background color, nothing on top', () => {
     const { container } = render(<GlowBackground />)
-    expect(container.querySelector('.hud-grid')).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass('bg-void')
+    expect(container.firstElementChild!.children).toHaveLength(0)
   })
 
   it('SideNavigation marks the active item and selects', () => {
@@ -139,15 +140,11 @@ describe('TopStatusBar', () => {
     expect(screen.getByText('00:01:01')).toBeInTheDocument()
   })
 
-  it('elsewhere shows window controls; hides the clock on request; toggles the theme', async () => {
+  it('elsewhere shows window controls; hides the clock on request', async () => {
     const TopStatusBar = await load('linux')
     const { container } = render(<TopStatusBar uptime={0} showClock={false} />)
     expect(container.querySelector('header')!.className).not.toContain('pl-[88px]')
     expect(screen.getByLabelText('Close')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Switch to light mode'))
-    expect(document.documentElement.dataset.theme).toBe('light')
-    fireEvent.click(screen.getByLabelText('Switch to dark mode'))
-    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 })
 
@@ -157,7 +154,7 @@ describe('TopStatusBar in a browser', () => {
     const { TopStatusBar } = await import('@/components/topbar/TopStatusBar')
     const { useSession } = await import('@/features/session/store')
     const logout = vi.fn(async () => {})
-    useSession.setState({ link: 'online', info: { mode: 'server', version: '2.0.0', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: true } }, logout })
+    useSession.setState({ link: 'online', info: { mode: 'server', version: '2.0.0', platform: 'linux', hostname: 'nas', remoteTerminal: false }, logout })
     render(<TopStatusBar uptime={0} />)
     expect(screen.queryByLabelText('Close')).toBeNull()
     expect(screen.getByText('REMOTE · nas')).toBeInTheDocument()
@@ -257,13 +254,13 @@ describe('BottomDashboard', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('No agent is running')).toBeInTheDocument()
     expect(screen.getByText('No agent activity yet')).toBeInTheDocument()
-    expect(localStorage.getItem('wone.commandDeck.open')).toBe('1')
+    expect(localStorage.getItem('mindeck.commandDeck.open')).toBe('1')
     fireEvent.click(btn)
-    expect(localStorage.getItem('wone.commandDeck.open')).toBe('0')
+    expect(localStorage.getItem('mindeck.commandDeck.open')).toBe('0')
   })
 
   it('opens from the saved preference and survives blocked storage', () => {
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const first = render(<BottomDashboard />)
     expect(screen.getByRole('button', { name: /command deck/i })).toHaveAttribute('aria-expanded', 'true')
     first.unmount()
@@ -299,7 +296,7 @@ describe('BottomDashboard with live agents', () => {
       activity: [ev('e1', 'agent.status.updated', { text: 'Thinking' }), ev('e2', 'tool.completed', { summary: 'Read A' })],
       stop
     })
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const onOpen = vi.fn()
     render(<BottomDashboard onOpenConversation={onOpen} />)
     expect(screen.getByText('1 running')).toBeInTheDocument()
@@ -320,7 +317,7 @@ describe('BottomDashboard with live agents', () => {
       ({ id, title: `Session ${id}`, status, terminalId, live: !!terminalId, projectId: 'p', projectName: 'P', kind: 'claude-code', cwd: '/', isolated: false, plan: [], notes: [], createdAt: '', updatedAt: '' }) as never
     const stop = vi.fn(async () => {})
     staticAgents.setState({ sessions: [session('a', 'working', 't1'), session('b', 'approval', 't2'), session('c', 'ended')], stop })
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const onOpenSession = vi.fn()
     render(<BottomDashboard onOpenSession={onOpenSession} />)
     expect(screen.getByText('2 running')).toBeInTheDocument()
@@ -492,7 +489,7 @@ describe('AppShell in a browser without remote shells', () => {
     const { useSession } = await import('@/features/session/store')
     const { useAssistant } = await import('@/features/agents/store')
     useAssistant.setState({ connect: () => () => {} })
-    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false, db: { connected: false } } })
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false } })
     render(<AppShell />)
     fireEvent.click(screen.getByTitle('Terminal'))
     expect(screen.getByText('Remote shells are off')).toBeInTheDocument()

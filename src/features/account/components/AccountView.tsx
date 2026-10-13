@@ -1,8 +1,8 @@
-import { Languages, LogOut, RefreshCw, Server, ShoppingCart, UserRound } from 'lucide-react'
+import { useEffect } from 'react'
+import { ArrowDownToLine, ArrowUpFromLine, CloudCog, Languages, Loader2, LogOut, RefreshCw, Server, ShoppingCart, UserRound } from 'lucide-react'
 import type { CloudLicense, CloudStatus } from '@shared/types/cloud'
 import { Panel } from '@/components/ui/Panel'
 import { Card } from '@/components/ui/Card'
-import { StatusDot } from '@/components/ui/StatusDot'
 import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
 import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
@@ -10,6 +10,7 @@ import { useSession } from '@/features/session/store'
 import { formatDuration, useCloud } from '@/features/cloud/store'
 import { useUpdate } from '@/features/update/store'
 import { CloudNotice, primaryButton, quietButton, SignInForm } from '@/features/cloud/components/CloudForms'
+import { useSync } from '@/features/account/sync'
 
 function TrialMeter({ license }: { license: CloudLicense }) {
   const t = useT()
@@ -24,7 +25,7 @@ function TrialMeter({ license }: { license: CloudLicense }) {
   )
 }
 
-/** The W-ONE account on this core: who is signed in, the license, and what to do next. */
+/** The Mindeck account on this core: who is signed in, the license, and what to do next. */
 function AccountCard({ status }: { status: CloudStatus }) {
   const t = useT()
   const busy = useCloud((s) => s.busy)
@@ -85,6 +86,61 @@ function AccountCard({ status }: { status: CloudStatus }) {
   )
 }
 
+/** Settings Sync: this Mindeck's settings ↔ the account (here, not in Settings — it belongs to the account). */
+function SyncCard({ signedIn }: { signedIn: boolean }) {
+  const t = useT()
+  const { status, busy, conflict, done, error } = useSync()
+  const sync = useSync.getState()
+  useEffect(() => {
+    if (signedIn) void useSync.getState().load()
+  }, [signedIn])
+  if (!signedIn) return <p className="font-sans text-[12px] text-text-muted">{t.sync.signIn}</p>
+  const date = (iso: string) => new Intl.DateTimeFormat(intlLocale(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+  const remote = status?.remote
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="font-sans text-[12px] text-text-secondary">{t.sync.hint}</p>
+      {status && (
+        <div className="space-y-0.5 font-mono text-[11px] text-text-muted">
+          <p>{status.local ? t.sync.last(date(status.local.syncedAt)) : t.sync.never}</p>
+          <p>{remote ? t.sync.remote(date(remote.updatedAt), remote.device) : t.sync.remoteNone}</p>
+        </div>
+      )}
+      {conflict ? (
+        <div role="alertdialog" aria-label={t.sync.conflict} className="space-y-2 rounded-md border border-amber/40 bg-amber/[0.06] p-2.5">
+          <p className="font-sans text-[12.5px] text-text-primary">{t.sync.conflict}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!!busy} onClick={() => void sync.pull()} className={cn(primaryButton, '!py-1.5')}>
+              <ArrowDownToLine size={13} /> {t.sync.takeTheirs}
+            </button>
+            <button type="button" disabled={!!busy} onClick={() => void sync.push(true)} className={cn(quietButton, '!py-1.5')}>
+              {t.sync.keepMine}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!!busy} title={t.sync.syncHint} onClick={() => void sync.sync()} className={primaryButton}>
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {t.sync.sync}
+          </button>
+          <button type="button" disabled={!!busy} onClick={() => void sync.push()} className={quietButton}>
+            <ArrowUpFromLine size={13} /> {t.sync.push}
+          </button>
+          <button type="button" disabled={!!busy || !remote} onClick={() => void sync.pull()} className={quietButton}>
+            <ArrowDownToLine size={13} /> {t.sync.pull}
+          </button>
+        </div>
+      )}
+      {done && <p className="font-sans text-[12px] text-green">{done === 'pushed' ? t.sync.pushed : t.sync.pulled}</p>}
+      {error && (
+        <p role="alert" className="font-sans text-[12px] text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** The desktop app's own update: state, plus check / restart. */
 function UpdateRow() {
   const t = useT()
@@ -124,7 +180,7 @@ function UpdateRow() {
   )
 }
 
-/** Profile: the W-ONE account (license, trial), the UI language and the connected core. */
+/** Profile: the Mindeck account (license, trial), the UI language and the connected core. */
 export function AccountView() {
   const t = useT()
   const info = useSession((s) => s.info)
@@ -133,8 +189,7 @@ export function AccountView() {
     ? [
         [t.account.mode, info.mode === 'desktop' ? t.account.desktop : t.account.server],
         [t.account.version, `v${info.version}`],
-        [t.account.host, info.hostname],
-        [t.account.database, info.db.connected ? t.account.dbOnline : t.account.dbOffline]
+        [t.account.host, info.hostname]
       ]
     : []
   return (
@@ -142,6 +197,10 @@ export function AccountView() {
       <div className="grid gap-3 p-3 lg:grid-cols-2">
         <Card icon={UserRound} title={t.account.accountCard}>
           {cloud ? <AccountCard status={cloud} /> : <p className="font-mono text-[11px] text-text-muted">{t.account.linking}</p>}
+        </Card>
+
+        <Card icon={CloudCog} title={t.sync.title}>
+          <SyncCard signedIn={!!cloud?.account} />
         </Card>
 
         <Card icon={Languages} title={t.account.languageCard}>
@@ -156,7 +215,6 @@ export function AccountView() {
                 <div key={k} className="flex gap-3">
                   <dt className="w-24 shrink-0 font-mono text-[11px] uppercase tracking-wider text-text-muted">{k}</dt>
                   <dd className="flex min-w-0 items-center gap-1.5 break-words font-mono text-[12px] text-text-secondary">
-                    {k === t.account.database && <StatusDot tone={info.db.connected ? 'ok' : 'warn'} pulse={false} />}
                     {v}
                   </dd>
                 </div>

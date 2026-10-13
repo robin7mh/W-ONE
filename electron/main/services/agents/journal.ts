@@ -57,7 +57,7 @@ interface JournalVault {
 /**
  * Writes a session journal into the vault: rewrites its note when it still
  * exists, else creates one (also when the user deleted it). Without a vault
- * there is no journal — W-ONE never creates a vault on its own.
+ * there is no journal — Mindeck never creates a vault on its own.
  */
 export function vaultJournal(vault: JournalVault) {
   return async (folder: string, title: string, path: string | undefined, body: string): Promise<string | undefined> => {

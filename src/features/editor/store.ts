@@ -37,6 +37,10 @@ export interface BufferHost {
   markClean(id: string, version: number): void
   /** The tab closed — free its buffer. */
   drop(id: string): void
+  /** Get the buffer ready to be written (format, tidy — the user's save settings). */
+  prepare?(id: string): Promise<void>
+  /** The file was renamed — carry the buffer (unsaved edits included) over to its new id. */
+  rekey(id: string, next: { id: string; projectId: string; path: string }): void
 }
 
 let host: BufferHost | null = null
@@ -46,6 +50,25 @@ export function setBufferHost(next: BufferHost | null): void {
 
 export const tabKey = (projectId: string, path: string): string => `${projectId}:${path}`
 
+/** Runs after every successful save (Live Sass compiles, SFTP uploads). */
+type SavedListener = (file: { projectId: string; path: string }) => void
+const savedListeners = new Set<SavedListener>()
+export function onSaved(listener: SavedListener): () => void {
+  savedListeners.add(listener)
+  return () => savedListeners.delete(listener)
+}
+
+const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')))
+const under = (path: string, root: string) => path === root || path.startsWith(`${root}/`)
+
+/** The explorer's inline name field: a new file or folder inside `dir`, or renaming `path`. */
+export interface Naming {
+  mode: 'file' | 'dir' | 'rename'
+  dir: string
+  path?: string
+  error?: string
+}
+
 interface EditorState {
   projectId?: string
   /** Listed folders by `projectId:dir` ('' = the project root). */
@@ -54,8 +77,21 @@ interface EditorState {
   treeError?: string
   tabs: EditorTab[]
   activeId?: string
+  /** Split view: the tab the right-hand editor shows (none: one editor). */
+  splitId?: string
+  /** The right-hand editor has the focus — opening and saving go there. */
+  focusRight: boolean
   /** Dirty tab waiting for "save before closing?". */
   closing?: string
+  /** A line to scroll to once its tab shows (search results); the view clears it. */
+  reveal?: { id: string; line: number }
+  /** The explorer's focused entry — new files land in it (a folder) or next to it (a file). */
+  selection?: { path: string; kind: FileEntry['kind'] }
+  naming?: Naming
+  /** Entry waiting for "move to the trash?". */
+  deleting?: string
+  /** A file operation failed (create, rename, delete). */
+  fileError?: string
 
   selectProject: (id: string) => Promise<void>
   loadDir: (dir: string) => Promise<void>
@@ -63,10 +99,23 @@ interface EditorState {
   /** Re-list the root and every open folder of the current project. */
   refreshTree: () => Promise<void>
   open: (path: string) => Promise<void>
+  /** Open a file and put the cursor on `line` (1-based). */
+  openAt: (path: string, line: number) => Promise<void>
   setActive: (id: string) => void
+  /** Open a file in the right-hand editor (splitting, if it isn't yet). */
+  openToSide: (path: string) => Promise<void>
+  /** Split the editor: the file on screen opens on the right too (⌘\). */
+  split: (id?: string) => void
+  closeSplit: () => void
+  /** Which editor of the split has the focus. */
+  focusGroup: (right: boolean) => void
+  /** The tab of the focused editor. */
+  focusedId: () => string | undefined
   setDirty: (id: string, dirty: boolean) => void
   /** Write the buffer to disk. `force` overwrites a newer disk copy. Resolves true when saved. */
   save: (id?: string, opts?: { force?: boolean }) => Promise<boolean>
+  /** Save every tab with unsaved edits. */
+  saveAll: () => Promise<void>
   /** Re-read from disk. `ifClean`: if edits appeared meanwhile, flag a conflict instead. */
   reload: (id: string, opts?: { ifClean?: boolean }) => Promise<void>
   /** Close, or ask first when there are unsaved edits. */
@@ -76,6 +125,18 @@ interface EditorState {
   close: (id: string) => void
   /** Follow the disk: reload clean tabs that changed, flag dirty ones, mark deleted files. */
   checkDisk: () => Promise<void>
+
+  select: (path: string, kind: FileEntry['kind']) => void
+  /** Ask for a name: a new file / folder in the selected folder, or a new name for the selection. */
+  startNaming: (mode: Naming['mode'], target?: { path: string; kind: FileEntry['kind'] }) => Promise<void>
+  cancelNaming: () => void
+  /** Create or rename with `name`; a bad name keeps the field open with the error. */
+  submitName: (name: string) => Promise<void>
+  requestDelete: (path?: string) => void
+  cancelDelete: () => void
+  confirmDelete: () => Promise<void>
+  collapseAll: () => void
+  clearFileError: () => void
 }
 
 const update =
@@ -94,6 +155,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   tree: {},
   expanded: {},
   tabs: [],
+  focusRight: false,
 
   selectProject: async (id) => {
     if (get().projectId === id) return
@@ -142,7 +204,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   open: async (path) => {
     const projectId = get().projectId!
     const id = tabKey(projectId, path)
-    if (get().tabs.some((t) => t.id === id)) return set({ activeId: id })
+    if (get().tabs.some((t) => t.id === id)) return get().setActive(id)
     const tab: EditorTab = {
       id,
       projectId,
@@ -155,18 +217,44 @@ export const useEditor = create<EditorState>((set, get) => ({
       conflict: false,
       deleted: false
     }
-    set((s) => ({ tabs: [...s.tabs, tab], activeId: id }))
+    set((s) => ({ tabs: [...s.tabs, tab] }))
+    get().setActive(id)
     await get().reload(id)
   },
 
-  setActive: (id) => set({ activeId: id }),
+  openAt: async (path, line) => {
+    await get().open(path)
+    set({ reveal: { id: tabKey(get().projectId!, path), line } })
+  },
+
+  setActive: (id) => set(get().focusRight && get().splitId ? { splitId: id } : { activeId: id }),
+
+  openToSide: async (path) => {
+    const anchor = get().splitId ?? get().activeId
+    if (anchor) set({ splitId: anchor, focusRight: true })
+    await get().open(path)
+  },
+
+  split: (id = get().focusedId()) => {
+    if (id) set({ splitId: id, focusRight: true })
+  },
+
+  closeSplit: () => set({ splitId: undefined, focusRight: false }),
+
+  focusGroup: (right) => set({ focusRight: right && !!get().splitId }),
+
+  focusedId: () => (get().focusRight && get().splitId ? get().splitId : get().activeId),
 
   setDirty: (id, dirty) => {
     if (get().tabs.find((t) => t.id === id)?.dirty === dirty) return
     set(update(id, { dirty }))
   },
 
-  save: async (id = get().activeId, opts = {}) => {
+  save: async (id = get().focusedId(), opts = {}) => {
+    // Like VS Code: a save of edited text first formats / tidies it (the user's settings) — then reads it.
+    const before = get().tabs.find((t) => t.id === id)
+    const prepare = host?.prepare
+    if (prepare && before?.content !== undefined && !before.saving && (before.dirty || before.deleted)) await prepare(before.id)
     const tab = get().tabs.find((t) => t.id === id)
     const buffers = host
     const snap = tab && tab.content !== undefined && !tab.saving ? buffers?.snapshot(tab.id) : undefined
@@ -182,12 +270,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       })
       set(update(tab.id, { saving: false, content: snap.text, mtimeMs: saved.mtimeMs, conflict: false, deleted: false, error: undefined }))
       buffers!.markClean(tab.id, snap.version)
+      for (const listener of savedListeners) listener({ projectId: tab.projectId, path: tab.path })
       return true
     } catch (err) {
       const conflict = err instanceof IpcError && err.code === 'conflict'
       set(update(tab.id, (t) => ({ saving: false, conflict: conflict || t.conflict, error: conflict ? undefined : errorMessage(err) })))
       return false
     }
+  },
+
+  saveAll: async () => {
+    await Promise.all(get().tabs.filter((t) => t.dirty).map((t) => get().save(t.id)))
   },
 
   reload: async (id, opts = {}) => {
@@ -226,7 +319,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   close: (id) => {
-    const { tabs, activeId } = get()
+    const { tabs, activeId, splitId } = get()
     const index = tabs.findIndex((t) => t.id === id)
     if (index < 0) return
     const rest = tabs.filter((t) => t.id !== id)
@@ -235,7 +328,9 @@ export const useEditor = create<EditorState>((set, get) => ({
       tabs: rest,
       closing: undefined,
       // The neighbour takes over (right, else left) — like VS Code.
-      activeId: activeId === id ? rest[Math.min(index, rest.length - 1)]?.id : activeId
+      activeId: activeId === id ? rest[Math.min(index, rest.length - 1)]?.id : activeId,
+      // The right-hand editor's last file closed: back to one editor.
+      ...(splitId === id ? { splitId: undefined, focusRight: false } : {})
     })
   },
 
@@ -267,5 +362,82 @@ export const useEditor = create<EditorState>((set, get) => ({
         )
       })
     )
-  }
+  },
+
+  select: (path, kind) => set({ selection: { path, kind } }),
+
+  startNaming: async (mode, target = get().selection) => {
+    if (mode === 'rename') {
+      if (!target) return
+      return set({ selection: target, naming: { mode, dir: parentOf(target.path), path: target.path } })
+    }
+    const dir = !target ? '' : target.kind === 'dir' ? target.path : parentOf(target.path)
+    if (dir && !get().expanded[tabKey(get().projectId!, dir)]) await get().toggleDir(dir)
+    set({ naming: { mode, dir } })
+  },
+
+  cancelNaming: () => set({ naming: undefined }),
+
+  submitName: async (raw) => {
+    const naming = get().naming
+    const name = raw.trim().replace(/^\/+|\/+$/g, '')
+    if (!naming) return
+    if (!name || name.split('/').some((part) => part === '..' || part === '.' || !part)) return set({ naming: { ...naming, error: 'invalid-name' } })
+    const projectId = get().projectId!
+    const path = naming.dir ? `${naming.dir}/${name}` : name
+    if (naming.mode === 'rename' && path === naming.path) return set({ naming: undefined })
+    try {
+      if (naming.mode === 'rename') await ipc('files:rename', { projectId, from: naming.path!, to: path })
+      else await ipc('files:create', { projectId, path, kind: naming.mode })
+    } catch (err) {
+      return set({ naming: { ...naming, error: errorMessage(err) } })
+    }
+    const kind = naming.mode === 'rename' ? get().selection!.kind : naming.mode
+    set({ naming: undefined, selection: { path, kind } })
+    if (naming.mode === 'rename') moveTabs(naming.path!, path)
+    await get().refreshTree()
+    if (naming.mode === 'file') await get().open(path)
+  },
+
+  requestDelete: (path = get().selection?.path) => set({ deleting: path }),
+  cancelDelete: () => set({ deleting: undefined }),
+
+  confirmDelete: async () => {
+    const path = get().deleting
+    const projectId = get().projectId!
+    if (!path) return
+    set({ deleting: undefined })
+    try {
+      await ipc('files:delete', { projectId, path })
+    } catch (err) {
+      return set({ fileError: errorMessage(err) })
+    }
+    // Clean tabs of what's gone close; unsaved ones stay (marked deleted — saving brings them back).
+    for (const t of get().tabs) if (t.projectId === projectId && under(t.path, path) && !t.dirty) get().close(t.id)
+    if (get().selection && under(get().selection!.path, path)) set({ selection: undefined })
+    await get().refreshTree()
+  },
+
+  collapseAll: () => {
+    const prefix = `${get().projectId!}:`
+    set((s) => ({ expanded: Object.fromEntries(Object.entries(s.expanded).filter(([k]) => !k.startsWith(prefix))) }))
+  },
+
+  clearFileError: () => set({ fileError: undefined })
 }))
+
+/** Tabs follow a renamed file or folder — their buffers (unsaved edits too) move along. */
+function moveTabs(from: string, to: string): void {
+  const { projectId, tabs } = useEditor.getState()
+  for (const t of tabs) {
+    if (t.projectId !== projectId || !under(t.path, from)) continue
+    const path = to + t.path.slice(from.length)
+    const id = tabKey(t.projectId, path)
+    host?.rekey(t.id, { id, projectId: t.projectId, path })
+    useEditor.setState((s) => ({
+      tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, id, path, name: path.slice(path.lastIndexOf('/') + 1) } : x)),
+      activeId: s.activeId === t.id ? id : s.activeId,
+      splitId: s.splitId === t.id ? id : s.splitId
+    }))
+  }
+}

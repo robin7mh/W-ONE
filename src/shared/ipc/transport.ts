@@ -1,4 +1,4 @@
-// How a client reaches the W-ONE core. Two implementations, one interface:
+// How a client reaches the Mindeck core. Two implementations, one interface:
 // the Electron preload bridge (desktop window) and HTTP + WebSocket (web UI,
 // mobile app). Uses only `fetch` and `WebSocket` — no DOM, no Node — so the
 // React Native app can import this file as-is.
@@ -15,7 +15,7 @@ export interface Transport {
   on(channel: string, cb: (payload: unknown) => void): () => void
 }
 
-/** The subset of `window.wone` a bridge transport needs. */
+/** The subset of `window.mindeck` a bridge transport needs. */
 export interface BridgeLike {
   invoke(channel: string, payload?: unknown): Promise<unknown>
   on(channel: string, cb: (payload: unknown) => void): () => void
@@ -149,7 +149,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
         res = await doFetch(`${base}/api/rpc/${channel}`, request(payload))
       } catch (err) {
         setLink('offline')
-        return { ok: false, error: { code: 'offline', message: `W-ONE core unreachable: ${(err as Error).message}` } }
+        return { ok: false, error: { code: 'offline', message: `Mindeck core unreachable: ${(err as Error).message}` } }
       }
       if (res.status === 401) rejectToken()
       const body = (await res.json().catch(() => null)) as IpcResult<unknown> | null
@@ -173,7 +173,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
   }
 }
 
-/** Liveness check — also tells a client whether a URL really is a W-ONE core. */
+/** Liveness check — also tells a client whether a URL really is a Mindeck core. */
 export async function probeCore(
   baseUrl: string,
   fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike
@@ -181,7 +181,7 @@ export async function probeCore(
   try {
     const res = await fetchImpl(`${trimSlash(baseUrl)}/api/health`, { method: 'GET' })
     const body = (await res.json()) as { ok?: boolean; name?: string; version: string; mode: string }
-    return body?.ok && body.name === 'W-ONE' ? { name: body.name, version: body.version, mode: body.mode } : null
+    return body?.ok && body.name === 'Mindeck' ? { name: body.name, version: body.version, mode: body.mode } : null
   } catch {
     return null
   }

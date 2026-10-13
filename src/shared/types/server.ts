@@ -1,4 +1,4 @@
-// The W-ONE core as a network service: the same services the desktop app
+// The Mindeck core as a network service: the same services the desktop app
 // uses, reachable over HTTP + WebSocket by the web UI and the mobile app.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 
@@ -13,7 +13,6 @@ export interface AppInfo {
   hostname: string
   /** Whether remote clients may open shells (opt-in). */
   remoteTerminal: boolean
-  db: { connected: boolean; schema?: number }
 }
 
 /** Embedded/standalone API server settings. */

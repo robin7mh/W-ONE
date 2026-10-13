@@ -1,5 +1,5 @@
 // Renderer-side typed client. In the desktop window it talks to the core over
-// the preload bridge (window.wone); in a browser over HTTP + WebSocket once
+// the preload bridge (window.mindeck); in a browser over HTTP + WebSocket once
 // the device is paired (setTransport). Without either it fails cleanly.
 
 import type { IpcChannel, IpcChannels, IpcEvent, IpcEvents, IpcResult } from './contract'
@@ -14,12 +14,12 @@ export function setTransport(transport: Transport | null): void {
 
 /** True inside the Electron window (native dialogs, window controls, …). */
 export function isDesktop(): boolean {
-  return !!window.wone?.invoke
+  return !!window.mindeck?.invoke
 }
 
 /** The active transport: the desktop bridge wins, else the paired remote. */
 export function currentTransport(): Transport | null {
-  const bridge = window.wone
+  const bridge = window.mindeck
   if (bridge?.invoke) return bridgeTransport(bridge)
   return remote
 }
@@ -52,7 +52,7 @@ export async function ipc<K extends IpcChannel>(
 ): Promise<Res<K>> {
   const transport = currentTransport()
   if (!transport) {
-    throw new IpcError('no-bridge', 'Not connected to a W-ONE core')
+    throw new IpcError('no-bridge', 'Not connected to a Mindeck core')
   }
   const res = (await transport.invoke(channel, args[0])) as IpcResult<Res<K>>
   if (!res.ok) throw new IpcError(res.error.code, res.error.message)

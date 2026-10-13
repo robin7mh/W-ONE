@@ -19,10 +19,29 @@ import { monacoTheme } from './theme'
   }
 }
 
-// The editor sees one file at a time — no node_modules, no tsconfig — so
-// semantic checks and suggestions would flag every import and parameter.
-// Syntax errors, hovers and in-file completions stay on.
+// Monaco's built-in TypeScript sees one file at a time — no node_modules, no
+// tsconfig. The project's tsserver (monaco/lsp.ts) answers completions,
+// hovers, definitions, references, renames, signatures, fixes and diagnostics
+// instead; the built-in service keeps the single-file extras (outline,
+// highlights, formatting, inlay hints). Monaco reads this once, when
+// TypeScript first activates, so it is set here, before any model exists.
+const BUILT_IN = {
+  completionItems: false,
+  hovers: false,
+  documentSymbols: true,
+  definitions: false,
+  references: false,
+  documentHighlights: true,
+  rename: false,
+  diagnostics: false,
+  documentRangeFormattingEdits: true,
+  signatureHelp: false,
+  onTypeFormattingEdits: true,
+  codeActions: false,
+  inlayHints: true
+}
 for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.javascriptDefaults]) {
+  defaults.setModeConfiguration(BUILT_IN)
   defaults.setDiagnosticsOptions({ noSemanticValidation: true, noSuggestionDiagnostics: true, noSyntaxValidation: false })
   defaults.setCompilerOptions({
     ...defaults.getCompilerOptions(),
@@ -33,9 +52,9 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
   })
 }
 
-export const THEME = 'wone'
+export const THEME = 'mindeck'
 
-/** (Re)define the W-ONE theme from the current tokens and apply it. */
+/** (Re)define the Mindeck theme from the current tokens and apply it. */
 export function applyMonacoTheme(): void {
   monaco.editor.defineTheme(THEME, monacoTheme())
   monaco.editor.setTheme(THEME)

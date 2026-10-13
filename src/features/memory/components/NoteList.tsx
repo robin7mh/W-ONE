@@ -25,8 +25,8 @@ interface Props {
   onMoveFolder: (folder: string, into: string) => void
 }
 
-const NOTE_MIME = 'application/x-wone-note'
-const FOLDER_MIME = 'application/x-wone-folder'
+const NOTE_MIME = 'application/x-mindeck-note'
+const FOLDER_MIME = 'application/x-mindeck-folder'
 const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
 /**

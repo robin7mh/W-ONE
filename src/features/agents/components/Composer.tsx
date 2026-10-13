@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FolderGit2, Loader2, Send, Square } from 'lucide-react'
 import type { Project } from '@shared/types/project'
-import { cn } from '@/lib/cn'
+import { Select } from '@/components/ui/Select'
 import { useT } from '@/lib/i18n'
 
 /** Message input: Enter sends, Shift+Enter breaks the line; Stop while a run is active. */
@@ -19,7 +19,7 @@ export function Composer({
   running: boolean
   sending: boolean
   disabled?: boolean
-  /** Project context picker (W-ONE Assistant chats); agent sessions already have their project. */
+  /** Project context picker (Mindeck Assistant chats); agent sessions already have their project. */
   projects?: Project[]
   projectId?: string
   placeholder: string
@@ -89,23 +89,14 @@ export function Composer({
       <div className="mt-1.5 flex items-center gap-2">
         {onProject && (
           <>
-            <FolderGit2 size={12} className="text-text-muted" />
-            <select
-              aria-label={t.agents.projectContext}
+            <Select
+              variant="quiet"
+              icon={FolderGit2}
+              label={t.agents.projectContext}
               value={projectId ?? ''}
-              onChange={(e) => onProject(e.target.value || undefined)}
-              className={cn(
-                'max-w-[220px] truncate rounded border border-transparent bg-transparent font-mono text-[11px] text-text-muted outline-none hover:border-hud/60 focus:border-cyan/50',
-                projectId && 'text-text-secondary'
-              )}
-            >
-              <option value="">{t.agents.noProject}</option>
-              {projects!.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => onProject(v || undefined)}
+              options={[{ value: '', label: t.agents.noProject }, ...projects!.map((p) => ({ value: p.id, label: p.name }))]}
+            />
           </>
         )}
         <span className="ml-auto hidden font-mono text-[10px] text-text-muted sm:inline">{t.agents.enterHint}</span>

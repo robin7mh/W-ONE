@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { newDb } from 'pg-mem'
 import { tempDir } from './helpers'
 
 // --- electron double -------------------------------------------------------
@@ -13,7 +12,7 @@ const electron = vi.hoisted(() => {
   return {
     handlers,
     rendererListeners,
-    userData: '/tmp/wone-userdata',
+    userData: '/tmp/mindeck-userdata',
     ipcMain: { handle: vi.fn((ch: string, fn: (e: unknown, r: unknown) => unknown) => handlers.set(ch, fn)) },
     app: { getPath: vi.fn(() => electron.userData) },
     exposed: {} as Record<string, unknown>,
@@ -49,9 +48,21 @@ import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
 import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
+import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
+import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
+import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
+import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
+import { registerMigrateIpc } from '../../../electron/ipc/migrate.ipc'
+import { registerLiveIpc } from '../../../electron/ipc/live.ipc'
+import { registerSftpIpc } from '../../../electron/ipc/sftp.ipc'
+import { registerTestsIpc } from '../../../electron/ipc/tests.ipc'
+import { registerNotebookIpc } from '../../../electron/ipc/notebook.ipc'
+import { registerGitHubIpc } from '../../../electron/ipc/github.ipc'
+import { registerMongoIpc } from '../../../electron/ipc/mongo.ipc'
+import { registerRemoteIpc } from '../../../electron/ipc/remote.ipc'
+import { registerLintIpc } from '../../../electron/ipc/lint.ipc'
 import { registerAgentsIpc } from '../../../electron/ipc/agents.ipc'
-import { DbService, DEFAULT_DB_URL, createPool, databaseUrl, type DbPool } from '../../../electron/main/services/db/DbService'
-import { migrateLegacyData, wonePaths } from '../../../electron/main/lib/paths'
+import { migrateLegacyData, mindeckPaths } from '../../../electron/main/lib/paths'
 
 const call = (channel: string, req?: unknown) => electron.handlers.get(channel)!({}, req)
 
@@ -212,7 +223,190 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['files:read', { projectId: 'p', path: 'a.ts' }, 'read', ['p', 'a.ts']],
         ['files:stat', { projectId: 'p', paths: ['a.ts'] }, 'stat', ['p', ['a.ts']]],
         ['files:write', { projectId: 'p', path: 'a.ts', content: 'x' }, 'write', ['p', 'a.ts', 'x', undefined]],
-        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]]
+        ['files:write', { projectId: 'p', path: 'a.ts', content: 'x', expectedMtime: 5 }, 'write', ['p', 'a.ts', 'x', 5]],
+        ['files:create', { projectId: 'p', path: 'a', kind: 'dir' }, 'create', ['p', 'a', 'dir']],
+        ['files:rename', { projectId: 'p', from: 'a', to: 'b' }, 'rename', ['p', 'a', 'b']],
+        ['files:delete', { projectId: 'p', path: 'a' }, 'remove', ['p', 'a']]
+      ]
+    ],
+    [
+      'scm',
+      registerScmIpc,
+      [
+        ['scm:status', { projectId: 'p' }, 'status', ['p']],
+        ['scm:init', { projectId: 'p' }, 'init', ['p']],
+        ['scm:stage', { projectId: 'p', paths: ['a'] }, 'stage', ['p', ['a']]],
+        ['scm:unstage', { projectId: 'p', paths: ['a'] }, 'unstage', ['p', ['a']]],
+        ['scm:discard', { projectId: 'p', paths: ['a'] }, 'discard', ['p', ['a']]],
+        ['scm:commit', { projectId: 'p', message: 'm', amend: true, all: false }, 'commit', ['p', 'm', { amend: true, all: false }]],
+        ['scm:fetch', { projectId: 'p' }, 'fetch', ['p']],
+        ['scm:pull', { projectId: 'p' }, 'pull', ['p']],
+        ['scm:push', { projectId: 'p' }, 'push', ['p']],
+        ['scm:branches', { projectId: 'p' }, 'branches', ['p']],
+        ['scm:checkout', { projectId: 'p', name: 'main' }, 'checkout', ['p', 'main']],
+        ['scm:createBranch', { projectId: 'p', name: 'x' }, 'createBranch', ['p', 'x']],
+        ['scm:log', { projectId: 'p', limit: 5 }, 'log', ['p', 5]],
+        ['scm:show', { projectId: 'p', hash: 'abcd' }, 'show', ['p', 'abcd']],
+        ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
+        ['scm:original', { projectId: 'p', path: 'a' }, 'original', ['p', 'a']],
+        ['scm:files', { projectId: 'p' }, 'files', ['p']],
+        ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
+      ]
+    ],
+    [
+      'lsp',
+      registerLspIpc,
+      [
+        ['lsp:open', { projectId: 'p', path: 'a.ts', text: 'x' }, 'open', ['p', 'a.ts', 'x']],
+        ['lsp:change', { projectId: 'p', path: 'a.ts', text: 'x' }, 'change', ['p', 'a.ts', 'x']],
+        ['lsp:close', { projectId: 'p', path: 'a.ts' }, 'close', ['p', 'a.ts']],
+        ['lsp:diagnostics', { projectId: 'p', paths: ['a.ts'] }, 'diagnostics', ['p', ['a.ts']]],
+        ['lsp:hover', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'hover', ['p', 'a.ts', 1, 2]],
+        ['lsp:completions', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, trigger: '.' }, 'completions', ['p', 'a.ts', 1, 2, '.']],
+        ['lsp:completionDetails', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, name: 'n', source: 's', data: { d: 1 } }, 'completionDetails', ['p', 'a.ts', 1, 2, 'n', 's', { d: 1 }]],
+        ['lsp:definition', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'definition', ['p', 'a.ts', 1, 2]],
+        ['lsp:references', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'references', ['p', 'a.ts', 1, 2]],
+        ['lsp:rename', { projectId: 'p', path: 'a.ts', line: 1, offset: 2, newName: 'b' }, 'rename', ['p', 'a.ts', 1, 2, 'b']],
+        ['lsp:signature', { projectId: 'p', path: 'a.ts', line: 1, offset: 2 }, 'signature', ['p', 'a.ts', 1, 2]],
+        [
+          'lsp:codeFixes',
+          { projectId: 'p', path: 'a.ts', range: { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, errorCodes: [2304] },
+          'codeFixes',
+          ['p', 'a.ts', { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, [2304]]
+        ]
+      ]
+    ],
+    [
+      'tools',
+      registerToolsIpc,
+      [
+        ['tools:status', undefined, 'status', []],
+        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']]
+      ]
+    ],
+    [
+      'migrate',
+      registerMigrateIpc,
+      [
+        ['migrate:scan', undefined, 'scan', []],
+        ['migrate:apply', { app: 'Code' }, 'apply', ['Code']],
+        ['editor:settings', undefined, 'editor', []],
+        ['editor:update', { prettier: true }, 'updateEditor', [{ prettier: true }]]
+      ]
+    ],
+    [
+      'live',
+      (router: Router, svc: never) => registerLiveIpc(router, svc, svc),
+      [
+        ['liveServer:status', undefined, 'status', []],
+        ['liveServer:start', { projectId: 'p', page: 'index.html' }, 'start', ['p', 'index.html']],
+        ['liveServer:stop', { projectId: 'p' }, 'stop', ['p']],
+        ['sass:compile', { projectId: 'p', path: 'a.scss' }, 'compile', ['p', 'a.scss']],
+        ['sass:compileAll', { projectId: 'p' }, 'compileAll', ['p']]
+      ]
+    ],
+    [
+      'sftp',
+      registerSftpIpc,
+      [
+        ['sftp:targets', { projectId: 'p' }, 'targets', ['p']],
+        ['sftp:list', { projectId: 'p', target: 'T', dir: 'css' }, 'list', ['p', 'T', 'css']],
+        ['sftp:upload', { projectId: 'p', target: 'T', paths: ['a'] }, 'upload', ['p', 'T', ['a']]],
+        ['sftp:download', { projectId: 'p', target: 'T', paths: ['a'] }, 'download', ['p', 'T', ['a']]],
+        ['sftp:sync', { projectId: 'p', target: 'T', direction: 'up' }, 'sync', ['p', 'T', 'up']]
+      ]
+    ],
+    [
+      'github',
+      registerGitHubIpc,
+      [
+        ['github:status', { projectId: 'p' }, 'status', ['p']],
+        ['github:list', { projectId: 'p', filter: 'mine', state: 'all' }, 'list', ['p', 'mine', 'all']],
+        ['github:view', { projectId: 'p', number: 8 }, 'view', ['p', 8]],
+        ['github:fileDiff', { projectId: 'p', number: 8, path: 'a.ts' }, 'fileDiff', ['p', 8, 'a.ts']],
+        ['github:checkout', { projectId: 'p', number: 8 }, 'checkout', ['p', 8]],
+        ['github:create', { projectId: 'p', title: 'T', body: 'B', base: 'main', draft: true }, 'create', ['p', { title: 'T', body: 'B', base: 'main', draft: true }]],
+        ['github:merge', { projectId: 'p', number: 8, method: 'squash', deleteBranch: true }, 'merge', ['p', 8, 'squash', true]],
+        ['github:comment', { projectId: 'p', number: 8, body: 'hi' }, 'comment', ['p', 8, 'hi']],
+        ['github:review', { projectId: 'p', number: 8, action: 'approve', body: '' }, 'review', ['p', 8, 'approve', '']]
+      ]
+    ],
+    [
+      'mongo',
+      registerMongoIpc,
+      [
+        ['mongo:connections', undefined, 'connections', []],
+        ['mongo:add', { name: 'N', uri: 'mongodb://localhost' }, 'add', ['N', 'mongodb://localhost']],
+        ['mongo:remove', { id: 'c' }, 'remove', ['c']],
+        ['mongo:databases', { id: 'c' }, 'databases', ['c']],
+        ['mongo:collections', { id: 'c', db: 'd' }, 'collections', ['c', 'd']],
+        ['mongo:createCollection', { id: 'c', db: 'd', name: 'n' }, 'createCollection', ['c', 'd', 'n']],
+        ['mongo:dropCollection', { id: 'c', db: 'd', name: 'n' }, 'dropCollection', ['c', 'd', 'n']],
+        ['mongo:find', { id: 'c', db: 'd', collection: 'u', query: { limit: 5 } }, 'find', ['c', 'd', 'u', { limit: 5 }]],
+        ['mongo:insert', { id: 'c', db: 'd', collection: 'u', document: '{}' }, 'insert', ['c', 'd', 'u', '{}']],
+        ['mongo:replace', { id: 'c', db: 'd', collection: 'u', docId: '1', document: '{}' }, 'replace', ['c', 'd', 'u', '1', '{}']],
+        ['mongo:delete', { id: 'c', db: 'd', collection: 'u', docId: '1' }, 'delete', ['c', 'd', 'u', '1']],
+        ['mongo:aggregate', { id: 'c', db: 'd', collection: 'u', pipeline: '[]' }, 'aggregate', ['c', 'd', 'u', '[]']],
+        ['mongo:indexes', { id: 'c', db: 'd', collection: 'u' }, 'indexes', ['c', 'd', 'u']]
+      ]
+    ],
+    [
+      'lint',
+      registerLintIpc,
+      [
+        ['lint:file', { projectId: 'p', path: 'a.js', text: 'x' }, 'lint', ['p', 'a.js', 'x']],
+        ['lint:fix', { projectId: 'p', path: 'a.js', text: 'x' }, 'fix', ['p', 'a.js', 'x']],
+        ['lint:restart', undefined, 'restart', []],
+        ['format:document', { projectId: 'p', path: 'a.js', text: 'x', prettier: true, options: { semi: false } }, 'format', ['p', 'a.js', 'x', { prettier: true, options: { semi: false } }]]
+      ]
+    ],
+    [
+      'notebook',
+      registerNotebookIpc,
+      [
+        ['notebook:kernels', { projectId: 'p' }, 'kernels', ['p']],
+        ['notebook:setup', { projectId: 'p' }, 'setup', ['p']],
+        ['notebook:start', { projectId: 'p', path: 'a.ipynb', kernel: 'python3' }, 'start', ['p', 'a.ipynb', 'python3']],
+        ['notebook:execute', { projectId: 'p', path: 'a.ipynb', cell: 'c1', code: 'x' }, 'execute', ['p', 'a.ipynb', 'c1', 'x']],
+        ['notebook:interrupt', { projectId: 'p', path: 'a.ipynb' }, 'interrupt', ['p', 'a.ipynb']],
+        ['notebook:restart', { projectId: 'p', path: 'a.ipynb' }, 'restart', ['p', 'a.ipynb']],
+        ['notebook:shutdown', { projectId: 'p', path: 'a.ipynb' }, 'shutdown', ['p', 'a.ipynb']]
+      ]
+    ],
+    [
+      'tests',
+      registerTestsIpc,
+      [
+        ['tests:discover', { projectId: 'p' }, 'discover', ['p']],
+        ['tests:state', { projectId: 'p' }, 'state', ['p']],
+        ['tests:run', { projectId: 'p', id: 'a.test.ts' }, 'run', ['p', 'a.test.ts']],
+        ['tests:cancel', { projectId: 'p' }, 'cancel', ['p']],
+        ['tests:debug', { projectId: 'p', id: 'a.test.ts', breakpoints: [] }, 'debug', ['p', 'a.test.ts', []]]
+      ]
+    ],
+    [
+      'remote',
+      (router: Router, svc: never) => registerRemoteIpc(router, svc, (id) => (id === 'p' ? '/p' : undefined)),
+      [
+        ['remote:hosts', undefined, 'hosts', []],
+        ['remote:list', undefined, 'list', []],
+        ['remote:ssh', { target: 'robin@box:2222' }, 'ssh', ['robin@box:2222']],
+        ['remote:container', { projectId: 'p' }, 'container', ['/p']],
+        ['remote:hasContainer', { projectId: 'p' }, 'hasContainer', ['/p']],
+        ['remote:disconnect', { id: 'ssh:box' }, 'disconnect', ['ssh:box']]
+      ]
+    ],
+    [
+      'debug',
+      registerDebugIpc,
+      [
+        ['debug:start', { projectId: 'p', program: 'a.js', breakpoints: [] }, 'start', [{ projectId: 'p', program: 'a.js', breakpoints: [] }]],
+        ['debug:stop', undefined, 'stop', []],
+        ['debug:session', undefined, 'session', []],
+        ['debug:control', { action: 'stepOver' }, 'control', ['stepOver']],
+        ['debug:setBreakpoints', { projectId: 'p', breakpoints: [{ path: 'a.js', line: 2 }] }, 'setBreakpoints', ['p', [{ path: 'a.js', line: 2 }]]],
+        ['debug:variables', { objectId: 'o' }, 'variables', ['o']],
+        ['debug:evaluate', { expression: 'x', frameId: 'f' }, 'evaluate', ['x', 'f']]
       ]
     ],
     [
@@ -245,97 +439,51 @@ describe('ipc handler modules bind every channel to its service', () => {
   })
 })
 
-describe('DbService', () => {
-  const memPool = (): DbPool => {
-    // noAstCoverageCheck: pg-mem refuses re-running CREATE TABLE IF NOT EXISTS otherwise
-    const { Pool } = newDb({ noAstCoverageCheck: true }).adapters.createPg()
-    return new Pool() as unknown as DbPool
-  }
-
-  it('pings, reports version 0, migrates in order and is idempotent', async () => {
-    const db = new DbService(memPool())
-    await db.ping()
-    expect(await db.version()).toBe(0)
-
-    const migrations = [
-      { version: 2, name: 'second', up: 'CREATE TABLE b (id TEXT PRIMARY KEY)' },
-      { version: 1, name: 'first', up: 'CREATE TABLE a (id TEXT PRIMARY KEY)' }
-    ]
-    expect(await db.migrate(migrations)).toEqual({ from: 0, to: 2, applied: ['1_first', '2_second'] })
-    expect(await db.migrate(migrations)).toEqual({ from: 2, to: 2, applied: [] })
-    expect(await db.version()).toBe(2)
-    await db.close()
-  })
-
-  it('rolls a failing migration back and rethrows', async () => {
-    const pool = memPool()
-    const db = new DbService(pool)
-    await expect(
-      db.migrate([{ version: 1, name: 'bad', up: 'CREATE TABLE ok_t (id TEXT); SELECT * FROM missing_table' }])
-    ).rejects.toThrow()
-    expect(await db.version()).toBe(0)
-  })
-
-  it('treats an empty ledger result as version 0', async () => {
-    const pool: DbPool = {
-      query: vi.fn(async () => ({ rows: [] })),
-      connect: vi.fn(),
-      end: vi.fn(async () => {})
-    }
-    expect(await new DbService(pool).version()).toBe(0)
-  })
-
-  it('reads the URL from WONE_DB_URL, else the docker-compose default', () => {
-    expect(databaseUrl({})).toBe(DEFAULT_DB_URL)
-    expect(databaseUrl({ WONE_DB_URL: 'postgres://x' })).toBe('postgres://x')
-    expect(databaseUrl()).toBe(process.env.WONE_DB_URL || DEFAULT_DB_URL)
-  })
-
-  it('creates a real pg pool lazily (no connection until the first query)', async () => {
-    const pool = createPool('postgres://u:p@127.0.0.1:1/db', { max: 1 }) as unknown as { options: Record<string, unknown>; end(): Promise<void> }
-    expect(pool.options).toMatchObject({ connectionString: 'postgres://u:p@127.0.0.1:1/db', max: 1, connectionTimeoutMillis: 3000 })
-    await pool.end()
-    const defaults = createPool('postgres://u:p@127.0.0.1:1/db') as unknown as { options: Record<string, unknown>; end(): Promise<void> }
-    expect(defaults.options).toMatchObject({ max: 5 })
-    await defaults.end()
-  })
-})
-
 describe('paths', () => {
-  it('puts everything under ~/W-ONE unless WONE_HOME overrides it', () => {
-    const saved = process.env.WONE_HOME
+  it('puts everything under ~/Mindeck unless MINDECK_HOME overrides it; a former ~/W-ONE stays in use until ~/Mindeck exists', async () => {
+    const saved = process.env.MINDECK_HOME
+    const home = await tempDir()
     try {
-      delete process.env.WONE_HOME
-      expect(wonePaths()).toEqual({
-        homeDir: join(homedir(), 'W-ONE'),
-        dataDir: join(homedir(), 'W-ONE', 'data'),
-        settingsFile: join(homedir(), 'W-ONE', 'data', 'settings.json'),
-        defaultVaultRoot: join(homedir(), 'W-ONE', 'vault'),
-        devicesFile: join(homedir(), 'W-ONE', 'data', 'devices.json'),
-        secretsFile: join(homedir(), 'W-ONE', 'data', 'secrets.json'),
-        cloudFile: join(homedir(), 'W-ONE', 'data', 'cloud.json'),
-        grantsFile: join(homedir(), 'W-ONE', 'data', 'grants.json'),
-        agentsDir: join(homedir(), 'W-ONE', 'data', 'agents'),
-        worktreesDir: join(homedir(), 'W-ONE', 'worktrees')
+      delete process.env.MINDECK_HOME
+      expect(mindeckPaths(home)).toEqual({
+        homeDir: join(home, 'Mindeck'),
+        dataDir: join(home, 'Mindeck', 'data'),
+        settingsFile: join(home, 'Mindeck', 'data', 'settings.json'),
+        defaultVaultRoot: join(home, 'Mindeck', 'vault'),
+        devicesFile: join(home, 'Mindeck', 'data', 'devices.json'),
+        secretsFile: join(home, 'Mindeck', 'data', 'secrets.json'),
+        cloudFile: join(home, 'Mindeck', 'data', 'cloud.json'),
+        grantsFile: join(home, 'Mindeck', 'data', 'grants.json'),
+        eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
+        runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
+        agentsDir: join(home, 'Mindeck', 'data', 'agents'),
+        worktreesDir: join(home, 'Mindeck', 'worktrees')
       })
-      process.env.WONE_HOME = '/custom'
-      expect(wonePaths().dataDir).toBe(join('/custom', 'data'))
+      // Data from before the rename: used where it is.
+      await mkdir(join(home, 'W-ONE'))
+      expect(mindeckPaths(home).homeDir).toBe(join(home, 'W-ONE'))
+      // Moved over (or both there): ~/Mindeck.
+      await mkdir(join(home, 'Mindeck'))
+      expect(mindeckPaths(home).homeDir).toBe(join(home, 'Mindeck'))
+      expect(mindeckPaths().homeDir.startsWith(homedir())).toBe(true)
+      process.env.MINDECK_HOME = '/custom'
+      expect(mindeckPaths().dataDir).toBe(join('/custom', 'data'))
     } finally {
-      if (saved === undefined) delete process.env.WONE_HOME
-      else process.env.WONE_HOME = saved
+      if (saved === undefined) delete process.env.MINDECK_HOME
+      else process.env.MINDECK_HOME = saved
     }
   })
 
   it('copies the legacy data folder once and leaves a note in the original', async () => {
     const dir = await tempDir()
-    const legacy = join(dir, 'userData', 'wone')
+    const legacy = join(dir, 'userData', 'mindeck')
     await mkdir(legacy, { recursive: true })
     await writeFile(join(legacy, 'projects.json'), '{"projects":[]}')
-    const paths = { ...wonePaths(), homeDir: join(dir, 'W-ONE'), dataDir: join(dir, 'W-ONE', 'data') }
+    const paths = { ...mindeckPaths(), homeDir: join(dir, 'Mindeck'), dataDir: join(dir, 'Mindeck', 'data') }
 
     expect(migrateLegacyData(paths, legacy)).toBe(true)
     expect(await readFile(join(paths.dataDir, 'projects.json'), 'utf8')).toBe('{"projects":[]}')
-    expect(existsSync(join(legacy, 'MOVED-TO-W-ONE-DATA.txt'))).toBe(true)
+    expect(existsSync(join(legacy, 'MOVED-TO-Mindeck-DATA.txt'))).toBe(true)
     expect(existsSync(join(legacy, 'projects.json'))).toBe(true) // original untouched
 
     expect(migrateLegacyData(paths, legacy)).toBe(false) // already migrated
@@ -346,7 +494,7 @@ describe('paths', () => {
 describe('preload bridge', () => {
   it('exposes window controls, the allowlisted invoke/on, and the platform', async () => {
     await import('../../../electron/preload')
-    const api = electron.exposed.wone as Record<string, (...a: unknown[]) => unknown>
+    const api = electron.exposed.mindeck as Record<string, (...a: unknown[]) => unknown>
     expect(api.platform).toBe(process.platform)
 
     api.minimize()
@@ -366,7 +514,7 @@ describe('preload bridge', () => {
 
   it('forwards push events without the IPC event object and unsubscribes cleanly', async () => {
     await import('../../../electron/preload')
-    const api = electron.exposed.wone as Record<string, (...a: unknown[]) => unknown>
+    const api = electron.exposed.mindeck as Record<string, (...a: unknown[]) => unknown>
     const emit = (ch: string, ...args: unknown[]) => [...(electron.rendererListeners.get(ch) ?? [])].forEach((l) => l({}, ...args))
 
     for (const [method, channel] of [

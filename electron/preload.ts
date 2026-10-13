@@ -51,6 +51,6 @@ const api = {
   }
 }
 
-export type WoneApi = typeof api
+export type MindeckApi = typeof api
 
-contextBridge.exposeInMainWorld('wone', api)
+contextBridge.exposeInMainWorld('mindeck', api)

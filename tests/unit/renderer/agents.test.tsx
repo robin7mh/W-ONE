@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, settle } from './bridge'
+import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentInfo, AiStatus, ChatMessage, Conversation, ConversationSummary, PermissionRequest } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 import { applyDelta, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
 import { clock, describeEvent, relativeTime } from '@/features/agents/format'
 import { ActivityTimeline } from '@/features/agents/components/ActivityTimeline'
@@ -18,7 +18,7 @@ beforeEach(() => {
   useProjects.setState({ projects: [], load: vi.fn(async () => {}) })
 })
 
-const status = (over: Partial<AiStatus> = {}): AiStatus => ({ configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high' }, ...over })
+const status = (over: Partial<AiStatus> = {}): AiStatus => ({ configured: true, model: 'claude-opus-5-5', cloud: null, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' }, ...over })
 const agents: AgentInfo[] = [
   { id: 'assistant', name: 'Assistant', description: 'Personal', tools: ['memory_search'], web: false },
   { id: 'research', name: 'Research', description: 'Web', tools: [], web: true },
@@ -51,8 +51,8 @@ const request = (over: Partial<PermissionRequest> = {}): PermissionRequest => ({
   createdAt: '',
   ...over
 })
-const event = (id: string, type: string, payload: Record<string, unknown> = {}, conversationId?: string): WoneEvent =>
-  ({ id, type, ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload, conversationId }) as WoneEvent
+const event = (id: string, type: string, payload: Record<string, unknown> = {}, conversationId?: string): MindeckEvent =>
+  ({ id, type, ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload, conversationId }) as MindeckEvent
 
 // --- pure helpers ----------------------------------------------------------------
 
@@ -98,7 +98,6 @@ describe('message helpers', () => {
       ['permission.granted', { tool: 't', decision: 'always' }, 'Approved (always): t', 'ok'],
       ['permission.granted', { tool: 't', decision: 'once' }, 'Approved (once): t', 'ok'],
       ['permission.denied', { tool: 't' }, 'Denied: t', 'error'],
-      ['db.migrated', {}, 'Database schema updated', 'muted'],
       ['app.started', {}, 'app.started', 'muted']
     ]
     for (const [type, payload, text, tone] of cases) expect(describeEvent(event('e', type, payload))).toEqual({ text, tone })
@@ -142,13 +141,37 @@ function core(over: Record<string, (p: never) => unknown> = {}) {
     'ai:deleteConversation': () => undefined,
     'permission:respond': () => undefined,
     'ai:setKey': () => status({ keyHint: 'WXYZ' }),
-    'ai:clearKey': () => status({ configured: false, source: null }),
-    'ai:configure': (p: { effort: string }) => status({ settings: { model: 'claude-opus-5-5', effort: p.effort as never } }),
+    'ai:clearKey': () => status({ configured: false, model: 'claude-opus-5-5', cloud: null, source: null }),
+    'ai:configure': (p: { effort: string }) => status({ settings: { model: 'claude-opus-5-5', effort: p.effort as never, inline: false, inlineModel: 'claude-opus-5-5', cloudModel: 'claude-haiku-5-5' } }),
     ...over
   })
 }
 
+const CLOUD: AiStatus['cloud'] = { credit: { period: 'month', allowanceCents: 100, usedCents: 10, remainingCents: 90, renewsAt: '2026-11-01T00:00:00.000Z' }, models: [] }
+
 describe('assistant store', () => {
+  it('through Mindeck Cloud: a finished answer refreshes the credit', async () => {
+    let used = 10
+    const bridge = core({ 'ai:status': () => status({ source: 'cloud', cloud: { ...CLOUD!, credit: { ...CLOUD!.credit, usedCents: used } } }) })
+    const off = useAssistant.getState().connect()
+    await settle()
+    expect(useAssistant.getState().status?.cloud?.credit.usedCents).toBe(10)
+    used = 12
+    act(() => bridge.emit('ai:message', { conversationId: 'c1', message: msg('a'), running: true }))
+    await settle()
+    expect(useAssistant.getState().status?.cloud?.credit.usedCents).toBe(10)
+    act(() => bridge.emit('ai:message', { conversationId: 'c1', message: msg('a'), running: false }))
+    await settle()
+    expect(useAssistant.getState().status?.cloud?.credit.usedCents).toBe(12)
+    // A key of one's own: no credit to refresh.
+    act(() => useAssistant.setState({ status: status() }))
+    bridge.invoke.mockClear()
+    act(() => bridge.emit('ai:message', { conversationId: 'c1', message: msg('a'), running: false }))
+    await settle()
+    expect(bridge.invoke).not.toHaveBeenCalledWith('ai:status', undefined)
+    off()
+  })
+
   it('connects once (ref-counted), loads everything and follows push events', async () => {
     const bridge = core()
     const off1 = useAssistant.getState().connect()
@@ -340,6 +363,13 @@ describe('ActivityTimeline, ApprovalCard, ApprovalToasts', () => {
 })
 
 describe('ChatThread', () => {
+  it('the trial’s credit used up: no promise of next month', () => {
+    useAssistant.setState({ status: status({ source: 'cloud', cloud: { ...CLOUD!, credit: { ...CLOUD!.credit, period: 'trial', renewsAt: null } } }) })
+    render(<ChatThread messages={[msg('e', { status: 'error', error: 'x', errorCode: 'ai-credit-exhausted' })]} pending={[]} onRespond={vi.fn()} />)
+    expect(screen.getByText(/The AI credit of the trial is used up\. With a license you get new credit every month/)).toBeInTheDocument()
+    useAssistant.setState({ status: undefined })
+  })
+
   it('renders user and assistant messages, tool cards with inline approval, states and usage', () => {
     const onRespond = vi.fn()
     const scrollIntoView = vi.fn()
@@ -363,9 +393,11 @@ describe('ChatThread', () => {
       msg('s2', { status: 'streaming', parts: [{ type: 'text', text: 'typing' }] }),
       msg('e1', { status: 'error', error: 'boom' }),
       msg('e2', { status: 'error' }),
+      msg('e3', { status: 'error', error: 'Your AI credit for this month is used up', errorCode: 'ai-credit-exhausted' }),
+      msg('e4', { status: 'error', error: 'raw words', errorCode: 'something-new' }),
       msg('c', { status: 'cancelled', model: 'm' })
     ]
-    render(<ChatThread messages={messages} pending={[request()]} onRespond={onRespond} />)
+    const { unmount } = render(<ChatThread messages={messages} pending={[request()]} onRespond={onRespond} />)
     expect(screen.getByText('Please help')).toBeInTheDocument()
     expect(screen.getByText('Bold').tagName).toBe('STRONG')
     expect(screen.getByText('waiting for you')).toBeInTheDocument()
@@ -376,6 +408,9 @@ describe('ChatThread', () => {
     expect(screen.getByText('thinking…')).toBeInTheDocument()
     expect(screen.getByText('boom')).toBeInTheDocument()
     expect(screen.getByText('The run failed.')).toBeInTheDocument()
+    // Mindeck Cloud's refusals in the app's words (a license's credit renews, the trial's doesn't); unknown codes as they came.
+    expect(screen.getByText(/Your AI credit is used up\. It renews at the start of next month/)).toBeInTheDocument()
+    expect(screen.getByText('raw words')).toBeInTheDocument()
     expect(screen.getByText('Stopped')).toBeInTheDocument()
     expect(screen.getByText('claude-opus-5-5 · 10 in / 5 out')).toBeInTheDocument()
     expect(screen.getByText('m')).toBeInTheDocument()
@@ -431,10 +466,10 @@ describe('Composer', () => {
     await act(settle)
     expect(box).toHaveValue('Keep')
 
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: 'p1' } })
+    choose('Project context', 'demo')
     expect(p.onProject).toHaveBeenCalledWith('p1')
     rerender(<Composer {...p} projectId="p1" />)
-    fireEvent.change(screen.getByLabelText('Project context'), { target: { value: '' } })
+    choose('Project context', 'No project')
     expect(p.onProject).toHaveBeenLastCalledWith(undefined)
 
     rerender(<Composer {...p} running />)

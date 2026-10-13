@@ -1,4 +1,4 @@
-import { LogOut, Moon, SunMedium, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
+import { LogOut, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
 import { UpdateChip } from '@/features/update/components/UpdateChip'
@@ -8,15 +8,12 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import { formatUptime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { isMac, useFullScreen } from '@/lib/platform'
-import { useAppearance } from '@/lib/theme'
 import { isDesktop } from '@shared/ipc/client'
 import { useSession } from '@/features/session/store'
 import { useT } from '@/lib/i18n'
 
 export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
   const t = useT()
-  const theme = useAppearance((s) => s.theme)
-  const toggleTheme = useAppearance((s) => s.toggleTheme)
   const fullScreen = useFullScreen()
   const desktop = isDesktop()
   const link = useSession((s) => s.link)
@@ -39,11 +36,11 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
       {/* Logo / codename */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-7 w-7 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-xs font-bold text-cyan text-glow-cyan">
-          W1
+          MD
         </div>
         <div className="leading-none">
           <div className="font-sans text-[13px] font-semibold tracking-wide text-text-primary">
-            W-ONE
+            Mindeck
           </div>
           <TechLabel className="text-text-muted">{t.topbar.commandCenter}</TechLabel>
         </div>
@@ -80,16 +77,6 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
           <ShieldCheck size={14} className="text-green" />
           {link === 'offline' ? <WifiOff size={14} className="text-danger" /> : <Wifi size={14} className="text-cyan" />}
         </div>
-
-        <button
-          type="button"
-          aria-label={theme === 'dark' ? t.topbar.toLight : t.topbar.toDark}
-          title={theme === 'dark' ? t.topbar.light : t.topbar.dark}
-          onClick={toggleTheme}
-          className="no-drag flex h-7 w-7 items-center justify-center rounded-md border border-hud/60 bg-surface/50 text-text-muted transition-colors hover:border-cyan/50 hover:text-cyan"
-        >
-          {theme === 'dark' ? <SunMedium size={14} /> : <Moon size={14} />}
-        </button>
 
         {!desktop && (
           <button

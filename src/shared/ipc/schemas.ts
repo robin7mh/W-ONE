@@ -13,8 +13,15 @@ const path = z.string().min(1).max(4096)
 const notePath = z.string().min(1).max(1024)
 const title = z.string().max(500)
 const text = (max: number) => z.string().max(max)
+const prNumber = z.number().int().positive()
+const mongoName = z.string().min(1).max(255)
 const none = z.void()
 const email = z.string().trim().min(3).max(254)
+
+const pos = z.object({ line: z.number().int().min(1), offset: z.number().int().min(1) })
+const at = z.object({ projectId: id, path, line: z.number().int().min(1), offset: z.number().int().min(1) })
+
+const breakpoint = z.object({ path, line: z.number().int().min(1) })
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -75,6 +82,138 @@ export const REQUEST_SCHEMAS: Schemas = {
   'files:read': z.object({ projectId: id, path }),
   'files:stat': z.object({ projectId: id, paths: z.array(path).max(200) }),
   'files:write': z.object({ projectId: id, path, content: text(6 * 1024 * 1024), expectedMtime: z.number().optional() }),
+  'files:create': z.object({ projectId: id, path, kind: z.enum(['file', 'dir']) }),
+  'files:rename': z.object({ projectId: id, from: path, to: path }),
+  'files:delete': z.object({ projectId: id, path }),
+
+  'scm:status': z.object({ projectId: id }),
+  'scm:init': z.object({ projectId: id }),
+  'scm:stage': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:unstage': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:discard': z.object({ projectId: id, paths: z.array(path).min(1).max(5000) }),
+  'scm:commit': z.object({ projectId: id, message: text(20_000), amend: z.boolean().optional(), all: z.boolean().optional() }),
+  'scm:fetch': z.object({ projectId: id }),
+  'scm:pull': z.object({ projectId: id }),
+  'scm:push': z.object({ projectId: id }),
+  'scm:branches': z.object({ projectId: id }),
+  'scm:checkout': z.object({ projectId: id, name: z.string().min(1).max(250) }),
+  'scm:createBranch': z.object({ projectId: id, name: z.string().min(1).max(250) }),
+  'scm:log': z.object({ projectId: id, limit: z.number().int().min(1).max(2000).optional() }),
+  'scm:show': z.object({ projectId: id, hash: z.string().regex(/^[0-9a-f]{4,40}$/i) }),
+  'scm:diff': z.object({
+    projectId: id,
+    path,
+    target: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unstaged') }),
+      z.object({ kind: z.literal('staged') }),
+      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() })
+    ])
+  }),
+  'scm:original': z.object({ projectId: id, path }),
+  'scm:files': z.object({ projectId: id }),
+  'scm:search': z.object({ projectId: id, query: text(500), regex: z.boolean().optional(), caseSensitive: z.boolean().optional() }),
+
+  'lsp:open': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
+  'lsp:change': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
+  'lsp:close': z.object({ projectId: id, path }),
+  'lsp:diagnostics': z.object({ projectId: id, paths: z.array(path).max(200) }),
+  'lsp:hover': at,
+  'lsp:completions': at.extend({ trigger: z.string().max(2).optional() }),
+  'lsp:completionDetails': at.extend({ name: z.string().max(1000), source: z.string().max(4096).optional(), data: z.unknown().optional() }),
+  'lsp:definition': at,
+  'lsp:references': at,
+  'lsp:rename': at.extend({ newName: z.string().min(1).max(1000) }),
+  'lsp:signature': at,
+  'lsp:codeFixes': z.object({ projectId: id, path, range: z.object({ start: pos, end: pos }), errorCodes: z.array(z.number().int()).max(100) }),
+
+  'debug:start': z.object({
+    projectId: id,
+    program: path,
+    args: z.array(text(4096)).max(100).optional(),
+    stopOnEntry: z.boolean().optional(),
+    breakpoints: z.array(breakpoint).max(1000),
+    build: text(4096).optional(),
+    inspectChild: z.boolean().optional(),
+    module: z.string().regex(/^[\w.]+$/).max(200).optional(),
+    goTest: z.boolean().optional()
+  }),
+  'debug:stop': none,
+  'debug:session': none,
+  'debug:control': z.object({ action: z.enum(['continue', 'pause', 'stepOver', 'stepInto', 'stepOut']) }),
+  'debug:setBreakpoints': z.object({ projectId: id, breakpoints: z.array(breakpoint).max(1000) }),
+  'debug:variables': z.object({ objectId: z.string().min(1).max(500) }),
+  'debug:evaluate': z.object({ expression: text(10_000), frameId: z.string().max(500).optional() }),
+
+  'tools:status': none,
+  'tools:install': z.object({ id: z.string().min(1).max(50), part: z.enum(['server', 'debugger']) }),
+
+  'migrate:scan': none,
+  'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
+  'editor:settings': none,
+  'editor:update': z.record(z.string(), z.unknown()),
+  'lint:file': z.object({ projectId: id, path, text: text(5_000_000) }),
+  'lint:fix': z.object({ projectId: id, path, text: text(5_000_000) }),
+  'lint:restart': none,
+  'format:document': z.object({ projectId: id, path, text: text(5_000_000), prettier: z.boolean().optional(), options: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional() }),
+  'tests:discover': z.object({ projectId: id }),
+  'tests:state': z.object({ projectId: id }),
+  'tests:run': z.object({ projectId: id, id: text(10_000).optional() }),
+  'tests:cancel': z.object({ projectId: id }),
+  'tests:debug': z.object({ projectId: id, id: text(10_000).min(1), breakpoints: z.array(breakpoint).max(1000) }),
+
+  'notebook:kernels': z.object({ projectId: id }),
+  'notebook:setup': z.object({ projectId: id }),
+  'notebook:start': z.object({ projectId: id, path, kernel: z.string().regex(/^[\w.+-]{1,100}$/) }),
+  'notebook:execute': z.object({ projectId: id, path, cell: id, code: z.string().max(1_000_000) }),
+  'notebook:interrupt': z.object({ projectId: id, path }),
+  'notebook:restart': z.object({ projectId: id, path }),
+  'notebook:shutdown': z.object({ projectId: id, path }),
+  'liveServer:status': none,
+  'liveServer:start': z.object({ projectId: id, page: path.optional() }),
+  'liveServer:stop': z.object({ projectId: id }),
+  'sass:compile': z.object({ projectId: id, path }),
+  'sass:compileAll': z.object({ projectId: id }),
+
+  'sftp:targets': z.object({ projectId: id }),
+  'sftp:list': z.object({ projectId: id, target: z.string().min(1).max(300), dir: text(4096).optional() }),
+  'sftp:upload': z.object({ projectId: id, target: z.string().min(1).max(300), paths: z.array(path).min(1).max(5000) }),
+  'sftp:download': z.object({ projectId: id, target: z.string().min(1).max(300), paths: z.array(text(4096)).min(1).max(5000) }),
+  'sftp:sync': z.object({ projectId: id, target: z.string().min(1).max(300), direction: z.enum(['up', 'down']) }),
+  'github:status': z.object({ projectId: id }),
+  'github:list': z.object({ projectId: id, filter: z.enum(['mine', 'review', 'all']).optional(), state: z.enum(['open', 'closed', 'merged', 'all']).optional() }),
+  'github:view': z.object({ projectId: id, number: prNumber }),
+  'github:fileDiff': z.object({ projectId: id, number: prNumber, path }),
+  'github:checkout': z.object({ projectId: id, number: prNumber }),
+  'github:create': z.object({ projectId: id, title: z.string().trim().min(1).max(256), body: text(65_536), base: z.string().min(1).max(255).optional(), draft: z.boolean().optional() }),
+  'github:merge': z.object({ projectId: id, number: prNumber, method: z.enum(['merge', 'squash', 'rebase']), deleteBranch: z.boolean().optional() }),
+  'github:comment': z.object({ projectId: id, number: prNumber, body: z.string().trim().min(1).max(65_536) }),
+  'github:review': z.object({ projectId: id, number: prNumber, action: z.enum(['approve', 'request-changes', 'comment']), body: text(65_536).optional() }),
+  'mongo:connections': none,
+  'mongo:add': z.object({ name: z.string().trim().max(200), uri: z.string().trim().min(10).max(4096) }),
+  'mongo:remove': z.object({ id }),
+  'mongo:databases': z.object({ id }),
+  'mongo:collections': z.object({ id, db: mongoName }),
+  'mongo:createCollection': z.object({ id, db: mongoName, name: mongoName }),
+  'mongo:dropCollection': z.object({ id, db: mongoName, name: mongoName }),
+  'mongo:find': z.object({
+    id,
+    db: mongoName,
+    collection: mongoName,
+    query: z
+      .object({ filter: text(100_000).optional(), sort: text(10_000).optional(), projection: text(10_000).optional(), limit: z.number().int().min(1).max(1000).optional(), skip: z.number().int().min(0).optional() })
+      .optional()
+  }),
+  'mongo:insert': z.object({ id, db: mongoName, collection: mongoName, document: text(16_000_000) }),
+  'mongo:replace': z.object({ id, db: mongoName, collection: mongoName, docId: text(10_000), document: text(16_000_000) }),
+  'mongo:delete': z.object({ id, db: mongoName, collection: mongoName, docId: text(10_000) }),
+  'mongo:aggregate': z.object({ id, db: mongoName, collection: mongoName, pipeline: text(100_000) }),
+  'mongo:indexes': z.object({ id, db: mongoName, collection: mongoName }),
+  'remote:hosts': none,
+  'remote:list': none,
+  'remote:ssh': z.object({ target: z.string().trim().min(1).max(300).regex(/^[\w.@:%+\-[\]]+$/, 'A host name, or user@host[:port]') }),
+  'remote:container': z.object({ projectId: id }),
+  'remote:hasContainer': z.object({ projectId: id }),
+  'remote:disconnect': z.object({ id: z.string().min(1).max(5000) }),
 
   'app:info': none,
   'fs:dirs': z
@@ -96,7 +235,13 @@ export const REQUEST_SCHEMAS: Schemas = {
   'ai:status': none,
   'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
   'ai:clearKey': none,
-  'ai:configure': z.object({ model: z.string().min(1).max(100).optional(), effort: z.enum(EFFORTS).optional() }),
+  'ai:configure': z.object({
+    model: z.string().min(1).max(100).optional(),
+    cloudModel: z.string().min(1).max(100).optional(),
+    effort: z.enum(EFFORTS).optional(),
+    inline: z.boolean().optional(),
+    inlineModel: z.string().min(1).max(100).optional()
+  }),
   'ai:agents': none,
   'ai:tools': none,
   'ai:conversations': none,
@@ -113,6 +258,23 @@ export const REQUEST_SCHEMAS: Schemas = {
     .object({ limit: z.number().int().min(1).max(200).optional() })
     .optional()
     .transform((v) => v ?? {}),
+  'ai:inlineComplete': z.object({
+    requestId: id,
+    path: z.string().max(4096),
+    language: z.string().max(100),
+    prefix: z.string().max(100_000),
+    suffix: z.string().max(100_000)
+  }),
+  'ai:inlineEdit': z.object({
+    requestId: id,
+    path: z.string().max(4096),
+    language: z.string().max(100),
+    before: z.string().max(500_000),
+    selection: z.string().max(200_000),
+    after: z.string().max(500_000),
+    instruction: z.string().trim().min(1).max(4000)
+  }),
+  'ai:inlineCancel': z.object({ requestId: id }),
 
   'permission:pending': none,
   'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),
@@ -156,6 +318,10 @@ export const REQUEST_SCHEMAS: Schemas = {
   'cloud:resendVerification': none,
   'cloud:forgotPassword': z.object({ email }),
   'cloud:checkout': none,
+  'cloud:adopt': z.object({ token: z.string().min(10).max(10_000), account: z.object({ email: z.string().max(320), name: z.string().max(200).nullable() }) }),
+  'cloud:syncStatus': none,
+  'cloud:syncPush': z.object({ appearance: z.unknown().optional(), locale: z.enum(['de', 'en']).optional(), force: z.boolean().optional() }),
+  'cloud:syncPull': none,
 
   'update:status': none,
   'update:check': none,

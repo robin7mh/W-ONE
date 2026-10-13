@@ -9,6 +9,7 @@ import { FolderPicker } from '@/components/ui/FolderPicker'
 import { isDesktop } from '@shared/ipc/client'
 import { useT } from '@/lib/i18n'
 import type { ModuleId } from '@/types'
+import { RemoteMenu } from '@/features/remote/components/RemoteMenu'
 
 export function ProjectsView({ onNavigate }: { onNavigate: (module: ModuleId) => void }) {
   const t = useT()
@@ -32,6 +33,7 @@ export function ProjectsView({ onNavigate }: { onNavigate: (module: ModuleId) =>
       headerRight={
         <div className="flex items-center gap-3">
           <TechLabel className="text-text-muted">{t.projects.registered(projects.length)}</TechLabel>
+          {isDesktop() && <RemoteMenu project={selected} />}
           <button
             type="button"
             onClick={add}

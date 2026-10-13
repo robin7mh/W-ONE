@@ -2,8 +2,8 @@ import { createPublicKey, verify, type KeyObject } from 'node:crypto'
 import type { LicensePlan } from '@shared/types/cloud'
 
 /**
- * A signed statement from W-ONE Cloud: "this account may use W-ONE until
- * `exp`". Format `wone1.<base64url JSON>.<base64url Ed25519 signature>` —
+ * A signed statement from Mindeck Cloud: "this account may use Mindeck until
+ * `exp`". Format `mindeck1.<base64url JSON>.<base64url Ed25519 signature>` —
  * the same as the cloud's `src/lib/entitlement.ts`.
  */
 export interface EntitlementClaims {
@@ -33,7 +33,7 @@ export function parsePublicKey(key: string): KeyObject {
  */
 export function verifyEntitlement(token: string, publicKey: KeyObject): EntitlementClaims | null {
   const parts = token.split('.')
-  if (parts.length !== 3 || parts[0] !== 'wone1') return null
+  if (parts.length !== 3 || parts[0] !== 'mindeck1') return null
   try {
     const ok = verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), publicKey, Buffer.from(parts[2], 'base64url'))
     return ok ? (JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as EntitlementClaims) : null

@@ -5,6 +5,7 @@ import { renderMarkdown } from '@/features/memory/markdown'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { useAssistant } from '../store'
 import { ApprovalCard } from './ApprovalCard'
 
 const STATUS_TONE: Record<ToolCallPart['status'], string> = {
@@ -20,7 +21,13 @@ function toolIcon(part: ToolCallPart) {
   if (part.server) return Globe
   if (part.risk === 'execute') return TerminalSquare
   if (part.risk === 'write') return PencilLine
-  return /^(memory|mcp__wone__)/.test(part.name) ? BookOpen : Wrench
+  return /^(memory|mcp__mindeck__)/.test(part.name) ? BookOpen : Wrench
+}
+
+/** A failure the app can explain in its own words (the trial's credit doesn't renew, a license's does). */
+function aiError(t: ReturnType<typeof useT>, message: ChatMessage, trial: boolean): string | undefined {
+  const code = message.errorCode === 'ai-credit-exhausted' && trial ? 'ai-credit-exhausted-trial' : message.errorCode
+  return code ? t.agents.aiErrors[code as keyof typeof t.agents.aiErrors] : undefined
 }
 
 /** Short one-line view of the tool input (the full JSON is one click away). */
@@ -91,6 +98,7 @@ function Message({
   onRespond: (id: string, d: ApprovalDecision) => void
 }) {
   const t = useT()
+  const trial = useAssistant((st) => st.status?.cloud?.credit.period === 'trial')
   if (message.role === 'user') {
     const text = message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
     return (
@@ -123,7 +131,7 @@ function Message({
       {message.status === 'streaming' && !empty && <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-cyan/70 align-middle" />}
       {message.status === 'error' && (
         <p className="mt-1 flex items-start gap-1.5 font-mono text-[11px] text-danger">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {message.error ?? t.agents.runFailed}
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {aiError(t, message, trial) || message.error || t.agents.runFailed}
         </p>
       )}
       {message.status === 'cancelled' && (

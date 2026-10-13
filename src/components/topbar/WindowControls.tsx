@@ -5,15 +5,15 @@ import { useT } from '@/lib/i18n'
 
 /**
  * Custom frameless-window controls. All calls go through the guarded
- * `window.wone` bridge, so in a plain browser (verification) they simply no-op.
+ * `window.mindeck` bridge, so in a plain browser (verification) they simply no-op.
  */
 export function WindowControls() {
   const t = useT()
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
-    window.wone?.isMaximized().then(setMaximized)
-    return window.wone?.onMaximizedChange(setMaximized)
+    window.mindeck?.isMaximized().then(setMaximized)
+    return window.mindeck?.onMaximizedChange(setMaximized)
   }, [])
 
   const btn =
@@ -25,7 +25,7 @@ export function WindowControls() {
         type="button"
         aria-label={t.topbar.minimize}
         className={cn(btn, 'hover:bg-elevated')}
-        onClick={() => window.wone?.minimize()}
+        onClick={() => window.mindeck?.minimize()}
       >
         <Minus size={15} strokeWidth={2} />
       </button>
@@ -33,7 +33,7 @@ export function WindowControls() {
         type="button"
         aria-label={maximized ? t.topbar.restore : t.topbar.maximize}
         className={cn(btn, 'hover:bg-elevated')}
-        onClick={() => window.wone?.toggleMaximize()}
+        onClick={() => window.mindeck?.toggleMaximize()}
       >
         {maximized ? <Copy size={12} strokeWidth={2} /> : <Square size={12} strokeWidth={2} />}
       </button>
@@ -41,7 +41,7 @@ export function WindowControls() {
         type="button"
         aria-label={t.common.close}
         className={cn(btn, 'hover:bg-danger/90 hover:text-white')}
-        onClick={() => window.wone?.close()}
+        onClick={() => window.mindeck?.close()}
       >
         <X size={16} strokeWidth={2} />
       </button>

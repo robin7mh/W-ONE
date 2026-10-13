@@ -61,9 +61,9 @@ function viaLoginShell(command: { file: string; args: string[] }): { file: strin
 }
 
 /**
- * The user's own environment, minus what W-ONE's dev tooling injected:
+ * The user's own environment, minus what Mindeck's dev tooling injected:
  * ELECTRON_RUN_AS_NODE alone would break any Electron app started from here,
- * and the markers of a Claude Code session W-ONE may have been launched from
+ * and the markers of a Claude Code session Mindeck may have been launched from
  * would make a `claude` started here think it is that session's child.
  */
 export function shellEnv(): Record<string, string> {
@@ -76,7 +76,7 @@ export function shellEnv(): Record<string, string> {
   }
   env.TERM = 'xterm-256color'
   env.COLORTERM = 'truecolor'
-  env.TERM_PROGRAM = 'W-ONE'
+  env.TERM_PROGRAM = 'Mindeck'
   env.LANG ||= 'en_US.UTF-8'
   return env
 }

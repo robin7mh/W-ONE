@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, BrainCircuit, Check, Info, KeyRound, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
-import { EFFORTS, MODELS, type Effort } from '@shared/types/ai'
+import { AlertTriangle, Check, Info, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
 import { Panel } from '@/components/ui/Panel'
@@ -17,26 +16,11 @@ import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
 import { useSettings } from '../store'
 import { AppearanceCard } from './AppearanceCard'
-
-function Toggle({ label, hint, checked, disabled, onChange }: { label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className={cn('flex items-start gap-3 py-1.5', disabled && 'opacity-50')}>
-      <input
-        type="checkbox"
-        role="switch"
-        aria-label={label}
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 accent-cyan"
-      />
-      <span>
-        <span className="block font-sans text-[13px] text-text-primary">{label}</span>
-        {hint && <span className="block font-sans text-[11.5px] text-text-muted">{hint}</span>}
-      </span>
-    </label>
-  )
-}
+import { LanguagesCard } from './LanguagesCard'
+import { MigrateCard } from './MigrateCard'
+import { EditorCard } from './EditorCard'
+import { AiCard } from './AiCard'
+import { Toggle } from './Toggle'
 
 const input =
   'rounded-md border border-hud/70 bg-surface/70 px-2.5 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-cyan/60'
@@ -76,74 +60,6 @@ function AgentsCard() {
   )
 }
 
-function AiCard() {
-  const t = useT()
-  const status = useAssistant((s) => s.status)
-  const { setKey, clearKey, configure } = useAssistant.getState()
-  const [key, setKeyText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const save = async () => {
-    setBusy(true)
-    if (await setKey(key)) setKeyText('')
-    setBusy(false)
-  }
-  return (
-    <Card icon={BrainCircuit} title={t.settings.aiCard}>
-      <div className="flex items-center gap-2">
-        <StatusDot tone={status?.configured ? 'ok' : 'warn'} pulse={false} />
-        <span className="font-sans text-[13px] text-text-primary">
-          {status?.configured
-            ? t.settings.keyFrom(status.source === 'env', status.keyHint)
-            : t.settings.noKey}
-        </span>
-      </div>
-      {status?.source !== 'env' && (
-        <div className="mt-3 flex gap-2">
-          <input
-            type="password"
-            aria-label={t.settings.newKey}
-            placeholder={status?.configured ? t.settings.replaceKey : 'sk-ant-…'}
-            value={key}
-            onChange={(e) => setKeyText(e.target.value)}
-            className={cn(input, 'min-w-0 flex-1')}
-          />
-          <button type="button" className={button} disabled={!key.trim() || busy} onClick={() => void save()}>
-            <KeyRound size={13} /> {t.common.save}
-          </button>
-          {status?.source === 'stored' && (
-            <button type="button" aria-label={t.settings.removeKey} className={cn(button, 'hover:border-danger/50 hover:text-danger')} onClick={() => void clearKey()}>
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1">
-          <TechLabel className="text-text-muted">{t.settings.model}</TechLabel>
-          <select aria-label={t.settings.model} className={input} value={status?.settings.model ?? MODELS[0].id} onChange={(e) => void configure({ model: e.target.value })}>
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {m.note}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <TechLabel className="text-text-muted">{t.settings.effort}</TechLabel>
-          <select aria-label={t.settings.effort} className={input} value={status?.settings.effort ?? 'high'} onChange={(e) => void configure({ effort: e.target.value as Effort })}>
-            {EFFORTS.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.settings.effortHint}</p>
-    </Card>
-  )
-}
-
 function RemoteCard() {
   const t = useT()
   const s = useSettings()
@@ -152,7 +68,7 @@ function RemoteCard() {
   const editable = desktop && !!s.server?.configurable
   const myDevice = (() => {
     try {
-      return localStorage.getItem('wone.deviceId')
+      return localStorage.getItem('mindeck.deviceId')
     } catch {
       return null
     }
@@ -346,7 +262,6 @@ function AboutCard() {
         [t.settings.version, info.version],
         [t.settings.core, info.mode === 'desktop' ? t.settings.desktopApp : t.settings.server],
         [t.settings.host, `${info.hostname} (${info.platform})`],
-        [t.settings.database, info.db.connected ? t.settings.dbConnected(info.db.schema) : t.settings.dbMissing],
         [t.settings.client, isDesktop() ? t.settings.desktopWindow : t.settings.pairedBrowser]
       ]
     : []
@@ -400,6 +315,9 @@ export function SettingsView() {
           <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
         </Card>
         <AgentsCard />
+        <EditorCard />
+        <MigrateCard />
+        <LanguagesCard />
         <AiCard />
         <RemoteCard />
         <PermissionsCard />

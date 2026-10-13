@@ -87,7 +87,7 @@ function AskBar({ onNavigate }: { onNavigate: (id: ModuleId) => void }) {
     const a = useAssistant.getState()
     setText('')
     onNavigate('agents')
-    // With an API key the W-ONE Assistant answers right away; otherwise pick an agent (e.g. Claude Code).
+    // With an API key the Mindeck Assistant answers right away; otherwise pick an agent (e.g. Claude Code).
     if (!a.status?.configured) return useAgents.getState().openDialog(question)
     useAgents.getState().showAssistant()
     a.newChat('assistant')

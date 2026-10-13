@@ -44,7 +44,7 @@ export function CloudNotice() {
 
 type Mode = 'login' | 'register' | 'forgot'
 
-/** Sign in, create an account, or ask for a password reset — all against W-ONE Cloud. */
+/** Sign in, create an account, or ask for a password reset — all against Mindeck Cloud. */
 export function SignInForm() {
   const t = useT()
   const busy = useCloud((s) => s.busy)

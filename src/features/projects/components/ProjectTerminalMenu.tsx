@@ -16,7 +16,7 @@ interface Shell {
 }
 
 /**
- * "Terminal" for a project, in W-ONE's own terminal. Without a shell there yet,
+ * "Terminal" for a project, in Mindeck's own terminal. Without a shell there yet,
  * a click opens one. Otherwise a menu: this project's shells — free, or what
  * runs in them — and "New terminal", so unused shells don't pile up.
  */

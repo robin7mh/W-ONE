@@ -1,6 +1,6 @@
 # Releasing the desktop app
 
-`npm run dist:mac` builds **W-ONE-arm64.dmg** (Apple silicon) and **W-ONE-x64.dmg** (Intel) plus the ZIPs the auto-updater uses, into `release/`. Configuration: [`electron-builder.yml`](../electron-builder.yml).
+`npm run dist:mac` builds **Mindeck-arm64.dmg** (Apple silicon) and **Mindeck-x64.dmg** (Intel) plus the ZIPs the auto-updater uses, into `release/`. Configuration: [`electron-builder.yml`](../electron-builder.yml).
 
 A build without the steps below runs on the machine that built it, but macOS blocks it on everyone else's ("damaged / can't be opened"). For customers it must be **signed and notarized**.
 
@@ -18,8 +18,8 @@ A build without the steps below runs on the machine that built it, but macOS blo
 3. Build, sign, notarize and publish:
 
 ```bash
-export WONE_CLOUD_URL=https://api.<domain>
-export WONE_CLOUD_KEY="$(curl -s https://api.<domain>/v1/meta | jq -r .entitlementPublicKey)"
+export MINDECK_CLOUD_URL=https://api.<domain>
+export MINDECK_CLOUD_KEY="$(curl -s https://api.<domain>/v1/meta | jq -r .entitlementPublicKey)"
 export CSC_LINK=/path/to/developer-id.p12        # or the file base64-encoded
 export CSC_KEY_PASSWORD=…
 export APPLE_API_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
@@ -32,14 +32,22 @@ npm run release:mac
 This creates a GitHub release with the DMGs, ZIPs and `latest-mac.yml`. Installed apps find it within four hours (or via Profile → *Check for updates*) and offer *Restart & update*.
 
 4. Check once on a second Mac (or a fresh user account): download the DMG from the website, open it — no Gatekeeper warning — and sign in.
+5. **Remote-SSH / Dev Containers:** build the Linux server packages (Docker; x64 runs emulated on Apple silicon and takes a while) with the same `MINDECK_CLOUD_URL` / `MINDECK_CLOUD_KEY`, and attach them to the same GitHub release:
+
+```bash
+npm run remote:bundle
+gh release upload v<version> out/remote/mindeck-server-<version>-linux-x64.tar.gz out/remote/mindeck-server-<version>-linux-arm64.tar.gz
+```
+
+The app downloads the package for the remote machine's architecture from `releases/download/v<version>/` the first time it connects there (kept in `~/Mindeck/data/remote/`), and installs it in `~/.mindeck-server/<version>` on the remote side.
 
 ## What the build bakes in
 
-- `WONE_CLOUD_URL` / `WONE_CLOUD_KEY` → where the app checks the license, and the key it verifies entitlements with. A packaged app always enforces the license and ignores these variables at runtime.
-- The download links on the website point to `releases/latest/download/W-ONE-arm64.dmg` and `…-x64.dmg`; those names stay the same for every release.
+- `MINDECK_CLOUD_URL` / `MINDECK_CLOUD_KEY` → where the app checks the license, and the key it verifies entitlements with. A packaged app always enforces the license and ignores these variables at runtime.
+- The download links on the website point to `releases/latest/download/Mindeck-arm64.dmg` and `…-x64.dmg`; those names stay the same for every release.
 
 ## Local test build (unsigned)
 
 ```bash
-WONE_CLOUD_URL=http://localhost:8080 CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac -- -c.mac.identity=null
+MINDECK_CLOUD_URL=http://localhost:8080 CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac -- -c.mac.identity=null
 ```

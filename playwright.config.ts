@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test'
  * End-to-end tests (`npm run test:e2e` builds everything first):
  * - electron: the real, built Electron app against the Docker database
  * - web: the built web UI in Chromium against the real standalone core
- * Each test gets its own throwaway WONE_HOME, so real data is never touched.
+ * Each test gets its own throwaway MINDECK_HOME, so real data is never touched.
  * PW_CHROMIUM may point at a preinstalled Chromium (sandboxes without
  * `npx playwright install`).
  */

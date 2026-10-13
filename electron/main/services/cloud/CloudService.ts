@@ -1,3 +1,4 @@
+import type { AiCredit, AiStatus } from '@shared/types/ai'
 import { randomUUID, type KeyObject } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -32,7 +33,7 @@ export interface CloudServiceOptions {
   version: string
   deviceName: string
   platform: string
-  /** ~/W-ONE/data/cloud.json — account, last entitlement, install id. */
+  /** ~/Mindeck/data/cloud.json — account, last entitlement, install id. */
   file: string
   secrets: Pick<SecretStore, 'get' | 'set'>
   /** Someone is at this machine (desktop: not idle). Absent on a headless server. */
@@ -40,6 +41,8 @@ export interface CloudServiceOptions {
   onStatus: (status: CloudStatus) => void
   fetch?: typeof fetch
   now?: () => number
+  /** A core run by the desktop app elsewhere: no sign-in of its own, it adopts the desktop's entitlement. */
+  follower?: boolean
 }
 
 interface Persisted {
@@ -88,8 +91,8 @@ const toLicense = (l: ApiLicense): CloudLicense => ({
 /**
  * The license state from what the core knows. A fresh entitlement decides;
  * an active lease that ran out stays usable while the cloud is reachable
- * (nobody was using W-ONE, or the renewal is on its way); without the cloud
- * and without a valid entitlement, W-ONE waits.
+ * (nobody was using Mindeck, or the renewal is on its way); without the cloud
+ * and without a valid entitlement, Mindeck waits.
  */
 export function deriveState(i: {
   signedIn: boolean
@@ -106,8 +109,8 @@ export function deriveState(i: {
 }
 
 /**
- * The core's link to W-ONE Cloud: sign-in, the trial heartbeat and the signed
- * entitlement that says whether W-ONE may run. The session token lives in the
+ * The core's link to Mindeck Cloud: sign-in, the trial heartbeat and the signed
+ * entitlement that says whether Mindeck may run. The session token lives in the
  * secret store; the rest in cloud.json, so a lifetime license keeps working
  * offline after a restart.
  */
@@ -127,6 +130,7 @@ export class CloudService {
   private lastAttempt = 0
   private lastSuccess = 0
   private remoteClients = 0
+  private remoteSessions = 0
   private beating: Promise<void> | null = null
   private timer?: ReturnType<typeof setInterval>
   private lastEmitted = ''
@@ -147,6 +151,8 @@ export class CloudService {
     }
     this.key = this.publicKey()
     this.claims = this.data.entitlement && this.key ? verifyEntitlement(this.data.entitlement, this.key) : null
+    // A follower only ever hears from the desktop (cloud:adopt).
+    if (this.opts.follower) return this.emit()
     this.timer = setInterval(() => void this.tick(), TICK_MS)
     this.timer.unref?.()
     void this.tick()
@@ -156,12 +162,25 @@ export class CloudService {
     clearInterval(this.timer)
   }
 
+  /** The account's session (null when signed out) — the AI through the cloud signs in with it. */
+  async sessionToken(): Promise<string | null> {
+    return (this.data.account && (await this.opts.secrets.get(SESSION_SECRET))) || null
+  }
+
+  /** The account's AI credit and models — null when signed out, offline, a follower or the cloud offers no AI. */
+  async aiInfo(): Promise<AiStatus['cloud']> {
+    if (!this.data.account || this.opts.follower) return null
+    const res = await this.call<{ available: boolean; credit: AiCredit | null; models: { id: string; label: string; costFactor: number }[] }>('GET', '/v1/me/ai').catch(() => null)
+    return res?.available && res.credit ? { credit: res.credit, models: res.models } : null
+  }
+
   status(): CloudStatus {
     const state = deriveState({
       signedIn: !!this.data.account,
       claims: this.claims,
       now: this.now(),
-      online: this.online
+      // A follower never hears from the cloud: an entitlement that ran out locks it until the desktop hands over a new one.
+      online: this.online && !this.opts.follower
     })
     return {
       enforced: this.opts.enforced,
@@ -176,17 +195,22 @@ export class CloudService {
     }
   }
 
-  /** Paired devices connected right now — someone uses W-ONE through them. */
+  /** Paired devices connected right now — someone uses Mindeck through them. */
   setRemoteClients(count: number): void {
     this.remoteClients = count
   }
 
-  /** Someone is using W-ONE: at this machine, or through a connected device. */
-  private inUse(): boolean {
-    return this.remoteClients > 0 || (this.opts.isUserActive?.() ?? false)
+  /** Remote windows (SSH, Dev Containers) open right now — Mindeck is in use there, on this license. */
+  setRemoteSessions(count: number): void {
+    this.remoteSessions = count
   }
 
-  /** May W-ONE be used right now? (The Router asks before every licensed call.) */
+  /** Someone is using Mindeck: at this machine, through a connected device, or in a remote window. */
+  private inUse(): boolean {
+    return this.remoteClients > 0 || this.remoteSessions > 0 || (this.opts.isUserActive?.() ?? false)
+  }
+
+  /** May Mindeck be used right now? (The Router asks before every licensed call.) */
   allowed(): boolean {
     return this.status().allowed
   }
@@ -234,6 +258,36 @@ export class CloudService {
   }
 
   /** A Stripe Checkout for this account; the client opens the URL in a browser. */
+  /** The entitlement a follower core (Remote-SSH, Dev Container) takes over — none while it isn't valid. */
+  entitlement(): { token: string; account: CloudAccount } | null {
+    const { entitlement, account } = this.data
+    return entitlement && account && this.claims?.active && this.claims.exp * 1000 > this.now() ? { token: entitlement, account } : null
+  }
+
+  /** Follower: take the desktop's entitlement over (it must verify with Mindeck Cloud's key). */
+  async adopt(token: string, account: CloudAccount): Promise<CloudStatus> {
+    if (!this.opts.follower) throw coded('not-follower', 'This core signs in itself')
+    if (!this.key) await this.ensureMeta().catch(() => {})
+    const claims = this.key ? verifyEntitlement(token, this.key) : null
+    if (!claims) throw coded('bad-entitlement', 'This entitlement cannot be verified')
+    this.claims = claims
+    this.data = { ...this.data, account, entitlement: token, license: null }
+    this.error = null
+    await this.save()
+    this.emit()
+    return this.status()
+  }
+
+  /** Signed in to a Mindeck account (the session may still turn out expired). */
+  isSignedIn(): boolean {
+    return !!this.data.account
+  }
+
+  /** An authenticated request to Mindeck Cloud's API (Settings Sync …). */
+  api<T = unknown>(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: object): Promise<T> {
+    return this.call<T>(method, path, body)
+  }
+
   async checkout(): Promise<{ url: string }> {
     const res = await this.call<{ url: string }>('POST', '/v1/billing/checkout', {})
     return { url: res.url }
@@ -253,7 +307,7 @@ export class CloudService {
     const c = this.claims
     if (!c || !c.active) return rested
     if (c.plan === 'lifetime') return rested && now - this.lastSuccess >= LIFETIME_REFRESH_MS
-    // Trial: only while someone uses W-ONE — that is what the 7 hours count.
+    // Trial: only while someone uses Mindeck — that is what the 7 hours count.
     return c.exp * 1000 - now <= RENEW_BEFORE_MS && this.inUse() && (this.online || rested)
   }
 
@@ -268,7 +322,7 @@ export class CloudService {
         this.data.license = toLicense(res.license)
         if (res.entitlement) {
           const claims = this.key ? verifyEntitlement(res.entitlement.token, this.key) : null
-          if (!claims) throw coded('bad-entitlement', 'W-ONE Cloud sent an entitlement this core cannot verify')
+          if (!claims) throw coded('bad-entitlement', 'Mindeck Cloud sent an entitlement this core cannot verify')
           this.claims = claims
           this.data.entitlement = res.entitlement.token
         }
@@ -344,7 +398,7 @@ export class CloudService {
     await this.save()
   }
 
-  private async call<T = unknown>(method: 'GET' | 'POST', path: string, body?: object, auth = true): Promise<T> {
+  private async call<T = unknown>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: object, auth = true): Promise<T> {
     const headers: Record<string, string> = {}
     if (body) headers['content-type'] = 'application/json'
     if (auth) {
@@ -365,7 +419,7 @@ export class CloudService {
       })
     } catch {
       this.online = false
-      throw coded('cloud-unreachable', 'W-ONE Cloud is not reachable')
+      throw coded('cloud-unreachable', 'Mindeck Cloud is not reachable')
     }
     this.online = true
     const data = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } }

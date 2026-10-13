@@ -19,6 +19,29 @@ import type {
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
 import type {
+  LspCodeFix,
+  LspCompletion,
+  LspCompletionDetails,
+  LspDiagnostic,
+  LspHover,
+  LspLocation,
+  LspRange,
+  LspRename,
+  LspSignature
+} from '@shared/types/lsp'
+import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
+import type { LanguageStatus, ToolProgress } from '@shared/types/languages'
+import type { LiveServerStatus, SassResult } from '@shared/types/live'
+import type { SftpEntry, SftpProgress, SftpTarget } from '@shared/types/sftp'
+import type { SyncStatus, SyncUi } from '@shared/types/sync'
+import type { RemoteConnection, SshHost } from '@shared/types/remote'
+import type { LintResult } from '@shared/types/lint'
+import type { TestItem, TestRunState } from '@shared/types/tests'
+import type { MongoCollection, MongoConnection, MongoDatabase, MongoDocuments, MongoIndex, MongoQuery } from '@shared/types/mongo'
+import type { GitHubStatus, MergeMethod, PullCreate, PullDetail, PullFileDiff, PullFilter, PullListState, PullSummary, ReviewAction } from '@shared/types/github'
+import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
+import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
+import type {
   AgentAvailability,
   AgentMessageUpdate,
   AgentSession,
@@ -37,6 +60,7 @@ import type {
   ServerStatus,
   UpdateStatus
 } from '@shared/types/server'
+import type { KernelInfo, NotebookEvent } from '@shared/types/notebook'
 import type {
   AgentInfo,
   AgentRun,
@@ -47,13 +71,24 @@ import type {
   ApprovalDecision,
   Conversation,
   ConversationSummary,
+  InlineCompleteRequest,
+  InlineDelta,
+  InlineEditRequest,
   PermissionGrant,
   PermissionRequest,
   SendRequest,
   ToolInfo
 } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
-import type { CloudStatus } from '@shared/types/cloud'
+import type { MindeckEvent } from '@shared/types/events'
+import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
+
+/** A position in a project file, for the lsp:* queries. */
+export interface LspAt {
+  projectId: string
+  path: string
+  line: number
+  offset: number
+}
 
 /** Every IPC call resolves to this — errors never cross the bridge as throws. */
 export type IpcResult<T> =
@@ -118,6 +153,134 @@ export interface IpcChannels {
     request: { projectId: string; path: string; content: string; expectedMtime?: number }
     response: FileStat
   }
+  'files:create': { request: { projectId: string; path: string; kind: 'file' | 'dir' }; response: void }
+  'files:rename': { request: { projectId: string; from: string; to: string }; response: void }
+  /** Into the trash (desktop: the OS trash), never deleted outright. */
+  'files:delete': { request: { projectId: string; path: string }; response: void }
+
+  'scm:status': { request: { projectId: string }; response: ScmStatus }
+  'scm:init': { request: { projectId: string }; response: ScmStatus }
+  'scm:stage': { request: { projectId: string; paths: string[] }; response: void }
+  'scm:unstage': { request: { projectId: string; paths: string[] }; response: void }
+  /** Untracked files are deleted — the UI asks first. */
+  'scm:discard': { request: { projectId: string; paths: string[] }; response: void }
+  'scm:commit': { request: { projectId: string; message: string; amend?: boolean; all?: boolean }; response: void }
+  'scm:fetch': { request: { projectId: string }; response: void }
+  'scm:pull': { request: { projectId: string }; response: void }
+  'scm:push': { request: { projectId: string }; response: void }
+  'scm:branches': { request: { projectId: string }; response: ScmBranch[] }
+  'scm:checkout': { request: { projectId: string; name: string }; response: void }
+  'scm:createBranch': { request: { projectId: string; name: string }; response: void }
+  'scm:log': { request: { projectId: string; limit?: number }; response: ScmCommit[] }
+  'scm:show': { request: { projectId: string; hash: string }; response: ScmCommitDetail }
+  'scm:diff': { request: { projectId: string; path: string; target: ScmDiffTarget }; response: FileDiff }
+  /** The staged text of a file (the gutter's baseline); null when untracked or not in a repo. */
+  'scm:original': { request: { projectId: string; path: string }; response: string | null }
+  /** Every file of the project, for quick open (⌘P). */
+  'scm:files': { request: { projectId: string }; response: string[] }
+  'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
+
+  /** TypeScript intelligence (the project's tsserver). Positions are 1-based. */
+  /** `language`: the file's language (registry id), whether or not its server runs. */
+  'lsp:open': { request: { projectId: string; path: string; text: string }; response: { available: boolean; language?: string } }
+  'lsp:change': { request: { projectId: string; path: string; text: string }; response: void }
+  'lsp:close': { request: { projectId: string; path: string }; response: void }
+  'lsp:diagnostics': { request: { projectId: string; paths: string[] }; response: Record<string, LspDiagnostic[]> }
+  'lsp:hover': { request: LspAt; response: LspHover | null }
+  'lsp:completions': { request: LspAt & { trigger?: string }; response: LspCompletion[] }
+  'lsp:completionDetails': { request: LspAt & { name: string; source?: string; data?: unknown }; response: LspCompletionDetails | null }
+  'lsp:definition': { request: LspAt; response: LspLocation[] }
+  'lsp:references': { request: LspAt; response: LspLocation[] }
+  'lsp:rename': { request: LspAt & { newName: string }; response: LspRename }
+  'lsp:signature': { request: LspAt; response: LspSignature | null }
+  'lsp:codeFixes': { request: { projectId: string; path: string; range: LspRange; errorCodes: number[] }; response: LspCodeFix[] }
+
+  /** Run & Debug: a program under Node's inspector or its language's debug adapter (one session at a time); `build` runs first. */
+  'debug:start': {
+    request: { projectId: string; program: string; args?: string[]; stopOnEntry?: boolean; breakpoints: DebugBreakpoint[]; build?: string; inspectChild?: boolean; module?: string; goTest?: boolean }
+    response: DebugSession
+  }
+  'debug:stop': { request: void; response: void }
+  'debug:session': { request: void; response: DebugSession | null }
+  'debug:control': { request: { action: DebugAction }; response: void }
+  'debug:setBreakpoints': { request: { projectId: string; breakpoints: DebugBreakpoint[] }; response: void }
+  'debug:variables': { request: { objectId: string }; response: DebugVariable[] }
+  'debug:evaluate': { request: { expression: string; frameId?: string }; response: DebugVariable }
+
+  /** Language servers and debuggers on this machine (Settings → Languages). */
+  'tools:status': { request: void; response: LanguageStatus[] }
+  'tools:install': { request: { id: string; part: 'server' | 'debugger' }; response: LanguageStatus }
+
+  /** Moving over from VS Code / Cursor: what's there (read only), and taking it over. */
+  'migrate:scan': { request: void; response: MigrationSource[] }
+  'migrate:apply': { request: { app: string }; response: MigrationResult }
+  /** The editor's preferences, keybindings and snippets. */
+  'editor:settings': { request: void; response: { settings: EditorSettings; snippets: Snippet[] } }
+  'editor:update': { request: Partial<EditorSettings>; response: EditorSettings }
+  /** ESLint and Prettier from the project's node_modules (they run the project's config code: remote shells only). */
+  'lint:file': { request: { projectId: string; path: string; text: string }; response: LintResult }
+  'lint:fix': { request: { projectId: string; path: string; text: string }; response: string | null }
+  'lint:restart': { request: void; response: void }
+  'format:document': { request: { projectId: string; path: string; text: string; prettier?: boolean; options?: Record<string, string | number | boolean> }; response: string | null }
+  /** The test explorer: tests found without running anything; runs and debugs with the project's runner (project code: remote shells only). */
+  'tests:discover': { request: { projectId: string }; response: TestItem[] }
+  'tests:state': { request: { projectId: string }; response: TestRunState }
+  'tests:run': { request: { projectId: string; id?: string }; response: TestRunState }
+  'tests:cancel': { request: { projectId: string }; response: void }
+  'tests:debug': { request: { projectId: string; id: string; breakpoints: DebugBreakpoint[] }; response: DebugSession }
+  'notebook:kernels': { request: { projectId: string }; response: KernelInfo }
+  'notebook:setup': { request: { projectId: string }; response: string }
+  'notebook:start': { request: { projectId: string; path: string; kernel: string }; response: void }
+  'notebook:execute': { request: { projectId: string; path: string; cell: string; code: string }; response: void }
+  'notebook:interrupt': { request: { projectId: string; path: string }; response: void }
+  'notebook:restart': { request: { projectId: string; path: string }; response: void }
+  'notebook:shutdown': { request: { projectId: string; path: string }; response: void }
+
+  /** Live Server: a project served on 127.0.0.1 with reload on change; `page` opens in the browser. */
+  'liveServer:status': { request: void; response: LiveServerStatus[] }
+  'liveServer:start': { request: { projectId: string; page?: string }; response: LiveServerStatus }
+  'liveServer:stop': { request: { projectId: string }; response: void }
+  /** Live Sass Compiler: a saved .scss / .sass file (a partial: every file), or all of them. */
+  'sass:compile': { request: { projectId: string; path: string }; response: SassResult }
+  'sass:compileAll': { request: { projectId: string }; response: SassResult }
+
+  /** SFTP as configured in .vscode/sftp.json. */
+  'sftp:targets': { request: { projectId: string }; response: SftpTarget[] }
+  'sftp:list': { request: { projectId: string; target: string; dir?: string }; response: SftpEntry[] }
+  'sftp:upload': { request: { projectId: string; target: string; paths: string[] }; response: number }
+  'sftp:download': { request: { projectId: string; target: string; paths: string[] }; response: string[] }
+  'sftp:sync': { request: { projectId: string; target: string; direction: 'up' | 'down' }; response: number }
+  /** GitHub pull requests through the user's gh CLI. */
+  'github:status': { request: { projectId: string }; response: GitHubStatus }
+  'github:list': { request: { projectId: string; filter?: PullFilter; state?: PullListState }; response: PullSummary[] }
+  'github:view': { request: { projectId: string; number: number }; response: PullDetail }
+  'github:fileDiff': { request: { projectId: string; number: number; path: string }; response: PullFileDiff }
+  'github:checkout': { request: { projectId: string; number: number }; response: void }
+  'github:create': { request: { projectId: string } & PullCreate; response: { number: number; url: string } }
+  'github:merge': { request: { projectId: string; number: number; method: MergeMethod; deleteBranch?: boolean }; response: void }
+  'github:comment': { request: { projectId: string; number: number; body: string }; response: void }
+  'github:review': { request: { projectId: string; number: number; action: ReviewAction; body?: string }; response: void }
+  /** MongoDB: saved connections (strings stay in the core), databases, collections, documents as Extended JSON. */
+  'mongo:connections': { request: void; response: MongoConnection[] }
+  'mongo:add': { request: { name: string; uri: string }; response: MongoConnection }
+  'mongo:remove': { request: { id: string }; response: void }
+  'mongo:databases': { request: { id: string }; response: MongoDatabase[] }
+  'mongo:collections': { request: { id: string; db: string }; response: MongoCollection[] }
+  'mongo:createCollection': { request: { id: string; db: string; name: string }; response: void }
+  'mongo:dropCollection': { request: { id: string; db: string; name: string }; response: void }
+  'mongo:find': { request: { id: string; db: string; collection: string; query?: MongoQuery }; response: MongoDocuments }
+  'mongo:insert': { request: { id: string; db: string; collection: string; document: string }; response: string }
+  'mongo:replace': { request: { id: string; db: string; collection: string; docId: string; document: string }; response: void }
+  'mongo:delete': { request: { id: string; db: string; collection: string; docId: string }; response: void }
+  'mongo:aggregate': { request: { id: string; db: string; collection: string; pipeline: string }; response: string[] }
+  'mongo:indexes': { request: { id: string; db: string; collection: string }; response: MongoIndex[] }
+  /** Remote-SSH and Dev Containers: Mindeck's core on another machine / in a container, in a window of its own. */
+  'remote:hosts': { request: void; response: SshHost[] }
+  'remote:list': { request: void; response: RemoteConnection[] }
+  'remote:ssh': { request: { target: string }; response: RemoteConnection }
+  'remote:container': { request: { projectId: string }; response: RemoteConnection }
+  'remote:hasContainer': { request: { projectId: string }; response: boolean }
+  'remote:disconnect': { request: { id: string }; response: void }
 
   'app:info': { request: void; response: AppInfo }
   'fs:dirs': { request: { path?: string }; response: DirListing }
@@ -141,13 +304,16 @@ export interface IpcChannels {
   'ai:cancel': { request: { conversationId: string }; response: void }
   'ai:deleteConversation': { request: { id: string }; response: void }
   'ai:runs': { request: { limit?: number }; response: AgentRun[] }
+  'ai:inlineComplete': { request: InlineCompleteRequest; response: string }
+  'ai:inlineEdit': { request: InlineEditRequest; response: string }
+  'ai:inlineCancel': { request: { requestId: string }; response: void }
 
   'permission:pending': { request: void; response: PermissionRequest[] }
   'permission:respond': { request: { id: string; decision: ApprovalDecision }; response: void }
   'permission:grants': { request: void; response: PermissionGrant[] }
   'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
 
-  'events:recent': { request: { limit?: number; conversationId?: string }; response: WoneEvent[] }
+  'events:recent': { request: { limit?: number; conversationId?: string }; response: MindeckEvent[] }
 
   'agents:detect': { request: void; response: AgentAvailability[] }
   'agents:list': { request: void; response: AgentSession[] }
@@ -178,6 +344,12 @@ export interface IpcChannels {
   'cloud:resendVerification': { request: void; response: void }
   'cloud:forgotPassword': { request: { email: string }; response: void }
   'cloud:checkout': { request: void; response: { url: string } }
+  /** Settings Sync through the account (Profile): status, save to the account (force: over a newer copy), load from it. */
+  /** A follower core (Remote-SSH, Dev Container) takes the desktop's entitlement over. */
+  'cloud:adopt': { request: { token: string; account: CloudAccount }; response: CloudStatus }
+  'cloud:syncStatus': { request: void; response: SyncStatus }
+  'cloud:syncPush': { request: SyncUi & { force?: boolean }; response: SyncStatus }
+  'cloud:syncPull': { request: void; response: SyncUi }
 
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
@@ -245,6 +417,115 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'files:read': 'any',
   'files:stat': 'any',
   'files:write': 'terminal',
+  'files:create': 'terminal',
+  'files:rename': 'terminal',
+  'files:delete': 'terminal',
+  'scm:status': 'any',
+  'scm:init': 'terminal',
+  'scm:stage': 'terminal',
+  'scm:unstage': 'terminal',
+  'scm:discard': 'terminal',
+  'scm:commit': 'terminal',
+  'scm:fetch': 'terminal',
+  'scm:pull': 'terminal',
+  'scm:push': 'terminal',
+  'scm:branches': 'any',
+  'scm:checkout': 'terminal',
+  'scm:createBranch': 'terminal',
+  'scm:log': 'any',
+  'scm:show': 'any',
+  'scm:diff': 'any',
+  'scm:original': 'any',
+  'scm:files': 'any',
+  'scm:search': 'any',
+  // Starting tsserver runs the project's own TypeScript (and its tsconfig plugins): a shell's power.
+  'lsp:open': 'terminal',
+  'lsp:change': 'terminal',
+  'lsp:close': 'terminal',
+  'lsp:diagnostics': 'terminal',
+  'lsp:hover': 'terminal',
+  'lsp:completions': 'terminal',
+  'lsp:completionDetails': 'terminal',
+  'lsp:definition': 'terminal',
+  'lsp:references': 'terminal',
+  'lsp:rename': 'terminal',
+  'lsp:signature': 'terminal',
+  'lsp:codeFixes': 'terminal',
+  // Debugging runs the project's code.
+  'debug:start': 'terminal',
+  'debug:stop': 'terminal',
+  'debug:session': 'terminal',
+  'debug:control': 'terminal',
+  'debug:setBreakpoints': 'terminal',
+  'debug:variables': 'terminal',
+  'debug:evaluate': 'terminal',
+  'tools:status': 'any',
+  // Installing runs package managers on the core's machine.
+  'tools:install': 'terminal',
+  // Reads the desktop user's own VS Code folders.
+  'migrate:scan': 'desktop',
+  'migrate:apply': 'desktop',
+  'editor:settings': 'any',
+  'editor:update': 'terminal',
+  'lint:file': 'terminal',
+  'lint:fix': 'terminal',
+  'lint:restart': 'terminal',
+  'format:document': 'terminal',
+  'tests:discover': 'any',
+  'tests:state': 'any',
+  'tests:run': 'terminal',
+  'tests:cancel': 'terminal',
+  'tests:debug': 'terminal',
+  'notebook:kernels': 'terminal',
+  'notebook:setup': 'terminal',
+  'notebook:start': 'terminal',
+  'notebook:execute': 'terminal',
+  'notebook:interrupt': 'terminal',
+  'notebook:restart': 'terminal',
+  'notebook:shutdown': 'terminal',
+  'liveServer:status': 'any',
+  // Serving and compiling write / expose project files on the core's machine.
+  'liveServer:start': 'terminal',
+  'liveServer:stop': 'terminal',
+  'sass:compile': 'terminal',
+  'sass:compileAll': 'terminal',
+  'sftp:targets': 'any',
+  // Talking to servers with the project's credentials, writing files: a shell's power.
+  'sftp:list': 'terminal',
+  'sftp:upload': 'terminal',
+  'sftp:download': 'terminal',
+  'sftp:sync': 'terminal',
+  // Reading pull requests is harmless; acting on them (checkout changes files, the rest writes to GitHub) needs remote shells.
+  'github:status': 'any',
+  'github:list': 'any',
+  'github:view': 'any',
+  'github:fileDiff': 'any',
+  'github:checkout': 'terminal',
+  'github:create': 'terminal',
+  'github:merge': 'terminal',
+  'github:comment': 'terminal',
+  'github:review': 'terminal',
+  // Reading a database is like reading files; changing it (and saving connections) needs remote shells.
+  'mongo:connections': 'any',
+  'mongo:databases': 'any',
+  'mongo:collections': 'any',
+  'mongo:find': 'any',
+  'mongo:indexes': 'any',
+  'mongo:add': 'terminal',
+  'mongo:remove': 'terminal',
+  'mongo:createCollection': 'terminal',
+  'mongo:dropCollection': 'terminal',
+  'mongo:insert': 'terminal',
+  'mongo:replace': 'terminal',
+  'mongo:delete': 'terminal',
+  'mongo:aggregate': 'terminal',
+  // Opening windows and ssh / docker on this machine: the desktop app only.
+  'remote:hosts': 'desktop',
+  'remote:list': 'desktop',
+  'remote:ssh': 'desktop',
+  'remote:container': 'desktop',
+  'remote:hasContainer': 'desktop',
+  'remote:disconnect': 'desktop',
   'app:info': 'any',
   'fs:dirs': 'any',
   'server:status': 'any',
@@ -264,6 +545,9 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'ai:cancel': 'any',
   'ai:deleteConversation': 'any',
   'ai:runs': 'any',
+  'ai:inlineComplete': 'any',
+  'ai:inlineEdit': 'any',
+  'ai:inlineCancel': 'any',
   'permission:pending': 'any',
   'permission:respond': 'any',
   'permission:grants': 'any',
@@ -287,7 +571,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:rename': 'terminal',
   'agents:shell': 'terminal',
   'agents:openInEditor': 'desktop',
-  // The W-ONE account: a headless core is signed in from its web UI, so every client may.
+  // The Mindeck account: a headless core is signed in from its web UI, so every client may.
   'cloud:status': 'any',
   'cloud:login': 'any',
   'cloud:register': 'any',
@@ -296,6 +580,10 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'cloud:resendVerification': 'any',
   'cloud:forgotPassword': 'any',
   'cloud:checkout': 'any',
+  'cloud:adopt': 'any',
+  'cloud:syncStatus': 'any',
+  'cloud:syncPush': 'any',
+  'cloud:syncPull': 'any',
   // The desktop app updates itself; nothing a remote client should trigger.
   'update:status': 'desktop',
   'update:check': 'desktop',
@@ -313,15 +601,26 @@ export interface IpcEvents {
   'terminal:data': TerminalData
   'terminal:exit': TerminalExit
   'ai:delta': AiDelta
+  'ai:inlineDelta': InlineDelta
   'ai:message': AiMessageUpdate
   'ai:conversationsChanged': { reason: 'created' | 'updated' | 'deleted'; id: string }
   'permission:request': PermissionRequest
   'permission:resolved': { id: string; decision: ApprovalDecision }
-  'events:event': WoneEvent
+  'events:event': MindeckEvent
   'agents:changed': { session?: AgentSession; removed?: string }
   'agents:message': AgentMessageUpdate
   'cloud:status': CloudStatus
   'update:status': UpdateStatus
+  'debug:session': DebugSession
+  'debug:output': DebugOutput
+  /** A language server published new diagnostics — the editor asks for them again. */
+  'lsp:diagnostics': { projectId: string }
+  'tools:progress': ToolProgress
+  'liveServer:changed': LiveServerStatus[]
+  'sftp:progress': SftpProgress
+  'remote:changed': RemoteConnection[]
+  'tests:changed': TestRunState
+  'notebook:event': NotebookEvent
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -334,6 +633,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'terminal:data',
   'terminal:exit',
   'ai:delta',
+  'ai:inlineDelta',
   'ai:message',
   'ai:conversationsChanged',
   'permission:request',
@@ -342,8 +642,17 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'agents:changed',
   'agents:message',
   'cloud:status',
-  'update:status'
+  'update:status',
+  'debug:session',
+  'debug:output',
+  'lsp:diagnostics',
+  'tools:progress',
+  'liveServer:changed',
+  'sftp:progress',
+  'remote:changed',
+  'tests:changed',
+  'notebook:event'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
-export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit']
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output', 'notebook:event']

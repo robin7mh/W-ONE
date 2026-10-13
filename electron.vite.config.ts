@@ -5,10 +5,13 @@ import react from '@vitejs/plugin-react'
 // @shared points at src/shared (types + IPC contract shared by main/preload/renderer).
 const shared = { '@shared': resolve(__dirname, 'src/shared') }
 
-// Release builds bake in where W-ONE Cloud lives (see electron/main/services/cloud/config.ts).
+// monaco-vim imports Monaco's files as `monaco-editor/esm/vs/…`; Monaco's exports map them to `./esm/vs/*.js`.
+const monacoDeepImports = { find: /^monaco-editor\/esm\/vs\/(.*?)(\.js)?$/, replacement: `${resolve(__dirname, 'node_modules/monaco-editor/esm/vs')}/$1.js` }
+
+// Release builds bake in where Mindeck Cloud lives (see electron/main/services/cloud/config.ts).
 const cloud = {
-  __WONE_CLOUD_URL__: JSON.stringify(process.env.WONE_CLOUD_URL ?? ''),
-  __WONE_CLOUD_KEY__: JSON.stringify(process.env.WONE_CLOUD_KEY ?? '')
+  __MINDECK_CLOUD_URL__: JSON.stringify(process.env.MINDECK_CLOUD_URL ?? ''),
+  __MINDECK_CLOUD_KEY__: JSON.stringify(process.env.MINDECK_CLOUD_KEY ?? '')
 }
 
 export default defineConfig({
@@ -36,8 +39,10 @@ export default defineConfig({
   renderer: {
     root: '.',
     resolve: {
-      alias: { '@': resolve(__dirname, 'src'), ...shared }
+      // Its "browser" build is a UMD bundle without named exports: the ESM one.
+      alias: [monacoDeepImports, { find: /^monaco-vim$/, replacement: resolve(__dirname, 'node_modules/monaco-vim/dist/index.mjs') }, { find: '@', replacement: resolve(__dirname, 'src') }, { find: '@shared', replacement: shared['@shared'] }]
     },
+    optimizeDeps: { exclude: ['monaco-vim'] },
     build: {
       outDir: 'out/renderer',
       rollupOptions: {

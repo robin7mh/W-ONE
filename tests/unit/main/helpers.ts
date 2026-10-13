@@ -12,7 +12,7 @@ export function onCleanup(fn: () => Promise<unknown>): void {
 }
 
 /** A fresh temp directory, removed after the current test. */
-export async function tempDir(prefix = 'wone-test-'): Promise<string> {
+export async function tempDir(prefix = 'mindeck-test-'): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   created.push(dir)
   return dir

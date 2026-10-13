@@ -10,7 +10,7 @@ import { Router } from '../../../electron/ipc/router'
 import { isLicenseFree } from '@shared/types/cloud'
 import { tempDir } from './helpers'
 
-// --- a fake W-ONE Cloud that signs real entitlements -------------------------
+// --- a fake Mindeck Cloud that signs real entitlements -------------------------
 
 function keys() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
@@ -19,7 +19,7 @@ function keys() {
 
 function signToken(payload: string, privateKey: KeyObject): string {
   const body = Buffer.from(payload).toString('base64url')
-  return `wone1.${body}.${sign(null, Buffer.from(`wone1.${body}`), privateKey).toString('base64url')}`
+  return `mindeck1.${body}.${sign(null, Buffer.from(`mindeck1.${body}`), privateKey).toString('base64url')}`
 }
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
@@ -42,6 +42,11 @@ function fakeCloud(clock: { now: number }) {
     down: false,
     lease: true as boolean | 'forged' | 'broken',
     fail: {} as Record<string, { status: number; body?: unknown }>,
+    ai: {
+      available: true,
+      credit: { period: 'trial', allowanceCents: 30, usedCents: 2, remainingCents: 28, renewsAt: null },
+      models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }]
+    } as Record<string, unknown>,
     calls: [] as Call[]
   }
   const license = () => ({ plan: s.plan, trial: { limitSeconds: 25_200, usedSeconds: s.used, remainingSeconds: 25_200 - s.used } })
@@ -55,21 +60,23 @@ function fakeCloud(clock: { now: number }) {
     if (fail) return fail.body === undefined ? new Response('oops', { status: fail.status, statusText: 'Broken' }) : json(fail.body, fail.status)
     switch (path) {
       case '/v1/meta':
-        return json({ entitlementPublicKey: k.pem, webUrl: 'https://w-one.test' })
+        return json({ entitlementPublicKey: k.pem, webUrl: 'https://mindeck.test' })
       case '/v1/auth/login':
       case '/v1/auth/register':
         return json({ user: { email: body!.email, name: body!.name ?? null }, license: license(), session: { token: 'ws_secret' } })
       case '/v1/me':
-        return json({ user: { email: 'robin@w-one.test', name: 'Robin' }, license: license() })
+        return json({ user: { email: 'robin@mindeck.test', name: 'Robin' }, license: license() })
       case '/v1/license/heartbeat': {
         if (s.lease === 'broken') return json({})
         const iat = Math.floor(clock.now / 1000)
-        const claims = { sub: 'u1', email: 'robin@w-one.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, iat, exp: iat + s.ttl }
+        const claims = { sub: 'u1', email: 'robin@mindeck.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, iat, exp: iat + s.ttl }
         const token = s.lease === 'forged' ? signToken(JSON.stringify(claims), keys().privateKey) : signToken(JSON.stringify(claims), k.privateKey)
         return json({ license: license(), entitlement: s.lease ? { token } : null, nextHeartbeatSeconds: 60 })
       }
       case '/v1/billing/checkout':
         return json({ url: 'https://checkout.stripe.test/1' })
+      case '/v1/me/ai':
+        return json(s.ai)
       default:
         return new Response(null, { status: 204 })
     }
@@ -122,7 +129,7 @@ async function setup(
     onStatus,
     advance: (seconds: number) => void (clock.now += seconds * 1000),
     setUserActive: (v: boolean) => void (userActive = v),
-    signIn: () => svc.login({ email: 'robin@w-one.test', password: 'pw' })
+    signIn: () => svc.login({ email: 'robin@mindeck.test', password: 'pw' })
   }
 }
 
@@ -166,40 +173,45 @@ describe('entitlement tokens', () => {
     const good = signToken(JSON.stringify({ sub: 'u', exp: 1 }), k.privateKey)
     expect(verifyEntitlement(good, key)).toMatchObject({ sub: 'u', exp: 1 })
     expect(verifyEntitlement(signToken('{"sub":"u"}', keys().privateKey), key)).toBeNull()
-    expect(verifyEntitlement('wone1.only-two', key)).toBeNull()
-    expect(verifyEntitlement(good.replace('wone1.', 'wone2.'), key)).toBeNull()
+    expect(verifyEntitlement('mindeck1.only-two', key)).toBeNull()
+    expect(verifyEntitlement(good.replace('mindeck1.', 'mindeck2.'), key)).toBeNull()
     expect(verifyEntitlement(signToken('not json', k.privateKey), key)).toBeNull()
   })
 })
 
 describe('cloud config', () => {
   afterEach(() => {
-    delete (globalThis as Record<string, unknown>).__WONE_CLOUD_URL__
-    delete (globalThis as Record<string, unknown>).__WONE_CLOUD_KEY__
+    delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_URL__
+    delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_KEY__
   })
 
   it('reads the values baked in at build time', () => {
     expect(bakedCloud()).toEqual({ url: undefined, key: undefined })
-    Object.assign(globalThis, { __WONE_CLOUD_URL__: '', __WONE_CLOUD_KEY__: '' })
+    Object.assign(globalThis, { __MINDECK_CLOUD_URL__: '', __MINDECK_CLOUD_KEY__: '' })
     expect(bakedCloud()).toEqual({ url: undefined, key: undefined })
-    Object.assign(globalThis, { __WONE_CLOUD_URL__: 'https://api.w-one.test', __WONE_CLOUD_KEY__: 'KEY' })
-    expect(bakedCloud()).toEqual({ url: 'https://api.w-one.test', key: 'KEY' })
+    Object.assign(globalThis, { __MINDECK_CLOUD_URL__: 'https://api.mindeck.test', __MINDECK_CLOUD_KEY__: 'KEY' })
+    expect(bakedCloud()).toEqual({ url: 'https://api.mindeck.test', key: 'KEY' })
   })
 
   it('locks release builds to the baked cloud; dev runs are open and configurable', () => {
-    const baked = { url: 'https://api.w-one.test/', key: 'BAKED' }
-    const env = { WONE_CLOUD_URL: 'http://evil.test', WONE_CLOUD_KEY: 'EVIL', WONE_LICENSE: 'off' }
-    expect(cloudConfig(true, env, baked)).toEqual({ url: 'https://api.w-one.test', publicKey: 'BAKED', enforced: true })
+    const baked = { url: 'https://api.mindeck.test/', key: 'BAKED' }
+    const env = { MINDECK_CLOUD_URL: 'http://evil.test', MINDECK_CLOUD_KEY: 'EVIL', MINDECK_LICENSE: 'off' }
+    expect(cloudConfig(true, env, baked)).toEqual({ url: 'https://api.mindeck.test', publicKey: 'BAKED', enforced: true })
     expect(cloudConfig(false, env, baked)).toEqual({ url: 'http://evil.test', publicKey: 'EVIL', enforced: false })
-    expect(cloudConfig(false, {}, baked)).toEqual({ url: 'https://api.w-one.test', publicKey: 'BAKED', enforced: false })
-    expect(cloudConfig(false, { WONE_LICENSE: 'required' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
+    expect(cloudConfig(false, {}, baked)).toEqual({ url: 'https://api.mindeck.test', publicKey: 'BAKED', enforced: false })
+    expect(cloudConfig(false, { MINDECK_LICENSE: 'required' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
     expect(cloudConfig(true, {}, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
     expect(cloudConfig(false).enforced).toBe(false)
+  })
+
+  it('a core the desktop runs elsewhere follows its license (also in release builds)', () => {
+    expect(cloudConfig(false, { MINDECK_LICENSE: 'follower' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true, follower: true })
+    expect(cloudConfig(true, { MINDECK_LICENSE: 'follower' }, { key: 'K' })).toEqual({ url: DEV_CLOUD_URL, publicKey: 'K', enforced: true, follower: true })
   })
 })
 
 describe('router license gate', () => {
-  it('refuses licensed channels until W-ONE may run; sign-in channels always work', async () => {
+  it('refuses licensed channels until Mindeck may run; sign-in channels always work', async () => {
     let licensed = false
     const router = new Router({ remoteTerminal: () => false, licensed: (ch) => isLicenseFree(ch) || licensed })
     router.register('projects:list', () => [])
@@ -245,16 +257,16 @@ describe('CloudService', () => {
     expect(status).toMatchObject({
       allowed: true,
       state: 'active',
-      account: { email: 'robin@w-one.test', name: null },
+      account: { email: 'robin@mindeck.test', name: null },
       license: { plan: 'trial', trialLimitSeconds: 25_200, trialUsedSeconds: 0, trialRemainingSeconds: 25_200 },
       validUntil: new Date(t.clock.now + 90_000).toISOString(),
-      webUrl: 'https://w-one.test',
+      webUrl: 'https://mindeck.test',
       error: null
     })
     const login = t.cloud.last('/v1/auth/login')!
     expect(login.auth).toBeUndefined()
     expect(login.body).toMatchObject({
-      email: 'robin@w-one.test',
+      email: 'robin@mindeck.test',
       client: 'desktop',
       device: { name: 'Studio', platform: 'darwin', appVersion: '0.2.0', installId: expect.any(String) }
     })
@@ -265,11 +277,31 @@ describe('CloudService', () => {
     expect(t.onStatus).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'active' }))
   })
 
+  it('the AI through the cloud: the session for it, the account’s credit and models — nothing when signed out, offline or not offered', async () => {
+    const t = await setup()
+    expect(await t.svc.sessionToken()).toBeNull()
+    expect(await t.svc.aiInfo()).toBeNull()
+    await t.signIn()
+    expect(await t.svc.sessionToken()).toBe('ws_secret')
+    expect(await t.svc.aiInfo()).toEqual({
+      credit: { period: 'trial', allowanceCents: 30, usedCents: 2, remainingCents: 28, renewsAt: null },
+      models: [{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', costFactor: 1 }]
+    })
+    expect(t.cloud.last('/v1/me/ai')).toMatchObject({ method: 'GET', auth: 'Bearer ws_secret' })
+    t.cloud.s.ai = { available: false, credit: null, models: [] }
+    expect(await t.svc.aiInfo()).toBeNull()
+    t.cloud.s.down = true
+    expect(await t.svc.aiInfo()).toBeNull()
+    // A core the desktop runs elsewhere has no account of its own.
+    const follower = await setup({ follower: true })
+    expect(await follower.svc.aiInfo()).toBeNull()
+  })
+
   it('registers with name and language', async () => {
     const t = await setup()
-    await t.svc.register({ email: 'new@w-one.test', password: 'long enough!', name: 'Robin', locale: 'de' })
+    await t.svc.register({ email: 'new@mindeck.test', password: 'long enough!', name: 'Robin', locale: 'de' })
     expect(t.cloud.last('/v1/auth/register')!.body).toMatchObject({ name: 'Robin', locale: 'de', client: 'desktop' })
-    expect(t.svc.status().account).toEqual({ email: 'new@w-one.test', name: 'Robin' })
+    expect(t.svc.status().account).toEqual({ email: 'new@mindeck.test', name: 'Robin' })
   })
 
   it('passes sign-in errors through and stays signed out', async () => {
@@ -279,7 +311,7 @@ describe('CloudService', () => {
     expect(t.svc.status().state).toBe('signed_out')
   })
 
-  it('renews a trial lease shortly before it ends — only while someone uses W-ONE', async () => {
+  it('renews a trial lease shortly before it ends — only while someone uses Mindeck', async () => {
     const t = await setup()
     await t.signIn()
     const beats = () => t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
@@ -385,7 +417,7 @@ describe('CloudService', () => {
   it('cannot verify anything with a broken built-in key', async () => {
     const t = await setup({ publicKey: 'not a key' })
     await t.signIn()
-    expect(t.svc.status()).toMatchObject({ state: 'checking', error: 'bad-entitlement', webUrl: 'https://w-one.test' })
+    expect(t.svc.status()).toMatchObject({ state: 'checking', error: 'bad-entitlement', webUrl: 'https://mindeck.test' })
   })
 
   it('signs out when the cloud ends the session or disables the account', async () => {
@@ -442,8 +474,8 @@ describe('CloudService', () => {
 
   it('resends the confirmation, asks for a reset link and opens a checkout', async () => {
     const t = await setup()
-    await t.svc.forgotPassword({ email: 'robin@w-one.test' })
-    expect(t.cloud.last('/v1/auth/forgot-password')).toMatchObject({ auth: undefined, body: { email: 'robin@w-one.test' } })
+    await t.svc.forgotPassword({ email: 'robin@mindeck.test' })
+    expect(t.cloud.last('/v1/auth/forgot-password')).toMatchObject({ auth: undefined, body: { email: 'robin@mindeck.test' } })
     await t.signIn()
     await t.svc.resendVerification()
     expect(t.cloud.last('/v1/auth/resend-verification')!.auth).toBe('Bearer ws_secret')
@@ -455,6 +487,69 @@ describe('CloudService', () => {
     expect(t.svc.status().state).toBe('active')
   })
 
+  it('authenticated API calls for other features (Settings Sync): any method, signed in only', async () => {
+    const t = await setup()
+    expect(t.svc.isSignedIn()).toBe(false)
+    await t.signIn()
+    expect(t.svc.isSignedIn()).toBe(true)
+    await t.svc.api('PUT', '/v1/me/sync', { data: {}, baseVersion: 0 })
+    expect(t.cloud.last('/v1/me/sync')).toMatchObject({ method: 'PUT', auth: 'Bearer ws_secret', body: { data: {}, baseVersion: 0 } })
+    await t.svc.api('DELETE', '/v1/me/sync')
+    expect(t.cloud.last('/v1/me/sync')).toMatchObject({ method: 'DELETE', body: undefined })
+    t.cloud.s.fail['/v1/me/sync'] = { status: 409, body: { error: { code: 'sync_conflict', message: 'Settings were changed on another device' } } }
+    await expect(t.svc.api('PUT', '/v1/me/sync', {})).rejects.toMatchObject({ code: 'sync_conflict' })
+  })
+
+  it('remote windows keep a trial lease going like a user at this machine', async () => {
+    const t = await setup()
+    await t.signIn()
+    t.setUserActive(false)
+    const beats = () => t.cloud.s.calls.filter((c) => c.path === '/v1/license/heartbeat').length
+    const before = beats()
+    t.advance(60)
+    await t.svc.tick()
+    expect(beats()).toBe(before)
+    t.svc.setRemoteSessions(1)
+    await t.svc.tick()
+    expect(beats()).toBe(before + 1)
+  })
+
+  it('hands its entitlement to follower cores only while it is valid', async () => {
+    const t = await setup()
+    expect(t.svc.entitlement()).toBeNull()
+    await t.signIn()
+    expect(t.svc.entitlement()).toEqual({ token: expect.stringMatching(/^mindeck1\./), account: { email: 'robin@mindeck.test', name: null } })
+    t.advance(120) // the trial lease ran out
+    expect(t.svc.entitlement()).toBeNull()
+    t.cloud.s.active = false
+    t.cloud.s.reason = 'trial_expired'
+    t.advance(-120)
+    await t.svc.refresh()
+    expect(t.svc.entitlement()).toBeNull()
+  })
+
+  it('a follower never signs in itself: it adopts the desktop’s entitlement (verified with the cloud’s key)', async () => {
+    const leader = await setup()
+    await leader.signIn()
+    const { token, account } = leader.svc.entitlement()!
+    const follower = await setup({ follower: true, publicKey: leader.cloud.k.pem })
+    expect(follower.cloud.s.calls).toEqual([]) // no heartbeat, nothing
+    expect(follower.svc.status()).toMatchObject({ state: 'signed_out', allowed: false })
+    expect(await follower.svc.adopt(token, account)).toMatchObject({ state: 'active', allowed: true, account })
+    await expect(follower.svc.adopt('mindeck1.forged.sig', account)).rejects.toMatchObject({ code: 'bad-entitlement' })
+    expect(follower.svc.status().state).toBe('active')
+    follower.advance(120)
+    expect(follower.svc.status()).toMatchObject({ allowed: false, state: 'offline' }) // until the desktop hands a fresh one over
+    // Without a built-in key it asks the cloud for it (and can't verify without it).
+    const keyless = await setup({ follower: true })
+    await expect(keyless.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement' }) // its cloud's key isn't the leader's
+    expect(keyless.cloud.s.calls.map((c) => c.path)).toEqual(['/v1/meta'])
+    const offline = await setup({ follower: true, offline: true })
+    await expect(offline.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement' })
+    // A core that signs in itself doesn't adopt.
+    await expect(leader.svc.adopt(token, account)).rejects.toMatchObject({ code: 'not-follower' })
+  })
+
   it('remembers the account across restarts — a lifetime license even without the cloud', async () => {
     const first = await setup()
     first.cloud.s.plan = 'lifetime'
@@ -463,7 +558,7 @@ describe('CloudService', () => {
     first.svc.dispose()
 
     const again = await setup({ dir: first.dir, secrets: first.secrets, offline: true })
-    expect(again.svc.status()).toMatchObject({ state: 'active', allowed: true, account: { email: 'robin@w-one.test' }, license: { plan: 'lifetime' } })
+    expect(again.svc.status()).toMatchObject({ state: 'active', allowed: true, account: { email: 'robin@mindeck.test' }, license: { plan: 'lifetime' } })
     const saved = JSON.parse(await readFile(join(first.dir, 'cloud.json'), 'utf8'))
     expect(saved.installId).toBe(JSON.parse(await readFile(join(again.dir, 'cloud.json'), 'utf8')).installId)
   })
@@ -476,7 +571,7 @@ describe('CloudService', () => {
     expect((await setup({ dir })).svc.status().state).toBe('signed_out')
     await writeFile(
       join(dir, 'cloud.json'),
-      JSON.stringify({ installId: 'abc', account: { email: 'a@b.c', name: null }, license: null, entitlement: 'wone1.a.b', publicKey: null, webUrl: null })
+      JSON.stringify({ installId: 'abc', account: { email: 'a@b.c', name: null }, license: null, entitlement: 'mindeck1.a.b', publicKey: null, webUrl: null })
     )
     const t = await setup({ dir, enforced: false, offline: true })
     await vi.waitFor(() => expect(t.svc.status().online).toBe(false))

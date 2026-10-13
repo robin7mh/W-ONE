@@ -26,14 +26,14 @@ function fail(code: string, message: string): IpcResult<never> {
 /**
  * The one dispatch point for every contract channel — used by the desktop IPC
  * bridge and by the HTTP API alike. Per call it checks, in order: the channel
- * exists, W-ONE is licensed (or the channel is license-free), the caller's
+ * exists, Mindeck is licensed (or the channel is license-free), the caller's
  * transport may use it (CHANNEL_ACCESS), the payload
  * matches its schema; then runs the handler and wraps the result in IpcResult.
  * Errors never escape as throws.
  */
 export interface RouterOptions {
   remoteTerminal: () => boolean
-  /** License gate: false → the channel is refused until W-ONE is licensed. */
+  /** License gate: false → the channel is refused until Mindeck is licensed. */
   licensed?: (channel: IpcChannel) => boolean
 }
 
@@ -56,16 +56,16 @@ export class Router {
     const key = channel as IpcChannel
 
     if (this.opts.licensed && !this.opts.licensed(key)) {
-      return fail('license-required', 'W-ONE needs a license — sign in under Profile')
+      return fail('license-required', 'Mindeck needs a license — sign in under Profile')
     }
 
     if (ctx.transport === 'remote') {
       const access = CHANNEL_ACCESS[key]
       if (access === 'desktop') {
-        return fail('desktop-only', `${channel} is only available in the W-ONE desktop app`)
+        return fail('desktop-only', `${channel} is only available in the Mindeck desktop app`)
       }
       if (access === 'terminal' && !this.opts.remoteTerminal()) {
-        return fail('remote-terminal-disabled', 'Remote shells are disabled on this W-ONE core')
+        return fail('remote-terminal-disabled', 'Remote shells are disabled on this Mindeck core')
       }
     }
 

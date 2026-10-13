@@ -1,7 +1,8 @@
 import { mkdir } from 'node:fs/promises'
-import { hostname } from 'node:os'
+import { homedir, hostname } from 'node:os'
+import { join } from 'node:path'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
-import type { WonePaths } from '../lib/paths'
+import type { MindeckPaths } from '../lib/paths'
 import type { Platform } from '../platform/types'
 import { openInVsCode } from '../lib/openInVsCode'
 import { Router } from '../../ipc/router'
@@ -11,6 +12,30 @@ import { registerContextIpc } from '../../ipc/context.ipc'
 import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
+import { registerScmIpc } from '../../ipc/scm.ipc'
+import { registerLspIpc } from '../../ipc/lsp.ipc'
+import { registerDebugIpc } from '../../ipc/debug.ipc'
+import { registerToolsIpc } from '../../ipc/tools.ipc'
+import { registerMigrateIpc } from '../../ipc/migrate.ipc'
+import { registerLiveIpc } from '../../ipc/live.ipc'
+import { registerSftpIpc } from '../../ipc/sftp.ipc'
+import { SftpService } from '../services/sftp/SftpService'
+import { registerGitHubIpc } from '../../ipc/github.ipc'
+import { GitHubService, loginShellGh } from '../services/github/GitHubService'
+import { registerMongoIpc } from '../../ipc/mongo.ipc'
+import { MongoService } from '../services/mongo/MongoService'
+import { SyncService } from '../services/cloud/SyncService'
+import { registerRemoteIpc } from '../../ipc/remote.ipc'
+import { RemoteService } from '../services/remote/RemoteService'
+import { bundleSource } from '../services/remote/bundle'
+import { registerLintIpc } from '../../ipc/lint.ipc'
+import { bundledPrettier, LintService } from '../services/lint/LintService'
+import { registerNotebookIpc } from '../../ipc/notebook.ipc'
+import { NotebookService } from '../services/notebook/NotebookService'
+import { registerTestsIpc } from '../../ipc/tests.ipc'
+import { TestService } from '../services/tests/TestService'
+import { LiveServerService } from '../services/live/LiveServerService'
+import { SassService } from '../services/live/SassService'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
@@ -23,14 +48,18 @@ import { TerminalService } from '../services/terminal/TerminalService'
 import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
+import { ScmService } from '../services/scm/ScmService'
+import { LspService } from '../services/lsp/LspService'
+import { DebugService } from '../services/debug/DebugService'
+import { ToolsService } from '../services/tools/ToolsService'
+import { MigrateService, appDataDir } from '../services/migrate/MigrateService'
 import { AuthService } from '../services/auth/AuthService'
-import { DbService, createPool, databaseUrl } from '../services/db/DbService'
-import { MIGRATIONS } from '../services/db/migrations'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
+import { InlineService } from '../services/ai/InlineService'
 import { ConversationStore } from '../services/ai/ConversationStore'
 import { RunStore } from '../services/ai/RunStore'
 import { PermissionService } from '../services/ai/PermissionService'
@@ -51,7 +80,7 @@ import { isLicenseFree } from '@shared/types/cloud'
 export interface CoreOptions {
   mode: CoreMode
   version: string
-  paths: WonePaths
+  paths: MindeckPaths
   platform: Platform
   /** Standalone server: fixed config from the environment. Desktop: from settings. */
   serverConfig?: ServerConfig
@@ -63,7 +92,7 @@ export interface CoreOptions {
   providerFactory?: ProviderFactory
   /** Tell the user an agent needs them (desktop: a notification while the window is in the background). */
   notify?: (title: string, body: string) => void
-  /** W-ONE Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
+  /** Mindeck Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
   cloud?: CloudConfig & { fetch?: typeof fetch }
   /** Someone is at this machine (desktop: not idle). Remote clients count as use, too. */
   isUserActive?: () => boolean
@@ -82,14 +111,12 @@ export interface Core {
   assistant: AssistantService
   agents: AgentSessionService
   cloud: CloudService
-  /** Settles once the background database connection attempt is over. */
-  dbReady: Promise<void>
   info(): AppInfo
   dispose(): Promise<void>
 }
 
 /**
- * Builds the W-ONE core — every service, wired and registered on one Router —
+ * Builds the Mindeck core — every service, wired and registered on one Router —
  * independent of its host. The Electron app binds the Router to its window's
  * IPC; the standalone server (and the desktop's optional embedded server)
  * exposes the same Router over HTTP + WebSocket.
@@ -102,14 +129,14 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   await settings.init()
 
   const hub = new EventHub()
-  let db: DbService | null = null
-  let dbSchema: number | undefined
 
-  // Every WoneEvent: kept in the EventLog (memory ring + Postgres once
-  // connected) and pushed live to every client for the activity timeline.
-  const eventLog = new EventLog()
+  // Every MindeckEvent: kept in the EventLog (the newest in memory and in a file
+  // in the data folder) and pushed live to every client for the activity timeline.
+  const eventLog = new EventLog(paths.eventsFile)
+  await eventLog.load()
   const events = new EventBus({ sink: eventLog, broadcast: (event) => hub.publish('events:event', event) })
-  const runs = new RunStore()
+  const runs = new RunStore(paths.runsFile)
+  await runs.load()
 
   const projects = new ProjectService(new ProjectRegistry(paths.dataDir), platform)
   await projects.init()
@@ -138,11 +165,29 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
 
   const fs = new FsService()
   // The editor's project files — paths resolve against the project registry.
-  const files = new FilesService((id) => projects.getProjectPath(id))
+  // Deleted project files go to the OS trash (a headless core keeps its own in the data folder).
+  const fileTrash = join(paths.dataDir, 'file-trash')
+  const files = new FilesService(
+    (id) => projects.getProjectPath(id),
+    (abs) => platform.trashItem(abs, fileTrash)
+  )
+  const scm = new ScmService((id) => projects.getProjectPath(id))
+  // Language servers and debuggers Mindeck installs live in its data folder.
+  const devTools = new ToolsService({ dir: join(paths.dataDir, 'tools'), publish: hub.publish.bind(hub, 'tools:progress') })
+  const lsp = new LspService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    servers: { tools: devTools, onDiagnostics: hub.publish.bind(hub, 'lsp:diagnostics') }
+  })
+  const debug = new DebugService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    publish: (channel, payload) => hub.publish(channel, payload as never),
+    tools: devTools,
+    lsp
+  })
   const auth = new AuthService(paths.devicesFile)
 
   // The router asks the server controller whether remote shells are allowed,
-  // and the cloud whether W-ONE is licensed (only ever called per request,
+  // and the cloud whether Mindeck is licensed (only ever called per request,
   // after all of them exist).
   const router = new Router({
     remoteTerminal: () => controller.remoteTerminal(),
@@ -169,21 +214,27 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     version: opts.version,
     platform: process.platform,
     hostname: hostname(),
-    remoteTerminal: controller.remoteTerminal(),
-    db: { connected: !!db, schema: dbSchema }
+    remoteTerminal: controller.remoteTerminal()
   })
 
   // The assistant: provider, context engine, tools behind the permission gate.
   // One store for every secret (LLM key, cloud session) — one writer per file.
   const secrets = new SecretStore(paths.secretsFile, opts.cipher)
-  const ai = new AiService({ settings, secrets, factory: opts.providerFactory })
+  // Without a key of one's own, the assistant asks Mindeck Cloud (signed in, with the account's AI credit).
+  const ai = new AiService({
+    settings,
+    secrets,
+    factory: opts.providerFactory,
+    cloud: { baseUrl: `${(opts.cloud ?? cloudConfig(false)).url}/ai`, token: () => cloud.sessionToken(), info: () => cloud.aiInfo() }
+  })
 
-  // The W-ONE account: sign-in, the trial clock and the license (W-ONE Cloud).
+  // The Mindeck account: sign-in, the trial clock and the license (Mindeck Cloud).
   const cloudCfg: CloudConfig & { fetch?: typeof fetch } = opts.cloud ?? cloudConfig(false)
   const cloud: CloudService = new CloudService({
     baseUrl: cloudCfg.url,
     publicKey: cloudCfg.publicKey,
     enforced: cloudCfg.enforced,
+    follower: cloudCfg.follower,
     client: opts.mode,
     version: opts.version,
     deviceName: hostname(),
@@ -221,7 +272,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
 
   // The agent cockpit: the user's own coding agents (Claude Code), each in a
-  // PTY, reporting back through hooks and reading W-ONE's memory over MCP —
+  // PTY, reporting back through hooks and reading Mindeck's memory over MCP —
   // both on a this-computer-only endpoint with a token per session.
   const local: LocalAgentServer = new LocalAgentServer({
     hook: (id, body, signal) => agents.handleHook(id, body, signal),
@@ -241,7 +292,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     journal: vaultJournal(vault),
     notify: opts.notify,
     spawnAcp,
-    claudeBin: process.env.WONE_CLAUDE_BIN || undefined,
+    claudeBin: process.env.MINDECK_CLAUDE_BIN || undefined,
     openFolder: (path) => openInVsCode(path, platform)
   })
   await Promise.all([agents.init(), local.start()])
@@ -252,6 +303,23 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerMemoryIpc(router, vault)
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
+  registerScmIpc(router, scm)
+  registerLspIpc(router, lsp)
+  registerDebugIpc(router, debug)
+  registerToolsIpc(router, devTools)
+  registerMigrateIpc(router, new MigrateService({ home: homedir(), appData: appDataDir(), settings, snippetsFile: join(paths.dataDir, 'snippets.json') }))
+  const editorSettings = () => settings.get().editor
+  const liveServer = new LiveServerService({
+    resolveRoot: (id) => projects.getProjectPath(id),
+    settings: () => editorSettings()?.liveServer,
+    open: platform.openExternal,
+    publish: hub.publish.bind(hub, 'liveServer:changed')
+  })
+  registerSftpIpc(router, new SftpService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'sftp:progress') }))
+  registerGitHubIpc(router, new GitHubService({ resolveRoot: (id) => projects.getProjectPath(id), gh: loginShellGh }))
+  const mongo = new MongoService({ secrets })
+  registerMongoIpc(router, mongo)
+  registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
   registerAgentsIpc(router, agents)
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
@@ -272,6 +340,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('ai:cancel', ({ conversationId }) => assistant.cancel(conversationId))
   router.register('ai:deleteConversation', ({ id }) => assistant.remove(id))
   router.register('ai:runs', ({ limit }) => assistant.runs(limit))
+  const inline = new InlineService({ ai, publish: hub.publish.bind(hub, 'ai:inlineDelta') })
+  router.register('ai:inlineComplete', (req) => inline.complete(req))
+  router.register('ai:inlineEdit', (req) => inline.edit(req))
+  router.register('ai:inlineCancel', ({ requestId }) => inline.cancel(requestId))
   router.register('permission:pending', () => permissions.list())
   router.register('permission:respond', ({ id, decision }, ctx) => permissions.respond(id, decision, ctx.deviceId))
   router.register('permission:grants', () => permissions.grants())
@@ -285,28 +357,35 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('cloud:resendVerification', () => cloud.resendVerification())
   router.register('cloud:forgotPassword', (req) => cloud.forgotPassword(req))
   router.register('cloud:checkout', () => cloud.checkout())
-
-  // Postgres runs in Docker (docker-compose.yml). Connected in the background:
-  // a stopped container never delays startup — W-ONE stays usable without it.
-  const connecting = (async () => {
-    const url = databaseUrl()
-    const candidate = new DbService(createPool(url))
-    try {
-      await candidate.ping()
-      const result = await candidate.migrate(MIGRATIONS)
-      db = candidate
-      dbSchema = result.to
-      eventLog.attach(candidate)
-      runs.attach(candidate)
-      if (result.applied.length) events.emit('db.migrated', { payload: result })
-      console.log(`[db] connected — schema v${result.to}`)
-    } catch (err) {
-      await candidate.close().catch(() => {})
-      console.warn(
-        `[db] Postgres not reachable at ${url.replace(/\/\/([^:@/]+):[^@/]*@/, '//$1:***@')} — start it with: npm run db:up\n  ${(err as Error).message}`
-      )
-    }
-  })()
+  router.register('cloud:adopt', ({ token, account }) => cloud.adopt(token, account))
+  // Settings Sync: the account keeps one copy of the editor settings, snippets, look and language.
+  const sync = new SyncService({ cloud, settings, snippetsFile: join(paths.dataDir, 'snippets.json') })
+  router.register('cloud:syncStatus', () => sync.status())
+  router.register('cloud:syncPush', ({ force, ...ui }) => sync.push(ui, force))
+  router.register('cloud:syncPull', () => sync.pull())
+  // Remote-SSH and Dev Containers: this core starts Mindeck elsewhere and opens a window on it.
+  const remote = new RemoteService({
+    version: opts.version,
+    licensed: cloudCfg.enforced,
+    deviceName: hostname(),
+    bundle: bundleSource({ version: opts.version, dir: join(paths.dataDir, 'remote'), devDir: join(__dirname, '..', 'remote') }),
+    secrets,
+    entitlement: cloud.entitlement.bind(cloud),
+    openWindow: opts.platform.openRemoteWindow,
+    publish: (list) => {
+      hub.publish('remote:changed', list)
+      cloud.setRemoteSessions(list.filter((c) => c.state === 'ready').length)
+    },
+    sshConfig: process.env.MINDECK_SSH_CONFIG || undefined
+  })
+  registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
+  // ESLint and Prettier: the project's own, in a worker per project.
+  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), prettier: bundledPrettier() })
+  registerLintIpc(router, lint)
+  // The test explorer: the project's runners, Mindeck's debugger.
+  const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'notebook:event') })
+  registerNotebookIpc(router, notebooks)
+  registerTestsIpc(router, new TestService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'tests:changed'), debug: debug.start.bind(debug) }))
 
   events.emit('app.started', { payload: { version: opts.version, mode: opts.mode } })
 
@@ -323,7 +402,6 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     assistant,
     agents,
     cloud,
-    dbReady: connecting,
     info,
     async dispose() {
       cloud.dispose()
@@ -332,14 +410,16 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await local.close()
       system.dispose()
       vault.dispose()
+      lsp.dispose()
+      liveServer.dispose()
+      debug.dispose()
+      await mongo.dispose()
+      remote.dispose()
+      lint.dispose()
+      notebooks.dispose()
       terminal.killAll()
       await controller.stop()
-      await connecting
-      const open = db
-      db = null
-      eventLog.attach(null)
-      runs.attach(null)
-      await open?.close().catch(() => {})
+      await eventLog.flush()
     }
   }
 }

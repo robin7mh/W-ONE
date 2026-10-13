@@ -5,9 +5,8 @@
 import type { EntityRef } from './entity'
 
 /** Grows additively as phases land (project.*, memory.*, agent.*, tool.*, …). */
-export type WoneEventType =
+export type MindeckEventType =
   | 'app.started'
-  | 'db.migrated'
   | 'agent.started'
   | 'agent.status.updated'
   | 'agent.completed'
@@ -34,9 +33,8 @@ export type EventPersistence = 'ephemeral' | 'activity' | 'audit'
  * Central catalog: every event type declares its persistence class exactly
  * once. Adding an event type without classifying it is a type error.
  */
-export const EVENT_CATALOG: Record<WoneEventType, EventPersistence> = {
+export const EVENT_CATALOG: Record<MindeckEventType, EventPersistence> = {
   'app.started': 'activity',
-  'db.migrated': 'activity',
   'agent.started': 'activity',
   'agent.status.updated': 'ephemeral',
   'agent.completed': 'activity',
@@ -53,9 +51,9 @@ export const EVENT_CATALOG: Record<WoneEventType, EventPersistence> = {
   'session.ended': 'activity'
 }
 
-export interface WoneEvent<T = unknown> {
+export interface MindeckEvent<T = unknown> {
   id: string
-  type: WoneEventType
+  type: MindeckEventType
   ts: string // ISO
   actor: { kind: 'user' | 'agent' | 'system'; id?: string }
   /** Primary entity concerned, if any. */

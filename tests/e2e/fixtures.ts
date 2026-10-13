@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 type Fixtures = {
-  /** Throwaway ~/W-ONE for this test (vault, settings, project registry). */
+  /** Throwaway ~/Mindeck for this test (vault, settings, project registry). */
   home: string
   app: ElectronApplication
   /** The main window, past the boot overlay. */
@@ -15,14 +15,14 @@ type Fixtures = {
 
 export const test = base.extend<Fixtures>({
   home: async ({}, use) => {
-    const dir = await mkdtemp(join(tmpdir(), 'wone-e2e-'))
+    const dir = await mkdtemp(join(tmpdir(), 'mindeck-e2e-'))
     await use(dir)
     await rm(dir, { recursive: true, force: true })
   },
 
   app: async ({ home }, use) => {
-    // WONE_CLAUDE_BIN: agent sessions run a stand-in for Claude Code (no account, no model).
-    const env = { ...process.env, WONE_HOME: home, LANG: 'en_US.UTF-8', WONE_CLAUDE_BIN: resolve('tests/e2e/fake-claude.mjs') } as Record<string, string>
+    // MINDECK_CLAUDE_BIN: agent sessions run a stand-in for Claude Code (no account, no model).
+    const env = { ...process.env, MINDECK_HOME: home, LANG: 'en_US.UTF-8', MINDECK_CLAUDE_BIN: resolve('tests/e2e/fake-claude.mjs') } as Record<string, string>
     delete env.ELECTRON_RENDERER_URL // always the built renderer, never a dev server
     delete env.ELECTRON_RUN_AS_NODE
     const app = await electron.launch({

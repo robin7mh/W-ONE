@@ -32,7 +32,7 @@ const DOT: Record<AgentSession['status'], { tone: 'cyan' | 'warn' | 'ok' | 'mute
 
 /**
  * The Agents module — a cockpit for the coding agents the user already has
- * (Claude Code runs on their own plan) next to W-ONE's own assistant: one
+ * (Claude Code runs on their own plan) next to Mindeck's own assistant: one
  * list of chats, the open one in the middle, its changes, plan and memory
  * beside it. Everything starts with "New chat".
  */

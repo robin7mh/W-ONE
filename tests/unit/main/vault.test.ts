@@ -74,7 +74,7 @@ afterEach(() => vi.restoreAllMocks())
 describe('VaultService — vault lifecycle', () => {
   it('reports a missing vault, then creates the default one with starter notes', async () => {
     const { v, onChange } = await setup({ create: false })
-    expect(await v.status()).toMatchObject({ exists: false, isDefault: true, name: 'W-ONE', noteCount: 0, graphStyle: { mode: 'colorful' } })
+    expect(await v.status()).toMatchObject({ exists: false, isDefault: true, name: 'Mindeck', noteCount: 0, graphStyle: { mode: 'colorful' } })
     expect(await v.list()).toEqual([])
     expect(await v.folders()).toEqual([])
     const st = await v.createVault()
@@ -111,7 +111,7 @@ describe('VaultService — vault lifecycle', () => {
     expect(await v.pickVault()).toMatchObject({ name: 'Obsidian Vault', isDefault: false, noteCount: 1 })
 
     h.dialog.mockResolvedValueOnce({ canceled: false, filePaths: [root] })
-    expect(await v.pickVault()).toMatchObject({ name: 'W-ONE', isDefault: true, noteCount: 6 })
+    expect(await v.pickVault()).toMatchObject({ name: 'Mindeck', isDefault: true, noteCount: 6 })
   })
 
   it('sets a vault by path (web folder browser) and rejects missing folders', async () => {
@@ -268,17 +268,17 @@ describe('VaultService — folders, renames, moves, links', () => {
 
   it('renames notes and rewrites links elsewhere (name- and path-style), incl. case-only', async () => {
     const { v, read, root } = await setup()
-    await writeFile(join(root, 'Pathy.md'), 'see [[Projekte/W-ONE]] and [doc](Projekte/W-ONE.md) and [[W-ONE#Ziele|alias]] and [[Nowhere]]')
+    await writeFile(join(root, 'Pathy.md'), 'see [[Projekte/Mindeck]] and [doc](Projekte/Mindeck.md) and [[Mindeck#Ziele|alias]] and [[Nowhere]]')
     await v.status() // index Pathy via full scan is not needed: write through the service instead
     await v.write('Pathy.md', await read('Pathy.md'))
 
-    const meta = await v.rename('Projekte/W-ONE.md', 'W-ONE App')
-    expect(meta.path).toBe('Projekte/W-ONE App.md')
-    expect(await read('Pathy.md')).toBe('see [[Projekte/W-ONE App]] and [doc](Projekte/W-ONE%20App.md) and [[W-ONE App#Ziele|alias]] and [[Nowhere]]')
+    const meta = await v.rename('Projekte/Mindeck.md', 'Mindeck App')
+    expect(meta.path).toBe('Projekte/Mindeck App.md')
+    expect(await read('Pathy.md')).toBe('see [[Projekte/Mindeck App]] and [doc](Projekte/Mindeck%20App.md) and [[Mindeck App#Ziele|alias]] and [[Nowhere]]')
     expect((await v.rename('Pathy.md', 'Pathy Renamed')).path).toBe('Pathy Renamed.md') // a root-level note
-    expect(await read('Willkommen.md')).toContain('[[W-ONE App]]')
+    expect(await read('Willkommen.md')).toContain('[[Mindeck App]]')
 
-    expect((await v.rename('Projekte/W-ONE App.md', 'W-ONE App')).path).toBe('Projekte/W-ONE App.md') // no-op
+    expect((await v.rename('Projekte/Mindeck App.md', 'Mindeck App')).path).toBe('Projekte/Mindeck App.md') // no-op
     expect((await v.rename('Ich/Vorlieben.md', 'vorlieben')).path).toBe('Ich/vorlieben.md') // case only
     await expect(v.rename('Ich/vorlieben.md', 'Über mich')).rejects.toMatchObject({ code: 'exists' })
     await expect(v.rename('Ghost.md', 'x')).rejects.toMatchObject({ code: 'not-found' })
@@ -291,7 +291,7 @@ describe('VaultService — folders, renames, moves, links', () => {
     const moved = await v.move('Entscheidungen/2026-10-01 Electron 37.md', 'Ich')
     expect(moved.path).toBe('Ich/2026-10-01 Electron 37.md')
     expect(existsSync(join(root, 'Ich/2026-10-01 Electron 37.md'))).toBe(true)
-    expect((await v.read('Projekte/W-ONE.md')).links['2026-10-01 Electron 37']).toBe('Ich/2026-10-01 Electron 37.md')
+    expect((await v.read('Projekte/Mindeck.md')).links['2026-10-01 Electron 37']).toBe('Ich/2026-10-01 Electron 37.md')
   })
 
   it('moves whole folders, refusing the root, self-nesting and collisions', async () => {
@@ -327,7 +327,7 @@ describe('VaultService — folders, renames, moves, links', () => {
     await v.unlink('Ich/Über mich.md', 'Entscheidungen/2026-10-01 Ruhigere Oberfläche.md')
     expect(await read('Ich/Über mich.md')).not.toContain('Ruhigere')
     const same = await read('Ich/Über mich.md')
-    await v.unlink('Ich/Über mich.md', 'Projekte/W-ONE.md') // nothing to remove
+    await v.unlink('Ich/Über mich.md', 'Projekte/Mindeck.md') // nothing to remove
     expect(await read('Ich/Über mich.md')).toBe(same)
   })
 })

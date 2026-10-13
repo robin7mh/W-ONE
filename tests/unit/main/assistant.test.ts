@@ -12,7 +12,7 @@ import { AGENTS } from '../../../electron/main/services/ai/agents'
 import { EventBus } from '../../../electron/main/services/events/EventBus'
 import { aiError, type LlmBlock, type LlmMessage, type LlmRequest, type LlmTurn } from '../../../electron/main/services/ai/llm'
 import type { ChatMessage, ToolCallPart } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 
 // --- fixtures -------------------------------------------------------------------
 
@@ -122,7 +122,7 @@ async function harness(opts: { script?: Step[]; agents?: AgentDefinition[]; remo
       return step(req, onText)
     })
   }
-  const events: WoneEvent[] = []
+  const events: MindeckEvent[] = []
   const bus = new EventBus({ sink: { persist: () => {} } })
   bus.subscribe('*', (e) => events.push(e))
   const pushed: { channel: string; payload: unknown }[] = []
@@ -135,7 +135,8 @@ async function harness(opts: { script?: Step[]; agents?: AgentDefinition[]; remo
         if (opts.noKey) throw aiError('no-key', 'No key')
         return provider
       },
-      settings: () => ({ model: 'claude-opus-5-5', effort: 'medium' })
+      settings: () => ({ model: 'claude-opus-5-5', effort: 'medium' }),
+      model: async () => 'claude-opus-5-5'
     } as never,
     store,
     runs,
@@ -164,11 +165,11 @@ const toolParts = (m: ChatMessage) => m.parts.filter((p): p is ToolCallPart => p
 describe('AssistantService — conversation basics', () => {
   it('streams a plain answer into a new conversation and records the run', async () => {
     const h = await harness({ script: [say('Hello there')] })
-    const { conversationId, messageId } = await h.svc.send({ text: '  Hi   W-ONE ', projectId: 'p1' }, ipc)
+    const { conversationId, messageId } = await h.svc.send({ text: '  Hi   Mindeck ', projectId: 'p1' }, ipc)
     await h.svc.idle()
 
     const conv = await h.svc.conversation(conversationId)
-    expect(conv).toMatchObject({ title: 'Hi W-ONE', agentId: 'tester', projectId: 'p1', running: false })
+    expect(conv).toMatchObject({ title: 'Hi Mindeck', agentId: 'tester', projectId: 'p1', running: false })
     expect(conv).not.toHaveProperty('transcript')
     expect(conv.messages.map((m) => [m.role, m.status])).toEqual([
       ['user', 'done'],
@@ -176,7 +177,7 @@ describe('AssistantService — conversation basics', () => {
     ])
     expect(conv.messages[1]).toMatchObject({ id: messageId, parts: [{ type: 'text', text: 'Hello there' }], usage: { inputTokens: 10, outputTokens: 5 } })
     expect(h.requests[0]).toMatchObject({ model: 'claude-opus-5-5', effort: 'medium', system: 'SYSTEM', maxTokens: 32000, webTools: false })
-    expect(h.requests[0].messages).toEqual([{ role: 'user', blocks: [{ type: 'text', text: '<context>p1</context>' }, { type: 'text', text: '  Hi   W-ONE ' }] }])
+    expect(h.requests[0].messages).toEqual([{ role: 'user', blocks: [{ type: 'text', text: '<context>p1</context>' }, { type: 'text', text: '  Hi   Mindeck ' }] }])
     expect(h.requests[0].tools.map((t) => t.name)).toEqual(['read_x', 'write_x', 'exec_x', 'boom', 'tag_x'])
     expect((await h.transcript(conversationId)).map((m) => m.role)).toEqual(['user', 'assistant'])
 
@@ -320,7 +321,7 @@ describe('AssistantService — tools and the permission gate', () => {
     await h.svc.idle()
     expect(toolParts(await h.reply(conversationId))[0]).toMatchObject({
       status: 'denied',
-      output: 'Running commands is disabled for remote devices on this W-ONE core.'
+      output: 'Running commands is disabled for remote devices on this Mindeck core.'
     })
 
     const allowed = await harness({ remoteShell: true, script: [call('exec_x', { cmd: 'ls', reason: 'r' }), say('ok')] })

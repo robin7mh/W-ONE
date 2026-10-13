@@ -1,6 +1,6 @@
-# W-ONE Core API
+# Mindeck Core API
 
-The W-ONE core speaks one contract to every client: the desktop window (over Electron IPC), the
+The Mindeck core speaks one contract to every client: the desktop window (over Electron IPC), the
 web UI and the mobile app (over HTTP + WebSocket). This page is the reference for network clients —
 first of all the React Native app.
 
@@ -17,8 +17,8 @@ All of these are plain TypeScript with no DOM, Node or Electron imports — copy
 | Host | Start | Base URL |
 |---|---|---|
 | Desktop app | Settings → Remote access → *Run the API server* (+ *Reachable on the local network* for a phone) | `http://<computer-ip>:7420` |
-| Standalone (no Docker) | `npm run web` | `http://127.0.0.1:7420` (`WONE_LAN=1` for all interfaces) |
-| Docker | `npm run docker:up` | `http://127.0.0.1:7420` (`WONE_BIND=0.0.0.0` in `.env` for the LAN) |
+| Standalone (no Docker) | `npm run web` | `http://127.0.0.1:7420` (`MINDECK_LAN=1` for all interfaces) |
+| Docker | `npm run docker:up` | `http://127.0.0.1:7420` (`MINDECK_BIND=0.0.0.0` in `.env` for the LAN) |
 
 For access from outside your home network use a VPN such as Tailscale or WireGuard rather than
 opening the port to the internet.
@@ -41,21 +41,21 @@ Content-Type: application/json
 ```
 
 ```json
-{ "ok": true, "data": { "token": "wone_…", "device": { "id": "…", "name": "Pixel 9", "createdAt": "…" } } }
+{ "ok": true, "data": { "token": "mindeck_…", "device": { "id": "…", "name": "Pixel 9", "createdAt": "…" } } }
 ```
 
 Store the token in the platform's secure storage (`expo-secure-store` / Keychain / Keystore). It is
 shown exactly once; the core only keeps its SHA-256. Wrong codes answer `401 bad-code`; ten failures
 in ten minutes from one address answer `429`.
 
-`GET /api/health` → `{ ok, name: "W-ONE", version, mode: "desktop" | "server" }` (public) tells
-whether a URL really is a W-ONE core.
+`GET /api/health` → `{ ok, name: "Mindeck", version, mode: "desktop" | "server" }` (public) tells
+whether a URL really is a Mindeck core.
 
 ## 2. Calls
 
 ```http
 POST /api/rpc/<channel>
-Authorization: Bearer wone_…
+Authorization: Bearer mindeck_…
 Content-Type: application/json
 
 <request payload as JSON, or nothing for channels without a payload>
@@ -84,7 +84,7 @@ Error codes worth handling in the UI:
 ## 3. Push events
 
 ```
-GET /api/events?token=wone_…   (WebSocket)
+GET /api/events?token=mindeck_…   (WebSocket)
 ```
 
 Messages are JSON `{ "channel": string, "payload": … }`. The first one is
@@ -95,14 +95,14 @@ remote clients do not need `system:subscribe`.
 | channel | payload | when |
 |---|---|---|
 | `system:tick` | `SystemSnapshot` | every ~1.5 s |
-| `memory:changed` | `{ paths?: string[] }` | vault changed (W-ONE or Obsidian) |
+| `memory:changed` | `{ paths?: string[] }` | vault changed (Mindeck or Obsidian) |
 | `context:progress` | `ContextProgress` | project scan running |
 | `ai:delta` | `{ conversationId, messageId, text }` | streamed answer text |
 | `ai:message` | `{ conversationId, message: ChatMessage, running }` | new message, tool status, run finished |
 | `ai:conversationsChanged` | `{ reason, id }` | list changed |
 | `permission:request` | `PermissionRequest` | an agent waits for approval |
 | `permission:resolved` | `{ id, decision }` | answered (by any device) or timed out |
-| `events:event` | `WoneEvent` | activity timeline |
+| `events:event` | `MindeckEvent` | activity timeline |
 | `terminal:data` / `terminal:exit` | … | only when remote shells are allowed |
 
 Apply `ai:delta` exactly like the core does: append to the message's last part if it is a text
@@ -116,7 +116,7 @@ Remote clients may call every channel except those marked *desktop*. Types: see 
 - **Projects:** `projects:list` · `projects:add { path }` · `projects:remove` · `projects:refresh` · *(only with remote shells:)* `projects:pull` (`git pull --ff-only`) · `context:get` · `context:reindex` · `fs:dirs { path? }` (folder browser on the core's machine) · `projects:pickFolder` / `projects:openInEditor` / `projects:githubDesktop` / `projects:openInGitHubDesktop` / `projects:openFile` (*desktop*)
 - **Editor (project files):** `files:list { projectId, dir? }` → `FileEntry[]` · `files:read { projectId, path }` → `FileContent` (`unsupported: "binary" | "too-large"` instead of text) · `files:stat { projectId, paths }` · `files:write { projectId, path, content, expectedMtime? }` (only with remote shells; fails with `conflict` when the file changed since `expectedMtime`)
 - **Agent cockpit:** `agents:detect` · `agents:list` · `agents:get { id }` → session + messages · `agents:changes { id }` · `agents:branch { id }` → own working folder: pushed, pull request (via `gh`), merged, uncommitted files · `agents:diff { id, path }` · *(only with remote shells:)* `agents:create { kind, projectId, isolated?, prompt? }` · `agents:send { id, text }` · `agents:interrupt` · `agents:stop` · `agents:resume` · `agents:remove` · `agents:accept` · `agents:discard` · `agents:rename { id, title }` · `agents:shell { id }` → `{ terminalId }` (a shell in the session's folder, attach with `terminal:*`) · *(desktop only:)* `agents:openInEditor { id }` (VS Code on the session's folder). Push: `agents:changed { session? , removed? }`, `agents:message { sessionId, message }`; approvals come as `permission:request` like the assistant's
-- **W-ONE account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
+- **Mindeck account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
 - **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setVault { path }` · `memory:setGraphStyle` · `memory:pickVault` / `memory:reveal` (*desktop*)
 - **System:** `system:snapshot` · `system:user`
 - **Assistant:** `ai:status` · `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs`
@@ -132,15 +132,15 @@ import * as SecureStore from 'expo-secure-store'
 
 // once: from the scanned QR URL "http://192.168.1.20:7420/#pair=K7QM-2XPA"
 const [baseUrl, code] = scanned.split('/#pair=')
-if (!(await probeCore(baseUrl))) throw new Error('Not a W-ONE core')
+if (!(await probeCore(baseUrl))) throw new Error('Not a Mindeck core')
 const { token } = await pairDevice(baseUrl, code, 'Pixel 9')
-await SecureStore.setItemAsync('wone', JSON.stringify({ baseUrl, token }))
+await SecureStore.setItemAsync('mindeck', JSON.stringify({ baseUrl, token }))
 
 // every start
 const core = createRemoteTransport({
   baseUrl,
   token,
-  onUnauthorized: () => SecureStore.deleteItemAsync('wone'), // revoked → pair again
+  onUnauthorized: () => SecureStore.deleteItemAsync('mindeck'), // revoked → pair again
   onLinkState: (state) => setLink(state) // connecting | online | offline
 })
 const res = await core.invoke('ai:send', { text: 'What is on my plate today?', agentId: 'assistant' })

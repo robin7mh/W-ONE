@@ -101,28 +101,32 @@ export function surfaceTokens(surface: Surface, accent: Accent): Record<string, 
 /** Attributes of <html> that change when the appearance does — watch these to re-read tokens. */
 export const APPEARANCE_ATTRIBUTES = ['data-theme', 'data-accent', 'data-surface', 'style']
 
-const KEY = 'wone.appearance'
+const KEY = 'mindeck.appearance'
 /** Before the appearance settings, only dark/light was stored. */
-const LEGACY_KEY = 'wone.theme'
+const LEGACY_KEY = 'mindeck.theme'
 const LIGHT_QUERY = '(prefers-color-scheme: light)'
 const SURFACE_TOKENS = Object.keys(CYBER)
 
 const pick = <T extends string>(value: unknown, options: readonly T[], fallback: T): T =>
   options.includes(value as T) ? (value as T) : fallback
 
+/** An appearance from storage or elsewhere (Settings Sync); unknown or missing fields fall back to the defaults. */
+export function toAppearance(value: unknown): Appearance {
+  const d = DEFAULT_APPEARANCE
+  const v = (value && typeof value === 'object' ? value : {}) as Partial<Record<keyof Appearance, unknown>>
+  return {
+    mode: pick(v.mode, MODES, d.mode),
+    accent: pick(v.accent, Object.keys(ACCENTS) as Accent[], d.accent),
+    surface: pick(v.surface, SURFACES, d.surface)
+  }
+}
+
 /** The saved appearance; unknown or missing fields fall back to the defaults. Never throws. */
 export function loadAppearance(): Appearance {
   const d = DEFAULT_APPEARANCE
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) {
-      const v = JSON.parse(raw) as Partial<Record<keyof Appearance, unknown>> | null
-      return {
-        mode: pick(v?.mode, MODES, d.mode),
-        accent: pick(v?.accent, Object.keys(ACCENTS) as Accent[], d.accent),
-        surface: pick(v?.surface, SURFACES, d.surface)
-      }
-    }
+    if (raw) return toAppearance(JSON.parse(raw))
     const legacy = localStorage.getItem(LEGACY_KEY)
     if (legacy === 'dark' || legacy === 'light') return { ...d, mode: legacy }
   } catch {
@@ -172,8 +176,6 @@ interface AppearanceState {
   /** The token set actually in use (`system` resolved). */
   theme: Theme
   update: (patch: Partial<Appearance>) => void
-  /** Top bar switch: the other theme, as a fixed choice. */
-  toggleTheme: () => void
   reset: () => void
 }
 
@@ -188,7 +190,6 @@ export const useAppearance = create<AppearanceState>((set, get) => {
     appearance,
     theme: resolveTheme(appearance.mode),
     update: (patch) => commit({ ...get().appearance, ...patch }),
-    toggleTheme: () => commit({ ...get().appearance, mode: get().theme === 'dark' ? 'light' : 'dark' }),
     reset: () => commit(DEFAULT_APPEARANCE)
   }
 })

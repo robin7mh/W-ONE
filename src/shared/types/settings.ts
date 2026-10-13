@@ -4,11 +4,12 @@
 import type { GraphStyle } from './memory'
 import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
+import type { EditorSettings } from './migrate'
 
 export interface AppSettings {
   /**
    * Absolute path to the markdown vault root. Unset = default location
-   * (~/W-ONE/vault — user-visible so the vault stays Obsidian-openable).
+   * (~/Mindeck/vault — user-visible so the vault stays Obsidian-openable).
    */
   vaultRoot?: string
   /** Memory graph coloring (colorful by folder, or one accent). */
@@ -17,4 +18,8 @@ export interface AppSettings {
   server?: ServerConfig
   /** Assistant model + effort (the API key lives in the secret store). */
   ai?: AiSettings
+  /** Editor preferences and keybindings (taken over from VS Code / Cursor, or set here). */
+  editor?: EditorSettings
+  /** Settings Sync: the account copy's version this core last saved or loaded. */
+  sync?: { version: number; syncedAt: string }
 }

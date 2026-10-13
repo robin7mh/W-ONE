@@ -2,7 +2,7 @@ import type { editor } from 'monaco-editor'
 import { cssRgb } from '@/lib/tokens'
 
 /**
- * Monaco theme from the current W-ONE tokens (dark or light). The editor
+ * Monaco theme from the current Mindeck tokens (dark or light). The editor
  * background stays transparent so the HUD panel shows through, like the
  * terminal; syntax colors map to the accent palette.
  */

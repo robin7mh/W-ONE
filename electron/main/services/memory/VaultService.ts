@@ -105,7 +105,7 @@ export class VaultService {
     return {
       root,
       defaultRoot: this.opts.defaultRoot,
-      name: isDefault ? 'W-ONE' : basename(root),
+      name: isDefault ? 'Mindeck' : basename(root),
       isDefault,
       exists: await isDir(root),
       noteCount: this.index.size,
