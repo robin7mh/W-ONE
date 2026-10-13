@@ -42,11 +42,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Build (W-ONE Cloud baked in)
+      - name: Build (Mindeck Cloud baked in)
         run: npm run build
         env:
-          WONE_CLOUD_URL: ${{ vars.WONE_CLOUD_URL }}
-          WONE_CLOUD_KEY: ${{ secrets.WONE_CLOUD_KEY }}
+          MINDECK_CLOUD_URL: ${{ vars.MINDECK_CLOUD_URL }}
+          MINDECK_CLOUD_KEY: ${{ secrets.MINDECK_CLOUD_KEY }}
       - name: Package
         run: npx electron-builder ${{ matrix.target }} --publish never
       - uses: actions/upload-artifact@v4

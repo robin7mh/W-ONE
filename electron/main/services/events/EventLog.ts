@@ -1,5 +1,5 @@
 import { appendFile, readFile } from 'node:fs/promises'
-import type { EventPersistence, WoneEvent } from '@shared/types/events'
+import type { EventPersistence, MindeckEvent } from '@shared/types/events'
 import { writeAtomic } from '../../lib/writeAtomic'
 import type { EventSink } from './EventBus'
 
@@ -11,11 +11,11 @@ export interface RecentQuery {
 const MAX_LIMIT = 500
 
 /** One event per line; a damaged line is skipped, never the whole history. */
-function parseLines(raw: string): WoneEvent[] {
+function parseLines(raw: string): MindeckEvent[] {
   return raw.split('\n').flatMap((line) => {
     if (!line) return []
     try {
-      return [JSON.parse(line) as WoneEvent]
+      return [JSON.parse(line) as MindeckEvent]
     } catch {
       return []
     }
@@ -29,7 +29,7 @@ function parseLines(raw: string): WoneEvent[] {
  * file holds twice `capacity` lines it is rewritten with the newest ones.
  */
 export class EventLog implements EventSink {
-  private readonly ring: WoneEvent[] = []
+  private readonly ring: MindeckEvent[] = []
   private lines = 0
   private writes: Promise<void> = Promise.resolve()
 
@@ -47,7 +47,7 @@ export class EventLog implements EventSink {
     this.ring.push(...events.slice(-this.capacity))
   }
 
-  persist(event: WoneEvent, _cls: Exclude<EventPersistence, 'ephemeral'>): void {
+  persist(event: MindeckEvent, _cls: Exclude<EventPersistence, 'ephemeral'>): void {
     this.ring.push(event)
     if (this.ring.length > this.capacity) this.ring.splice(0, this.ring.length - this.capacity)
     const file = this.file
@@ -67,7 +67,7 @@ export class EventLog implements EventSink {
   }
 
   /** Newest first. */
-  async recent(query: RecentQuery = {}): Promise<WoneEvent[]> {
+  async recent(query: RecentQuery = {}): Promise<MindeckEvent[]> {
     const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(query.limit ?? 100)))
     const matching = query.conversationId ? this.ring.filter((e) => e.conversationId === query.conversationId) : this.ring
     return matching.slice(-limit).reverse()

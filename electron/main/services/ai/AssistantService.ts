@@ -380,7 +380,7 @@ export class AssistantService {
     }
     if (tool.risk === 'execute' && r.ctx.transport === 'remote' && !this.deps.remoteShell()) {
       event('tool.denied', { reason: 'remote-shell-disabled' })
-      return finish('denied', 'Running commands is disabled for remote devices on this W-ONE core.', true)
+      return finish('denied', 'Running commands is disabled for remote devices on this Mindeck core.', true)
     }
     // 2. schema
     const parsed = this.deps.tools.parse(tool, call.input)

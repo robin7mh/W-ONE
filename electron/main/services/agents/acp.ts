@@ -7,7 +7,7 @@ import type { ApprovalDecision, ChatMessage, ToolCallPart, ToolCallStatus, ToolR
 import { shellCommand, shellQuote } from '../terminal/TerminalService'
 import type { Applied, SessionState } from './transcript'
 
-/** How W-ONE starts each ACP agent (the user's own CLI, signed in their way). */
+/** How Mindeck starts each ACP agent (the user's own CLI, signed in their way). */
 export type AcpKind = 'codex' | 'gemini'
 
 export const ACP_AGENTS: Record<AcpKind, { name: string; file: string; args: string[] }> = {
@@ -117,7 +117,7 @@ export function applyAcpUpdate(state: SessionState, update: SessionUpdate): Appl
   }
 }
 
-/** W-ONE's decision → the agent's matching option ("always" falls back to once). */
+/** Mindeck's decision → the agent's matching option ("always" falls back to once). */
 export function pickOption(options: PermissionOption[], decision: ApprovalDecision): string | undefined {
   const wanted =
     decision === 'deny' ? ['reject_once', 'reject_always'] : decision === 'always' ? ['allow_always', 'allow_once'] : ['allow_once', 'allow_always']

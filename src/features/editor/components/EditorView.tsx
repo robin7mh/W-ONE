@@ -350,7 +350,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     buildCommands(t, {
       onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `W-ONE: ${t.migrate.title}`, run: () => onNavigate('settings') }]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `Mindeck: ${t.migrate.title}`, run: () => onNavigate('settings') }]
     })
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])

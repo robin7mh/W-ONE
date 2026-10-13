@@ -22,10 +22,10 @@ function Frame({ children, overlay }: { children: ReactNode; overlay?: boolean }
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-5 flex items-center justify-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-sm font-bold text-cyan text-glow-cyan">
-            W1
+            MD
           </div>
           <div className="leading-none">
-            <div className="font-sans text-[15px] font-semibold tracking-wide text-text-primary">W-ONE</div>
+            <div className="font-sans text-[15px] font-semibold tracking-wide text-text-primary">Mindeck</div>
             <TechLabel className="text-text-muted">{t.cloud.frame}</TechLabel>
           </div>
         </div>
@@ -44,7 +44,7 @@ function Checking() {
   )
 }
 
-/** One state of a signed-in account that keeps W-ONE locked, with what the user can do about it. */
+/** One state of a signed-in account that keeps Mindeck locked, with what the user can do about it. */
 function Locked({
   icon: Icon,
   title,
@@ -101,7 +101,7 @@ function Locked({
   )
 }
 
-/** What W-ONE shows instead of the app while it is not licensed. */
+/** What Mindeck shows instead of the app while it is not licensed. */
 export function CloudScreen({ status, overlay }: { status: CloudStatus; overlay?: boolean }) {
   const t = useT()
   const cloud = useCloud.getState()
@@ -152,7 +152,7 @@ export function CloudScreen({ status, overlay }: { status: CloudStatus; overlay?
 }
 
 /**
- * Renders the app once W-ONE may run (always in dev builds). Before that it
+ * Renders the app once Mindeck may run (always in dev builds). Before that it
  * shows sign-in / trial / purchase screens. If the license ends while the
  * app is open, the screen covers it instead of unmounting it, so open files
  * and terminals survive until the license is back.

@@ -42,7 +42,7 @@ export const electronPlatform: Platform = {
     // Signed in as this desktop's paired device before the UI first loads.
     void (async () => {
       await win.loadURL(`${url}/api/health`)
-      await win.webContents.executeJavaScript(`localStorage.setItem('wone.token', ${JSON.stringify(token)}); localStorage.setItem('wone.deviceId', ${JSON.stringify(deviceId)})`)
+      await win.webContents.executeJavaScript(`localStorage.setItem('mindeck.token', ${JSON.stringify(token)}); localStorage.setItem('mindeck.deviceId', ${JSON.stringify(deviceId)})`)
       await win.loadURL(url)
     })().catch(() => {})
     return { closed, close: () => !win.isDestroyed() && win.close() }

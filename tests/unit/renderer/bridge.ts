@@ -5,7 +5,7 @@ import type { Transport } from '@shared/ipc/transport'
 
 type Route = (payload: never) => unknown
 
-/** A W-ONE account that may use the app (dev build: no license required). */
+/** A Mindeck account that may use the app (dev build: no license required). */
 export const OPEN_CLOUD = {
   enforced: false,
   allowed: true,
@@ -22,7 +22,7 @@ export const OPEN_CLOUD = {
 const DEFAULT_ROUTES: Record<string, Route> = { 'cloud:status': () => OPEN_CLOUD, 'sftp:targets': () => [], 'remote:list': () => [] }
 
 /**
- * Installs a fake `window.wone` bridge. `routes` answer `invoke` per channel
+ * Installs a fake `window.mindeck` bridge. `routes` answer `invoke` per channel
  * (throwing → `{ ok: false }` like the real registry); `emit` pushes events.
  */
 export function installBridge(routes: Record<string, Route> = {}, platform: string = 'darwin') {
@@ -63,7 +63,7 @@ export function installBridge(routes: Record<string, Route> = {}, platform: stri
     setMaximized: (v: boolean) => winListeners.max.forEach((cb) => cb(v)),
     setFullScreen: (v: boolean) => winListeners.full.forEach((cb) => cb(v))
   }
-  ;(window as unknown as { wone: typeof bridge }).wone = bridge
+  ;(window as unknown as { mindeck: typeof bridge }).mindeck = bridge
   return bridge
 }
 
@@ -78,7 +78,7 @@ export const settle = async (rounds = 5) => {
 }
 
 /**
- * Installs a fake *network* transport (web UI mode: no `window.wone`).
+ * Installs a fake *network* transport (web UI mode: no `window.mindeck`).
  * `routes` answer `invoke` like installBridge; `emit` pushes events.
  */
 export function installRemote(routes: Record<string, Route> = {}) {
@@ -106,7 +106,7 @@ export function installRemote(routes: Record<string, Route> = {}) {
   return transport
 }
 
-/** Picks `option` in the W-ONE Select named `label`, the way a user does: open it, click the entry. */
+/** Picks `option` in the Mindeck Select named `label`, the way a user does: open it, click the entry. */
 export function choose(label: string, option: string | RegExp): void {
   fireEvent.click(screen.getByRole('combobox', { name: label }))
   fireEvent.click(screen.getByRole('option', { name: option }))

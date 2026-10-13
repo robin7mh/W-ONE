@@ -40,7 +40,7 @@ module.exports = {
 `
 
 async function project(files: Record<string, string>): Promise<string> {
-  const root = await tempDir('wone-lint-')
+  const root = await tempDir('mindeck-lint-')
   for (const [name, text] of Object.entries(files)) {
     await mkdir(join(root, name, '..'), { recursive: true })
     await writeFile(join(root, name), text)
@@ -94,7 +94,7 @@ describe('ESLint and Prettier from the project', () => {
     expect((await broken.svc.lint('p', 'a.js', '')).available).toBe(false)
   }, 20_000)
 
-  it('Prettier: the project’s with its config; W-ONE’s only when asked (with the user’s options); ignored and unknown files are the editor’s', async () => {
+  it('Prettier: the project’s with its config; Mindeck’s only when asked (with the user’s options); ignored and unknown files are the editor’s', async () => {
     const own = await setup({ '.prettierrc': '{}', 'node_modules/prettier/index.js': PRETTIER('project'), '.prettierignore': 'skip.js\n' })
     expect(await own.svc.format('p', 'a.js', 'x')).toBe('project:{"semi":false}:X')
     expect(await own.svc.format('p', 'skip.js', 'x')).toBeNull()
@@ -141,7 +141,7 @@ describe('ESLint and Prettier from the project', () => {
     expect(procs[2].killed).toBe(true)
   })
 
-  it('W-ONE’s Prettier lies outside the app archive (the worker is its own Node)', () => {
+  it('Mindeck’s Prettier lies outside the app archive (the worker is its own Node)', () => {
     expect(bundledPrettier((id) => `/App/Resources/app.asar${sep}node_modules${sep}${id}${sep}index.cjs`)).toBe(`/App/Resources/app.asar.unpacked${sep}node_modules${sep}prettier${sep}index.cjs`)
     expect(bundledPrettier()).toMatch(/prettier/)
   })

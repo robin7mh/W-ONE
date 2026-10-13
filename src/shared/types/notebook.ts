@@ -1,4 +1,4 @@
-// Jupyter notebooks: the .ipynb format (nbformat 4) as W-ONE reads and writes
+// Jupyter notebooks: the .ipynb format (nbformat 4) as Mindeck reads and writes
 // it, and the kernels that run its cells.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 

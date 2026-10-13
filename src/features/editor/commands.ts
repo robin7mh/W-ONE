@@ -7,7 +7,7 @@ import { editorActions } from './actions'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
 const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string][] = [
-  ['wone.formatDocument', 'format', '⇧⌥F'],
+  ['mindeck.formatDocument', 'format', '⇧⌥F'],
   ['editor.action.commentLine', 'comment', '⌘/'],
   ['editor.action.revealDefinition', 'definition', 'F12'],
   ['editor.action.goToReferences', 'references', '⇧F12'],
@@ -18,7 +18,7 @@ const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string]
   ['editor.unfoldAll', 'unfoldAll'],
   ['actions.find', 'find', '⌘F'],
   ['editor.action.startFindReplaceAction', 'replace', '⌥⌘F'],
-  ['wone.tidyBlankLines', 'tidy']
+  ['mindeck.tidyBlankLines', 'tidy']
 ]
 
 /** Monaco actions the palette leaves out: its own palette, and duplicates of ours. */

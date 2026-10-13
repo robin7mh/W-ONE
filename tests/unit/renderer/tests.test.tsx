@@ -5,7 +5,7 @@ import type { TestItem, TestRunState } from '@shared/types/tests'
 
 vi.mock('@/features/editor/components/CodeEditor', () => ({ default: () => <div data-testid="monaco" /> }))
 vi.mock('@/features/editor/components/DiffView', () => ({ default: () => <div data-testid="diff" /> }))
-vi.mock('@/features/editor/monaco/setup', () => ({ THEME: 'wone', applyMonacoTheme: vi.fn(), monaco: {} }))
+vi.mock('@/features/editor/monaco/setup', () => ({ THEME: 'mindeck', applyMonacoTheme: vi.fn(), monaco: {} }))
 
 import { stateOf, summary, useTests } from '@/features/editor/tests'
 import { TestsPanel } from '@/features/editor/components/TestsPanel'

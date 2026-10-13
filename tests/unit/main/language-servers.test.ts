@@ -57,7 +57,7 @@ const lsRange = (l1: number, c1: number, l2: number, c2: number) => ({ start: po
 const range = (l1: number, o1: number, l2: number, o2: number) => ({ start: { line: l1, offset: o1 }, end: { line: l2, offset: o2 } })
 
 async function setup(handlers: Record<string, Handler> = {}, opts: { languages?: string[] } = {}) {
-  const root = await tempDir('wone-ls-')
+  const root = await tempDir('mindeck-ls-')
   await mkdir(join(root, 'src'))
   for (const f of ['src/a.py', 'src/b.py', 'main.go', 'Dockerfile', 'notes.txt']) await writeFile(join(root, f), '')
   const real = await realpath(root)
@@ -220,7 +220,7 @@ describe('GenericBackend', () => {
     expect(spawned[0]).toEqual({ command: '/bin/python-ls', args: ['--stdio'], cwd: root })
     const s = servers[0]
     const init = s.received.find((m) => m.method === 'initialize')!.params as Record<string, unknown>
-    expect(init).toMatchObject({ rootUri: pathToFileURL(root).href, rootPath: root, clientInfo: { name: 'W-ONE' } })
+    expect(init).toMatchObject({ rootUri: pathToFileURL(root).href, rootPath: root, clientInfo: { name: 'Mindeck' } })
     expect(s.notifications('initialized')).toEqual([{}])
     expect(s.notifications('workspace/didChangeConfiguration')[0]).toMatchObject({ settings: { python: { pythonPath: 'python3' } } })
     expect(s.notifications('textDocument/didOpen').map((p) => (p as { textDocument: { uri: string; languageId: string } }).textDocument).sort((x, y) => x.uri.localeCompare(y.uri))).toEqual([
@@ -438,7 +438,7 @@ describe('GenericBackend', () => {
   })
 
   it('a real server process through the user’s shell: it starts, publishes, shuts down', async () => {
-    const root = await tempDir('wone-ls-real-')
+    const root = await tempDir('mindeck-ls-real-')
     await writeFile(join(root, 'a.py'), '')
     const pushed: string[] = []
     const backend = new GenericBackend({ resolveRoot: () => root, tools: { dir: '/t', locate: async () => FAKE_LSP }, onDiagnostics: ({ projectId }) => pushed.push(projectId) })
@@ -481,7 +481,7 @@ describe('server commands and initialization options', () => {
   })
 
   it('jdtls gets the Java debug plugin as a bundle once it is installed', async () => {
-    const tools = await tempDir('wone-tools-')
+    const tools = await tempDir('mindeck-tools-')
     expect(CATALOG.java.server.initializationOptions!({ root: '/r', tools })).toEqual({ bundles: [] })
     expect(javaDebugJar(tools)).toBeUndefined()
     const server = join(tools, 'java-debug', 'extension', 'server')

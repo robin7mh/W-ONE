@@ -95,7 +95,7 @@ function HtmlOutput({ html }: { html: string }) {
 
 const text = (value: unknown) => (Array.isArray(value) ? value.join('') : String(value ?? ''))
 
-/** One output, in the richest form the kernel gave and W-ONE shows. */
+/** One output, in the richest form the kernel gave and Mindeck shows. */
 function Output({ output }: { output: NotebookOutput }) {
   const pre = 'max-h-[420px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.5]'
   if (output.output_type === 'stream') return <pre className={cn(pre, output.name === 'stderr' ? 'text-danger/90' : 'text-text-secondary')}>{stripAnsi(joinSource(output.text))}</pre>

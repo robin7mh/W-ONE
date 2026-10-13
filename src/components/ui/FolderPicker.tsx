@@ -7,7 +7,7 @@ import { TechLabel } from './TechLabel'
 
 /**
  * Folder chooser for the web/mobile UI — browses folders on the machine the
- * W-ONE core runs on (fs:dirs), standing in for the desktop's native dialog.
+ * Mindeck core runs on (fs:dirs), standing in for the desktop's native dialog.
  */
 export function FolderPicker({
   title,

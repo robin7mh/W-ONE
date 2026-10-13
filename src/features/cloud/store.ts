@@ -43,7 +43,7 @@ interface CloudState {
   clearMessage: () => void
 }
 
-/** The W-ONE account (W-ONE Cloud) as the connected core reports it. */
+/** The Mindeck account (Mindeck Cloud) as the connected core reports it. */
 export const useCloud = create<CloudState>((set, get) => {
   /** One user action: busy while it runs, then its result or a readable error. */
   const run = async (action: () => Promise<CloudStatus | void>, info?: () => string): Promise<boolean> => {

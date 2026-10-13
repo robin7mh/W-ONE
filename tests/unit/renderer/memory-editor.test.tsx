@@ -177,17 +177,17 @@ describe('NoteList', () => {
     // drag sources
     const noteData = dt()
     fireEvent.dragStart(screen.getByText('Root').closest('button')!, { dataTransfer: noteData })
-    expect(noteData.setData).toHaveBeenCalledWith('application/x-wone-note', 'Root.md')
+    expect(noteData.setData).toHaveBeenCalledWith('application/x-mindeck-note', 'Root.md')
     const folderData = dt()
     fireEvent.dragStart(folderHeader('Ideen/Sub'), { dataTransfer: folderData })
-    expect(folderData.setData).toHaveBeenCalledWith('application/x-wone-folder', 'Ideen/Sub')
+    expect(folderData.setData).toHaveBeenCalledWith('application/x-mindeck-folder', 'Ideen/Sub')
 
     // foreign drag (e.g. files from the OS) is not a drop target
     fireEvent.dragOver(folderZone('Leer'), { dataTransfer: dt({ Files: 'x' }) })
     expect(folderHeader('Leer').className).not.toContain('ring-1')
 
     // hover highlights the folder (twice → no extra state change), leaving clears it
-    const over = dt({ 'application/x-wone-note': 'Root.md' })
+    const over = dt({ 'application/x-mindeck-note': 'Root.md' })
     fireEvent.dragOver(folderZone('Leer'), { dataTransfer: over })
     fireEvent.dragOver(folderZone('Leer'), { dataTransfer: over })
     expect(folderHeader('Leer').className).toContain('ring-1')
@@ -201,20 +201,20 @@ describe('NoteList', () => {
     expect(folderHeader('Leer').className).not.toContain('ring-1')
 
     // root zone
-    fireEvent.dragOver(root, { dataTransfer: dt({ 'application/x-wone-folder': 'Ideen/Sub' }) })
+    fireEvent.dragOver(root, { dataTransfer: dt({ 'application/x-mindeck-folder': 'Ideen/Sub' }) })
     expect(root.className).toContain('outline-dashed')
     fireEvent.dragLeave(root)
     expect(root.className).not.toContain('outline-dashed')
 
     // drops
-    fireEvent.drop(folderZone('Leer'), { dataTransfer: dt({ 'application/x-wone-note': 'Root.md' }) })
+    fireEvent.drop(folderZone('Leer'), { dataTransfer: dt({ 'application/x-mindeck-note': 'Root.md' }) })
     expect(p.onMoveNote).toHaveBeenCalledWith('Root.md', 'Leer')
-    fireEvent.drop(folderZone('Ideen'), { dataTransfer: dt({ 'application/x-wone-note': 'Ideen/A.md' }) }) // same folder
-    fireEvent.drop(root, { dataTransfer: dt({ 'application/x-wone-folder': 'Ideen/Sub' }) })
+    fireEvent.drop(folderZone('Ideen'), { dataTransfer: dt({ 'application/x-mindeck-note': 'Ideen/A.md' }) }) // same folder
+    fireEvent.drop(root, { dataTransfer: dt({ 'application/x-mindeck-folder': 'Ideen/Sub' }) })
     expect(p.onMoveFolder).toHaveBeenCalledWith('Ideen/Sub', '')
-    fireEvent.drop(folderZone('Ideen/Sub'), { dataTransfer: dt({ 'application/x-wone-folder': 'Ideen/Sub' }) }) // onto itself
-    fireEvent.drop(folderZone('Ideen/Sub'), { dataTransfer: dt({ 'application/x-wone-folder': 'Ideen' }) }) // into its own child
-    fireEvent.drop(folderZone('Ideen'), { dataTransfer: dt({ 'application/x-wone-folder': 'Ideen/Sub' }) }) // already there
+    fireEvent.drop(folderZone('Ideen/Sub'), { dataTransfer: dt({ 'application/x-mindeck-folder': 'Ideen/Sub' }) }) // onto itself
+    fireEvent.drop(folderZone('Ideen/Sub'), { dataTransfer: dt({ 'application/x-mindeck-folder': 'Ideen' }) }) // into its own child
+    fireEvent.drop(folderZone('Ideen'), { dataTransfer: dt({ 'application/x-mindeck-folder': 'Ideen/Sub' }) }) // already there
     fireEvent.drop(folderZone('Zeta'), { dataTransfer: dt({}) }) // nothing dragged
     expect(p.onMoveNote).toHaveBeenCalledTimes(1)
     expect(p.onMoveFolder).toHaveBeenCalledTimes(1)
@@ -236,7 +236,7 @@ function editorProps(over: Partial<Parameters<typeof NoteEditor>[0]> = {}) {
   const note = over.note ?? baseNote()
   return {
     note,
-    notes: [meta('Other.md'), meta('Ideen/Sub/Plan.md'), meta('W-ONE.md'), meta('Ideen für W-ONE.md'), meta('Projekte/W-ONE Pro.md')],
+    notes: [meta('Other.md'), meta('Ideen/Sub/Plan.md'), meta('Mindeck.md'), meta('Ideen für Mindeck.md'), meta('Projekte/Mindeck Pro.md')],
     draft: note.body,
     mode: 'preview' as const,
     saving: false,
@@ -394,22 +394,22 @@ describe('NoteEditor', () => {
 
   it('connections: outgoing and (deduplicated) backlinks open and disconnect', () => {
     const note = baseNote({
-      links: { Other: 'Other.md', Self: 'Ideen/Sub/Plan.md', Gone: 'Gone.md', Ghost: null, W: 'W-ONE.md' },
-      backlinks: [meta('Other.md'), meta('Projekte/W-ONE Pro.md')]
+      links: { Other: 'Other.md', Self: 'Ideen/Sub/Plan.md', Gone: 'Gone.md', Ghost: null, W: 'Mindeck.md' },
+      backlinks: [meta('Other.md'), meta('Projekte/Mindeck Pro.md')]
     })
     const p = editorProps({ note })
     render(<NoteEditor {...p} />)
     expect(screen.getByText('4')).toBeInTheDocument() // 2 outgoing + 2 backlinks
-    expect(screen.getAllByTitle('This note links to it').map((b) => b.textContent)).toEqual(['Other', 'W-ONE'])
-    expect(screen.getAllByTitle('It links to this note').map((b) => b.textContent)).toEqual(['W-ONE Pro'])
+    expect(screen.getAllByTitle('This note links to it').map((b) => b.textContent)).toEqual(['Mindeck', 'Other'])
+    expect(screen.getAllByTitle('It links to this note').map((b) => b.textContent)).toEqual(['Mindeck Pro'])
     fireEvent.click(screen.getByTitle('It links to this note'))
-    expect(p.onOpen).toHaveBeenCalledWith('Projekte/W-ONE Pro.md')
-    fireEvent.click(screen.getAllByTitle('This note links to it')[0])
+    expect(p.onOpen).toHaveBeenCalledWith('Projekte/Mindeck Pro.md')
+    fireEvent.click(screen.getAllByTitle('This note links to it')[1])
     expect(p.onOpen).toHaveBeenCalledWith('Other.md')
     fireEvent.click(screen.getByLabelText('Disconnect Other'))
     expect(p.onUnlink).toHaveBeenCalledWith('Ideen/Sub/Plan.md', 'Other.md')
-    fireEvent.click(screen.getByLabelText('Disconnect W-ONE Pro'))
-    expect(p.onUnlink).toHaveBeenCalledWith('Projekte/W-ONE Pro.md', 'Ideen/Sub/Plan.md')
+    fireEvent.click(screen.getByLabelText('Disconnect Mindeck Pro'))
+    expect(p.onUnlink).toHaveBeenCalledWith('Projekte/Mindeck Pro.md', 'Ideen/Sub/Plan.md')
   })
 
   it('Connect picker: ranks matches, picks by click or Enter, closes on Escape/outside', () => {
@@ -419,12 +419,12 @@ describe('NoteEditor', () => {
     fireEvent.click(toggle)
     const search = screen.getByPlaceholderText('Connect to…')
     expect(screen.queryByText('Plan', { selector: 'span.truncate' })).toBeNull() // itself excluded
-    fireEvent.change(search, { target: { value: 'w-one' } })
+    fireEvent.change(search, { target: { value: 'mindeck' } })
     const ranked = [...document.querySelectorAll('.max-h-56 button span.flex-1')].map((e) => e.textContent)
-    expect(ranked).toEqual(['W-ONE', 'W-ONE Pro', 'Ideen für W-ONE'])
+    expect(ranked).toEqual(['Mindeck', 'Mindeck Pro', 'Ideen für Mindeck'])
     expect(screen.getByText('Projekte')).toBeInTheDocument() // folder hint
     fireEvent.keyDown(search, { key: 'Enter' })
-    expect(p.onLink).toHaveBeenLastCalledWith('W-ONE.md')
+    expect(p.onLink).toHaveBeenLastCalledWith('Mindeck.md')
     expect(screen.queryByPlaceholderText('Connect to…')).toBeNull()
 
     fireEvent.click(toggle)

@@ -6,7 +6,7 @@ import type { EditorSettings, LanguageSettings, Snippet } from '@shared/types/mi
 const FONT = "'JetBrains Mono', ui-monospace, monospace"
 
 /**
- * W-ONE's own editor defaults for every setting a user (or a language) can
+ * Mindeck's own editor defaults for every setting a user (or a language) can
  * change — so switching from a file with an override back to one without
  * restores them.
  */
@@ -31,12 +31,12 @@ export const DEFAULTS: Required<Omit<LanguageSettings, 'fontFamily'>> = {
   prettier: false
 }
 
-/** The settings for a file of this language: W-ONE's defaults, the user's, the language's overrides. */
+/** The settings for a file of this language: Mindeck's defaults, the user's, the language's overrides. */
 export function settingsFor(settings: EditorSettings, language?: string): EditorSettings {
   return { ...DEFAULTS, fontFamily: '', ...settings, ...(language ? settings.languages?.[language] : undefined) }
 }
 
-/** Monaco options for the user's editor settings (only what was set — the rest keeps W-ONE's defaults). */
+/** Monaco options for the user's editor settings (only what was set — the rest keeps Mindeck's defaults). */
 export function monacoOptions(s: EditorSettings): Record<string, unknown> {
   const o: Record<string, unknown> = {}
   if (s.fontSize !== undefined) o.fontSize = s.fontSize

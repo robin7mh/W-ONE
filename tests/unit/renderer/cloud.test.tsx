@@ -11,7 +11,7 @@ import { useLocale } from '@/lib/i18n'
 import { fail, installBridge, OPEN_CLOUD, settle } from './bridge'
 
 const status = (over: Partial<CloudStatus> = {}): CloudStatus => ({ ...(OPEN_CLOUD as CloudStatus), ...over })
-const ACCOUNT = { email: 'robin@w-one.test', name: 'Robin' }
+const ACCOUNT = { email: 'robin@mindeck.test', name: 'Robin' }
 const TRIAL = { plan: 'trial' as const, trialLimitSeconds: 25_200, trialUsedSeconds: 3_600, trialRemainingSeconds: 21_600 }
 const LIFETIME = { ...TRIAL, plan: 'lifetime' as const }
 const locked = (state: CloudStatus['state'], over: Partial<CloudStatus> = {}) =>
@@ -65,15 +65,15 @@ describe('cloud store', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const s = useCloud.getState()
 
-    expect(await s.login(' robin@w-one.test ', 'pw')).toBe(true)
-    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:login', { email: 'robin@w-one.test', password: 'pw' })
+    expect(await s.login(' robin@mindeck.test ', 'pw')).toBe(true)
+    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:login', { email: 'robin@mindeck.test', password: 'pw' })
     expect(useCloud.getState().status?.state).toBe('checking')
 
     act(() => useLocale.setState({ locale: 'de' }))
-    await s.register('new@w-one.test', 'long enough!', '  Robin ')
-    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:register', { email: 'new@w-one.test', password: 'long enough!', name: 'Robin', locale: 'de' })
-    await s.register('new@w-one.test', 'long enough!', '   ')
-    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:register', { email: 'new@w-one.test', password: 'long enough!', locale: 'de' })
+    await s.register('new@mindeck.test', 'long enough!', '  Robin ')
+    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:register', { email: 'new@mindeck.test', password: 'long enough!', name: 'Robin', locale: 'de' })
+    await s.register('new@mindeck.test', 'long enough!', '   ')
+    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:register', { email: 'new@mindeck.test', password: 'long enough!', locale: 'de' })
 
     await s.forgot(' a@b.de ')
     expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:forgotPassword', { email: 'a@b.de' })
@@ -120,11 +120,11 @@ describe('SignInForm', () => {
   it('signs in, creates an account, or asks for a reset link', async () => {
     const bridge = installBridge({ 'cloud:login': () => locked('checking'), 'cloud:register': () => locked('email_unverified') })
     render(<SignInForm />)
-    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'robin@w-one.test' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'robin@mindeck.test' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await settle()
-    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:login', { email: 'robin@w-one.test', password: 'pw' })
+    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:login', { email: 'robin@mindeck.test', password: 'pw' })
 
     act(() => useCloud.setState({ message: { kind: 'error', text: 'old' } }))
     fireEvent.click(screen.getByRole('button', { name: 'No account yet? Create one' }))
@@ -142,7 +142,7 @@ describe('SignInForm', () => {
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Send link' }))
     await settle()
-    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:forgotPassword', { email: 'robin@w-one.test' })
+    expect(bridge.invoke).toHaveBeenLastCalledWith('cloud:forgotPassword', { email: 'robin@mindeck.test' })
     expect(screen.getByRole('status')).toHaveTextContent('a link is on its way')
   })
 
@@ -154,7 +154,7 @@ describe('SignInForm', () => {
 })
 
 describe('LicenseGate', () => {
-  it('shows the app when W-ONE may run, a check while loading, and a retry when the core does not answer', async () => {
+  it('shows the app when Mindeck may run, a check while loading, and a retry when the core does not answer', async () => {
     const bridge = installBridge({ 'cloud:status': () => fail('no core') })
     render(
       <LicenseGate>
@@ -211,9 +211,9 @@ describe('CloudScreen', () => {
     const bridge = installBridge({ 'cloud:refresh': () => locked('offline'), 'cloud:logout': () => locked('signed_out') })
     useCloud.setState({ checkoutUrl: 'https://checkout.stripe.test/1' })
     show(locked('offline'))
-    expect(screen.getByText('W-ONE Cloud unreachable')).toBeInTheDocument()
+    expect(screen.getByText('Mindeck Cloud unreachable')).toBeInTheDocument()
     expect(screen.queryByText('Open checkout')).not.toBeInTheDocument()
-    expect(screen.getByText('robin@w-one.test')).toBeInTheDocument()
+    expect(screen.getByText('robin@mindeck.test')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
@@ -225,7 +225,7 @@ describe('CloudScreen', () => {
   it('unconfirmed email: names the address, resends, checks again', async () => {
     const bridge = installBridge()
     show(locked('email_unverified'))
-    expect(screen.getByText(/We sent a link to robin@w-one.test/)).toBeInTheDocument()
+    expect(screen.getByText(/We sent a link to robin@mindeck.test/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Send again' }))
     await settle()
     expect(bridge.invoke).toHaveBeenCalledWith('cloud:resendVerification', undefined)
@@ -249,14 +249,14 @@ describe('CloudScreen', () => {
     useCloud.setState({ busy: true })
     rerender(<CloudScreen status={locked('offline', { account: null })} />)
     for (const b of screen.getAllByRole('button')) expect(b).toBeDisabled()
-    expect(screen.queryByText('robin@w-one.test')).not.toBeInTheDocument()
+    expect(screen.queryByText('robin@mindeck.test')).not.toBeInTheDocument()
     rerender(<CloudScreen status={locked('email_unverified', { account: null })} />)
     expect(screen.getByText(/We sent a link to \./)).toBeInTheDocument()
   })
 })
 
 describe('AccountView account card', () => {
-  const card = () => within(screen.getByText('W-ONE account').closest('section')!)
+  const card = () => within(screen.getByText('Mindeck account').closest('section')!)
 
   it('a trial account: name, email, time left, buy / check again / sign out', async () => {
     const bridge = installBridge({ 'cloud:checkout': () => ({ url: 'https://x' }) })
@@ -264,7 +264,7 @@ describe('AccountView account card', () => {
     useCloud.setState({ status: status({ enforced: true, state: 'active', account: ACCOUNT, license: TRIAL }) })
     render(<AccountView />)
     expect(card().getByText('Robin')).toBeInTheDocument()
-    expect(card().getByText('robin@w-one.test')).toBeInTheDocument()
+    expect(card().getByText('robin@mindeck.test')).toBeInTheDocument()
     expect(card().getByText('Trial')).toBeInTheDocument()
     expect(card().getByText('6 h 0 min of trial left')).toBeInTheDocument()
     expect(card().getByRole('progressbar')).toHaveAttribute('aria-valuenow', '14')
@@ -284,7 +284,7 @@ describe('AccountView account card', () => {
       status: status({ state: 'active', account: { ...ACCOUNT, name: null }, license: LIFETIME, validUntil: '2026-10-24T10:00:00.000Z' })
     })
     render(<AccountView />)
-    expect(screen.getAllByText('robin@w-one.test')).toHaveLength(1)
+    expect(screen.getAllByText('robin@mindeck.test')).toHaveLength(1)
     expect(screen.getByText('Lifetime')).toBeInTheDocument()
     expect(screen.getByText('Funktioniert offline bis 24.10.2026')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lifetime-Lizenz kaufen' })).not.toBeInTheDocument()
@@ -322,7 +322,7 @@ describe('SideNavigation profile tab', () => {
     act(() => useCloud.setState({ status: status({ account: ACCOUNT }) }))
     rerender(<SideNavigation active="core" onSelect={() => {}} />)
     expect(screen.getByText('Robin')).toBeInTheDocument()
-    expect(screen.getByText('robin@w-one.test')).toBeInTheDocument()
+    expect(screen.getByText('robin@mindeck.test')).toBeInTheDocument()
     act(() => useCloud.setState({ status: status({ account: { ...ACCOUNT, name: null } }) }))
     expect(screen.getByText('Profile')).toBeInTheDocument()
   })

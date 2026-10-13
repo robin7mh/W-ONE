@@ -63,7 +63,7 @@ export function appDataDir(platform: NodeJS.Platform = process.platform, env: No
   return env.XDG_CONFIG_HOME ?? join(home, '.config')
 }
 
-/** The apps W-ONE can move over from — the user data folder name, how people call it, its extensions folder. */
+/** The apps Mindeck can move over from — the user data folder name, how people call it, its extensions folder. */
 export const APPS: { app: string; name: string; extensions: string }[] = [
   { app: 'Code', name: 'Visual Studio Code', extensions: '.vscode' },
   { app: 'Cursor', name: 'Cursor', extensions: '.cursor' },
@@ -79,7 +79,7 @@ const ENUMS: Record<string, string[]> = {
   cursorBlinking: ['blink', 'smooth', 'phase', 'expand', 'solid']
 }
 
-/** VS Code setting → W-ONE editor setting (the value checked, else dropped). */
+/** VS Code setting → Mindeck editor setting (the value checked, else dropped). */
 const SETTINGS: [string, keyof EditorSettings, (v: unknown) => unknown][] = [
   ['editor.fontSize', 'fontSize', (v) => (typeof v === 'number' && v > 4 && v < 80 ? v : undefined)],
   ['editor.fontFamily', 'fontFamily', (v) => (typeof v === 'string' && v.trim() ? v : undefined)],
@@ -107,7 +107,7 @@ const SETTINGS: [string, keyof EditorSettings, (v: unknown) => unknown][] = [
   ['editor.defaultFormatter', 'prettier', (v) => (typeof v === 'string' ? v === 'esbenp.prettier-vscode' : undefined)]
 ]
 
-/** The editor settings W-ONE understands in a VS Code settings object, and how many. */
+/** The editor settings Mindeck understands in a VS Code settings object, and how many. */
 function mapSettings(raw: Record<string, unknown>): { settings: LanguageSettings; count: number } {
   const settings: LanguageSettings = {}
   let count = 0
@@ -164,7 +164,7 @@ export function vimMappings(raw: Record<string, unknown>): VimMapping[] | undefi
   return out.length ? out : undefined
 }
 
-/** liveServer.settings.* → W-ONE's Live Server settings. */
+/** liveServer.settings.* → Mindeck's Live Server settings. */
 export function liveServerSettings(raw: Record<string, unknown>): LiveServerSettings | undefined {
   const get = (k: string) => raw[`liveServer.settings.${k}`]
   const port = get('port')
@@ -179,7 +179,7 @@ export function liveServerSettings(raw: Record<string, unknown>): LiveServerSett
   })
 }
 
-/** liveSassCompile.settings.* → W-ONE's Sass settings. */
+/** liveSassCompile.settings.* → Mindeck's Sass settings. */
 export function sassSettings(raw: Record<string, unknown>): SassSettings | undefined {
   const get = (k: string) => raw[`liveSassCompile.settings.${k}`]
   const formats = Array.isArray(get('formats'))
@@ -221,7 +221,7 @@ export interface MigrateOptions {
   /** Where apps keep their data: macOS `~/Library/Application Support`, Linux `~/.config`, Windows `%APPDATA%`. */
   appData: string
   settings: SettingsService
-  /** W-ONE's copy of the imported snippets. */
+  /** Mindeck's copy of the imported snippets. */
   snippetsFile: string
 }
 
@@ -237,7 +237,7 @@ interface Found {
  * Moving over from VS Code, Cursor, VSCodium or Windsurf: reads their
  * editor settings, keybindings, snippets (the user's and those of snippet
  * extensions) and installed extensions — only reading, never changing them —
- * and copies what W-ONE understands into its own settings.
+ * and copies what Mindeck understands into its own settings.
  */
 export class MigrateService {
   constructor(private readonly opts: MigrateOptions) {}
@@ -352,7 +352,7 @@ export class MigrateService {
         settingsCount += mappings.length
       }
     }
-    // Blank Line Organizer installed: it ran on every save — so does W-ONE's.
+    // Blank Line Organizer installed: it ran on every save — so does Mindeck's.
     if (extensions.some((e) => e.id === 'ctf0.blank-line-organizer')) {
       settings.blankLines = { onSave: true, keepOne: raw['blankLine.keepOneEmptyLine'] !== false }
       settingsCount += 1

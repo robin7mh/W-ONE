@@ -66,7 +66,7 @@ export function builtinTools(deps: ToolDeps): ToolDefinition<never>[] {
     {
       name: 'memory_read',
       title: 'Read note',
-      description: 'Read one note from the memory vault by its vault-relative path (e.g. "Projekte/W-ONE.md").',
+      description: 'Read one note from the memory vault by its vault-relative path (e.g. "Projekte/Mindeck.md").',
       risk: 'read',
       schema: z.object({ path: z.string().min(1).max(1024) }),
       summarize: ({ path }) => `Read the note ${path}`,
@@ -125,7 +125,7 @@ export function builtinTools(deps: ToolDeps): ToolDefinition<never>[] {
     {
       name: 'projects_list',
       title: 'List projects',
-      description: 'List the projects registered in W-ONE (id, name, path, git branch, stack).',
+      description: 'List the projects registered in Mindeck (id, name, path, git branch, stack).',
       risk: 'read',
       schema: z.object({}),
       summarize: () => 'List the registered projects',

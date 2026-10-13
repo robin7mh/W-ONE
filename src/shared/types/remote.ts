@@ -1,4 +1,4 @@
-// Remote-SSH and Dev Containers: W-ONE's core runs on the other machine (or
+// Remote-SSH and Dev Containers: Mindeck's core runs on the other machine (or
 // in the container), the desktop app tunnels to it and opens a window there.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 

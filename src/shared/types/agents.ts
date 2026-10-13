@@ -1,5 +1,5 @@
 // The agent cockpit: coding agents the user already has (Claude Code, Codex,
-// Gemini CLI) run as their own programs; W-ONE shows each session as a chat
+// Gemini CLI) run as their own programs; Mindeck shows each session as a chat
 // with tool cards, approvals, the changes it made and what it remembered.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 
@@ -16,7 +16,7 @@ export interface AgentAvailability {
   /** Signed in (where the CLI can tell), and how — e.g. "Pro plan", "API key". */
   signedIn?: boolean
   account?: string
-  /** W-ONE can run it as a session (installed + an integration exists). */
+  /** Mindeck can run it as a session (installed + an integration exists). */
   ready: boolean
   /** What to do when it isn't ready. */
   hint?: string
@@ -72,7 +72,7 @@ export interface AgentSession {
   /** The PTY running the agent (Claude Code), for "Terminal ▸" — ACP agents have none. */
   terminalId?: string
   plan: PlanItem[]
-  /** Vault notes the agent read or wrote through W-ONE's memory tools. */
+  /** Vault notes the agent read or wrote through Mindeck's memory tools. */
   notes: string[]
   /** The session's journal note in the vault. */
   journal?: string

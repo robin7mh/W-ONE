@@ -1,4 +1,4 @@
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 import { getT, intlLocale } from '@/lib/i18n'
 
 /** "just now", "5 min ago", "3 h ago", else a short date. */
@@ -30,7 +30,7 @@ interface P {
 }
 
 /** One line per event for the activity timeline — what happened, in plain words. */
-export function describeEvent(e: WoneEvent): { text: string; tone: Tone } {
+export function describeEvent(e: MindeckEvent): { text: string; tone: Tone } {
   const p = (e.payload ?? {}) as P
   const t = getT().agents.ev
   switch (e.type) {

@@ -17,13 +17,13 @@ function runner(answers: Record<string, { code?: number; stdout?: string }> = {}
 }
 
 async function ctx(language: string, file: string, command?: string) {
-  const root = await tempDir('wone-build-')
+  const root = await tempDir('mindeck-build-')
   const out: string[] = []
   return { root, out, ctx: { root, program: join(root, file), language, command, output: (s: string, t: string) => void out.push(`${s}:${t}`), signal: new AbortController().signal } }
 }
 
 describe('building what the debugger runs', () => {
-  it('C, C++, Objective-C: one file compiled with debug info into .w-one/build; headers do not run', async () => {
+  it('C, C++, Objective-C: one file compiled with debug info into .mindeck/build; headers do not run', async () => {
     for (const [file, line] of [
       ['src/main.c', 'clang -g -O0'],
       ['app.cpp', 'clang++ -g -O0'],
@@ -34,7 +34,7 @@ describe('building what the debugger runs', () => {
       const r = runner()
       const built = await buildProgram(t.ctx, r.run)
       const name = file.split('/').pop()!.replace(/\.[^.]+$/, '')
-      expect(built).toBe(join(t.root, '.w-one', 'build', name))
+      expect(built).toBe(join(t.root, '.mindeck', 'build', name))
       expect(r.calls[0].line).toBe(`${line} ${t.ctx.program} -o ${built}${/\.mm?$/.test(file) ? ' -framework Foundation' : ''}`)
       expect(r.calls[0].cwd).toBe(t.root)
       expect(t.out[0]).toBe(`info:$ ${r.calls[0].line}\n`)
@@ -61,12 +61,12 @@ describe('building what the debugger runs', () => {
   it('Swift with swiftc; Rust with cargo (its JSON names the program) or rustc for a lone file', async () => {
     const swift = await ctx('swift', 'main.swift')
     const s = runner()
-    expect(await buildProgram(swift.ctx, s.run)).toBe(join(swift.root, '.w-one', 'build', 'main'))
+    expect(await buildProgram(swift.ctx, s.run)).toBe(join(swift.root, '.mindeck', 'build', 'main'))
     expect(s.calls[0].line).toMatch(/^swiftc -g -Onone /)
 
     const lone = await ctx('rust', 'hello.rs')
     const l = runner()
-    expect(await buildProgram(lone.ctx, l.run)).toBe(join(lone.root, '.w-one', 'build', 'hello'))
+    expect(await buildProgram(lone.ctx, l.run)).toBe(join(lone.root, '.mindeck', 'build', 'hello'))
     expect(l.calls[0].line).toMatch(/^rustc -g /)
 
     const crate = await ctx('rust', 'app/src/main.rs')

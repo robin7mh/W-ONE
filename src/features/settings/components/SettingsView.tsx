@@ -148,7 +148,7 @@ function RemoteCard() {
   const editable = desktop && !!s.server?.configurable
   const myDevice = (() => {
     try {
-      return localStorage.getItem('wone.deviceId')
+      return localStorage.getItem('mindeck.deviceId')
     } catch {
       return null
     }

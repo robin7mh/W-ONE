@@ -229,13 +229,13 @@ describe('gutter in the editor', () => {
     act(() => g.editor.setModel(m))
     await flush()
     expect(g.bridge.invoke).toHaveBeenCalledWith('scm:original', { projectId: 'g1', path: 'x.ts' })
-    expect(g.items().map((d) => `${d.options.linesDecorationsClassName}@${d.range.startLineNumber}-${d.range.endLineNumber}`)).toEqual(['wone-gutter-modified@2-2', 'wone-gutter-added@4-4'])
+    expect(g.items().map((d) => `${d.options.linesDecorationsClassName}@${d.range.startLineNumber}-${d.range.endLineNumber}`)).toEqual(['mindeck-gutter-modified@2-2', 'mindeck-gutter-added@4-4'])
 
     m.value = 'b\nc'
     act(() => g.editor.content.fire())
     expect(g.items()).toHaveLength(2) // not yet: waits for a pause in typing
     await flush()
-    expect(g.items().map((d) => d.options.linesDecorationsClassName)).toEqual(['wone-gutter-deleted-top'])
+    expect(g.items().map((d) => d.options.linesDecorationsClassName)).toEqual(['mindeck-gutter-deleted-top'])
 
     // A rewrite too big to diff: no markers rather than wrong ones.
     m.value = Array.from({ length: 1200 }, (_, i) => `n${i}`).join('\n')
@@ -313,11 +313,11 @@ describe('breakpoints in the editor', () => {
     file = { projectId: 'b1', path: 'a.js' }
     act(() => editor.setModel(make('b1', 'a.js', 'x')))
     await act(() => vi.advanceTimersByTimeAsync(0))
-    expect(items().map((d) => `${d.options.glyphMarginClassName}@${d.range.startLineNumber}`)).toEqual(['wone-bp@2'])
+    expect(items().map((d) => `${d.options.glyphMarginClassName}@${d.range.startLineNumber}`)).toEqual(['mindeck-bp@2'])
 
     const frame = (path: string | undefined, line: number) => ({ id: 'f', name: 'f', path, url: '', line, column: 1, scopes: [] })
     act(() => useDebug.setState({ session: { id: 's', projectId: 'b1', program: 'a.js', status: 'paused', frames: [frame('a.js', 3), frame('a.js', 7)] } }))
-    expect(items().map((d) => d.options.glyphMarginClassName)).toEqual(['wone-bp', 'wone-debug-arrow'])
+    expect(items().map((d) => d.options.glyphMarginClassName)).toEqual(['mindeck-bp', 'mindeck-debug-arrow'])
     act(() => useDebug.setState({ frame: 1 }))
     expect(items()[1].range.startLineNumber).toBe(7)
     act(() => useDebug.setState({ session: { id: 's', projectId: 'b1', program: 'a.js', status: 'paused', frames: [frame('other.js', 1)] }, frame: 0 }))

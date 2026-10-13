@@ -48,7 +48,7 @@ describe('detectAgents', () => {
   })
 
   it('the default probe runs through a login shell', async () => {
-    expect((await loginShellProbe('echo w-one')).trim()).toBe('w-one')
+    expect((await loginShellProbe('echo mindeck')).trim()).toBe('mindeck')
     await expect(loginShellProbe('exit 3')).rejects.toThrow()
     const platform = process.platform
     Object.defineProperty(process, 'platform', { value: 'win32' }) // PowerShell there — not on this machine
@@ -68,7 +68,7 @@ describe('Claude Code launch', () => {
     expect(args.slice(0, 4)).toEqual(['--session-id', 's1', '--name', 'Fix login'])
     expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual(hookSettings(input.hookUrl, 'tok'))
     expect(JSON.parse(args[args.indexOf('--mcp-config') + 1])).toEqual({
-      mcpServers: { wone: { type: 'http', url: input.mcpUrl, headers: { Authorization: 'Bearer tok' } } }
+      mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: 'Bearer tok' } } }
     })
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(SYSTEM_HINT)
     expect(args.slice(args.indexOf('--allowedTools') + 1, -2)).toEqual(MEMORY_READ_TOOLS)
@@ -89,8 +89,8 @@ describe('Claude Code launch', () => {
     expect(hooks.PermissionRequest[0].hooks[0]).toMatchObject({ type: 'http', timeout: 660 })
     expect(hooks.SessionStart[0].hooks[0]).toEqual({ type: 'command', command: HOOK_RELAY, async: true })
     expect(hooks.Notification[0].hooks[0]).toMatchObject({ type: 'command' })
-    expect(HOOK_RELAY).toContain('$WONE_TOKEN')
-    expect(claudeEnv('http://h', 'tok')).toEqual({ WONE_HOOK_URL: 'http://h', WONE_TOKEN: 'tok' })
+    expect(HOOK_RELAY).toContain('$MINDECK_TOKEN')
+    expect(claudeEnv('http://h', 'tok')).toEqual({ MINDECK_HOOK_URL: 'http://h', MINDECK_TOKEN: 'tok' })
   })
 })
 
@@ -192,7 +192,7 @@ describe('hook events → chat, status and plan', () => {
   })
 
   it('tool titles, risks and one-line summaries', () => {
-    expect(['Read', 'Edit', 'Bash', 'mcp__wone__memory_search', 'mcp__wone__memory_append', 'mcp__github__create_pr', 'Whatever'].map(toolRisk)).toEqual([
+    expect(['Read', 'Edit', 'Bash', 'mcp__mindeck__memory_search', 'mcp__mindeck__memory_append', 'mcp__github__create_pr', 'Whatever'].map(toolRisk)).toEqual([
       'read',
       'write',
       'execute',
@@ -201,7 +201,7 @@ describe('hook events → chat, status and plan', () => {
       'execute',
       'execute'
     ])
-    expect(toolTitle('mcp__wone__memory_search')).toBe('W-ONE memory · memory search')
+    expect(toolTitle('mcp__mindeck__memory_search')).toBe('Mindeck memory · memory search')
     expect(toolTitle('mcp__claude_ai_Gmail__search_threads')).toBe('claude_ai_Gmail · search threads')
     expect(toolTitle('Custom')).toBe('Custom')
     expect(toolSummary('Bash', { command: 'npm test' })).toBe('Run command: npm test')
@@ -209,8 +209,8 @@ describe('hook events → chat, status and plan', () => {
     expect(toolSummary('Task', { other: 1 })).toBe('Subagent')
     expect(toolSummary('Task')).toBe('Subagent')
     const s = fresh()
-    applyHook(s, { hook_event_name: 'PreToolUse', tool_name: 'mcp__wone__memory_read', tool_use_id: 'm' })
-    expect(tool(s, 'm').title).toBe('W-ONE memory · memory read')
+    applyHook(s, { hook_event_name: 'PreToolUse', tool_name: 'mcp__mindeck__memory_read', tool_use_id: 'm' })
+    expect(tool(s, 'm').title).toBe('Mindeck memory · memory read')
   })
 })
 
@@ -252,7 +252,7 @@ describe('session journal', () => {
     expect(journalBody(session(), [], [])).toBeNull()
     expect(journalBody(session(), [msg('user', '   ')], [])).toBeNull()
     const body = journalBody(
-      session({ branch: 'wone/abc', kind: 'codex', plan: [{ id: '1', text: 'add test', done: false }, { id: '2', text: 'done', done: true }] }),
+      session({ branch: 'mindeck/abc', kind: 'codex', plan: [{ id: '1', text: 'add test', done: false }, { id: '2', text: 'done', done: true }] }),
       [msg('user', 'Login fails\nwith empty password'), msg('assistant', 'Looking…'), msg('user', 'also check logout\nplease'), msg('assistant', '', 'Fixed both.')],
       [
         { path: 'auth.ts', status: 'modified', added: 3, removed: 1 },
@@ -260,7 +260,7 @@ describe('session journal', () => {
         { path: 'old.ts', status: 'deleted', added: 0, removed: 4 }
       ]
     )!
-    expect(body).toContain('**Agent:** Codex · **Projekt:** Demo · **Ordner:** `/code/demo` (Branch `wone/abc`)')
+    expect(body).toContain('**Agent:** Codex · **Projekt:** Demo · **Ordner:** `/code/demo` (Branch `mindeck/abc`)')
     expect(body).toContain('## Auftrag\n\nLogin fails\nwith empty password\n- also check logout\n')
     expect(body).toContain('## Ergebnis\n\nFixed both.\n')
     expect(body).toContain('- `auth.ts` (+3 −1)\n- `new.ts` (neu)\n- `old.ts` (gelöscht)')

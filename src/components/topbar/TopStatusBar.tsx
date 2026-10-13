@@ -36,11 +36,11 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
       {/* Logo / codename */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-7 w-7 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-xs font-bold text-cyan text-glow-cyan">
-          W1
+          MD
         </div>
         <div className="leading-none">
           <div className="font-sans text-[13px] font-semibold tracking-wide text-text-primary">
-            W-ONE
+            Mindeck
           </div>
           <TechLabel className="text-text-muted">{t.topbar.commandCenter}</TechLabel>
         </div>

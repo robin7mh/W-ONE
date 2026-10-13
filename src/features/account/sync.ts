@@ -8,7 +8,7 @@ import { useEditorPrefs } from '@/features/editor/prefs'
 interface SyncState {
   status?: SyncStatus
   busy?: 'push' | 'pull'
-  /** The account has a newer copy than the one this W-ONE saved from. */
+  /** The account has a newer copy than the one this Mindeck saved from. */
   conflict: boolean
   /** What the last action did. */
   done?: 'pushed' | 'pulled'
@@ -24,7 +24,7 @@ interface SyncState {
   dismiss: () => void
 }
 
-/** Settings Sync in the Profile: this W-ONE's settings ↔ the W-ONE account. */
+/** Settings Sync in the Profile: this Mindeck's settings ↔ the Mindeck account. */
 export const useSync = create<SyncState>((set, get) => {
   const run = async (busy: 'push' | 'pull', fn: () => Promise<SyncStatus | void>) => {
     set({ busy, error: undefined, done: undefined })

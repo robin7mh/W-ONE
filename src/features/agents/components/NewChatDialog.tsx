@@ -35,7 +35,7 @@ function AgentCard({ a, chosen, onPick }: { a: AgentAvailability; chosen: boolea
 }
 
 /**
- * "New chat": which agent (the user's own coding agents, or the W-ONE
+ * "New chat": which agent (the user's own coding agents, or the Mindeck
  * Assistant when an API key is set), which project, optionally an own git
  * worktree for parallel work, and the first message. Mounted while open.
  */

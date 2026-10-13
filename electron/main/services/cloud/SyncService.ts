@@ -25,9 +25,9 @@ export interface SyncOptions {
 }
 
 /**
- * Settings Sync through the W-ONE account: the editor's settings (languages
+ * Settings Sync through the Mindeck account: the editor's settings (languages
  * and keybindings included), the snippets, the look and the UI language go
- * up as one versioned copy; another W-ONE loads it. Saving over a copy that
+ * up as one versioned copy; another Mindeck loads it. Saving over a copy that
  * changed elsewhere is a conflict (`sync_conflict`) unless forced.
  */
 export class SyncService {
@@ -40,7 +40,7 @@ export class SyncService {
     return { signedIn: true, remote: remote && { version: remote.version, updatedAt: remote.updatedAt, device: remote.device?.name ?? null }, local }
   }
 
-  /** Save this W-ONE's settings (plus what the UI knows) to the account. */
+  /** Save this Mindeck's settings (plus what the UI knows) to the account. */
   async push(ui: SyncUi, force = false): Promise<SyncStatus> {
     this.signedIn()
     const settings = this.opts.settings.get()
@@ -66,7 +66,7 @@ export class SyncService {
   // --- helpers ---
 
   private signedIn(): void {
-    if (!this.opts.cloud.isSignedIn()) throw coded('session_expired', 'Sign in to your W-ONE account first')
+    if (!this.opts.cloud.isSignedIn()) throw coded('session_expired', 'Sign in to your Mindeck account first')
   }
 
   private async remote(): Promise<Remote | null> {

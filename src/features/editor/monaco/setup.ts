@@ -52,9 +52,9 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
   })
 }
 
-export const THEME = 'wone'
+export const THEME = 'mindeck'
 
-/** (Re)define the W-ONE theme from the current tokens and apply it. */
+/** (Re)define the Mindeck theme from the current tokens and apply it. */
 export function applyMonacoTheme(): void {
   monaco.editor.defineTheme(THEME, monacoTheme())
   monaco.editor.setTheme(THEME)

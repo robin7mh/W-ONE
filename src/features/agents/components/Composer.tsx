@@ -19,7 +19,7 @@ export function Composer({
   running: boolean
   sending: boolean
   disabled?: boolean
-  /** Project context picker (W-ONE Assistant chats); agent sessions already have their project. */
+  /** Project context picker (Mindeck Assistant chats); agent sessions already have their project. */
   projects?: Project[]
   projectId?: string
   placeholder: string

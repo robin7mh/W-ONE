@@ -185,7 +185,7 @@ describe('a notebook session', () => {
     s.commit((d) => updateCell(d, 'c2', (c) => ({ ...c, source: ['2/1'] })))
     expect(JSON.parse(model.value).cells[2].source).toEqual(['2/1'])
     expect(seen).toHaveBeenCalled()
-    // What W-ONE wrote isn't read back.
+    // What Mindeck wrote isn't read back.
     const before = s.get().doc
     model.change.fire({})
     expect(s.get().doc).toBe(before)

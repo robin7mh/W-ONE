@@ -188,7 +188,7 @@ describe('ESLint in the editor', () => {
     expect(broken.invoke.mock.calls.filter((c) => c[0] === 'lint:file')).toHaveLength(2) // asked again
     m2.dispose()
 
-    const refusing = routes({ 'lint:file': () => fail('Remote shells are disabled on this W-ONE core', 'remote-terminal-disabled') })
+    const refusing = routes({ 'lint:file': () => fail('Remote shells are disabled on this Mindeck core', 'remote-terminal-disabled') })
     const m3 = mon.make('/r/d.ts', 'x')
     await settle()
     await lintModel(m3 as never)
@@ -244,11 +244,11 @@ describe('ESLint in the editor', () => {
     // "Fix all" runs on the focused editor's file.
     model.value = 'var a = 1\n'
     mon.state.editors.splice(0, mon.state.editors.length, { hasTextFocus: () => false, hasWidgetFocus: () => true, getModel: () => model })
-    mon.state.commands.get('wone.eslintFixAll')!()
+    mon.state.commands.get('mindeck.eslintFixAll')!()
     await settle()
     expect(model.value).toBe('const a = 1\n')
     mon.state.editors.splice(0, 1)
-    mon.state.commands.get('wone.eslintFixAll')!() // no editor focused
+    mon.state.commands.get('mindeck.eslintFixAll')!() // no editor focused
     model.dispose()
   })
 
@@ -322,7 +322,7 @@ describe('format and ESLint actions', () => {
 
     const actions: { id: string; label: string; keybindings?: number[]; run: (ed: unknown) => unknown }[] = []
     addEditorActions({ addAction: (a: (typeof actions)[number]) => (actions.push(a), { dispose() {} }), getModel: () => model } as never)
-    expect(actions.map((a) => a.id)).toEqual(['wone.formatDocument', 'wone.eslint.fixAll', 'wone.eslint.restart', 'wone.tidyBlankLines'])
+    expect(actions.map((a) => a.id)).toEqual(['mindeck.formatDocument', 'mindeck.eslint.fixAll', 'mindeck.eslint.restart', 'mindeck.tidyBlankLines'])
     useEditorPrefs.setState({ settings: { prettier: true } })
     model.value = 'x'
     await actions[0].run({ ...editor, getModel: () => model })

@@ -46,11 +46,11 @@ export function BootSequence({ onSkip }: { onSkip: () => void }) {
       <div className="relative w-[min(560px,90vw)] px-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-sm font-bold text-cyan text-glow-cyan">
-            W1
+            MD
           </div>
           <div>
             <div className="font-sans text-sm font-semibold tracking-wide text-text-primary">
-              W-ONE COMMAND CENTER
+              Mindeck COMMAND CENTER
             </div>
             <div className="tech-label mt-0.5 text-text-muted">{t.boot.bootstrap}</div>
           </div>

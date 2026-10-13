@@ -30,26 +30,26 @@ vi.mock('../../../electron/main/lib/openInVsCode', () => ({ openInVsCode: vi.fn(
 import { createCore, type Core } from '../../../electron/main/core/createCore'
 import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
 import { headlessPlatform } from '../../../electron/main/platform/headless'
-import { wonePaths } from '../../../electron/main/lib/paths'
+import { mindeckPaths } from '../../../electron/main/lib/paths'
 import { run, serverConfigFromEnv } from '../../../server/main'
 
 
 const cores: Core[] = []
 let savedHome: string | undefined
 beforeEach(async () => {
-  savedHome = process.env.WONE_HOME
-  process.env.WONE_HOME = await tempDir()
+  savedHome = process.env.MINDECK_HOME
+  process.env.MINDECK_HOME = await tempDir()
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 afterEach(async () => {
   await Promise.all(cores.splice(0).map((c) => c.dispose()))
-  if (savedHome === undefined) delete process.env.WONE_HOME
-  else process.env.WONE_HOME = savedHome
+  if (savedHome === undefined) delete process.env.MINDECK_HOME
+  else process.env.MINDECK_HOME = savedHome
 })
 
 async function core(opts: Partial<Parameters<typeof createCore>[0]> = {}) {
-  const c = await createCore({ mode: 'server', version: '1.2.3', paths: wonePaths(), platform: headlessPlatform, ...opts })
+  const c = await createCore({ mode: 'server', version: '1.2.3', paths: mindeckPaths(), platform: headlessPlatform, ...opts })
   cores.push(c)
   return c
 }
@@ -116,7 +116,7 @@ describe('createCore', () => {
     // service callbacks publish on the hub
     const pushed: string[] = []
     c.hub.subscribe((channel) => pushed.push(channel))
-    const project = await c.router.dispatch('projects:add', { path: process.env.WONE_HOME! }, { transport: 'ipc' })
+    const project = await c.router.dispatch('projects:add', { path: process.env.MINDECK_HOME! }, { transport: 'ipc' })
     const projectId = (project as { data: { id: string } }).data.id
     await c.router.dispatch('context:reindex', { projectId }, { transport: 'ipc' })
     const term = await c.router.dispatch('terminal:create', { projectId }, { transport: 'ipc' })
@@ -130,13 +130,13 @@ describe('createCore', () => {
 
     // The editor's language service and debugger find projects the same way; the debugger publishes its session.
     expect(await c.router.dispatch('lsp:open', { projectId: 'none', path: 'a.ts', text: '' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
-    await writeFile(join(process.env.WONE_HOME!, 'run.js'), '')
+    await writeFile(join(process.env.MINDECK_HOME!, 'run.js'), '')
     expect(await c.router.dispatch('debug:start', { projectId, program: 'run.js', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { status: 'starting' } })
     expect(pushed).toContain('debug:session')
     expect(await c.router.dispatch('debug:stop', undefined, { transport: 'ipc' })).toEqual({ ok: true })
 
     // Live Server and Sass find the project and the user's settings.
-    await writeFile(join(process.env.WONE_HOME!, 'a.scss'), 'a { b: c }')
+    await writeFile(join(process.env.MINDECK_HOME!, 'a.scss'), 'a { b: c }')
     const served = await c.router.dispatch('liveServer:start', { projectId }, { transport: 'ipc' })
     expect(served).toMatchObject({ ok: true, data: { projectId } })
     expect(pushed).toContain('liveServer:changed')
@@ -149,8 +149,8 @@ describe('createCore', () => {
     expect(await c.router.dispatch('liveServer:stop', { projectId }, { transport: 'ipc' })).toEqual({ ok: true })
     // SFTP reads the project's .vscode/sftp.json.
     expect(await c.router.dispatch('sftp:targets', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
-    await mkdir(join(process.env.WONE_HOME!, '.vscode'), { recursive: true })
-    await writeFile(join(process.env.WONE_HOME!, '.vscode/sftp.json'), JSON.stringify({ name: 'T', host: '127.0.0.1', port: 1, connectTimeout: 300 }))
+    await mkdir(join(process.env.MINDECK_HOME!, '.vscode'), { recursive: true })
+    await writeFile(join(process.env.MINDECK_HOME!, '.vscode/sftp.json'), JSON.stringify({ name: 'T', host: '127.0.0.1', port: 1, connectTimeout: 300 }))
     expect(await c.router.dispatch('sftp:list', { projectId, target: 'T' }, { transport: 'ipc' })).toMatchObject({ error: {} })
     // Pull requests go through gh, for known projects only.
     expect(await c.router.dispatch('github:view', { projectId: 'none', number: 1 }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
@@ -177,13 +177,13 @@ describe('createCore', () => {
     expect(await c.router.dispatch('notebook:execute', { projectId, path: 'a.ipynb', cell: 'c', code: 'x' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-started' } })
     expect(await c.router.dispatch('notebook:shutdown', { projectId, path: 'a.ipynb' }, { transport: 'ipc' })).toEqual({ ok: true, data: undefined })
     expect(await c.router.dispatch('notebook:start', { projectId, path: '../a.ipynb', kernel: 'python3' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
-    // The test explorer finds the project's tests (none here) and runs them with W-ONE's debugger at hand.
+    // The test explorer finds the project's tests (none here) and runs them with Mindeck's debugger at hand.
     expect(await c.router.dispatch('tests:discover', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
     expect(await c.router.dispatch('tests:state', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: { projectId, running: false, results: {}, output: '' } })
     expect(await c.router.dispatch('tests:debug', { projectId, id: 'none', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: false })
-    expect(await c.router.dispatch('cloud:adopt', { token: 'wone1.x.y.zzzz', account: { email: 'a@b', name: null } }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-follower' } })
+    expect(await c.router.dispatch('cloud:adopt', { token: 'mindeck1.x.y.zzzz', account: { email: 'a@b', name: null } }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-follower' } })
   })
 
   it('desktop mode keeps the server config in settings; history is kept as files in the data folder', async () => {
@@ -196,8 +196,8 @@ describe('createCore', () => {
   })
 })
 
-describe('createCore — W-ONE license', () => {
-  it('a licensed core refuses work until its account may run W-ONE; signing in stays possible', async () => {
+describe('createCore — Mindeck license', () => {
+  it('a licensed core refuses work until its account may run Mindeck; signing in stays possible', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 'invalid_credentials' } }), { status: 401 }))
     const c = await core({ cloud: { url: 'http://cloud.test', enforced: true, fetch: fetch as unknown as typeof globalThis.fetch } })
     const ipcCall = (channel: string, payload?: unknown) => c.router.dispatch(channel, payload, { transport: 'ipc' })
@@ -252,7 +252,7 @@ describe('createCore — assistant end to end (scripted model)', () => {
         pushed.push(channel)
         if (channel === 'permission:request') pending = (payload as { id: string }).id
       })
-      const added = (await c.router.dispatch('projects:add', { path: process.env.WONE_HOME! }, { transport: 'ipc' })) as { data: { id: string } }
+      const added = (await c.router.dispatch('projects:add', { path: process.env.MINDECK_HOME! }, { transport: 'ipc' })) as { data: { id: string } }
       const sent = await c.router.dispatch(
         'ai:send',
         { text: 'Plan my week', agentId: 'coding', projectId: added.data.id },
@@ -267,7 +267,7 @@ describe('createCore — assistant end to end (scripted model)', () => {
       const parts = conv.data.messages[1].parts
       expect(parts[0]).toMatchObject({ status: 'done', output: 'Created Plan.md' })
       expect(parts[1]).toMatchObject({ status: 'denied' }) // remote + shell switch off
-      expect(seen[0].context).toContain('Memory vault "W-ONE"')
+      expect(seen[0].context).toContain('Memory vault "Mindeck"')
       expect(seen[0].context).toContain('Active project:')
       expect(pushed).toEqual(expect.arrayContaining(['ai:delta', 'ai:message', 'permission:request', 'permission:resolved', 'events:event', 'ai:conversationsChanged']))
       const recent = (await c.router.dispatch('events:recent', { conversationId: id }, { transport: 'ipc' })) as { data: { type: string }[] }
@@ -282,9 +282,9 @@ describe('createCore — assistant end to end (scripted model)', () => {
 
 describe('standalone server entry', () => {
   it('runs a coding agent session: hooks and memory reach it over the local endpoint', async () => {
-    process.env.WONE_CLAUDE_BIN = '/opt/fake-claude'
+    process.env.MINDECK_CLAUDE_BIN = '/opt/fake-claude'
     const c = await core({ mode: 'desktop', notify: vi.fn() })
-    delete process.env.WONE_CLAUDE_BIN
+    delete process.env.MINDECK_CLAUDE_BIN
     const call = async <T,>(channel: string, payload?: unknown) => {
       const res = await c.router.dispatch(channel, payload, { transport: 'ipc' })
       if (!res.ok) throw new Error(res.error.message)
@@ -294,8 +294,8 @@ describe('standalone server entry', () => {
     expect(await call('agents:list')).toEqual([])
     const session = await call<{ id: string; status: string }>('agents:create', { kind: 'claude-code', projectId: project.id })
     expect(session.status).toBe('starting')
-    expect(h.ptyArgs.at(-1)).toMatch(/^exec \/opt\/fake-claude --session-id /) // WONE_CLAUDE_BIN
-    const { WONE_HOOK_URL: hookUrl, WONE_TOKEN: token } = h.ptyEnv!
+    expect(h.ptyArgs.at(-1)).toMatch(/^exec \/opt\/fake-claude --session-id /) // MINDECK_CLAUDE_BIN
+    const { MINDECK_HOOK_URL: hookUrl, MINDECK_TOKEN: token } = h.ptyEnv!
     const post = (url: string, body: unknown) =>
       fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
@@ -312,15 +312,15 @@ describe('standalone server entry', () => {
 
   it('reads its config from the environment', () => {
     expect(serverConfigFromEnv({})).toEqual({ enabled: true, lan: false, port: 7420, remoteTerminal: false })
-    expect(serverConfigFromEnv({ WONE_PORT: '8000', WONE_LAN: '1', WONE_REMOTE_TERMINAL: 'true' })).toEqual({
+    expect(serverConfigFromEnv({ MINDECK_PORT: '8000', MINDECK_LAN: '1', MINDECK_REMOTE_TERMINAL: 'true' })).toEqual({
       enabled: true,
       lan: true,
       port: 8000,
       remoteTerminal: true
     })
-    expect(serverConfigFromEnv({ WONE_PORT: 'abc' }).port).toBe(7420)
-    expect(serverConfigFromEnv({ WONE_PORT: '70000' }).port).toBe(7420)
-    expect(serverConfigFromEnv({ WONE_PORT: '0' }).port).toBe(0)
+    expect(serverConfigFromEnv({ MINDECK_PORT: 'abc' }).port).toBe(7420)
+    expect(serverConfigFromEnv({ MINDECK_PORT: '70000' }).port).toBe(7420)
+    expect(serverConfigFromEnv({ MINDECK_PORT: '0' }).port).toBe(0)
   })
 
   it('`pair` prints a code without starting anything', async () => {
@@ -329,25 +329,25 @@ describe('standalone server entry', () => {
   })
 
   it('starts, prints a pairing code while no device is paired, serves the API', async () => {
-    const c = (await run([], { WONE_PORT: '0', WONE_WEB_ROOT: join(process.env.WONE_HOME!, 'web') }))!
+    const c = (await run([], { MINDECK_PORT: '0', MINDECK_WEB_ROOT: join(process.env.MINDECK_HOME!, 'web') }))!
     cores.push(c)
     expect(c.server.status().running).toBe(true)
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('listening on'))
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('W-ONE pairing'))
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Mindeck pairing'))
 
     // second start with a paired device: no banner; default web root
     const { code } = await c.auth.createPairingCode()
     await c.auth.pair(code, 'x')
     vi.mocked(console.log).mockClear()
-    const again = (await run([], { WONE_PORT: '0' }))!
+    const again = (await run([], { MINDECK_PORT: '0' }))!
     cores.push(again)
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('W-ONE pairing'))
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Mindeck pairing'))
   })
 
   it('fails loudly when the port is taken', async () => {
-    const first = (await run([], { WONE_PORT: '0' }))!
+    const first = (await run([], { MINDECK_PORT: '0' }))!
     cores.push(first)
     const port = String(first.server.status().urls[0].split(':').pop())
-    await expect(run([], { WONE_PORT: port })).rejects.toThrow('could not start')
+    await expect(run([], { MINDECK_PORT: port })).rejects.toThrow('could not start')
   })
 })

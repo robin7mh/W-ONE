@@ -5,7 +5,7 @@ import { tempDir } from './helpers'
 import { FilesService, MAX_EDIT_BYTES } from '../../../electron/main/services/files/FilesService'
 
 async function project(files: Record<string, string | Buffer>) {
-  const root = await tempDir('wone-files-')
+  const root = await tempDir('mindeck-files-')
   for (const [rel, body] of Object.entries(files)) {
     await mkdir(dirname(join(root, rel)), { recursive: true })
     await writeFile(join(root, rel), body)

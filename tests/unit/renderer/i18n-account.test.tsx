@@ -56,7 +56,7 @@ describe('locale store', () => {
   it('switches, remembers and sets the document language', () => {
     act(() => useLocale.getState().setLocale('de'))
     expect(getT()).toBe(de)
-    expect(localStorage.getItem('wone.locale')).toBe('de')
+    expect(localStorage.getItem('mindeck.locale')).toBe('de')
     expect(document.documentElement.lang).toBe('de')
   })
 
@@ -73,9 +73,9 @@ describe('locale store', () => {
       vi.resetModules()
       return (await import('@/lib/i18n')).useLocale.getState().locale
     }
-    localStorage.setItem('wone.locale', 'de')
+    localStorage.setItem('mindeck.locale', 'de')
     expect(await load()).toBe('de')
-    localStorage.setItem('wone.locale', 'xx')
+    localStorage.setItem('mindeck.locale', 'xx')
     expect(await load()).toBe('en')
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('blocked')

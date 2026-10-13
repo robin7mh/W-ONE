@@ -20,7 +20,7 @@ function toolIcon(part: ToolCallPart) {
   if (part.server) return Globe
   if (part.risk === 'execute') return TerminalSquare
   if (part.risk === 'write') return PencilLine
-  return /^(memory|mcp__wone__)/.test(part.name) ? BookOpen : Wrench
+  return /^(memory|mcp__mindeck__)/.test(part.name) ? BookOpen : Wrench
 }
 
 /** Short one-line view of the tool input (the full JSON is one click away). */

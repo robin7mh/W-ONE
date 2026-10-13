@@ -1,29 +1,29 @@
-# The W-ONE core in Docker — for a home server or NAS, used from a browser or the app.
+# The Mindeck core in Docker — for a home server or NAS, used from a browser or the app.
 #   npm run docker:up      build and start the core (API + web UI on :7420)
 #   npm run docker:pair    print a one-time pairing code for a browser / phone
-# Everything it keeps is plain files in the wone-data volume — no database.
+# Everything it keeps is plain files in the mindeck-data volume — no database.
 # Ports are bound to 127.0.0.1 only. To reach the core from your phone on the
-# same network, set WONE_BIND=0.0.0.0 in .env (pairing still protects it).
+# same network, set MINDECK_BIND=0.0.0.0 in .env (pairing still protects it).
 # Settings come from .env (see .env.example); the defaults match the app's.
-name: w-one
+name: mindeck
 
 services:
   core:
     build: .
-    image: ghcr.io/robin7mh/w-one:local
-    container_name: w-one-core
+    image: ghcr.io/robin7mh/mindeck:local
+    container_name: mindeck-core
     restart: unless-stopped
     environment:
-      WONE_REMOTE_TERMINAL: ${WONE_REMOTE_TERMINAL:-0}
+      MINDECK_REMOTE_TERMINAL: ${MINDECK_REMOTE_TERMINAL:-0}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
-      - '${WONE_BIND:-127.0.0.1}:${WONE_CORE_PORT:-7420}:7420'
+      - '${MINDECK_BIND:-127.0.0.1}:${MINDECK_CORE_PORT:-7420}:7420'
     volumes:
       # Settings, paired devices, project registry, history and the vault live here.
-      - wone-data:/data
+      - mindeck-data:/data
       # Folders the core may add as projects (inside the container: /projects).
-      - ${WONE_PROJECTS_DIR:-./}:/projects:ro
+      - ${MINDECK_PROJECTS_DIR:-./}:/projects:ro
 
 volumes:
-  wone-data:
-    name: wone-data
+  mindeck-data:
+    name: mindeck-data

@@ -58,7 +58,7 @@ export type Spawn = (command: string, args: string[], cwd: string, env?: Record<
 
 /** Languages debugged through a debug adapter (Node runs on its own inspector). */
 export const DAP_LANGUAGES = ['python', 'go', 'cpp', 'rust', 'swift', 'php', 'java', 'kotlin']
-/** Compiled to a program first, then run under LLDB — with any built program W-ONE has no language for ('native'). */
+/** Compiled to a program first, then run under LLDB — with any built program Mindeck has no language for ('native'). */
 export const NATIVE_LANGUAGES = ['cpp', 'rust', 'swift', 'native']
 
 function coded(code: string, message: string): Error {
@@ -87,7 +87,7 @@ const argLine = (args: string[]) => args.map((a) => (/[\s"]/.test(a) ? `"${a.rep
 /** Start the language's debug adapter and say how to launch the program with it. */
 export async function startAdapter(language: string, ctx: AdapterContext, run: Spawn = spawnInShell): Promise<{ transport: DapTransport; launch: DapLaunch }> {
   if (language === 'python') {
-    // debugpy lives in W-ONE's tools folder; the project's virtualenv runs the program.
+    // debugpy lives in Mindeck's tools folder; the project's virtualenv runs the program.
     const python = pythonFor(ctx.root)
     const proc = run(python, ['-m', 'debugpy.adapter'], ctx.root, { PYTHONPATH: ctx.debugger })
     return {
@@ -98,7 +98,7 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
         arguments: {
           type: 'python',
           request: 'launch',
-          name: 'W-ONE',
+          name: 'Mindeck',
           ...(ctx.module ? { module: ctx.module } : { program: ctx.program }),
           args: ctx.args,
           cwd: ctx.root,
@@ -116,11 +116,11 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
     proc.stderr!.on('data', (d: Buffer) => ctx.output('stderr', d.toString()))
     return {
       transport: stdioTransport(proc),
-      launch: { adapterID: 'lldb-dap', kill: () => void proc.kill(), arguments: { name: 'W-ONE', program: ctx.program, args: ctx.args, cwd: ctx.root } }
+      launch: { adapterID: 'lldb-dap', kill: () => void proc.kill(), arguments: { name: 'Mindeck', program: ctx.program, args: ctx.args, cwd: ctx.root } }
     }
   }
   if (language === 'php') {
-    // Xdebug's adapter is JavaScript: W-ONE's own Node runs it. It starts php with Xdebug pointed at its port.
+    // Xdebug's adapter is JavaScript: Mindeck's own Node runs it. It starts php with Xdebug pointed at its port.
     const proc = run(process.execPath, [ctx.debugger], ctx.root, { ELECTRON_RUN_AS_NODE: '1' })
     return {
       transport: stdioTransport(proc),
@@ -130,7 +130,7 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
         arguments: {
           type: 'php',
           request: 'launch',
-          name: 'W-ONE',
+          name: 'Mindeck',
           program: ctx.program,
           args: ctx.args,
           cwd: ctx.root,
@@ -155,7 +155,7 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
       launch: {
         adapterID: 'java',
         kill: () => void socket.destroy(),
-        arguments: { type: 'java', request: 'launch', name: 'W-ONE', mainClass: main.mainClass, projectName: main.projectName, modulePaths, classPaths, args: argLine(ctx.args), cwd: ctx.root, console: 'internalConsole' }
+        arguments: { type: 'java', request: 'launch', name: 'Mindeck', mainClass: main.mainClass, projectName: main.projectName, modulePaths, classPaths, args: argLine(ctx.args), cwd: ctx.root, console: 'internalConsole' }
       }
     }
   }
@@ -164,7 +164,7 @@ export async function startAdapter(language: string, ctx: AdapterContext, run: S
     const proc = run(ctx.debugger, [], ctx.root)
     return {
       transport: stdioTransport(proc),
-      launch: { adapterID: 'kotlin', kill: () => void proc.kill(), arguments: { type: 'kotlin', request: 'launch', name: 'W-ONE', projectRoot: ctx.root, mainClass: await kotlinMainClass(ctx.program) } }
+      launch: { adapterID: 'kotlin', kill: () => void proc.kill(), arguments: { type: 'kotlin', request: 'launch', name: 'Mindeck', projectRoot: ctx.root, mainClass: await kotlinMainClass(ctx.program) } }
     }
   }
   // Go: Delve's DAP server on a local port; its stdout carries the program's output.

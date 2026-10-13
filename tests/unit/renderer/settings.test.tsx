@@ -44,7 +44,7 @@ function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
     'server:createPairingCode': () => ({ code: 'ABCD-EFGH', expiresAt: '', urls: ['http://127.0.0.1:7420', 'http://192.168.1.9:7420'] }),
     'server:revokeDevice': () => undefined,
     'permission:revoke': () => undefined,
-    'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'W-ONE', isDefault: true, exists: true, noteCount: 3, graphStyle: { mode: 'colorful', color: 'cyan' } }),
+    'memory:status': () => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists: true, noteCount: 3, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'memory:pickVault': () => ({ root: '/picked', defaultRoot: '/v', name: 'picked', isDefault: false, exists: false, noteCount: 0, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'memory:setVault': ({ path }: { path: string }) => ({ root: path, defaultRoot: '/v', name: 'x', isDefault: false, exists: true, noteCount: 1, graphStyle: { mode: 'colorful', color: 'cyan' } }),
     'fs:dirs': () => ({ path: '/srv/notes', parent: '/srv', home: '/root', dirs: [] }),
@@ -155,7 +155,7 @@ describe('SettingsView', () => {
     const detect = vi.fn()
       .mockResolvedValueOnce([
         { kind: 'claude-code', name: 'Claude Code', installed: true, version: '2.1.287', signedIn: true, account: 'Pro plan', ready: true },
-        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to W-ONE soon' }
+        { kind: 'codex', name: 'Codex', installed: true, ready: false, hint: 'Coming to Mindeck soon' }
       ])
       .mockResolvedValueOnce([{ kind: 'claude-code', name: 'Claude Code', installed: true, ready: true }])
     installBridge(settingsCore({ 'agents:detect': detect }))
@@ -163,7 +163,7 @@ describe('SettingsView', () => {
     await act(settle)
     expect(screen.getByText('Coding agents')).toBeInTheDocument()
     expect(screen.getByText('Pro plan · v2.1.287')).toBeInTheDocument()
-    expect(screen.getByText('Coming to W-ONE soon')).toBeInTheDocument()
+    expect(screen.getByText('Coming to Mindeck soon')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Check again'))
     await act(settle)
     expect(detect).toHaveBeenCalledTimes(2)
@@ -206,7 +206,7 @@ describe('SettingsView', () => {
 
   it('desktop: AI key + model, server toggles, pairing, devices, grants, vault, about', async () => {
     installBridge(settingsCore())
-    localStorage.setItem('wone.deviceId', 'd2')
+    localStorage.setItem('mindeck.deviceId', 'd2')
     useAssistant.setState({ status: { configured: true, source: 'stored', keyHint: 'ABCD', settings: { model: 'claude-opus-5-5', effort: 'high', inline: false, inlineModel: 'claude-opus-5-5' } } })
     useSession.setState({ info: { mode: 'desktop', version: '1.2.3', platform: 'darwin', hostname: 'mac', remoteTerminal: false } })
     render(<SettingsView />)

@@ -35,7 +35,7 @@ export function which(bin: string, fallbacks: string[] = []): string {
   return `{ command -v ${bin} 2>/dev/null${loop}; true; }`
 }
 
-/** A server installed with npm into W-ONE's tools folder (found there first). */
+/** A server installed with npm into Mindeck's tools folder (found there first). */
 const npmBin = (bin: string) => (tools: string) => {
   const local = shellQuote(join(tools, 'npm', 'node_modules', '.bin', bin))
   return `{ [ -x ${local} ] && echo ${local} || command -v ${bin} 2>/dev/null; true; }`
@@ -91,7 +91,7 @@ export function pythonFor(root: string, platform: NodeJS.Platform = process.plat
 }
 
 /**
- * Language servers and debuggers W-ONE knows how to find and install —
+ * Language servers and debuggers Mindeck knows how to find and install —
  * the tools VS Code's language extensions wrap, used directly.
  */
 export const CATALOG: Record<string, CatalogEntry> = {

@@ -22,7 +22,7 @@ import { SettingsService } from '../../../electron/main/services/settings/Settin
 import type { Project } from '@shared/types/project'
 import type { ProjectContext } from '@shared/types/context'
 import type { AgentRun } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 
 // --- a local Messages API that speaks real SSE ---------------------------------
 
@@ -90,12 +90,12 @@ describe('AnthropicProvider', () => {
         delta(0, { type: 'text_delta', text: 'lo' }),
         stop(0),
         block(1, { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: {} }),
-        delta(1, { type: 'input_json_delta', partial_json: '{"query":"w-one"}' }),
+        delta(1, { type: 'input_json_delta', partial_json: '{"query":"mindeck"}' }),
         stop(1),
         block(2, {
           type: 'web_search_tool_result',
           tool_use_id: 'srv_1',
-          content: [{ type: 'web_search_result', title: 'W-ONE', url: 'https://w.one', encrypted_content: 'x', page_age: null }]
+          content: [{ type: 'web_search_result', title: 'Mindeck', url: 'https://w.one', encrypted_content: 'x', page_age: null }]
         }),
         stop(2),
         block(3, { type: 'tool_use', id: 'tu_1', name: 'memory_search', input: {} }),
@@ -115,7 +115,7 @@ describe('AnthropicProvider', () => {
     expect(turn.model).toBe('claude-opus-5-5')
     expect(turn.message.blocks.map((b) => b.type)).toEqual(['text', 'opaque', 'opaque', 'tool_call'])
     expect(turn.message.blocks[3]).toMatchObject({ type: 'tool_call', id: 'tu_1', name: 'memory_search', input: { query: 'x' } })
-    expect(turn.serverTools).toEqual([{ id: 'srv_1', name: 'web_search', input: { query: 'w-one' }, output: 'W-ONE — https://w.one' }])
+    expect(turn.serverTools).toEqual([{ id: 'srv_1', name: 'web_search', input: { query: 'mindeck' }, output: 'Mindeck — https://w.one' }])
 
     const body = seen[0].body
     expect(seen[0].headers['anthropic-beta']).toContain('server-side-fallback-2026-07-01')
@@ -554,7 +554,7 @@ describe('agents', () => {
 describe('PermissionService', () => {
   const setup = async (timeoutMs?: number) => {
     const dir = await tempDir()
-    const events: WoneEvent[] = []
+    const events: MindeckEvent[] = []
     const bus = new EventBus({ sink: { persist: () => {} } })
     bus.subscribe('*', (e) => events.push(e))
     const requests: unknown[] = []
@@ -683,7 +683,7 @@ describe('ConversationStore', () => {
 })
 
 describe('EventLog', () => {
-  const ev = (id: string, conversationId?: string): WoneEvent => ({
+  const ev = (id: string, conversationId?: string): MindeckEvent => ({
     id,
     type: 'tool.completed',
     ts: new Date(Date.UTC(2026, 9, 1, 0, 0, Number(id.slice(1)))).toISOString(),
@@ -791,7 +791,7 @@ describe('RunStore', () => {
 // --- context engine ---------------------------------------------------------------
 
 describe('ContextBuilder', () => {
-  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'W-ONE', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
+  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
   const builder = (over: Partial<ConstructorParameters<typeof ContextBuilder>[0]> = {}) =>
     new ContextBuilder({
       user: async () => ({ name: 'Ada' }),

@@ -1,4 +1,4 @@
-W-ONE — Proprietary Source-Available License
+Mindeck — Proprietary Source-Available License
 Copyright (c) 2026 Robin Hinkelmann. All rights reserved.
 
 1. Source visible, not open source.
@@ -6,23 +6,23 @@ Copyright (c) 2026 Robin Hinkelmann. All rights reserved.
    reviewed (for example by prospective employers, clients and customers). Making
    it visible does not grant any licence to use it.
 
-2. What you may do without a W-ONE licence.
+2. What you may do without a Mindeck licence.
    You may view and read the source code on GitHub, and fork it on GitHub solely
    as permitted by the GitHub Terms of Service, for the purpose of reading it.
 
-3. What requires a W-ONE licence.
+3. What requires a Mindeck licence.
    Building, compiling, installing, running, deploying (including as a server,
    container or hosted service), modifying, creating derivative works of,
-   sublicensing, selling or otherwise distributing W-ONE or any part of it is
+   sublicensing, selling or otherwise distributing Mindeck or any part of it is
    permitted only
-     (a) through the official W-ONE distribution channels, and
-     (b) within the scope of a valid W-ONE licence or free trial, as set out in
-         the W-ONE terms of use published on the official W-ONE website.
+     (a) through the official Mindeck distribution channels, and
+     (b) within the scope of a valid Mindeck licence or free trial, as set out in
+         the Mindeck terms of use published on the official Mindeck website.
    Circumventing, removing or disabling licence, trial or account checks is
    prohibited.
 
 4. Third-party components.
-   Third-party libraries included in or used by W-ONE remain under their own
+   Third-party libraries included in or used by Mindeck remain under their own
    licences. Nothing in this licence restricts rights granted by those licences.
 
 5. No warranty.
@@ -33,13 +33,13 @@ Copyright (c) 2026 Robin Hinkelmann. All rights reserved.
 6. Governing law.
    This licence is governed by the laws of the Federal Republic of Germany.
 
-For licensing enquiries, use the contact details on the official W-ONE website.
+For licensing enquiries, use the contact details on the official Mindeck website.
 
 ---
 
 Deutsche Kurzfassung (maßgeblich ist der englische Text oben):
 Der Quellcode ist öffentlich zur Ansicht, aber nicht Open Source. Bauen,
 Installieren, Ausführen, Betreiben (auch als Server oder Container), Ändern und
-Verbreiten sind nur über die offiziellen W-ONE-Kanäle und im Rahmen einer
+Verbreiten sind nur über die offiziellen Mindeck-Kanäle und im Rahmen einer
 gültigen Lizenz oder Testversion erlaubt. Das Umgehen von Lizenz-, Test- oder
 Kontoprüfungen ist untersagt.

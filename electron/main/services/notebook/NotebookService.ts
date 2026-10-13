@@ -11,7 +11,7 @@ function coded(code: string, message: string): Error {
 }
 
 /**
- * The bridge between W-ONE and a Jupyter kernel, run by the project's Python:
+ * The bridge between Mindeck and a Jupyter kernel, run by the project's Python:
  * jupyter_client starts the kernel; commands come in as JSON lines on stdin,
  * what the kernel says goes out as JSON lines (nbformat outputs per cell).
  * `specs` lists the installed kernels instead.

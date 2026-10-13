@@ -172,7 +172,7 @@ export class DebugService {
     // Anything that isn't JavaScript / TypeScript and has no language is a built program (LLDB runs it).
     const language = known?.id ?? (isTypeScriptFile(req.program) ? undefined : 'native')
     if (language && DAP_LANGUAGES.concat('native').includes(language)) return this.startDap(language, req, root, program)
-    if (known) throw coded('debug-unsupported', `W-ONE can't debug ${known.name} programs yet`)
+    if (known) throw coded('debug-unsupported', `Mindeck can't debug ${known.name} programs yet`)
     this.dap = undefined
     // TypeScript runs as is: Node strips the types (positions stay, so breakpoints match). Default from Node 22.18 on.
     const ts = /\.[cm]?ts$/.test(program) ? ['--experimental-strip-types', '--disable-warning=ExperimentalWarning'] : []

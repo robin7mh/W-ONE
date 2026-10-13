@@ -48,7 +48,7 @@ describe('Dashboard ask bar', () => {
     const onNavigate = vi.fn()
     render(<Dashboard onNavigate={onNavigate} />)
     await act(settle)
-    const input = screen.getByLabelText('Ask W-ONE')
+    const input = screen.getByLabelText('Ask Mindeck')
     fireEvent.submit(input.closest('form')!) // empty: nothing
     expect(send).not.toHaveBeenCalled()
     fireEvent.change(input, { target: { value: '  What is next?  ' } })
@@ -70,7 +70,7 @@ describe('Dashboard ask bar', () => {
     const onNavigate = vi.fn()
     render(<Dashboard onNavigate={onNavigate} />)
     await act(settle)
-    fireEvent.change(screen.getByLabelText('Ask W-ONE'), { target: { value: 'Fix the login' } })
+    fireEvent.change(screen.getByLabelText('Ask Mindeck'), { target: { value: 'Fix the login' } })
     fireEvent.click(screen.getByLabelText('Ask'))
     expect(onNavigate).toHaveBeenCalledWith('agents')
     expect(openDialog).toHaveBeenCalledWith('Fix the login')
@@ -286,7 +286,7 @@ describe('ProjectDetailPanel', () => {
     fireEvent.click(screen.getByText('VS Code'))
     expect(bridge.invoke).toHaveBeenCalledWith('projects:openInEditor', { id: 'a' })
 
-    // Terminal, no shell in this project yet: opens one in W-ONE's own terminal — no extra Home shell.
+    // Terminal, no shell in this project yet: opens one in Mindeck's own terminal — no extra Home shell.
     fireEvent.click(screen.getByText('Terminal'))
     await act(settle)
     expect(onNavigate).toHaveBeenCalledWith('terminal')

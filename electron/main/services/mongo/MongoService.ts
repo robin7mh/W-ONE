@@ -5,7 +5,7 @@ function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
 }
 
-/** The part of the driver W-ONE uses (tests give a stand-in). */
+/** The part of the driver Mindeck uses (tests give a stand-in). */
 export interface MongoDriver {
   connect(uri: string): Promise<MongoClientLike>
   /** Extended JSON. */
@@ -49,7 +49,7 @@ export async function mongoDriver(): Promise<MongoDriver> {
   const { MongoClient, BSON } = await import('mongodb')
   const { EJSON } = BSON
   return {
-    connect: async (uri) => (await new MongoClient(uri, { serverSelectionTimeoutMS: 8000, appName: 'W-ONE' }).connect()) as unknown as MongoClientLike,
+    connect: async (uri) => (await new MongoClient(uri, { serverSelectionTimeoutMS: 8000, appName: 'Mindeck' }).connect()) as unknown as MongoClientLike,
     parse: (text) => EJSON.parse(text, { relaxed: true }),
     stringify: (value) => EJSON.stringify(value as never, undefined, 2, { relaxed: true })
   }

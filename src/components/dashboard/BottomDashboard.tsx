@@ -10,7 +10,7 @@ import { useAgents } from '@/features/agents/sessions'
 import { STATUS_TONE } from '@/features/agents/components/SessionPane'
 import { ActivityTimeline } from '@/features/agents/components/ActivityTimeline'
 
-const STORAGE_KEY = 'wone.commandDeck.open'
+const STORAGE_KEY = 'mindeck.commandDeck.open'
 
 /** Per-viewer UI preference; storage can be unavailable, so never throw. */
 function readOpen(): boolean {

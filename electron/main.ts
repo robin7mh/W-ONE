@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerMonitor, shell } from 'electron'
 import { join } from 'node:path'
-import { migrateLegacyData, wonePaths } from './main/lib/paths'
+import { migrateLegacyData, mindeckPaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
 import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
@@ -111,7 +111,7 @@ ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
 
-/** An agent needs the user: tell them — unless they are looking at W-ONE already. */
+/** An agent needs the user: tell them — unless they are looking at Mindeck already. */
 function notify(title: string, body: string): void {
   if (!Notification.isSupported() || BrowserWindow.getFocusedWindow()) return
   const n = new Notification({ title, body })
@@ -123,9 +123,9 @@ function notify(title: string, body: string): void {
 }
 
 async function startCore(): Promise<void> {
-  // ~/W-ONE/{data,vault} holds everything — every location derives from paths.ts.
-  const paths = wonePaths()
-  const legacyDir = join(app.getPath('userData'), 'wone')
+  // ~/Mindeck/{data,vault} holds everything — every location derives from paths.ts.
+  const paths = mindeckPaths()
+  const legacyDir = join(app.getPath('userData'), 'mindeck')
   try {
     if (migrateLegacyData(paths, legacyDir)) console.log(`[data] copied ${legacyDir} → ${paths.dataDir}`)
   } catch (err) {
@@ -141,7 +141,7 @@ async function startCore(): Promise<void> {
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
     webRoot: join(__dirname, '../renderer'),
     notify,
-    // The packaged app needs a license; `npm run dev` only with WONE_LICENSE=required.
+    // The packaged app needs a license; `npm run dev` only with MINDECK_LICENSE=required.
     cloud: cloudConfig(app.isPackaged),
     isUserActive: () => powerMonitor.getSystemIdleTime() < IDLE_SECONDS
   })

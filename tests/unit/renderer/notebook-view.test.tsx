@@ -102,7 +102,7 @@ const mon = vi.hoisted(() => {
     }
   }
 })
-vi.mock('@/features/editor/monaco/setup', () => ({ monaco: mon.monaco, THEME: 'wone' }))
+vi.mock('@/features/editor/monaco/setup', () => ({ monaco: mon.monaco, THEME: 'mindeck' }))
 vi.mock('@/features/editor/components/CodeEditor', () => ({ fileUri: (projectId: string, path: string) => ({ toString: () => `file:///${projectId}/${path}` }) }))
 
 import NotebookView from '@/features/editor/components/NotebookView'

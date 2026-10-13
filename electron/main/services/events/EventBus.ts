@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import {
   EVENT_CATALOG,
   type EventPersistence,
-  type WoneEvent,
-  type WoneEventType
+  type MindeckEvent,
+  type MindeckEventType
 } from '@shared/types/events'
 import type { EntityRef } from '@shared/types/entity'
 
@@ -12,7 +12,7 @@ import type { EntityRef } from '@shared/types/entity'
  * `events` table, catalog-driven, audit rows append-only).
  */
 export interface EventSink {
-  persist(event: WoneEvent, cls: Exclude<EventPersistence, 'ephemeral'>): void
+  persist(event: MindeckEvent, cls: Exclude<EventPersistence, 'ephemeral'>): void
 }
 
 export class NoopEventSink implements EventSink {
@@ -20,33 +20,33 @@ export class NoopEventSink implements EventSink {
 }
 
 export interface EmitInput<T> {
-  actor?: WoneEvent['actor']
+  actor?: MindeckEvent['actor']
   subject?: EntityRef
   projectId?: string
   conversationId?: string
   payload?: T
 }
 
-type Listener = (event: WoneEvent) => void
+type Listener = (event: MindeckEvent) => void
 
 /**
- * In-main pub/sub for structured WoneEvents (architecture §10). Distributes
+ * In-main pub/sub for structured MindeckEvents (architecture §10). Distributes
  * every event to subscribers; persists only per the central EVENT_CATALOG
  * class. An optional broadcast hook forwards events to the renderer once a
  * push channel exists in the IPC contract (none yet in P2A).
  */
 export class EventBus {
-  private readonly listeners = new Map<WoneEventType | '*', Set<Listener>>()
+  private readonly listeners = new Map<MindeckEventType | '*', Set<Listener>>()
 
   constructor(
     private readonly opts: {
       sink: EventSink
-      broadcast?: (event: WoneEvent) => void
+      broadcast?: (event: MindeckEvent) => void
     }
   ) {}
 
-  emit<T = unknown>(type: WoneEventType, input: EmitInput<T> = {}): WoneEvent<T> {
-    const event: WoneEvent<T> = {
+  emit<T = unknown>(type: MindeckEventType, input: EmitInput<T> = {}): MindeckEvent<T> {
+    const event: MindeckEvent<T> = {
       id: randomUUID(),
       type,
       ts: new Date().toISOString(),
@@ -80,7 +80,7 @@ export class EventBus {
     return event
   }
 
-  subscribe(type: WoneEventType | '*', listener: Listener): () => void {
+  subscribe(type: MindeckEventType | '*', listener: Listener): () => void {
     const set = this.listeners.get(type) ?? new Set()
     set.add(listener)
     this.listeners.set(type, set)

@@ -11,7 +11,7 @@ import { useEditorPrefs } from '@/features/editor/prefs'
 
 const initial = useSync.getState()
 const s = () => useSync.getState()
-const SIGNED_IN = { ...OPEN_CLOUD, state: 'active', account: { email: 'robin@w-one.test', name: 'Robin' }, license: { plan: 'lifetime', trialLimitSeconds: 1, trialUsedSeconds: 0, trialRemainingSeconds: 1 } }
+const SIGNED_IN = { ...OPEN_CLOUD, state: 'active', account: { email: 'robin@mindeck.test', name: 'Robin' }, license: { plan: 'lifetime', trialLimitSeconds: 1, trialUsedSeconds: 0, trialRemainingSeconds: 1 } }
 const status = (over: Partial<SyncStatus> = {}): SyncStatus => ({
   signedIn: true,
   remote: { version: 3, updatedAt: '2026-10-13T00:00:00.000Z', device: 'Studio' },
@@ -44,7 +44,7 @@ describe('appearance from elsewhere', () => {
 })
 
 describe('Settings Sync store', () => {
-  it('saves this W-ONE’s look and language with the settings; force goes over a newer copy', async () => {
+  it('saves this Mindeck’s look and language with the settings; force goes over a newer copy', async () => {
     const b = bridge()
     useAppearance.getState().update({ mode: 'light' })
     act(() => useLocale.getState().setLocale('de'))
@@ -75,9 +75,9 @@ describe('Settings Sync store', () => {
     bridge({ 'cloud:syncPush': () => fail('Settings were changed on another device', 'sync_conflict') })
     await s().push()
     expect(s()).toMatchObject({ conflict: true, error: undefined, status: status() })
-    bridge({ 'cloud:syncPush': () => fail('W-ONE Cloud is not reachable', 'cloud-unreachable'), 'cloud:syncStatus': () => fail('offline') })
+    bridge({ 'cloud:syncPush': () => fail('Mindeck Cloud is not reachable', 'cloud-unreachable'), 'cloud:syncStatus': () => fail('offline') })
     await s().push()
-    expect(s().error).toBe('W-ONE Cloud is not reachable')
+    expect(s().error).toBe('Mindeck Cloud is not reachable')
     await s().load()
     expect(s().error).toBe('offline')
     s().dismiss()
@@ -132,8 +132,8 @@ describe('Settings Sync in the Profile', () => {
     expect(within(card).getByText('Saved to your account.')).toBeInTheDocument()
     act(() => useSync.setState({ done: 'pulled' }))
     expect(within(card).getByText('Loaded from your account.')).toBeInTheDocument()
-    act(() => useSync.setState({ error: 'W-ONE Cloud is not reachable', busy: 'push' }))
-    expect(within(card).getByRole('alert')).toHaveTextContent('W-ONE Cloud is not reachable')
+    act(() => useSync.setState({ error: 'Mindeck Cloud is not reachable', busy: 'push' }))
+    expect(within(card).getByRole('alert')).toHaveTextContent('Mindeck Cloud is not reachable')
     expect(within(card).getByRole('button', { name: /^Sync$/ })).toBeDisabled()
 
     // Nothing anywhere yet: nothing to load.

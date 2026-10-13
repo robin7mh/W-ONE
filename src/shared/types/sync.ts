@@ -1,5 +1,5 @@
-// Settings Sync through the W-ONE account: one copy in W-ONE Cloud that every
-// signed-in W-ONE (and later the website's account page) reads and writes.
+// Settings Sync through the Mindeck account: one copy in Mindeck Cloud that every
+// signed-in Mindeck (and later the website's account page) reads and writes.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 
 import type { EditorSettings, Snippet } from './migrate'

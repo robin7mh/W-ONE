@@ -14,7 +14,7 @@ const identity = (dir: string) => {
 
 /** A repo with one commit (a.txt, b.txt). */
 async function repo(): Promise<string> {
-  const dir = await tempDir('wone-scm-')
+  const dir = await tempDir('mindeck-scm-')
   sh(dir, 'init', '-q', '-b', 'main')
   identity(dir)
   await writeFile(join(dir, 'a.txt'), 'one\ntwo\n')
@@ -26,7 +26,7 @@ async function repo(): Promise<string> {
 
 /** A bare "GitHub" and a clone of it as the project (upstream set). */
 async function withRemote() {
-  const origin = await tempDir('wone-origin-')
+  const origin = await tempDir('mindeck-origin-')
   sh(origin, 'init', '-q', '--bare', '-b', 'main')
   const seed = await repo()
   sh(seed, 'remote', 'add', 'origin', origin)

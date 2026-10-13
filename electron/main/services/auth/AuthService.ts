@@ -32,7 +32,7 @@ function coded(code: string, message: string): Error {
  * Who may use the network API. A device pairs once with a short-lived
  * one-time code and receives a random bearer token; only the token's SHA-256
  * is stored (devices.json, mode 0600). Codes are stored hashed too, and the
- * file is re-read when pairing, so `w-one pair` from a second process works.
+ * file is re-read when pairing, so `mindeck pair` from a second process works.
  */
 export class AuthService {
   private store?: Store
@@ -57,7 +57,7 @@ export class AuthService {
   /** Redeem a code (once) for a device token. */
   async pair(code: string, name: string): Promise<PairResult> {
     const hash = sha256(normalizeCode(code))
-    const token = `wone_${randomBytes(32).toString('base64url')}`
+    const token = `mindeck_${randomBytes(32).toString('base64url')}`
     const device: DeviceRecord = {
       id: randomUUID(),
       name: String(name ?? '').trim().slice(0, 80) || 'Device',

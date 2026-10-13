@@ -78,7 +78,7 @@ jobs:
         run: docker compose logs db
 
   docker:
-    name: Docker image (W-ONE core) builds
+    name: Docker image (Mindeck core) builds
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -11,7 +11,7 @@ const OUTPUT_FLUSH_MS = 60
 
 export interface NotebookSnapshot {
   doc?: Doc
-  /** The file isn't a notebook W-ONE can show (why). */
+  /** The file isn't a notebook Mindeck can show (why). */
   invalid?: string
   info?: KernelInfo
   state: KernelState | 'off'
@@ -73,7 +73,7 @@ export class NotebookSession {
     this.subs.push(model.onDidChangeContent(() => this.read()))
   }
 
-  /** The buffer changed: what W-ONE wrote itself is already shown. */
+  /** The buffer changed: what Mindeck wrote itself is already shown. */
   private read(): void {
     const text = this.model!.getValue()
     if (text === this.written) return

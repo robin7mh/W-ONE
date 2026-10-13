@@ -42,7 +42,7 @@ export const loginShellRunner: Runner = (commandLine, cwd, onLine) =>
 const TAIL = 12
 
 export interface ToolsOptions {
-  /** W-ONE's own tools folder (npm packages, debugpy, jdtls workspaces). */
+  /** Mindeck's own tools folder (npm packages, debugpy, jdtls workspaces). */
   dir: string
   probe?: Probe
   run?: Runner

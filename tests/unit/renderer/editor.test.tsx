@@ -85,7 +85,7 @@ const mon = vi.hoisted(() => {
       // Monaco prefixes actions added to one editor with the instance.
       return [
         { id: 'editor.action.formatDocument', label: 'Format Document', run: async () => void this.ran.push('editor.action.formatDocument') },
-        { id: 'vs.editor.ICodeEditor:1:wone.formatDocument', label: 'Format (W-ONE)', run: async () => void this.ran.push('wone.formatDocument') }
+        { id: 'vs.editor.ICodeEditor:1:mindeck.formatDocument', label: 'Format (Mindeck)', run: async () => void this.ran.push('mindeck.formatDocument') }
       ]
     }
     getAction(id: string) {
@@ -538,7 +538,7 @@ describe('monaco setup & theme', () => {
   it('the theme follows the app tokens and the light/dark switch', () => {
     applyMonacoTheme()
     expect(mon.state.themes[0]).toMatchObject({ base: 'vs-dark', inherit: true })
-    expect(mon.monaco.editor.setTheme).toHaveBeenCalledWith('wone')
+    expect(mon.monaco.editor.setTheme).toHaveBeenCalledWith('mindeck')
     document.documentElement.dataset.theme = 'light'
     document.documentElement.style.setProperty('--accent-cyan', '0 132 158')
     const light = monacoTheme()
@@ -558,7 +558,7 @@ describe('CodeEditor (Monaco view)', () => {
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.md', { content: 'B' }), tab('c.ts', { content: undefined, loading: true })] })
     const view = (t?: EditorTab, readOnly = false) => <CodeEditor tab={t} readOnly={readOnly} onCursor={onCursor} />
     const { rerender, unmount } = render(view())
-    expect(editor().options).toMatchObject({ model: null, theme: 'wone', automaticLayout: true, readOnly: false })
+    expect(editor().options).toMatchObject({ model: null, theme: 'mindeck', automaticLayout: true, readOnly: false })
     expect(mon.state.themes).toHaveLength(1)
     document.documentElement.dataset.theme = 'light' // the app's theme switch
     await act(() => settle(1))
@@ -659,7 +659,7 @@ describe('CodeEditor (Monaco view)', () => {
     expect(editor().model).toBeNull()
   })
 
-  it('F1 and ⌃G open W-ONE’s palette; Monaco’s actions reach the palette; features see the shown tab', async () => {
+  it('F1 and ⌃G open Mindeck’s palette; Monaco’s actions reach the palette; features see the shown tab', async () => {
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' })] })
     const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
     const { rerender, unmount } = render(view())
@@ -679,12 +679,12 @@ describe('CodeEditor (Monaco view)', () => {
     const actions = editorActions()!
     expect(actions.list()).toEqual([
       { id: 'editor.action.formatDocument', label: 'Format Document' },
-      { id: 'wone.formatDocument', label: 'Format (W-ONE)' }
+      { id: 'mindeck.formatDocument', label: 'Format (Mindeck)' }
     ])
     actions.run('editor.action.formatDocument')
-    actions.run('wone.formatDocument')
+    actions.run('mindeck.formatDocument')
     actions.run('missing')
-    expect(editor().ran).toEqual(['editor.action.formatDocument', 'wone.formatDocument'])
+    expect(editor().ran).toEqual(['editor.action.formatDocument', 'mindeck.formatDocument'])
     rerender(view())
     expect(actions.list()).toEqual([]) // no file on screen
 
@@ -755,7 +755,7 @@ describe('CodeEditor (Monaco view)', () => {
     useEditor.setState({ splitId: 'p:a.ts' })
     act(() => right.focusText.fire())
     expect(e().focusRight).toBe(true)
-    expect(editorActions()!.list().map((a) => a.id)).toContain('wone.formatDocument')
+    expect(editorActions()!.list().map((a) => a.id)).toContain('mindeck.formatDocument')
     act(() => left.focusText.fire())
     expect(e().focusRight).toBe(false)
     rerender(both(e().tabs[0], e().tabs[1]))
@@ -810,7 +810,7 @@ describe('CodeEditor (Monaco view)', () => {
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.md', { content: 'B' })], activeId: 'p:a.ts' })
     const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
     const { rerender } = render(view(e().tabs[1]))
-    expect(editor().options.tabSize).toBe(4) // Markdown: W-ONE's default
+    expect(editor().options.tabSize).toBe(4) // Markdown: Mindeck's default
     rerender(view(e().tabs[0]))
     expect(editor().options.tabSize).toBe(2) // TypeScript's own setting
 

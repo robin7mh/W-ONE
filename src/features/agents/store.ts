@@ -9,7 +9,7 @@ import type {
   ConversationSummary,
   PermissionRequest
 } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 
 const ACTIVITY_CAP = 200
 
@@ -54,7 +54,7 @@ interface AssistantState {
   messages: Record<string, ChatMessage[]>
   running: Record<string, boolean>
   pending: PermissionRequest[]
-  activity: WoneEvent[]
+  activity: MindeckEvent[]
   sending: boolean
   loading: boolean
   error?: string

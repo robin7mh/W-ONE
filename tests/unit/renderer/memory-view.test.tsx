@@ -30,8 +30,8 @@ import { useMemory } from '@/features/memory/store'
 
 const initial = useMemory.getState()
 const status = (over: Partial<VaultStatus> = {}): VaultStatus => ({
-  root: '/Users/robin/W-ONE/vault',
-  defaultRoot: '/Users/robin/W-ONE/vault',
+  root: '/Users/robin/Mindeck/vault',
+  defaultRoot: '/Users/robin/Mindeck/vault',
   name: 'vault',
   isDefault: true,
   exists: true,
@@ -94,7 +94,7 @@ describe('MemoryView', () => {
     useMemory.setState({ status: status({ exists: false }) })
     const { rerender } = render(<MemoryView />)
     expect(screen.queryByText('New note')).toBeNull() // no header actions yet
-    fireEvent.click(screen.getByText('Create W-ONE vault'))
+    fireEvent.click(screen.getByText('Create Mindeck vault'))
     fireEvent.click(screen.getByText('Open existing vault…'))
     expect(a.createVault).toHaveBeenCalled()
     expect(a.pickVault).toHaveBeenCalled()
@@ -111,7 +111,7 @@ describe('MemoryView', () => {
     useMemory.setState({ status: status(), view: 'graph', graph: { nodes: [], edges: [] }, notes: [], error: 'boom' })
     render(<MemoryView />)
     expect(screen.getByText('GRAPH')).toBeInTheDocument()
-    expect(screen.getByText('~/W-ONE/vault')).toBeInTheDocument()
+    expect(screen.getByText('~/Mindeck/vault')).toBeInTheDocument()
     expect(screen.getByText('boom')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Dismiss'))
     expect(a.clearError).toHaveBeenCalled()

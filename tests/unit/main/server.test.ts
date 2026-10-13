@@ -49,7 +49,7 @@ describe('AuthService', () => {
     expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now())
 
     const result = await auth.pair(code.toLowerCase().replace('-', ' '), '  My Phone  ')
-    expect(result.token).toMatch(/^wone_/)
+    expect(result.token).toMatch(/^mindeck_/)
     expect(result.device).toMatchObject({ name: 'My Phone' })
     expect(result.device).not.toHaveProperty('tokenHash')
     await expect(auth.pair(code, 'again')).rejects.toMatchObject({ code: 'bad-code' })
@@ -70,7 +70,7 @@ describe('AuthService', () => {
     expect(device.name).toBe('Device')
 
     expect(await auth.verify(undefined)).toBeNull()
-    expect(await auth.verify('wone_nope')).toBeNull()
+    expect(await auth.verify('mindeck_nope')).toBeNull()
     expect(await auth.verify(token)).toMatchObject({ id: device.id, lastSeenAt: new Date(now).toISOString() })
     const persisted = JSON.parse(await readFile(file, 'utf8')).devices[0].lastSeenAt
     now += 10_000
@@ -216,7 +216,7 @@ describe('HttpServer — API', () => {
     const { base, token } = await startHttp()
     const health = await fetch(`${base}/api/health`)
     expect(health.headers.get('x-content-type-options')).toBe('nosniff')
-    expect(await health.json()).toEqual({ ok: true, name: 'W-ONE', version: '9.9.9', mode: 'server' })
+    expect(await health.json()).toEqual({ ok: true, name: 'Mindeck', version: '9.9.9', mode: 'server' })
 
     expect((await rpc(base, 'projects:list')).status).toBe(401)
     const wrongScheme = await fetch(`${base}/api/rpc/projects:list`, { method: 'POST', headers: { Authorization: `Basic ${token}` } })

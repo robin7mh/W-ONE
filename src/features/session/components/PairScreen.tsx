@@ -20,10 +20,10 @@ function Frame({ children }: { children: ReactNode }) {
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-5 flex items-center justify-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-md border border-cyan/40 bg-cyan/5 font-mono text-sm font-bold text-cyan text-glow-cyan">
-            W1
+            MD
           </div>
           <div className="leading-none">
-            <div className="font-sans text-[15px] font-semibold tracking-wide text-text-primary">W-ONE</div>
+            <div className="font-sans text-[15px] font-semibold tracking-wide text-text-primary">Mindeck</div>
             <TechLabel className="text-text-muted">{t.pair.web}</TechLabel>
           </div>
         </div>

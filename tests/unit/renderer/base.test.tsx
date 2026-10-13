@@ -39,20 +39,20 @@ describe('lib', () => {
 
   it('appearance: saved choice, the old dark/light choice, defaults for anything unknown; storage errors never throw', () => {
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
-    localStorage.setItem('wone.theme', 'light')
+    localStorage.setItem('mindeck.theme', 'light')
     expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, mode: 'light' })
-    localStorage.setItem('wone.theme', 'bogus')
+    localStorage.setItem('mindeck.theme', 'bogus')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
 
     const saved = { mode: 'dark', accent: 'pink', surface: 'graphite' }
-    localStorage.setItem('wone.appearance', JSON.stringify(saved))
+    localStorage.setItem('mindeck.appearance', JSON.stringify(saved))
     expect(loadAppearance()).toEqual(saved)
     // Unknown values (and fields of older versions) fall back field by field.
-    localStorage.setItem('wone.appearance', JSON.stringify({ mode: 'neon', accent: 'violet', surface: 'midnight', effects: 'off' }))
+    localStorage.setItem('mindeck.appearance', JSON.stringify({ mode: 'neon', accent: 'violet', surface: 'midnight', effects: 'off' }))
     expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
-    localStorage.setItem('wone.appearance', 'null')
+    localStorage.setItem('mindeck.appearance', 'null')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
-    localStorage.setItem('wone.appearance', '{broken')
+    localStorage.setItem('mindeck.appearance', '{broken')
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE)
 
     const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
@@ -110,7 +110,7 @@ describe('lib', () => {
     expect([s().theme, document.documentElement.dataset.theme]).toEqual(['light', 'light'])
 
     s().update({ accent: 'violet' })
-    expect(JSON.parse(localStorage.getItem('wone.appearance')!)).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
+    expect(JSON.parse(localStorage.getItem('mindeck.appearance')!)).toEqual({ ...DEFAULT_APPEARANCE, accent: 'violet' })
     s().update({ mode: 'dark' }) // a fixed choice
     expect([s().appearance.mode, s().theme]).toEqual(['dark', 'dark'])
     osChanged() // fixed: the OS no longer decides
@@ -317,7 +317,7 @@ describe('entry points', () => {
     vi.doMock('react-dom/client', () => ({ default: { createRoot: vi.fn(() => ({ render })) } }))
     vi.doMock('@/App', () => ({ default: () => null }))
     document.body.innerHTML = '<div id="root"></div>'
-    localStorage.setItem('wone.theme', 'light')
+    localStorage.setItem('mindeck.theme', 'light')
     vi.resetModules()
     await import('@/main')
     expect(document.documentElement.dataset.theme).toBe('light')

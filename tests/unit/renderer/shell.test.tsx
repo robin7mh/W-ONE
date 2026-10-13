@@ -254,13 +254,13 @@ describe('BottomDashboard', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('No agent is running')).toBeInTheDocument()
     expect(screen.getByText('No agent activity yet')).toBeInTheDocument()
-    expect(localStorage.getItem('wone.commandDeck.open')).toBe('1')
+    expect(localStorage.getItem('mindeck.commandDeck.open')).toBe('1')
     fireEvent.click(btn)
-    expect(localStorage.getItem('wone.commandDeck.open')).toBe('0')
+    expect(localStorage.getItem('mindeck.commandDeck.open')).toBe('0')
   })
 
   it('opens from the saved preference and survives blocked storage', () => {
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const first = render(<BottomDashboard />)
     expect(screen.getByRole('button', { name: /command deck/i })).toHaveAttribute('aria-expanded', 'true')
     first.unmount()
@@ -296,7 +296,7 @@ describe('BottomDashboard with live agents', () => {
       activity: [ev('e1', 'agent.status.updated', { text: 'Thinking' }), ev('e2', 'tool.completed', { summary: 'Read A' })],
       stop
     })
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const onOpen = vi.fn()
     render(<BottomDashboard onOpenConversation={onOpen} />)
     expect(screen.getByText('1 running')).toBeInTheDocument()
@@ -317,7 +317,7 @@ describe('BottomDashboard with live agents', () => {
       ({ id, title: `Session ${id}`, status, terminalId, live: !!terminalId, projectId: 'p', projectName: 'P', kind: 'claude-code', cwd: '/', isolated: false, plan: [], notes: [], createdAt: '', updatedAt: '' }) as never
     const stop = vi.fn(async () => {})
     staticAgents.setState({ sessions: [session('a', 'working', 't1'), session('b', 'approval', 't2'), session('c', 'ended')], stop })
-    localStorage.setItem('wone.commandDeck.open', '1')
+    localStorage.setItem('mindeck.commandDeck.open', '1')
     const onOpenSession = vi.fn()
     render(<BottomDashboard onOpenSession={onOpenSession} />)
     expect(screen.getByText('2 running')).toBeInTheDocument()

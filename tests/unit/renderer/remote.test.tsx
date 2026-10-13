@@ -93,7 +93,7 @@ describe('remote menu', () => {
     expect(bridge.invoke).toHaveBeenCalledWith('remote:container', { projectId: 'p' })
 
     expect(within(menu).getByText('connected')).toBeInTheDocument()
-    expect(within(menu).getByText('installing W-ONE there …')).toBeInTheDocument()
+    expect(within(menu).getByText('installing Mindeck there …')).toBeInTheDocument()
     expect(within(menu).getByText('failed: exit 255')).toBeInTheDocument()
     expect(within(menu).queryByRole('button', { name: 'Disconnect old' })).toBeNull()
     fireEvent.click(within(menu).getByRole('button', { name: 'Disconnect box' }))

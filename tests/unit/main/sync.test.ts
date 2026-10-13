@@ -5,7 +5,7 @@ import { tempDir } from './helpers'
 import { SyncService } from '../../../electron/main/services/cloud/SyncService'
 import type { AppSettings } from '@shared/types/settings'
 
-/** A W-ONE account's sync endpoint in memory (with the server's version check). */
+/** A Mindeck account's sync endpoint in memory (with the server's version check). */
 function account(signedIn = true) {
   let copy: { version: number; data: Record<string, unknown>; updatedAt: string; device: { id: string; name: string | null } | null } | null = null
   const calls: string[] = []
@@ -23,7 +23,7 @@ function account(signedIn = true) {
 }
 
 async function machine(cloud: ReturnType<typeof account>['cloud'], initial: AppSettings = {}, snippets?: string) {
-  const dir = await tempDir('wone-sync-')
+  const dir = await tempDir('mindeck-sync-')
   const snippetsFile = join(dir, 'snippets.json')
   if (snippets !== undefined) await writeFile(snippetsFile, snippets)
   let settings: AppSettings = { ...initial }

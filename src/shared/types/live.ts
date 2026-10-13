@@ -1,4 +1,4 @@
-// Live Server and Live Sass Compiler — built into W-ONE.
+// Live Server and Live Sass Compiler — built into Mindeck.
 // Pure module (no DOM/Node/Electron) so it compiles under every tsconfig.
 
 import type { LspDiagnostic } from './lsp'

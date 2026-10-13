@@ -1,6 +1,6 @@
 import type { Snippet } from '@shared/types/migrate'
 
-// MUI (Material UI) snippets, built into W-ONE — the same prefixes as the
+// MUI (Material UI) snippets, built into Mindeck — the same prefixes as the
 // "MUI Snippets" VS Code extension (vscodeshift.mui-snippets, MIT), so
 // muscle memory carries over. Each adds its imports from @mui/material.
 

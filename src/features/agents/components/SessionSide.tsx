@@ -38,7 +38,7 @@ export function DiffModal() {
   )
 }
 
-/** A home-relative path for display: /Users/me/W-ONE/… → ~/W-ONE/… */
+/** A home-relative path for display: /Users/me/Mindeck/… → ~/Mindeck/… */
 const tilde = (path: string) => path.replace(/^(\/Users|\/home)\/[^/]+(?=\/)/, '~').replace(/^[A-Za-z]:\\Users\\[^\\]+(?=\\)/, '~')
 
 /** "Throw it all away?" — discard or keep. */

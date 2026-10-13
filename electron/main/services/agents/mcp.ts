@@ -1,12 +1,12 @@
 import type { ToolRegistry } from '../ai/tools/registry'
 
-/** W-ONE's memory, offered to every coding agent: the vault and the session's project. */
+/** Mindeck's memory, offered to every coding agent: the vault and the session's project. */
 export const MEMORY_TOOLS = ['memory_search', 'memory_read', 'memory_list', 'memory_create_note', 'memory_append', 'project_context']
 
 const PROTOCOL = '2025-06-18'
 
 const INSTRUCTIONS =
-  "W-ONE is the user's workspace and memory. Its vault holds project knowledge, decisions and journals of earlier agent sessions. " +
+  "Mindeck is the user's workspace and memory. Its vault holds project knowledge, decisions and journals of earlier agent sessions. " +
   'Search it before larger changes, and record decisions worth keeping.'
 
 interface JsonRpc {
@@ -28,7 +28,7 @@ const error = (id: JsonRpc['id'], code: number, message: string) => ({ jsonrpc: 
  * A minimal, stateless MCP server (JSON-RPC over Streamable HTTP, plain JSON
  * answers): `initialize`, `ping`, `tools/list`, `tools/call`. The tools are
  * the assistant's own built-ins; the agent asks the user before write tools
- * run (Claude Code → PermissionRequest hook → W-ONE approval).
+ * run (Claude Code → PermissionRequest hook → Mindeck approval).
  */
 export function createMcpHandler(registry: ToolRegistry, version: string, names: string[] = MEMORY_TOOLS) {
   return async (ctx: McpSessionContext, message: unknown): Promise<unknown> => {
@@ -44,7 +44,7 @@ export function createMcpHandler(registry: ToolRegistry, version: string, names:
         return ok({
           protocolVersion: typeof msg.params?.protocolVersion === 'string' ? msg.params.protocolVersion : PROTOCOL,
           capabilities: { tools: {} },
-          serverInfo: { name: 'w-one', version },
+          serverInfo: { name: 'mindeck', version },
           instructions: INSTRUCTIONS
         })
       case 'ping':

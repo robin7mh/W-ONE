@@ -1,4 +1,4 @@
-# W-ONE // Command Center
+# Mindeck // Command Center
 
 **[Deutsch](#deutsch)** · **[English](#english)**
 
@@ -13,7 +13,7 @@ eines bestehenden Tools.
 > mit deinem eigenen Abo, Codex und Gemini), ein Editor wie VS Code, ein Obsidian-kompatibler
 > Gedächtnis-Vault mit Graph, Projekte mit Strukturkontext, echte Shells und Live-Telemetrie. Das
 > läuft auf dem Desktop, im Browser und über eine Netzwerk-API für die kommende Mobile-App. Siehe
-> [`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md) und die API-Referenz [`docs/API.md`](docs/API.md).
+> [`Mindeck_ARCHITECTURE.md`](Mindeck_ARCHITECTURE.md) und die API-Referenz [`docs/API.md`](docs/API.md).
 
 ## Stack
 
@@ -28,11 +28,11 @@ Voraussetzungen: Node 22. Docker nur für das optionale Server-Image (`npm run d
 
 ```bash
 git clone https://github.com/robin7mh/W-ONE.git
-cd W-ONE
+cd Mindeck
 npm install
 ```
 
-W-ONE ist ein **Core** (alle Dienste), den du auf drei Arten startest:
+Mindeck ist ein **Core** (alle Dienste), den du auf drei Arten startest:
 
 | | Befehl | Was du bekommst |
 |---|---|---|
@@ -48,7 +48,7 @@ Code bekommst du auf einem dieser Wege:
 - in der Desktop-App: Settings → *Pair a device*, dort gibt es auch einen QR-Code fürs Handy.
 
 Jeder Browser und jedes Handy bekommt ein eigenes Token; Geräte entziehst du in den Settings.
-Remote-Shells sind aus, solange du nicht `WONE_REMOTE_TERMINAL=1` (Server) setzt oder Settings →
+Remote-Shells sind aus, solange du nicht `MINDECK_REMOTE_TERMINAL=1` (Server) setzt oder Settings →
 *Allow remote shells* (Desktop) einschaltest.
 
 **Die Desktop-App kann die Web-UI auch selbst ausliefern:** Schalte Settings → Remote access →
@@ -56,7 +56,7 @@ Remote-Shells sind aus, solange du nicht `WONE_REMOTE_TERMINAL=1` (Server) setzt
 
 ### Agents
 
-Der Bereich **Agents** arbeitet mit der KI, für die du schon bezahlst. W-ONE braucht dafür keinen
+Der Bereich **Agents** arbeitet mit der KI, für die du schon bezahlst. Mindeck braucht dafür keinen
 API-Key:
 
 - **Claude Code** läuft als dein eigenes, unverändertes `claude`-CLI mit deinem Claude-Abo.
@@ -68,7 +68,7 @@ API-Key:
 Zum Starten öffnest du *New chat* und wählst Agent und Projekt. Optional gibst du gleich die
 erste Nachricht mit und setzt das Häkchen bei *Own working folder*. Jede Sitzung ist ein Chat:
 
-- **Freigaben** erscheinen im Chat, im Command Deck und als Mitteilung, wenn W-ONE im Hintergrund
+- **Freigaben** erscheinen im Chat, im Command Deck und als Mitteilung, wenn Mindeck im Hintergrund
   ist. Befehle werden jedes Mal gefragt; Datei- und Gedächtnis-Werkzeuge kannst du dauerhaft
   erlauben.
 - **Changes** zeigt, was der Agent seit Sitzungsbeginn geändert hat. Jede Änderung öffnet sich als
@@ -80,19 +80,19 @@ erste Nachricht mit und setzt das Häkchen bei *Own working folder*. Jede Sitzun
   Code ist das sein eigenes Terminal, bei Codex und Gemini eine Shell im Ordner der Sitzung.
 
 **Eigener Arbeitsordner.** Mit dieser Option arbeitet der Agent in einem Git-Worktree unter
-`~/W-ONE/worktrees/<projekt>-<id>`, auf einem lokalen Branch `wone/<id>`. Dein Projektordner
+`~/Mindeck/worktrees/<projekt>-<id>`, auf einem lokalen Branch `mindeck/<id>`. Dein Projektordner
 bleibt unberührt, so können mehrere Agenten (und du) parallel arbeiten.
 
 - *Take over* kopiert die Änderungen des Agenten als nicht committete Änderungen in dein Projekt.
   Committe und pushe sie wie gewohnt; erst dann sind sie auf GitHub.
 - *Discard* löscht den Ordner und seinen Branch.
 
-**Gedächtnis für jeden Agenten.** Jeder Agent kann deinen Vault über den MCP-Server von W-ONE
-durchsuchen und lesen. Nach jeder Antwort schreibt W-ONE eine Protokoll-Notiz nach
+**Gedächtnis für jeden Agenten.** Jeder Agent kann deinen Vault über den MCP-Server von Mindeck
+durchsuchen und lesen. Nach jeder Antwort schreibt Mindeck eine Protokoll-Notiz nach
 `Agents/<projekt>/…` (Auftrag, Ergebnis, geänderte Dateien, Offenes). Der nächste Agent, egal von
 welchem Anbieter, kann dort anknüpfen.
 
-**W-ONE Assistant.** Daneben gibt es einen eingebauten Assistenten mit Anthropic-API-Key.
+**Mindeck Assistant.** Daneben gibt es einen eingebauten Assistenten mit Anthropic-API-Key.
 Standardmäßig nutzt er `claude-opus-5-5`, alternativ ist Sonnet 5.5 wählbar. Setze
 `ANTHROPIC_API_KEY` für den Core oder trage den Key in den Settings ein. Der Key wird einmal
 geprüft und nur im Core gespeichert (auf dem Desktop verschlüsselt über den Schlüsselbund des
@@ -100,10 +100,10 @@ Betriebssystems); an Clients geht er nie.
 
 ### Daten
 
-Der Core braucht keine Datenbank. Alles, was er behält, sind Dateien unter `~/W-ONE`:
+Der Core braucht keine Datenbank. Alles, was er behält, sind Dateien unter `~/Mindeck`:
 Einstellungen, Projekte, Agent-Sitzungen, das Aktivitätsprotokoll (`data/events.jsonl`),
 Assistenten-Läufe (`data/runs.json`) und das Gedächtnis als Markdown (`vault/`). Ein Backup
-ist eine Kopie dieses Ordners. Die einzige Datenbank im System hat W-ONE Cloud.
+ist eine Kopie dieses Ordners. Die einzige Datenbank im System hat Mindeck Cloud.
 
 Weitere Skripte:
 
@@ -111,12 +111,12 @@ Weitere Skripte:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # die Web-UI → out/web
 npm run server:build  # der eigenständige Core → out/server/index.cjs
-npm run server        # ihn starten (WONE_PORT, WONE_LAN, WONE_REMOTE_TERMINAL, WONE_HOME …)
+npm run server        # ihn starten (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_HOME …)
 npm run web:dev       # Web-UI mit HMR; leitet /api an einen Core auf :7420 weiter
 npm run typecheck     # tsc für node (electron + server), web (renderer) und die Tests
 ```
 
-Alle Einstellungen und Daten liegen unter `~/W-ONE` (änderbar mit `WONE_HOME`):
+Alle Einstellungen und Daten liegen unter `~/Mindeck` (änderbar mit `MINDECK_HOME`):
 
 - `data/`: Einstellungen, Projekte, gekoppelte Geräte, Secrets, Unterhaltungen, Agent-Sitzungen
 - `vault/`: das Obsidian-kompatible Gedächtnis
@@ -137,7 +137,7 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
 - **Unit** (`tests/unit/main`, `tests/unit/renderer`): Jede Datei in `electron/` und `src/` wird
   gemessen. Zeilen, Zweige, Funktionen und Anweisungen müssen alle bei **100 %** bleiben.
   Ausgenommen sind nur reine Typ-Module (`vitest.config.ts`).
-- **E2E** (`tests/e2e`): Jeder Test läuft mit einem Wegwerf-`WONE_HOME`, dein echtes `~/W-ONE`
+- **E2E** (`tests/e2e`): Jeder Test läuft mit einem Wegwerf-`MINDECK_HOME`, dein echtes `~/Mindeck`
   wird nie angefasst.
   - *electron*: die gebaute Desktop-App. Geprüft werden der Start, jedes Modul, eine
     echte Shell, eine Vault-Notiz auf der Platte, ein Projekt, der Editor, der eingebettete
@@ -156,7 +156,7 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
 | Workflow | Läuft bei | Macht |
 | --- | --- | --- |
 | `ci.yml` | jedem Pull Request (und manuell) | Typecheck · Unit-Tests mit 100-%-Schwelle (Bericht als Artefakt) · E2E (Electron, Web-UI + Core) · Docker-Image-Build |
-| `cd.yml` | Push auf `main`/`develop` (Merges), Tags `v*` (Releases) | **keine Tests**: baut das Core-Image (API + Web-UI) und pusht es nach `ghcr.io/robin7mh/w-one` (`:develop`, `:main`, `:sha-…`; bei einem Tag zusätzlich `:1.2.3` und `:latest`); ein Tag erstellt außerdem ein GitHub-Release mit dem Web-Bundle |
+| `cd.yml` | Push auf `main`/`develop` (Merges), Tags `v*` (Releases) | **keine Tests**: baut das Core-Image (API + Web-UI) und pusht es nach `ghcr.io/robin7mh/mindeck` (`:develop`, `:main`, `:sha-…`; bei einem Tag zusätzlich `:1.2.3` und `:latest`); ein Tag erstellt außerdem ein GitHub-Release mit dem Web-Bundle |
 
 Release: `git tag v0.2.0 && git push origin v0.2.0`.
 
@@ -169,7 +169,7 @@ Damit die Tests vor dem Mergen Pflicht sind, aktiviere den Branch-Schutz für `m
 
 ### Später: Website / Monorepo
 
-Wenn die W-ONE-Website kommt, kann das Repo zu einem npm-Workspaces-Monorepo werden, ohne die
+Wenn die Mindeck-Website kommt, kann das Repo zu einem npm-Workspaces-Monorepo werden, ohne die
 Form der Pipeline zu ändern:
 
 - `apps/desktop`: diese App
@@ -200,7 +200,7 @@ Jede App bekommt ihr eigenes Dockerfile, CI und CD laufen pro Workspace.
 - **Memory**: der Obsidian-Vault mit Editor und Graph.
 - **Agents**: das Agent-Cockpit, beschrieben unter [Agents](#agents).
 - **System**: vollständige Telemetrie.
-- **Settings**: Coding-Agenten, W-ONE Assistant, Fernzugriff und Geräte, Berechtigungen, Vault,
+- **Settings**: Coding-Agenten, Mindeck Assistant, Fernzugriff und Geräte, Berechtigungen, Vault,
   Info.
 
 ### Designsystem (eine Quelle der Wahrheit)
@@ -233,7 +233,7 @@ Siehe §12.4 im Architekturdokument.
 ## Projektstruktur
 
 ```
-electron/      der W-ONE-Core: main.ts (Desktop-Fenster), preload.ts (window.wone-Brücke),
+electron/      der Mindeck-Core: main.ts (Desktop-Fenster), preload.ts (window.mindeck-Brücke),
                ipc/ (Router + Kanal-Bindungen), main/core (createCore, EventHub),
                main/server (HTTP- + WebSocket-API), main/platform (electron | headless),
                main/services/ (agents, ai, auth, db, events, files, fs, git, memory, projects,
@@ -272,7 +272,7 @@ your coding agents and your knowledge. It follows the *principle* of sci-fi term
 > plan, Codex and Gemini), a VS Code–style editor, an Obsidian-compatible memory vault with graph,
 > projects with structural context, real shells and live system telemetry. It runs on the
 > desktop, in the browser, and over a network API for the coming mobile app. See
-> [`W-ONE_ARCHITECTURE.md`](W-ONE_ARCHITECTURE.md) and the API reference [`docs/API.md`](docs/API.md).
+> [`Mindeck_ARCHITECTURE.md`](Mindeck_ARCHITECTURE.md) and the API reference [`docs/API.md`](docs/API.md).
 
 ## Stack
 
@@ -287,11 +287,11 @@ Requirements: Node 22. Docker only for the optional server image (`npm run docke
 
 ```bash
 git clone https://github.com/robin7mh/W-ONE.git
-cd W-ONE
+cd Mindeck
 npm install
 ```
 
-W-ONE is one **core** (all services) with three ways to run it:
+Mindeck is one **core** (all services) with three ways to run it:
 
 | | Command | What you get |
 |---|---|---|
@@ -307,7 +307,7 @@ one of these ways:
 - in the desktop app: Settings → *Pair a device*, which also shows a QR code for a phone.
 
 Each browser or phone gets its own token, and you can revoke devices in Settings. Remote shells
-stay off unless you set `WONE_REMOTE_TERMINAL=1` (server) or turn on Settings → *Allow remote
+stay off unless you set `MINDECK_REMOTE_TERMINAL=1` (server) or turn on Settings → *Allow remote
 shells* (desktop).
 
 **The desktop app can serve the web UI too:** turn on Settings → Remote access → *Run the API
@@ -315,7 +315,7 @@ server*, and also *Reachable on the local network* for your phone.
 
 ### Agents
 
-The **Agents** module works with the AI you already pay for. W-ONE needs no API key for it:
+The **Agents** module works with the AI you already pay for. Mindeck needs no API key for it:
 
 - **Claude Code** runs as your own, unmodified `claude` CLI on your Claude plan. Sign in once
   with `claude auth login`.
@@ -326,7 +326,7 @@ The **Agents** module works with the AI you already pay for. W-ONE needs no API 
 To start one, open *New chat* and pick the agent and the project. Optionally give the first
 message, and optionally tick *Own working folder*. Every session is a chat:
 
-- **Approvals** appear inline, in the Command Deck, and as a desktop notification while W-ONE is
+- **Approvals** appear inline, in the Command Deck, and as a desktop notification while Mindeck is
   in the background. Commands are asked every time; file and memory tools can be allowed for good.
 - **Changes** shows what the agent changed since the session started. Each change opens as a
   diff in Monaco.
@@ -336,28 +336,28 @@ message, and optionally tick *Own working folder*. Every session is a chat:
   terminal is its own; for Codex and Gemini it is a shell in the session's folder.
 
 **Own working folder.** With this option the agent works in a git worktree under
-`~/W-ONE/worktrees/<project>-<id>`, on a local branch `wone/<id>`. Your project folder stays
+`~/Mindeck/worktrees/<project>-<id>`, on a local branch `mindeck/<id>`. Your project folder stays
 untouched, so several agents (and you) can work in parallel.
 
 - *Take over* copies the agent's changes into your project as uncommitted edits. Commit and push
   them as usual; only then do they reach GitHub.
 - *Discard* deletes the folder and its branch.
 
-**Memory for every agent.** Each agent can search and read your vault over W-ONE's MCP server.
-After every turn, W-ONE writes a journal note to `Agents/<project>/…` (task, result, changed
+**Memory for every agent.** Each agent can search and read your vault over Mindeck's MCP server.
+After every turn, Mindeck writes a journal note to `Agents/<project>/…` (task, result, changed
 files, open items). The next agent, from any vendor, can pick up from there.
 
-**W-ONE Assistant.** Separately, there is a built-in assistant on an Anthropic API key. It uses
+**Mindeck Assistant.** Separately, there is a built-in assistant on an Anthropic API key. It uses
 `claude-opus-5-5` by default, and Sonnet 5.5 can be selected instead. Set `ANTHROPIC_API_KEY` for
 the core, or paste the key in Settings. The key is verified once and stored on the core only
 (encrypted by the OS keychain on the desktop); it is never sent to any client.
 
 ### Data
 
-The core needs no database. Everything it keeps is files under `~/W-ONE`: settings, projects,
+The core needs no database. Everything it keeps is files under `~/Mindeck`: settings, projects,
 agent sessions, the activity log (`data/events.jsonl`), assistant runs (`data/runs.json`) and the
 memory as Markdown (`vault/`). A backup is a copy of that folder. The only database in the
-system belongs to W-ONE Cloud.
+system belongs to Mindeck Cloud.
 
 Other scripts:
 
@@ -365,12 +365,12 @@ Other scripts:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # the web UI → out/web
 npm run server:build  # the standalone core → out/server/index.cjs
-npm run server        # run it (WONE_PORT, WONE_LAN, WONE_REMOTE_TERMINAL, WONE_HOME …)
+npm run server        # run it (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_HOME …)
 npm run web:dev       # web UI with HMR; proxies /api to a core on :7420
 npm run typecheck     # tsc for node (electron + server), web (renderer) and the tests
 ```
 
-All settings and data live under `~/W-ONE` (`WONE_HOME` overrides this):
+All settings and data live under `~/Mindeck` (`MINDECK_HOME` overrides this):
 
 - `data/`: settings, projects, paired devices, secrets, conversations, agent sessions
 - `vault/`: the Obsidian-compatible memory
@@ -391,7 +391,7 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
 - **Unit** (`tests/unit/main`, `tests/unit/renderer`): every file in `electron/` and `src/` is
   measured. Lines, branches, functions and statements must all stay at **100 %**. Only type-only
   modules are excluded (`vitest.config.ts`).
-- **E2E** (`tests/e2e`): every test runs with a throwaway `WONE_HOME`, so your real `~/W-ONE` is
+- **E2E** (`tests/e2e`): every test runs with a throwaway `MINDECK_HOME`, so your real `~/Mindeck` is
   never touched.
   - *electron*: the built desktop app. It covers boot, every module, a real
     shell, a vault note written to disk, a project, the editor, the embedded API server. It
@@ -409,7 +409,7 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
 | Workflow | Runs on | Does |
 | --- | --- | --- |
 | `ci.yml` | every pull request (and manually) | typecheck · unit tests with the 100 % gate (report as artifact) · E2E (Electron, web UI + core) · Docker image build |
-| `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests**: builds the core image (API + web UI) and pushes it to `ghcr.io/robin7mh/w-one` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
+| `cd.yml` | push to `main`/`develop` (merges), tags `v*` (releases) | **no tests**: builds the core image (API + web UI) and pushes it to `ghcr.io/robin7mh/mindeck` (`:develop`, `:main`, `:sha-…`; on a tag also `:1.2.3` and `:latest`); a tag also creates a GitHub Release with the web bundle |
 
 To release: `git tag v0.2.0 && git push origin v0.2.0`.
 
@@ -422,7 +422,7 @@ To make the tests mandatory before merging, enable branch protection for `main` 
 
 ### Later: website / monorepo
 
-When the W-ONE website arrives, the repo can become an npm-workspaces monorepo without changing
+When the Mindeck website arrives, the repo can become an npm-workspaces monorepo without changing
 the shape of the pipeline:
 
 - `apps/desktop`: this app
@@ -453,7 +453,7 @@ Each app gets its own Dockerfile, and CI and CD run per workspace.
 - **Memory**: the Obsidian vault with editor and graph.
 - **Agents**: the agent cockpit described in [Agents](#agents-1).
 - **System**: full telemetry.
-- **Settings**: coding agents, the W-ONE Assistant, remote access and devices, permissions,
+- **Settings**: coding agents, the Mindeck Assistant, remote access and devices, permissions,
   vault, about.
 
 ### Design system (single source of truth)
@@ -486,7 +486,7 @@ See §12.4 in the architecture document.
 ## Project structure
 
 ```
-electron/      the W-ONE core: main.ts (desktop window), preload.ts (window.wone bridge),
+electron/      the Mindeck core: main.ts (desktop window), preload.ts (window.mindeck bridge),
                ipc/ (router + channel bindings), main/core (createCore, EventHub),
                main/server (HTTP + WebSocket API), main/platform (electron | headless),
                main/services/ (agents, ai, auth, db, events, files, fs, git, memory, projects,

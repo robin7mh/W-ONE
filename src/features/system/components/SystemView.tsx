@@ -27,7 +27,7 @@ function Tile({ icon: Icon, label, value, sub, children }: { icon: typeof Cpu; l
 /**
  * The System module: the right-rail telemetry at full size — gauges, every
  * core, memory and disk in absolute numbers, network split, the process list.
- * Shows the machine the W-ONE core runs on (on a server: the server).
+ * Shows the machine the Mindeck core runs on (on a server: the server).
  */
 export function SystemView() {
   const t = useT()

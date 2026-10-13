@@ -43,7 +43,7 @@ function AgentPicker({ agents, value, onPick }: { agents: AgentInfo[]; value: st
 }
 
 /**
- * A W-ONE Assistant chat (W-ONE's own agent runtime on the user's API key):
+ * A Mindeck Assistant chat (Mindeck's own agent runtime on the user's API key):
  * built-in personas, tool calls inline, approvals where they happen.
  */
 export function AssistantPane({ onOpenSettings }: { onOpenSettings: () => void }) {

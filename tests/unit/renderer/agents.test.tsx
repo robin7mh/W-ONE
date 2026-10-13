@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentInfo, AiStatus, ChatMessage, Conversation, ConversationSummary, PermissionRequest } from '@shared/types/ai'
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 import { applyDelta, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
 import { clock, describeEvent, relativeTime } from '@/features/agents/format'
 import { ActivityTimeline } from '@/features/agents/components/ActivityTimeline'
@@ -51,8 +51,8 @@ const request = (over: Partial<PermissionRequest> = {}): PermissionRequest => ({
   createdAt: '',
   ...over
 })
-const event = (id: string, type: string, payload: Record<string, unknown> = {}, conversationId?: string): WoneEvent =>
-  ({ id, type, ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload, conversationId }) as WoneEvent
+const event = (id: string, type: string, payload: Record<string, unknown> = {}, conversationId?: string): MindeckEvent =>
+  ({ id, type, ts: '2026-10-02T08:00:00.000Z', actor: { kind: 'agent' }, payload, conversationId }) as MindeckEvent
 
 // --- pure helpers ----------------------------------------------------------------
 

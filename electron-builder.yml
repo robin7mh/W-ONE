@@ -3,12 +3,12 @@
 #   npm run dist:win     NSIS installer for x64 and arm64 (on Windows — .github/workflows/desktop.yml)
 #   npm run dist:linux   AppImage + .deb for the machine's architecture (on Linux — node-pty is compiled there)
 # Release builds need, as environment variables:
-#   WONE_CLOUD_URL / WONE_CLOUD_KEY  where W-ONE Cloud lives (baked in by electron-vite)
+#   MINDECK_CLOUD_URL / MINDECK_CLOUD_KEY  where Mindeck Cloud lives (baked in by electron-vite)
 #   CSC_LINK / CSC_KEY_PASSWORD      "Developer ID Application" certificate (.p12, base64 or path)
 #   APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER   notarization (or APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID)
 #   GH_TOKEN                         publishing to GitHub Releases (auto-update feed)
-appId: com.robin7mh.wone
-productName: W-ONE
+appId: de.mindeck.desktop
+productName: Mindeck
 copyright: © 2026 Robin Hinkelmann
 artifactName: ${productName}-${version}-${arch}.${ext}
 
@@ -39,7 +39,7 @@ asarUnpack:
   - node_modules/typescript/**
   # Run as a Node program of its own (Dev Containers).
   - node_modules/@devcontainers/cli/**
-  # W-ONE's Prettier, for projects without one (run by the lint worker).
+  # Mindeck's Prettier, for projects without one (run by the lint worker).
   - node_modules/prettier/**
 
 mac:
@@ -59,7 +59,7 @@ mac:
     NSHumanReadableCopyright: © 2026 Robin Hinkelmann
 
 dmg:
-  # Same name in every release: the website links releases/latest/download/W-ONE-<arch>.dmg
+  # Same name in every release: the website links releases/latest/download/Mindeck-<arch>.dmg
   artifactName: ${productName}-${arch}.${ext}
   title: ${productName} ${version}
   background: build/background.png
@@ -80,10 +80,10 @@ win:
     - target: nsis
       arch: [x64, arm64]
   icon: build/icon.png
-  executableName: W-ONE
+  executableName: Mindeck
 
 nsis:
-  # Same name in every release, like the DMG: releases/latest/download/W-ONE-Setup-<arch>.exe
+  # Same name in every release, like the DMG: releases/latest/download/Mindeck-Setup-<arch>.exe
   artifactName: ${productName}-Setup-${arch}.${ext}
   oneClick: false
   perMachine: false
@@ -98,15 +98,15 @@ linux:
     - target: deb
   icon: build/icon.png
   category: Development
-  executableName: w-one
-  # The window belongs to w-one.desktop (package.json desktopName): docks group and pin it right.
+  executableName: mindeck
+  # The window belongs to mindeck.desktop (package.json desktopName): docks group and pin it right.
   syncDesktopName: true
   synopsis: Command center for code, agents and projects
-  description: W-ONE — editor, terminal, agents, memory and projects in one app.
+  description: Mindeck — editor, terminal, agents, memory and projects in one app.
   maintainer: Robin Hinkelmann <robin.hinkelmann@webma.one>
   desktop:
     entry:
-      StartupWMClass: W-ONE
+      StartupWMClass: Mindeck
 
 appImage:
   artifactName: ${productName}-${arch}.${ext}

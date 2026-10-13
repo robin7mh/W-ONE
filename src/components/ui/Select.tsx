@@ -36,7 +36,7 @@ interface Place {
 }
 
 /**
- * W-ONE's dropdown, instead of the OS menu a native <select> opens: a panel
+ * Mindeck's dropdown, instead of the OS menu a native <select> opens: a panel
  * in the app's own look, with keyboard support (arrows, Home/End, Enter,
  * Escape). The menu renders into <body>, so dialogs and scroll areas never
  * clip it, and it opens upwards when there is no room below.

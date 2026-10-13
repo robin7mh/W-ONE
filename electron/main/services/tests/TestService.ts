@@ -15,7 +15,7 @@ function coded(code: string, message: string): Error {
 const JS_TEST = /\.(test|spec)\.[cm]?[jt]sx?$/
 const PY_TEST = /(^|\/)(test_[^/]*|[^/]*_test)\.py$/
 const GO_TEST = /_test\.go$/
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.venv', 'venv', 'env', '__pycache__', '.next', 'vendor', '.w-one', 'target'])
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.venv', 'venv', 'env', '__pycache__', '.next', 'vendor', '.mindeck', 'target'])
 const MAX_FILES = 3000
 /** What a run keeps of the runner's output. */
 const MAX_OUTPUT = 200_000
@@ -193,7 +193,7 @@ export interface TestOptions {
   publish: (state: TestRunState) => void
   /** Start a run (tests give a stand-in). */
   start?: (command: string, args: string[], cwd: string) => ChildProcess
-  /** Debug a test with W-ONE's debugger. */
+  /** Debug a test with Mindeck's debugger. */
   debug?: (req: {
     projectId: string
     program: string
@@ -231,7 +231,7 @@ function find(items: TestItem[], id: string): TestItem | undefined {
  * The test explorer behind the editor (like VS Code's Testing view): finds
  * Vitest / Jest, pytest and go tests without running anything, runs all or
  * one with the project's own runner, maps the report back onto the tests,
- * and starts W-ONE's debugger on one.
+ * and starts Mindeck's debugger on one.
  */
 export class TestService {
   private projects = new Map<string, Project>()
@@ -306,7 +306,7 @@ export class TestService {
     this.projects.get(projectId)?.run?.kill()
   }
 
-  /** Debug one test (or suite / file) with W-ONE's debugger: breakpoints in the test and the code it calls. */
+  /** Debug one test (or suite / file) with Mindeck's debugger: breakpoints in the test and the code it calls. */
   async debug(projectId: string, id: string, breakpoints: DebugBreakpoint[]): Promise<DebugSession> {
     const p = this.projects.get(projectId) ?? (await this.discover(projectId), this.projects.get(projectId)!)
     const item = find(p.tests, id)
@@ -341,7 +341,7 @@ export class TestService {
   }
 
   private async runFramework(p: Project, framework: TestFramework, target?: TestItem): Promise<Record<string, TestResult>> {
-    const tmp = await mkdtemp(join(tmpdir(), 'wone-tests-'))
+    const tmp = await mkdtemp(join(tmpdir(), 'mindeck-tests-'))
     const report = join(tmp, 'report')
     try {
       const bin = (name: string) => localBin(p.root, name) ?? ['npx', '--no-install', name]

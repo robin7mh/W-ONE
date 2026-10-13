@@ -8,7 +8,7 @@ describe('the server package', () => {
   it('found where it was downloaded before, or where `npm run remote:bundle` put it', async () => {
     const dir = await tempDir()
     const dev = await tempDir()
-    const name = 'wone-server-1.0.0-linux-arm64.tar.gz'
+    const name = 'mindeck-server-1.0.0-linux-arm64.tar.gz'
     await writeFile(join(dev, name), 'dev')
     const fetch = vi.fn()
     expect(await remoteBundle('arm64', { version: '1.0.0', dir, devDir: dev, fetch })).toBe(join(dev, name))
@@ -21,7 +21,7 @@ describe('the server package', () => {
     const dir = join(await tempDir(), 'remote')
     const fetch = vi.fn(async () => new Response('TARBALL', { status: 200 }))
     const file = await remoteBundle('x64', { version: '2.0.0', dir, fetch })
-    expect(fetch).toHaveBeenCalledWith(`${RELEASES}/v2.0.0/wone-server-2.0.0-linux-x64.tar.gz`)
+    expect(fetch).toHaveBeenCalledWith(`${RELEASES}/v2.0.0/mindeck-server-2.0.0-linux-x64.tar.gz`)
     expect(await readFile(file, 'utf8')).toBe('TARBALL')
     const missing = vi.fn(async () => new Response('nope', { status: 404 }))
     await expect(remoteBundle('arm64', { version: '2.0.0', dir, fetch: missing })).rejects.toMatchObject({ code: 'remote-bundle', message: expect.stringContaining('HTTP 404') })

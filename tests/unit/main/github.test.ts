@@ -206,7 +206,7 @@ describe('GitHub through gh', () => {
   })
 
   it('runs the real program from the login shell: arguments, stdin, output, exit code; missing folder; timeout', async () => {
-    const dir = await tempDir('wone-gh-')
+    const dir = await tempDir('mindeck-gh-')
     const bin = join(dir, 'fake-gh')
     await writeFile(bin, '#!/bin/sh\necho "args:$*"\ncat\necho oops >&2\nexit 3\n')
     await chmod(bin, 0o755)

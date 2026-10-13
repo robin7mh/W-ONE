@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
-import type { WonePaths } from '../lib/paths'
+import type { MindeckPaths } from '../lib/paths'
 import type { Platform } from '../platform/types'
 import { openInVsCode } from '../lib/openInVsCode'
 import { Router } from '../../ipc/router'
@@ -80,7 +80,7 @@ import { isLicenseFree } from '@shared/types/cloud'
 export interface CoreOptions {
   mode: CoreMode
   version: string
-  paths: WonePaths
+  paths: MindeckPaths
   platform: Platform
   /** Standalone server: fixed config from the environment. Desktop: from settings. */
   serverConfig?: ServerConfig
@@ -92,7 +92,7 @@ export interface CoreOptions {
   providerFactory?: ProviderFactory
   /** Tell the user an agent needs them (desktop: a notification while the window is in the background). */
   notify?: (title: string, body: string) => void
-  /** W-ONE Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
+  /** Mindeck Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
   cloud?: CloudConfig & { fetch?: typeof fetch }
   /** Someone is at this machine (desktop: not idle). Remote clients count as use, too. */
   isUserActive?: () => boolean
@@ -116,7 +116,7 @@ export interface Core {
 }
 
 /**
- * Builds the W-ONE core — every service, wired and registered on one Router —
+ * Builds the Mindeck core — every service, wired and registered on one Router —
  * independent of its host. The Electron app binds the Router to its window's
  * IPC; the standalone server (and the desktop's optional embedded server)
  * exposes the same Router over HTTP + WebSocket.
@@ -130,7 +130,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
 
   const hub = new EventHub()
 
-  // Every WoneEvent: kept in the EventLog (the newest in memory and in a file
+  // Every MindeckEvent: kept in the EventLog (the newest in memory and in a file
   // in the data folder) and pushed live to every client for the activity timeline.
   const eventLog = new EventLog(paths.eventsFile)
   await eventLog.load()
@@ -172,7 +172,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     (abs) => platform.trashItem(abs, fileTrash)
   )
   const scm = new ScmService((id) => projects.getProjectPath(id))
-  // Language servers and debuggers W-ONE installs live in its data folder.
+  // Language servers and debuggers Mindeck installs live in its data folder.
   const devTools = new ToolsService({ dir: join(paths.dataDir, 'tools'), publish: hub.publish.bind(hub, 'tools:progress') })
   const lsp = new LspService({
     resolveRoot: (id) => projects.getProjectPath(id),
@@ -187,7 +187,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const auth = new AuthService(paths.devicesFile)
 
   // The router asks the server controller whether remote shells are allowed,
-  // and the cloud whether W-ONE is licensed (only ever called per request,
+  // and the cloud whether Mindeck is licensed (only ever called per request,
   // after all of them exist).
   const router = new Router({
     remoteTerminal: () => controller.remoteTerminal(),
@@ -222,7 +222,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const secrets = new SecretStore(paths.secretsFile, opts.cipher)
   const ai = new AiService({ settings, secrets, factory: opts.providerFactory })
 
-  // The W-ONE account: sign-in, the trial clock and the license (W-ONE Cloud).
+  // The Mindeck account: sign-in, the trial clock and the license (Mindeck Cloud).
   const cloudCfg: CloudConfig & { fetch?: typeof fetch } = opts.cloud ?? cloudConfig(false)
   const cloud: CloudService = new CloudService({
     baseUrl: cloudCfg.url,
@@ -266,7 +266,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
 
   // The agent cockpit: the user's own coding agents (Claude Code), each in a
-  // PTY, reporting back through hooks and reading W-ONE's memory over MCP —
+  // PTY, reporting back through hooks and reading Mindeck's memory over MCP —
   // both on a this-computer-only endpoint with a token per session.
   const local: LocalAgentServer = new LocalAgentServer({
     hook: (id, body, signal) => agents.handleHook(id, body, signal),
@@ -286,7 +286,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     journal: vaultJournal(vault),
     notify: opts.notify,
     spawnAcp,
-    claudeBin: process.env.WONE_CLAUDE_BIN || undefined,
+    claudeBin: process.env.MINDECK_CLAUDE_BIN || undefined,
     openFolder: (path) => openInVsCode(path, platform)
   })
   await Promise.all([agents.init(), local.start()])
@@ -357,7 +357,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('cloud:syncStatus', () => sync.status())
   router.register('cloud:syncPush', ({ force, ...ui }) => sync.push(ui, force))
   router.register('cloud:syncPull', () => sync.pull())
-  // Remote-SSH and Dev Containers: this core starts W-ONE elsewhere and opens a window on it.
+  // Remote-SSH and Dev Containers: this core starts Mindeck elsewhere and opens a window on it.
   const remote = new RemoteService({
     version: opts.version,
     licensed: cloudCfg.enforced,
@@ -370,13 +370,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       hub.publish('remote:changed', list)
       cloud.setRemoteSessions(list.filter((c) => c.state === 'ready').length)
     },
-    sshConfig: process.env.WONE_SSH_CONFIG || undefined
+    sshConfig: process.env.MINDECK_SSH_CONFIG || undefined
   })
   registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
   // ESLint and Prettier: the project's own, in a worker per project.
   const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), prettier: bundledPrettier() })
   registerLintIpc(router, lint)
-  // The test explorer: the project's runners, W-ONE's debugger.
+  // The test explorer: the project's runners, Mindeck's debugger.
   const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'notebook:event') })
   registerNotebookIpc(router, notebooks)
   registerTestsIpc(router, new TestService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'tests:changed'), debug: debug.start.bind(debug) }))

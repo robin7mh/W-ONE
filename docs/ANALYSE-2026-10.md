@@ -1,4 +1,4 @@
-# W-ONE: Analyse, Sicherheitsbefunde und Roadmap
+# Mindeck: Analyse, Sicherheitsbefunde und Roadmap
 
 **Stand:** 2026-10-11 · **Branch:** `develop` (Commit `86c326b`) · **Version:** 0.1.0
 **Umfang:** `electron/` (Core, ~9.800 Zeilen), `server/`, `src/` (Renderer), Tests, CI/CD, Build- und Release-Konfiguration, Doku.
@@ -26,7 +26,7 @@ Voraussetzung und einen Lösungsvorschlag. Die Prioritäten am Ende (§9) lassen
 
 ## 1. Kurzfazit
 
-W-ONE ist technisch auf einem für Version 0.1 ungewöhnlich hohen Niveau: Es gibt einen sauberen,
+Mindeck ist technisch auf einem für Version 0.1 ungewöhnlich hohen Niveau: Es gibt einen sauberen,
 typisierten Core, eine einzige Dispatch-Stelle für alle Kanäle (Router mit Zod-Validierung), Path-Confinement
 in allen Dateizugriffen, verschlüsselte Secrets, ein Permission-Gate für Agenten-Tools und eine Testabdeckung
 von 100 %. Das Produkt hat ein klares Alleinstellungsmerkmal: ein Cockpit für die Coding-Agenten, die
@@ -37,7 +37,7 @@ Die größten Baustellen vor einem öffentlichen Launch:
 | # | Thema | Schwere |
 |---|---|---|
 | 1 | Gekoppelte Remote-Geräte können trotz „Remote shells aus“ beliebige Dateien lesen und schreiben (und damit Code ausführen) | **Hoch** |
-| 2 | Das Electron-Fenster hat keinen Navigationsschutz: Ein Link in einer Agenten-Antwort kann eine fremde Seite mit vollem `window.wone`-Zugriff laden | **Hoch** |
+| 2 | Das Electron-Fenster hat keinen Navigationsschutz: Ein Link in einer Agenten-Antwort kann eine fremde Seite mit vollem `window.mindeck`-Zugriff laden | **Hoch** |
 | 3 | Electron 37 bekommt keine Sicherheitsupdates mehr (aktuell ist 44) | **Hoch** |
 | 4 | Netzwerk-API im LAN nur über Klartext-HTTP; Tokens im Query-String und in `localStorage` | Mittel |
 | 5 | Kein Rollenmodell für Geräte: Jedes Gerät darf neue Geräte koppeln, andere entfernen und den API-Key tauschen | Mittel |
@@ -131,7 +131,7 @@ gestartet wurde. Freigaben vom Handy sind gewollt, sie sind aber faktisch Shell-
 Die Chat-Ausgabe der Agenten wird als HTML gerendert (`ChatThread.tsx:79`, `Markdown`) **ohne
 Klick-Handler**. Ein normaler Link `[Doku](https://evil.example)` in einer Agenten-Antwort navigiert beim
 Klick das Hauptfenster. Das Preload-Skript läuft auch auf der fremden Seite und stellt dort
-`window.wone.invoke` bereit, mit allen Rechten des IPC-Transports (`terminal:create`, `terminal:write`,
+`window.mindeck.invoke` bereit, mit allen Rechten des IPC-Transports (`terminal:create`, `terminal:write`,
 `files:write` …). Der Link kann per Prompt-Injection entstehen (Web-Fetch, README eines fremden Repos,
 Vault-Notiz aus einer Sync).
 
@@ -160,12 +160,12 @@ Chromium- und V8-Lücken werden für 37 nicht mehr geschlossen. Für eine App, d
 Quellen rendert und Agenten-Ausgaben anzeigt, ist das relevant.
 
 **Vorschlag:** Auf eine unterstützte Version wechseln (die Notarisierungs-Thematik aus
-`W-ONE_ARCHITECTURE.md` §1.1 betrifft 31.x, nicht neuere Versionen). Danach einen Renovate- oder
+`Mindeck_ARCHITECTURE.md` §1.1 betrifft 31.x, nicht neuere Versionen). Danach einen Renovate- oder
 Dependabot-Job für Electron einrichten.
 
 ### 3.4 MITTEL: Klartext-HTTP im LAN, Token-Handling
 
-- Der Server spricht nur HTTP (`HttpServer.ts`). Mit `lan: true` bzw. `WONE_BIND=0.0.0.0` gehen der
+- Der Server spricht nur HTTP (`HttpServer.ts`). Mit `lan: true` bzw. `MINDECK_BIND=0.0.0.0` gehen der
   Pairing-Code und danach jeder Bearer-Token unverschlüsselt durchs WLAN (Café, Hotel, Firmennetz).
 - Der WebSocket übergibt den Token im Query-String (`/api/events?token=…`). So landet er in Proxy-,
   Zugriffs- und Browser-Logs.
@@ -211,7 +211,7 @@ setzen.
 
 `server/main.ts:68` erzwingt die Lizenz nur, wenn `NODE_ENV === 'production'` gilt. Das Docker-Image setzt
 den Wert zwar, `docker run -e NODE_ENV=development …` schaltet die Prüfung aber zur Laufzeit ab. Ohne
-eingebauten `WONE_CLOUD_KEY` holt der Core den öffentlichen Schlüssel außerdem beim ersten Start aus der
+eingebauten `MINDECK_CLOUD_KEY` holt der Core den öffentlichen Schlüssel außerdem beim ersten Start aus der
 Cloud (Trust on first use). Wer den Netzverkehr kontrolliert, kann dann eigene Entitlements signieren.
 
 Da der Code öffentlich einsehbar ist, lässt sich ein Umgehen nie ganz verhindern. Die einfachen Wege
@@ -223,7 +223,7 @@ behandeln.
 
 | Befund | Stelle | Vorschlag |
 |---|---|---|
-| `grants.json`, `sessions.json`, Transkripte und Unterhaltungen werden ohne `0600` geschrieben. Sie enthalten Prompts, Dateiinhalte und Tool-Ausgaben | `PermissionService.ts:110`, `AgentSessionService.persist`, `ConversationStore` | Überall `writeAtomic(…, 0o600)` nutzen und `~/W-ONE/data` mit `0700` anlegen |
+| `grants.json`, `sessions.json`, Transkripte und Unterhaltungen werden ohne `0600` geschrieben. Sie enthalten Prompts, Dateiinhalte und Tool-Ausgaben | `PermissionService.ts:110`, `AgentSessionService.persist`, `ConversationStore` | Überall `writeAtomic(…, 0o600)` nutzen und `~/Mindeck/data` mit `0700` anlegen |
 | Ohne verfügbares `safeStorage` (z. B. Linux ohne Keyring) speichert der Core Secrets stillschweigend im Klartext | `electronCipher()` | In den Settings warnen und den Klartext-Modus bestätigen lassen |
 | Codex-Adapter wird zur Laufzeit per `npx -y @zed-industries/codex-acp@0.16` geladen (Bereich `0.16.x`, kein Integritätscheck) | `acp.ts:15` | Exakte Version pinnen, optional mit der App ausliefern |
 | Bearer-Token der Agent-Sitzung steht in den Prozess-Argumenten (`--settings`, `--mcp-config`) und ist per `ps` sichtbar | `claudeLaunch.ts` | Konfiguration als temporäre Datei mit `0600` übergeben |
@@ -233,7 +233,7 @@ behandeln.
 | Kein globales Limit für gleichzeitige Verbindungen oder RPCs (8 MB Body pro Request) | `HttpServer.ts` | Einfaches Token-Bucket pro Gerät |
 | macOS-Entitlements erlauben `disable-library-validation` und `allow-unsigned-executable-memory` | `build/entitlements.mac.plist` | Prüfen, ob node-pty (mit der App signiert) ohne `disable-library-validation` läuft, dann entfernen |
 | DOMPurify-Version in `monaco-editor` ist laut `npm audit` verwundbar (2× low) | `node_modules/monaco-editor/node_modules/dompurify` | Monaco-Update abwarten oder `overrides` in `package.json` |
-| MCP-Schreibtools laufen ohne eigene W-ONE-Freigabe und verlassen sich darauf, dass der Agent fragt. Mit `--dangerously-skip-permissions` in der Claude-Konfiguration des Nutzers greift W-ONEs Gate nicht | `mcp.ts` | Schreibtools im MCP-Handler selbst über `PermissionService.ask` laufen lassen |
+| MCP-Schreibtools laufen ohne eigene Mindeck-Freigabe und verlassen sich darauf, dass der Agent fragt. Mit `--dangerously-skip-permissions` in der Claude-Konfiguration des Nutzers greift Mindecks Gate nicht | `mcp.ts` | Schreibtools im MCP-Handler selbst über `PermissionService.ask` laufen lassen |
 | Es gibt keine Blocklist für destruktive Befehle (`rm -rf /`, `git push --force`, `curl … \| sh`), wie sie im Masterplan §D.9 vorgesehen ist | `builtin.ts` (`shell_run`), Freigabe-UI | Heuristik plus deutliche Warnung in der Freigabekarte |
 
 ---
@@ -288,11 +288,11 @@ Commit `98c2616` hat Postgres und SQLite entfernt. Es sind aber Reste übrig:
 
 - `.github/workflows/ci.yml:51` heißt noch „E2E (Electron + Docker DB …)“, und Zeile 78 führt bei
   Fehlern `docker compose logs db` aus. Den Dienst `db` gibt es nicht mehr, der Schritt scheitert also selbst.
-- `server/main.ts:13` dokumentiert `WONE_DB_URL` (Postgres).
+- `server/main.ts:13` dokumentiert `MINDECK_DB_URL` (Postgres).
 - `EventBus.ts:11` erwähnt „Postgres“, `paths.ts:61` „SQLite files“.
-- `W-ONE_ARCHITECTURE.md` §2 zeigt im Diagramm noch `SQLite wone.db`, §1.2 verweist auf
+- `Mindeck_ARCHITECTURE.md` §2 zeigt im Diagramm noch `SQLite mindeck.db`, §1.2 verweist auf
   `registerServices()` in `main.ts` und `handle<K>()` in `registry.ts` (beides gibt es so nicht mehr),
-  §1.1 nennt `userData/wone/` als Speicherort.
+  §1.1 nennt `userData/mindeck/` als Speicherort.
 - `README.md:225–229` führt „Installer, Signierung, Auto-Update“ als „Noch nicht gebaut“, obwohl
   `electron-builder`, Notarisierung und `UpdateService` existieren.
 
@@ -316,7 +316,7 @@ Commit `98c2616` hat Postgres und SQLite entfernt. Es sind aber Reste übrig:
 | **Abhängigkeiten** | Viele Major-Versionen im Rückstand: Electron 37→44, Vite 5→8, electron-vite 2→5, React 18→19, Tailwind 3→4, Vitest 3→5, xterm 5→6, TypeScript 5.9→7 | Zuerst Electron (Sicherheit), dann Vite und electron-vite, danach React 19. Renovate mit Gruppierung einrichten |
 | **Große Klassen** | `AgentSessionService` hat 719 Zeilen und vereint Claude-PTY, ACP, Worktrees, Journal, Freigaben und Persistenz | Aufteilen in `ClaudeRunner`, `AcpRunner`, `WorktreeManager`, `SessionStore` |
 | **Duplikate** | `coded()` steht in ~12 Dateien, `AGENT_NAMES` dreimal. Atomares Schreiben ist viermal selbst gebaut (`AuthService`, `CloudService`, `PermissionService`, `AgentSessionService`), obwohl `writeAtomic` existiert | `lib/errors.ts`, eine Quelle für Agentennamen, überall `writeAtomic` |
-| **Logging** | Nur `console.*`, im gepackten Build ohne Datei | Kleiner Logger mit Rotation unter `~/W-ONE/logs`, dazu „Diagnose exportieren“ in den Settings |
+| **Logging** | Nur `console.*`, im gepackten Build ohne Datei | Kleiner Logger mit Rotation unter `~/Mindeck/logs`, dazu „Diagnose exportieren“ in den Settings |
 | **Crash-Reporting** | Keins (Main und Renderer) | Opt-in-Crash-Reports (z. B. Sentry, selbst gehostet möglich) |
 | **CI/CD** | `cd.yml` testet nicht (Begründung: PRs sind getestet). Direkte Pushes auf `develop` landen ungetestet im Image. Die Desktop-Releases baut und signiert jemand lokal | Branch-Protection aktivieren, Release-Workflow auf einem macOS-Runner mit Secrets |
 | **Plattformen** | `electron-builder.yml` kennt nur `mac`, der Code behandelt Windows aber bereits (PowerShell, `windowsHide`) | Windows- und Linux-Targets ergänzen (NSIS bzw. AppImage/deb), CI-Matrix |
@@ -357,7 +357,7 @@ Commit `98c2616` hat Postgres und SQLite entfernt. Es sind aber Reste übrig:
 
 ### Zuverlässigkeit
 
-- **Backup und Export:** Ein Klick für „`~/W-ONE` als ZIP exportieren“, optional ein Git-Auto-Commit im Vault.
+- **Backup und Export:** Ein Klick für „`~/Mindeck` als ZIP exportieren“, optional ein Git-Auto-Commit im Vault.
 - **Wiederherstellung:** Beschädigte Dateien beim Start isolieren statt abzustürzen (§4.1). Gilt
   sinngemäß für alle JSON-Stores.
 - **Update-Kanäle:** `beta` und `stable` (electron-updater unterstützt `channel`).
@@ -366,14 +366,14 @@ Commit `98c2616` hat Postgres und SQLite entfernt. Es sind aber Reste übrig:
 
 ## 7. Erweiterungen (neue Features)
 
-Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `W-ONE_ARCHITECTURE.md` §12.2.
+Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `Mindeck_ARCHITECTURE.md` §12.2.
 
 | Priorität | Feature | Warum |
 |---|---|---|
 | ★★★ | **Windows- und Linux-Builds** | Verdoppelt bis verdreifacht den adressierbaren Markt. Der Core ist bereits plattformneutral |
 | ★★★ | **Mobile-App** (React Native, API existiert) | Freigaben und Status unterwegs. Starkes Demo- und Marketing-Feature |
 | ★★★ | **Pull Request direkt aus dem Worktree** (`gh pr create`, Titel und Text aus dem Journal) | Schließt den Kreis „Agent arbeitet isoliert → PR“. `gh` wird schon für den PR-Status genutzt |
-| ★★★ | **Aufgabe an mehrere Agenten parallel** (Claude vs. Codex vs. Gemini im Worktree), Ergebnisse vergleichen | Einzigartig, weil W-ONE die Agenten mehrerer Anbieter vereint |
+| ★★★ | **Aufgabe an mehrere Agenten parallel** (Claude vs. Codex vs. Gemini im Worktree), Ergebnisse vergleichen | Einzigartig, weil Mindeck die Agenten mehrerer Anbieter vereint |
 | ★★☆ | **Ticket → Agent:** GitHub Issues, Linear, Jira als Quelle. Agent starten, Status zurückschreiben | Passt in Team-Workflows |
 | ★★☆ | **Automations (P11):** geplante Agenten-Läufe (nächtlicher Dependency-Check, wöchentliche TODO-Auswertung) | Wiederkehrender Nutzen, Grund für ein Abo |
 | ★★☆ | **Semantische Suche / Embeddings (P13)** im Vault, lokal (z. B. über einen lokalen Embedding-Server) | Stärkt das Gedächtnis-Versprechen |
@@ -381,7 +381,7 @@ Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `W-ONE_ARCH
 | ★★☆ | **Weitere Assistenten-Provider:** OpenAI, lokale Modelle (Ollama/LM Studio) | Datenschutz-Kunden wollen „nichts verlässt den Rechner“ |
 | ★★☆ | **Eigene MCP-Server** für den Assistenten und die Agenten (Datenbank, Browser, Kalender) | Erweiterbarkeit ohne eigenen Plugin-Store |
 | ★☆☆ | **Git-UI:** Commit, Push, Branch wechseln, Konflikte auflösen | Weniger Kontextwechsel zu GitHub Desktop |
-| ★☆☆ | **Team-Vault:** geteilte Notizen über Git oder W-ONE Cloud, Rechte pro Ordner | Grundlage für einen Team-Plan |
+| ★☆☆ | **Team-Vault:** geteilte Notizen über Git oder Mindeck Cloud, Rechte pro Ordner | Grundlage für einen Team-Plan |
 | ★☆☆ | **Audit-Export** (Freigaben, Befehle, geänderte Dateien) als PDF/JSON | Compliance-Argument für Firmen |
 | ★☆☆ | **Playbooks/Vorlagen:** wiederverwendbare Aufträge mit Projekt-Kontext („Release vorbereiten“, „Security-Review“) | Schneller Einstieg, teilbar in der Community |
 | ★☆☆ | **VS-Code-Erweiterung** als Brücke (Freigaben und Sitzungsstatus in der Statusleiste) | Erreicht Nutzer dort, wo sie arbeiten |
@@ -392,16 +392,16 @@ Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `W-ONE_ARCH
 
 ### 8.1 Alleinstellungsmerkmale (so kommunizieren)
 
-1. **„Bring your own agent.“** Kein zusätzliches KI-Abo: W-ONE nutzt das Claude-, Codex- oder
+1. **„Bring your own agent.“** Kein zusätzliches KI-Abo: Mindeck nutzt das Claude-, Codex- oder
    Gemini-Konto, das der Kunde schon hat. Das senkt die Einstiegshürde und den Preisvergleich mit
    KI-Editoren deutlich.
 2. **Ein Cockpit für alle Agenten.** Mehrere Anbieter, parallel und isoliert in Worktrees, mit Freigaben
    an einem Ort.
 3. **Gemeinsames Gedächtnis über Anbieter hinweg.** Der nächste Agent (egal von wem) liest das Journal
-   des letzten. Damit hebt sich W-ONE von reinen Agent-Runnern ab.
+   des letzten. Damit hebt sich Mindeck von reinen Agent-Runnern ab.
 4. **Kontrolle statt Blackbox.** Jede Schreib- und Ausführungsaktion geht durch eine Freigabe, es gibt Diffs
    seit Sitzungsbeginn und Übernahme erst auf Knopfdruck.
-5. **Local-first und DSGVO-freundlich.** Alle Daten sind lesbare Dateien unter `~/W-ONE`, der Vault ist
+5. **Local-first und DSGVO-freundlich.** Alle Daten sind lesbare Dateien unter `~/Mindeck`, der Vault ist
    Obsidian-kompatibel, es gibt keine Datenbank auf dem Rechner und keinen Lock-in. Entwicklung in Deutschland.
 6. **Unterwegs dabei.** Freigaben und Status vom Handy (sobald die Mobile-App da ist).
 7. **Qualitätsbeleg.** 100 % Testabdeckung, Quellcode zur Einsicht, signiert und notarisiert.
@@ -455,7 +455,7 @@ Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `W-ONE_ARCH
 - [ ] Branch-Protection für `main` und `develop`, CI als Pflicht-Check
 - [ ] ESLint und Prettier in CI
 - [ ] Logging in Datei, „Diagnose exportieren“, Opt-in-Crash-Reporting
-- [ ] Monitoring und Backups für W-ONE Cloud (Lizenzserver = Single Point of Failure für Trials),
+- [ ] Monitoring und Backups für Mindeck Cloud (Lizenzserver = Single Point of Failure für Trials),
       Statusseite. Kulanzzeit, wenn die Cloud für Trial-Nutzer nicht erreichbar ist
 - [ ] Windows-Build (mindestens als Beta)
 - [ ] Changelog (`CHANGELOG.md`) und Versionierung nach SemVer, Release Notes im Update-Dialog
@@ -473,7 +473,7 @@ Nach Hebel für Kunden sortiert. Die Phasennummern beziehen sich auf `W-ONE_ARCH
 - [ ] **Nutzungsbedingungen der Agenten-Anbieter** prüfen (Anthropic, OpenAI, Google): Ist das Steuern der
       offiziellen CLIs durch eine Drittanwendung mit Verbraucher-Abos zulässig, und wie dürfen deren Marken
       im Marketing genannt werden? Das Geschäftsmodell hängt an dieser Frage, deshalb früh klären.
-- [ ] Markenrecherche bzw. -anmeldung „W-ONE“ (DPMA/EUIPO)
+- [ ] Markenrecherche bzw. -anmeldung „Mindeck“ (DPMA/EUIPO)
 
 ### Marketing und Support
 

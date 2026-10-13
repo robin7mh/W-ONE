@@ -61,7 +61,7 @@ describe('remote windows', () => {
     expect(win.opts.webPreferences).not.toHaveProperty('preload')
     await new Promise((r) => setTimeout(r, 0))
     expect(win.loaded).toEqual(['http://127.0.0.1:5000/api/health', 'http://127.0.0.1:5000'])
-    expect(win.scripts[0]).toBe(`localStorage.setItem('wone.token', "tok"); localStorage.setItem('wone.deviceId', "dev")`)
+    expect(win.scripts[0]).toBe(`localStorage.setItem('mindeck.token', "tok"); localStorage.setItem('mindeck.deviceId', "dev")`)
     // The page can't rename the window.
     const title = { preventDefault: vi.fn() }
     win.emit('page-title-updated', title)

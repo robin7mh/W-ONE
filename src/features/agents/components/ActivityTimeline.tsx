@@ -1,4 +1,4 @@
-import type { WoneEvent } from '@shared/types/events'
+import type { MindeckEvent } from '@shared/types/events'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
@@ -14,7 +14,7 @@ export function ActivityTimeline({
   compact = false,
   max = 60
 }: {
-  events: WoneEvent[]
+  events: MindeckEvent[]
   empty?: string
   compact?: boolean
   max?: number
