@@ -54,13 +54,11 @@ const panelIn = (delay: number) => ({
 export function AppShell() {
   const { booted, skip } = useBoot(BOOT_TOTAL_MS)
   const [active, setActive] = useState<ModuleId>('core')
-  const [uptime, setUptime] = useState(0)
-
-  // Session uptime ticker (starts once booted).
+  // Session uptime counts from boot. Only the top bar's indicator ticks — a
+  // per-second state here would re-render every module, editor included.
+  const [bootedAt, setBootedAt] = useState<number>()
   useEffect(() => {
-    if (!booted) return
-    const id = window.setInterval(() => setUptime((u) => u + 1), 1000)
-    return () => window.clearInterval(id)
+    if (booted) setBootedAt(Date.now())
   }, [booted])
 
   // Terminal and Editor mount on first visit and then stay mounted (hidden), so
@@ -122,7 +120,7 @@ export function AppShell() {
 
       {/* Top bar */}
       <motion.div {...panelIn(0.05)}>
-        <TopStatusBar uptime={uptime} showClock={active !== 'core'} />
+        <TopStatusBar since={bootedAt} showClock={active !== 'core'} />
       </motion.div>
 
       {/* Body: nav · main · monitor */}

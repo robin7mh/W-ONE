@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { LogOut, Wifi, WifiOff, ShieldCheck } from 'lucide-react'
 import { Clock } from './Clock'
 import { StatusIndicator } from './StatusIndicator'
@@ -12,7 +13,20 @@ import { isDesktop } from '@shared/ipc/client'
 import { useSession } from '@/features/session/store'
 import { useT } from '@/lib/i18n'
 
-export function TopStatusBar({ uptime, showClock = true }: { uptime: number; showClock?: boolean }) {
+/** Session uptime since `since` (epoch ms); ticks on its own so only this re-renders. */
+function Uptime({ since }: { since?: number }) {
+  const t = useT()
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (since === undefined) return
+    const id = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [since])
+  const secs = since === undefined ? 0 : Math.max(0, Math.floor((Date.now() - since) / 1000))
+  return <StatusIndicator label={t.topbar.uptime} value={formatUptime(secs)} tone="ok" pulse={false} />
+}
+
+export function TopStatusBar({ since, showClock = true }: { since?: number; showClock?: boolean }) {
   const t = useT()
   const fullScreen = useFullScreen()
   const desktop = isDesktop()
@@ -66,7 +80,7 @@ export function TopStatusBar({ uptime, showClock = true }: { uptime: number; sho
             value={desktop ? t.topbar.local : t.topbar.remote(info?.hostname ?? 'core')}
             tone="cyan"
           />
-          <StatusIndicator label={t.topbar.uptime} value={formatUptime(uptime)} tone="ok" pulse={false} />
+          <Uptime since={since} />
         </div>
         <div className="hidden items-center gap-2 sm:flex">
           <StatusIndicator label={t.topbar.link} value={linkView.value} tone={linkView.tone} />

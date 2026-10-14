@@ -22,7 +22,9 @@ vi.mock('node-pty', () => ({
 vi.mock('../../../electron/main/services/system/collectors', () => ({
   collect: async () => ({ cpu: 1 }),
   collectProcesses: async () => [],
-  currentUser: async () => ({ name: 'Ada Lovelace', firstName: 'Ada' })
+  currentUser: async () => ({ name: 'Ada Lovelace', firstName: 'Ada' }),
+  startSampling: () => {},
+  stopSampling: () => {}
 }))
 // Never start the real VS Code from a test.
 vi.mock('../../../electron/main/lib/openInVsCode', () => ({ openInVsCode: vi.fn(async () => {}) }))

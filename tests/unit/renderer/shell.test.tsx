@@ -133,7 +133,7 @@ describe('TopStatusBar', () => {
 
   it('on macOS leaves room for the traffic lights and has no custom controls', async () => {
     const TopStatusBar = await load('darwin')
-    const { container } = render(<TopStatusBar uptime={61} />)
+    const { container } = render(<TopStatusBar since={Date.now() - 61_000} />)
     await act(settle)
     expect(container.querySelector('header')!.className).toContain('pl-[88px]')
     expect(screen.queryByLabelText('Close')).toBeNull()
@@ -142,7 +142,8 @@ describe('TopStatusBar', () => {
 
   it('elsewhere shows window controls; hides the clock on request', async () => {
     const TopStatusBar = await load('linux')
-    const { container } = render(<TopStatusBar uptime={0} showClock={false} />)
+    const { container } = render(<TopStatusBar showClock={false} />)
+    expect(screen.getByText('00:00:00')).toBeInTheDocument() // not booted yet
     expect(container.querySelector('header')!.className).not.toContain('pl-[88px]')
     expect(screen.getByLabelText('Close')).toBeInTheDocument()
   })
@@ -155,7 +156,7 @@ describe('TopStatusBar in a browser', () => {
     const { useSession } = await import('@/features/session/store')
     const logout = vi.fn(async () => {})
     useSession.setState({ link: 'online', info: { mode: 'server', version: '2.0.0', platform: 'linux', hostname: 'nas', remoteTerminal: false }, logout })
-    render(<TopStatusBar uptime={0} />)
+    render(<TopStatusBar />)
     expect(screen.queryByLabelText('Close')).toBeNull()
     expect(screen.getByText('REMOTE · nas')).toBeInTheDocument()
     expect(screen.getByText('v2.0.0')).toBeInTheDocument()

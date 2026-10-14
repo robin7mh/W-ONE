@@ -38,9 +38,11 @@ export default {
         label: '0.18em'
       },
       keyframes: {
+        // Transform + opacity only: the compositor runs it without repainting.
+        // (An animated box-shadow repainted — and re-blurred the backdrop — every frame.)
         pulseDot: {
-          '0%, 100%': { opacity: '1', boxShadow: '0 0 0 0 rgb(var(--accent-cyan) / 0.55)' },
-          '50%': { opacity: '0.55', boxShadow: '0 0 0 5px rgb(var(--accent-cyan) / 0)' }
+          '0%': { opacity: '0.55', transform: 'scale(1)' },
+          '70%, 100%': { opacity: '0', transform: 'scale(2.25)' }
         },
         flicker: {
           '0%, 100%': { opacity: '1' },
@@ -50,7 +52,9 @@ export default {
         }
       },
       animation: {
-        'pulse-dot': 'pulseDot 2.2s ease-in-out infinite',
+        // Stepped: a smooth infinite loop makes Chromium composite the whole
+        // window at 60 fps (~20 % of a core in GPU + renderer); 8 steps ≈ 4 fps.
+        'pulse-dot': 'pulseDot 2.2s steps(8, end) infinite',
         flicker: 'flicker 6s linear infinite'
       }
     }

@@ -1,5 +1,5 @@
 import type { ProcessInfo, SystemSnapshot } from '@shared/types/system'
-import { collect, collectProcesses, currentUser } from './collectors'
+import { collect, collectProcesses, currentUser, startSampling, stopSampling } from './collectors'
 
 /**
  * Samples system telemetry and pushes it to the renderer via an injected sender.
@@ -61,6 +61,7 @@ export class SystemService {
   dispose(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    stopSampling()
   }
 
   private evaluate(): void {
@@ -71,10 +72,12 @@ export class SystemService {
     } else if (!shouldRun && this.timer) {
       clearInterval(this.timer)
       this.timer = null
+      stopSampling()
     }
   }
 
   private async tick(): Promise<void> {
+    startSampling()
     this.tickCount += 1
     if (this.tickCount % this.processEveryNTicks === 1) void this.refreshProcesses()
     try {
