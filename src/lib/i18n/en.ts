@@ -138,6 +138,7 @@ export const en = {
     closeMac: 'On macOS, closing the window keeps Mindeck running in the background with everything in it — the Dock icon brings it back. Quit with ⌘Q.',
     logsHint: 'Logs and local crash reports (nothing is sent anywhere). Diagnostics are version, system and the latest errors — no keys, tokens or file contents.',
     openLogs: 'Open logs folder',
+    logsAt: (dir: string) => `No file manager opened the folder — the logs are in ${dir}`,
     copyDiagnostics: 'Copy diagnostics'
   },
 
