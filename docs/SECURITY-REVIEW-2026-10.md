@@ -29,9 +29,9 @@ Gefunden und behoben wurden zwölf Befunde. Die wichtigsten:
 | S3 | Deny-Liste für Geräte per Symlink, Windows-Schreibweisen (`id_rsa.`, `::$DATA`, 8.3-Namen) umgehbar; UNC-Pfade lösten NTLM-Authentifizierung zum Angreifer aus | **Mittel** |
 | S9 | Electron-Fuses nicht gesetzt: `NODE_OPTIONS`/`--inspect` am signierten Hauptprozess, keine asar-Integrität, Browser-Cookies (Logins) unverschlüsselt | **Mittel** |
 
-Offen bleiben vor allem zwei größere Themen, die keinen kleinen, sicheren Fix erlauben (§4):
-die Netzwerk-API im LAN läuft unverschlüsselt (N1), und Push-Events der Agenten/des Assistenten sind
-nicht pro Gerät auf die geteilten Ordner beschränkt (N2).
+Offen bleibt vor allem ein größeres Thema, das keinen kleinen, sicheren Fix erlaubt (§4): Push-Events
+der Agenten/des Assistenten sind nicht pro Gerät auf die geteilten Ordner beschränkt (N2). Die
+unverschlüsselte LAN-API (N1) hat das parallel gemergte Paket `wip2/tls` behoben.
 
 ---
 
@@ -95,7 +95,7 @@ nicht pro Gerät auf die geteilten Ordner beschränkt (N2).
 
 | # | Befund | Schwere | Fundstelle | Begründung / Empfehlung |
 |---|---|---|---|---|
-| N1 | **Netzwerk-API im LAN unverschlüsselt.** Bei `lan: true` lauscht der Core per HTTP auf `0.0.0.0`; Bearer-Tokens, Pairing-Codes und alle Daten gehen im Klartext durchs Netz. | Hoch (im LAN-Modell) | `electron/main/server/HttpServer.ts`, `ServerController.ts` | Kein kleiner Fix: braucht TLS (selbstsigniertes Zertifikat, `selfsigned` liegt bereit) plus Zertifikats-Pinning beim Pairing (Fingerprint im QR-Code), sonst nur Schein-Sicherheit. Eigenes Paket empfohlen; bis dahin LAN-Modus nur in vertrauenswürdigen Netzen. |
+| N1 | **Netzwerk-API im LAN unverschlüsselt.** Bei `lan: true` lauschte der Core per HTTP auf `0.0.0.0`; Bearer-Tokens, Pairing-Codes und alle Daten gingen im Klartext durchs Netz. | Hoch (im LAN-Modell) | `electron/main/server/HttpServer.ts`, `ServerController.ts` | Während dieses Reviews durch das Paket `wip2/tls` behoben (Merge `6309a60`, hier mitgemergt): HTTPS/WSS im LAN-Modus standardmäßig (`tls: true`), selbstsigniertes Zertifikat, Fingerprint im Pairing-QR-Code gepinnt. Rest-Risiko: `tls: false` schaltet zurück auf Klartext — Settings sollten davor warnen. |
 | N2 | **Push-Events nicht pro Gerät beschränkt.** `agents:message`, `agents:changed`, `ai:message`/`ai:delta`, `permission:request`, `events:event`, `memory:changed` gehen an alle Geräte; `agents:list|get|changes|diff`, `ai:conversations` sind nicht auf Projekte in geteilten Ordnern begrenzt (RemoteAccess prüft nur Payloads mit `projectId`). Ein Mitglied-Gerät sieht so Agenten-Transkripte und Diffs aus nicht geteilten Projekten. Bestand vor dieser Runde. | Mittel | `electron/main/server/HttpServer.ts` (`push`), `electron/main/server/RemoteAccess.ts` | Braucht eine Zuordnung Event → Projekt und eine Sichtbarkeitsprüfung pro Client — derselbe Mechanismus wie jetzt für `search:progress` (S2), aber für ein Dutzend Kanäle. Empfehlung: `RemoteAccess.visible` je Client cachen und `push` danach filtern. |
 | N3 | **Offline-Zertifikat nicht an das Gerät gebunden.** Der Claim `dev` wird nicht gegen die `installId` geprüft; ein kopierter Datenordner (Server-Build: `secrets.json` im Klartext, 0600) trägt eine Lifetime-Lizenz auf andere Rechner. Ein erstattetes Zertifikat bleibt gültig, solange der Core die Cloud nicht erreicht (by design: „Lifetime offline“). | Niedrig–Mittel | `electron/main/services/cloud/CloudService.ts` (`verifyOffline`), `entitlement.ts` | Die Bedeutung von `dev` ist im Cloud-Vertrag (Repo `mindeck-cloud`) nicht festgelegt; eine Prüfung gegen `installId` ohne diese Zusage würde gültige Offline-Lizenzen sperren. Empfehlung: Cloud setzt `dev = installId`, Core prüft `!cert.dev \|\| cert.dev === installId`. |
 | N4 | **Hook-/MCP-Token in der Kommandozeile.** `claude --settings '{…Bearer <token>…}' --mcp-config '{…}'` (und der erste Prompt) stehen in `argv` und sind für andere lokale Nutzer über `ps`/`/proc` lesbar → Zugriff auf Vault-Lese-Tools und Hook-Endpunkt der Session. | Niedrig | `electron/main/services/agents/claudeLaunch.ts` | Nur auf Mehrbenutzer-Systemen relevant; Umstellung auf Dateien (0600) oder Env-Expansion muss gegen das echte Claude-Code-CLI getestet werden. |
