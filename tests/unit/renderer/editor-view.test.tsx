@@ -367,6 +367,26 @@ describe('EditorView', () => {
     vi.useRealTimers()
   })
 
+  it('⌘W / Ctrl+W closes the editor’s tab (asking when it has edits) — without one the key is the workspace’s', async () => {
+    installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [] })
+    useProjects.setState({ projects: [project('p')] })
+    const requestClose = vi.fn()
+    useEditor.setState({ tabs: [tab('a.ts')], activeId: 'p:a.ts', requestClose })
+    render(view(true))
+    await act(settle)
+    const press = (init: KeyboardEventInit) => {
+      const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+      window.dispatchEvent(e)
+      return e.defaultPrevented
+    }
+    expect(press({ key: 'w', metaKey: true })).toBe(true)
+    expect(requestClose).toHaveBeenCalledWith('p:a.ts')
+    expect(press({ key: 'w', ctrlKey: true, altKey: true })).toBe(false)
+    act(() => useEditor.setState({ activeId: undefined }))
+    expect(press({ key: 'w', ctrlKey: true })).toBe(false) // nothing open: the pane closes
+    expect(requestClose).toHaveBeenCalledTimes(1)
+  })
+
   it('unsaved edits veto closing the window', async () => {
     installBridge({ 'projects:list': () => [] })
     const { unmount } = render(view(false))

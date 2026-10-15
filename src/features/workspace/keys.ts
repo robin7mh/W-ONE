@@ -71,3 +71,13 @@ export function workspaceKey(index: number, mac: boolean = macKeys()): string | 
   if (index > 8) return undefined
   return formatBinding(`mod+alt+${index + 1}`, mac)
 }
+
+/**
+ * ⌘W (Ctrl+W elsewhere): the module in focus closes what it has open — the
+ * editor's tab, the browser's, the terminal's (macOS; Ctrl+W is the shell's),
+ * a Files tab — and prevents the default; otherwise the workspace closes the pane.
+ */
+export function isCloseKey(e: KeyLike, mac: boolean): boolean {
+  const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+  return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w'
+}

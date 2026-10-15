@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as L from '@/features/workspace/layout'
-import { matchWorkspaceKey, keyLabel, workspaceKey, macKeys, type KeyLike } from '@/features/workspace/keys'
+import { isCloseKey, matchWorkspaceKey, keyLabel, workspaceKey, macKeys, type KeyLike } from '@/features/workspace/keys'
 import { PANE_STEPS, paneSteps } from '@/features/workspace/steps'
 
 const modules = (l: L.Layout) => l.panes.map((p) => p.module)
@@ -296,6 +296,11 @@ describe('workspace keys', () => {
   })
 
   it('elsewhere reads Ctrl, and never a key AltGr types', () => {
+    expect(isCloseKey(key({ key: 'w', metaKey: true }), true)).toBe(true)
+    expect(isCloseKey(key({ key: 'w', ctrlKey: true }), true)).toBe(false)
+    expect(isCloseKey(key({ key: 'W', ctrlKey: true }), false)).toBe(true)
+    expect(isCloseKey(key({ key: 'w', ctrlKey: true, shiftKey: true }), false)).toBe(false) // the pane key ⇧
+    expect(isCloseKey(key({ key: 'q', ctrlKey: true }), false)).toBe(false)
     const pc = (k: Partial<KeyLike>) => matchWorkspaceKey(key(k), false)
     expect(pc({ key: 'F11' })).toBeNull() // full screen: the main process's, or the browser's
     expect(pc({ key: 'ArrowUp', ctrlKey: true, altKey: true })).toEqual({ type: 'focus', dir: 'up' })

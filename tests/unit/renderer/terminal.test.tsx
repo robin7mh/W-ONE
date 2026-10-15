@@ -12,6 +12,15 @@ vi.mock('@xterm/addon-serialize', async () => (await import('./xtermFake')).seri
 vi.mock('@xterm/addon-unicode11', async () => (await import('./xtermFake')).unicodeModule)
 vi.mock('@xterm/addon-webgl', async () => (await import('./xtermFake')).webglModule)
 
+// The platform's keys: Windows/Linux unless a test says Mac.
+const flags = vi.hoisted(() => ({ mac: false }))
+vi.mock('@/lib/platform', async (original) => ({
+  ...(await original<object>()),
+  get isMac() {
+    return flags.mac
+  }
+}))
+
 import { xt as x } from './xtermFake'
 import { TerminalView } from '@/features/terminal/components/TerminalView'
 import { XtermPane } from '@/features/terminal/components/XtermPane'
@@ -393,8 +402,38 @@ describe('useXterm extras', () => {
     expect(term.scrollToTop).toHaveBeenCalled() // no commands yet
     term.key({ key: 'ArrowDown', ctrlKey: true, shiftKey: true })
     expect(term.scrollToBottom).toHaveBeenCalled()
+    // copy and paste (Windows/Linux): Ctrl+Shift+C/V and Ctrl+Insert / Shift+Insert — never the shell's Ctrl+C
+    term.select('')
+    expect(term.key({ key: 'C', ctrlKey: true, shiftKey: true }).handled).toBe(true) // nothing selected: still not ^C
+    term.select('xyz')
+    term.key({ key: 'C', ctrlKey: true, shiftKey: true })
+    expect(board.writeText).toHaveBeenLastCalledWith('xyz')
+    board.writeText.mockClear()
+    term.key({ key: 'Insert', ctrlKey: true })
+    expect(board.writeText).toHaveBeenCalledWith('xyz')
+    await act(async () => void term.key({ key: 'V', ctrlKey: true, shiftKey: true }))
+    await act(async () => void term.key({ key: 'Insert', shiftKey: true }))
+    expect(term.paste.mock.calls).toEqual([['pasted'], ['pasted']])
     act(() => void term.key({ key: 'f', ctrlKey: true, shiftKey: true }))
     expect(screen.getByRole('search')).toBeInTheDocument()
+  })
+
+  it('macOS: ⌘W closes the terminal tab; an agent’s terminal leaves it to the workspace', async () => {
+    flags.mac = true
+    const kill = vi.fn()
+    installBridge({ 'terminal:attach': pending, 'terminal:kill': kill })
+    const tab = info()
+    useTerminals.setState({ tabs: [tab], activeId: tab.id })
+    render(<XtermPane tab={tab} label="~" active={false} framed={false} />)
+    const k = x.terms[0].key({ key: 'w', metaKey: true })
+    expect(k.handled).toBe(true)
+    await act(settle)
+    expect(kill).toHaveBeenCalledWith({ id: tab.id })
+    expect(useTerminals.getState().tabs).toEqual([])
+    const { SessionTerminalProbe } = await import('./terminalProbe')
+    render(<SessionTerminalProbe id="a2" />)
+    expect(x.terms.at(-1)!.key({ key: 'w', metaKey: true }).handled).toBe(false)
+    flags.mac = false
   })
 
   it('agents’ terminals: find goes to the program, no file links, nothing saved', async () => {
@@ -516,12 +555,12 @@ describe('XtermPane: find and the context menu', () => {
       return (name: RegExp) => screen.getByRole('menuitem', { name })
     }
 
-    expect(menu()(/^Copy$/)).toBeDisabled()
+    expect(menu()(/^Copy \(Ctrl\+Shift\+C\)$/)).toBeDisabled()
     fireEvent.keyDown(window, { key: 'Escape' })
     term.selection = 'sel'
-    fireEvent.click(menu()(/^Copy$/))
+    fireEvent.click(menu()(/^Copy \(Ctrl\+Shift\+C\)$/))
     expect(board.writeText).toHaveBeenCalledWith('sel')
-    fireEvent.click(menu()(/^Paste$/))
+    fireEvent.click(menu()(/^Paste \(Ctrl\+Shift\+V\)$/))
     await act(settle)
     expect(term.paste).toHaveBeenCalledWith('from clipboard')
     fireEvent.click(menu()(/Select all/))
@@ -557,11 +596,11 @@ describe('XtermPane: find and the context menu', () => {
     expect(screen.queryByRole('menuitem', { name: /Copy output/ })).toBeNull()
     expect(pick(/^Split$/)).toBeDisabled()
     board.readText.mockResolvedValueOnce('')
-    fireEvent.click(pick(/^Paste$/))
+    fireEvent.click(pick(/^Paste \(Ctrl\+Shift\+V\)$/))
     await act(settle)
     expect(term.paste).toHaveBeenCalledTimes(1)
     term.selection = ''
-    const copy = menu()(/^Copy$/)
+    const copy = menu()(/^Copy \(Ctrl\+Shift\+C\)$/)
     expect(copy).toBeDisabled()
   })
 
