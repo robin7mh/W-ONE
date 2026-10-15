@@ -19,7 +19,7 @@ import { ExtensionPopup, loadExtension, unloadExtension } from './extensions'
 import { contextMenu, type ContextActions } from './menus'
 import { clearPrivate, partitionOf, profileSession } from './partitions'
 import type { SessionTarget } from './session'
-import { isFullScreenKey, matchShortcut } from './shortcuts'
+import { isFullScreenKey, matchShortcut, workspaceKey } from './shortcuts'
 
 /** Where views go before the browser was first on screen (agent tabs still need a size). */
 const DEFAULT_BOUNDS: ViewBounds = { x: 0, y: 0, width: 1280, height: 800 }
@@ -416,6 +416,14 @@ export class ElectronBrowserHost implements BrowserHost {
       if (isFullScreenKey(input, MAC)) {
         event.preventDefault()
         return this.win.setFullScreen(!this.win.isFullScreen())
+      }
+      // The workspace's keys (move between panes, split, close …) are the UI's, wherever the keyboard is —
+      // except over a fullscreen page, which would stay on top while the keyboard (and its Escape) left it.
+      const key = this.fullscreen === tabId ? null : workspaceKey(input, MAC)
+      if (key) {
+        event.preventDefault()
+        this.win.webContents.focus()
+        return ev.workspaceKey(key)
       }
       const action = matchShortcut(input, MAC)
       if (!action) return

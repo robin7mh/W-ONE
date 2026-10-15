@@ -65,6 +65,8 @@ function fakeSession(name: string) {
     setCertificateVerifyProc: vi.fn(),
     download: undefined as undefined | ((...a: unknown[]) => void),
     on: (_event: string, fn: (...a: unknown[]) => void) => (s.download = fn),
+    // like Electron's: partitions without `persist:` live in memory
+    isPersistent: () => name.startsWith('persist:'),
     beforeRequest: undefined as undefined | ((details: unknown, cb: (r: unknown) => void) => void),
     webRequest: { onBeforeRequest: (fn: (details: unknown, cb: (r: unknown) => void) => void) => (s.beforeRequest = fn), onBeforeSendHeaders: vi.fn() },
     registerPreloadScript: vi.fn(),
@@ -167,6 +169,7 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     console: vi.fn(),
     shortcut: vi.fn(),
     focused: vi.fn(),
+    workspaceKey: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
@@ -266,7 +269,7 @@ describe('the browser host · profiles, fullscreen, media, logins', () => {
   })
 
   it('lets a page in HTML fullscreen cover the whole window until Escape — or another tab comes up', async () => {
-    const { host, open, win } = setup()
+    const { host, open, win, ev } = setup()
     const a = open('a')
     const b = open('b')
     host.setBounds({ x: 10, y: 50, width: 800, height: 600 })
@@ -285,6 +288,11 @@ describe('the browser host · profiles, fullscreen, media, logins', () => {
     // the panes move meanwhile, the browser's pane loses the focus: fullscreen stays, Escape still works
     host.setBounds({ x: 10, y: 50, width: 800, height: 600 }, false)
     expect(a.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
+    // the workspace's keys stay the fullscreen page's (the UI taking the keyboard would strand it on top)
+    const paneKey = { preventDefault: vi.fn() }
+    a.webContents.emit('before-input-event', paneKey, { ...key('\\'), meta: process.platform === 'darwin', control: process.platform !== 'darwin' })
+    expect(paneKey.preventDefault).not.toHaveBeenCalled()
+    expect(ev.workspaceKey).not.toHaveBeenCalled()
     // Escape leaves fullscreen — other keys and other tabs' Escape are the page's
     const esc = { preventDefault: vi.fn() }
     a.webContents.emit('before-input-event', esc, key('Escape', 'keyUp'))

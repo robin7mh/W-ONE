@@ -16,30 +16,63 @@ All of these are plain TypeScript with no DOM, Node or Electron imports — copy
 
 | Host | Start | Base URL |
 |---|---|---|
-| Desktop app | Settings → Remote access → *Run the API server* (+ *Reachable on the local network* for a phone) | `http://<computer-ip>:7420` |
-| Standalone (no Docker) | `npm run web` | `http://127.0.0.1:7420` (`MINDECK_LAN=1` for all interfaces) |
-| Docker | `npm run docker:up` | `http://127.0.0.1:7420` (`MINDECK_BIND=0.0.0.0` in `.env` for the LAN) |
+| Desktop app | Settings → Remote access → *Run the API server* (+ *Reachable on the local network* for a phone) | `https://<computer-ip>:7420` (this computer: `http://127.0.0.1:7420`) |
+| Standalone (no Docker) | `npm run web` | `http://127.0.0.1:7420` (`MINDECK_LAN=1` for all interfaces: then `https://`) |
+| Docker | `npm run docker:up` | `https://127.0.0.1:7420` (`MINDECK_BIND=0.0.0.0` in `.env` for the LAN) |
 
 For access from outside your home network use a VPN such as Tailscale or WireGuard rather than
 opening the port to the internet.
 
-The core speaks plain HTTP. On a network you do not trust (café, hotel, office), the pairing code
-and the device token can be read off the wire: use Tailscale (its WireGuard tunnel encrypts every
-connection, and `tailscale serve` adds HTTPS) or a reverse proxy with a real certificate (Caddy,
-nginx, Traefik) in front of `127.0.0.1:7420`. The core has no built-in TLS on purpose: a
-self-signed certificate pinned through the pairing QR code would need certificate pinning in the
-app (React Native's `fetch` and `WebSocket` trust only the system's certificate authorities —
-pinning needs a native module and a development build) and would show a certificate warning in
-every browser.
+### Encryption (HTTPS / WSS)
+
+A core that the network can reach speaks **HTTPS and WSS** (desktop: Settings → Remote access →
+*Encrypted (HTTPS)*, on by default; headless: `MINDECK_TLS=1`, the default). One port serves both
+protocols: the computer the core runs on may keep plain HTTP on `127.0.0.1` (the local web UI,
+health checks, tests); everyone else gets HTTPS only. A plain HTTP request from the network is
+never answered: a page request (`GET`/`HEAD`) is redirected (`308`) to the same `https://`
+address, anything else — a pairing code, a token — gets `403 https-required`, and so does a plain
+WebSocket.
+
+**Certificate.** Without one of its own, the core makes a self-signed certificate on the first start
+with network access: RSA 2048, SHA-256, valid two years, for `localhost`, `127.0.0.1`, the machine
+name (and `<name>.local`) and every LAN address. It lives in `<MINDECK_HOME>/data/tls/` (`key.pem`
+with mode `0600`) and is made anew — on the same key — a month before it ends and when the
+computer has an address it does not cover (checked at start, before every pairing and twice a day).
+An own certificate (e.g. from Let's Encrypt for a domain that points at the core) is given with
+`MINDECK_TLS_CERT` and `MINDECK_TLS_KEY` (PEM files, both); it is used as it is (renew it outside and
+restart the core). `MINDECK_TLS=0` switches HTTPS off — e.g. behind a reverse proxy (Caddy, nginx,
+Traefik) or `tailscale serve` that terminates TLS itself and reaches the core on `127.0.0.1`.
+
+**Trust without a certificate authority (TOFU).** Nobody vouches for a self-signed certificate, so a
+browser shows a warning once. The pairing QR code therefore carries the certificate's SHA-256
+fingerprint: `https://192.168.1.20:7420/#pair=K7QM-2XPA&fp=<64 hex digits>`. The web UI shows it
+on the pairing page and asks to compare it with the one in the browser's certificate viewer;
+Settings → Remote access shows it too (`AB:CD:…`), as does the server's pairing banner. Over HTTPS
+the core answers `POST /api/pair` with the same `fingerprint`. A native client compares the
+certificate of its first connection with `fp` from the QR code (refuses on a mismatch), then pins
+it. `server:status` reports `tls: { fingerprint, expiresAt, selfSigned }` while the core speaks
+HTTPS; `server:createPairingCode` returns `fingerprint`.
+
+Headers over HTTPS: the usual `nosniff`, `no-referrer`, `DENY` framing and CSP; `Strict-Transport-
+Security` only with an own certificate from an authority — with a self-signed one HSTS would turn
+the warning (that a person may pass after comparing the fingerprint) into a dead end. The core sets
+no cookies; tokens travel only in headers (`Authorization`, the WebSocket subprotocol).
+
+**The mobile app** trusts only the system's certificate authorities (React Native's `fetch` and
+`WebSocket`); pinning a self-signed certificate needs a native module. Until the app pins
+`fingerprint`, pair it with a core that has an own trusted certificate or runs behind Tailscale /
+a reverse proxy, or switch *Encrypted (HTTPS)* off on a network you trust.
 
 ## 1. Pairing (once per device)
 
 1. On a device that is already trusted: Settings → *Pair a device*. It shows a code like
-   `K7QM-2XPA` (valid 10 minutes, one use) and a QR code with `http(s)://<core>/#pair=K7QM-2XPA`.
+   `K7QM-2XPA` (valid 10 minutes, one use) and a QR code with `http(s)://<core>/#pair=K7QM-2XPA`
+   (over HTTPS also `&fp=<sha256>`, the certificate's fingerprint — see *Encryption*).
    Headless: `npm run server:pair` or `npm run docker:pair` (append `-- --admin` for an admin
    device). The standalone server also prints a code at startup as long as no device is paired.
-2. The app reads the URL from the QR code (base URL = everything before `/#pair=`), or the user
-   types the address and the code.
+2. The app reads the URL from the QR code (`parsePairingLink` in `transport.ts` → `{ baseUrl, code,
+   fingerprint? }`), or the user types the address and the code. With a `fingerprint`, check the
+   certificate of the first connection against it before sending the code.
 3. Redeem the code:
 
 ```http
@@ -50,8 +83,10 @@ Content-Type: application/json
 ```
 
 ```json
-{ "ok": true, "data": { "token": "mindeck_…", "device": { "id": "…", "name": "Pixel 9", "role": "member", "createdAt": "…" } } }
+{ "ok": true, "data": { "token": "mindeck_…", "device": { "id": "…", "name": "Pixel 9", "role": "member", "createdAt": "…" }, "fingerprint": "AB:CD:…" } }
 ```
+
+(`fingerprint` only over HTTPS: the certificate to pin.)
 
 Every device has a **role**, set by the code it redeemed:
 
@@ -86,7 +121,8 @@ Every call answers HTTP 200 with an `IpcResult`:
 ```
 
 Only authentication problems use HTTP status codes: `401 unauthorized` means the token is unknown
-or was revoked — drop it and pair again. `413` = body over 8 MB, `400 bad-json`.
+or was revoked — drop it and pair again. `413` = body over 8 MB, `400 bad-json`, `403
+https-required` = plain HTTP from the network to a core that speaks HTTPS.
 
 **Remote rules.** Without remote shells a paired device reaches only the *shared folders*: the ones
 set at the desktop (Settings → Remote access → *Shared folders*) or, headless, in
@@ -119,7 +155,7 @@ Error codes worth handling in the UI:
 ## 3. Push events
 
 ```
-GET /api/events   (WebSocket, subprotocols: "mindeck", "mindeck.bearer.<token>")
+GET /api/events   (WebSocket — wss:// on an HTTPS core; subprotocols: "mindeck", "mindeck.bearer.<token>")
 ```
 
 The token travels as the second offered subprotocol — never in the URL, where it would land in
@@ -169,14 +205,17 @@ an admin device. Types: see `contract.ts`.
 ## 5. React Native sketch
 
 ```ts
-import { createRemoteTransport, pairDevice, probeCore } from './shared/ipc/transport'
+import { createRemoteTransport, pairDevice, parsePairingLink, probeCore } from './shared/ipc/transport'
 import * as SecureStore from 'expo-secure-store'
 
-// once: from the scanned QR URL "http://192.168.1.20:7420/#pair=K7QM-2XPA"
-const [baseUrl, code] = scanned.split('/#pair=')
+// once: from the scanned QR URL "https://192.168.1.20:7420/#pair=K7QM-2XPA&fp=ab12…"
+const link = parsePairingLink(scanned)
+if (!link) throw new Error('Not a Mindeck pairing code')
+const { baseUrl, code, fingerprint } = link
+// over HTTPS: the first connection's certificate must have `fingerprint` (needs a pinning module)
 if (!(await probeCore(baseUrl))) throw new Error('Not a Mindeck core')
 const { token } = await pairDevice(baseUrl, code, 'Pixel 9')
-await SecureStore.setItemAsync('mindeck', JSON.stringify({ baseUrl, token }))
+await SecureStore.setItemAsync('mindeck', JSON.stringify({ baseUrl, token, fingerprint }))
 
 // every start
 const core = createRemoteTransport({

@@ -113,6 +113,8 @@ export interface BrowserDownload {
   /** 0 when the server did not say. */
   total: number
   startedAt: string
+  /** From a private tab: listed while private tabs are open, never written down. */
+  private?: boolean
 }
 
 export type BrowserPermissionKind =
@@ -212,6 +214,16 @@ export type BrowserGo = 'back' | 'forward' | 'reload' | 'hardReload' | 'stop'
 /** Native menus and tools of a tab. */
 export type BrowserTool = 'tabMenu' | 'pageMenu' | 'devtools' | 'print' | 'handoff' | 'shield'
 
+/** A workspace key pressed while a page had the keyboard — handed on to the Mindeck UI (`browser:command`). */
+export interface WorkspaceKey {
+  key: string
+  code: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}
+
 /** What a shortcut or menu asks the Mindeck UI to do (the page may have the keyboard focus). */
 export type BrowserCommand =
   | 'focusOmnibox'
@@ -223,3 +235,4 @@ export type BrowserCommand =
   | 'bookmark'
   | 'bookmarksBar'
   | 'import'
+  | 'workspaceKey'

@@ -105,7 +105,8 @@ import type {
   BrowserTab,
   BrowserTool,
   HistoryEntry,
-  ViewBounds
+  ViewBounds,
+  WorkspaceKey
 } from '@shared/types/browser'
 import type {
   FinderEntry,
@@ -117,7 +118,8 @@ import type {
   FolderSize,
   TransferRequest,
   TransferResult,
-  TrashedItem
+  TrashedItem,
+  UntrashResult
 } from '@shared/types/finder'
 import type { BookmarkFolder, BookmarkNode, ImportProgress, ImportRequest, ImportResult, ImportSource } from '@shared/types/browserData'
 import type { BrowserExtension, ChromiumProfile, ExtensionInstall, ExtensionUpdateReport } from '@shared/types/browserExtensions'
@@ -544,8 +546,10 @@ export interface IpcChannels {
   'finder:rename': { request: { path: string; name: string }; response: string }
   /** Into the trash, never deleted outright; `restore` set where Mindeck can undo it. */
   'finder:trash': { request: { paths: string[] }; response: TrashedItem[] }
-  /** Undo a trash (only items with `restore`). */
-  'finder:untrash': { request: { items: { path: string; restore: string }[] }; response: void }
+  /** Undo a trash (only items with `restore`): what came back where, and what had left the trash. */
+  'finder:untrash': { request: { items: { path: string; restore: string }[] }; response: UntrashResult }
+  /** macOS: opens System Settings at Full Disk Access (needed to take things out of the Trash). */
+  'finder:privacySettings': { request: void; response: void }
   /** Returns the new paths. */
   'finder:move': { request: { paths: string[]; dest: string }; response: string[] }
   'finder:copy': { request: { paths: string[]; dest: string }; response: string[] }
@@ -904,6 +908,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'finder:move': 'desktop',
   'finder:copy': 'desktop',
   'finder:untrash': 'desktop',
+  'finder:privacySettings': 'desktop',
   'finder:conflicts': 'desktop',
   'finder:transfer': 'desktop',
   'finder:cancel': 'desktop',
@@ -956,7 +961,7 @@ export interface IpcEvents {
   'browser:state': BrowserState
   'browser:find': BrowserFind
   /** A shortcut or menu (maybe pressed while a page had the focus) for the Mindeck UI. */
-  'browser:command': { command: BrowserCommand }
+  'browser:command': { command: BrowserCommand; key?: WorkspaceKey }
   /** Something opened a tab for the user (a link in a chat, the Live Server): show the browser. */
   'browser:reveal': { tabId: string }
   /** The bookmarks changed (the whole tree). */

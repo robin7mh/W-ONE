@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { KeyRound, Loader2, RefreshCw, WifiOff } from 'lucide-react'
+import { KeyRound, Loader2, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react'
+import { formatFingerprint, normalizeFingerprint } from '@shared/ipc/transport'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { GlowBackground } from '@/components/shell/GlowBackground'
@@ -68,19 +69,46 @@ export function UnreachableScreen() {
   )
 }
 
-/** A code handed over in the URL (`#pair=XXXX-XXXX`, from the QR code), consumed once. */
-export function codeFromHash(): string {
+/**
+ * What the QR code handed over in the URL, consumed once: the code
+ * (`#pair=XXXX-XXXX`) and, for a core that speaks HTTPS, its certificate's
+ * fingerprint (`&fp=…`, shown as `AB:CD:…`).
+ */
+export function linkFromHash(): { code: string; fingerprint: string | null } {
   const m = /[#&]pair=([^&]+)/.exec(location.hash)
-  if (!m) return ''
+  if (!m) return { code: '', fingerprint: null }
+  const fp = normalizeFingerprint(/[#&]fp=([^&]+)/.exec(location.hash)?.[1] ?? '')
   history.replaceState(null, '', location.pathname + location.search)
-  return formatCode(decodeURIComponent(m[1]))
+  return { code: formatCode(decodeURIComponent(m[1])), fingerprint: fp && formatFingerprint(fp) }
+}
+
+/**
+ * The browser cannot check a self-signed certificate, and a page cannot see
+ * the one it came over — the person compares the fingerprint from the QR code
+ * with the one the browser shows.
+ */
+function CertificateCheck({ fingerprint }: { fingerprint: string }) {
+  const t = useT()
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-amber/40 bg-amber/[0.05] p-2.5">
+      <span className="flex items-center gap-1.5 font-sans text-[12.5px] font-medium text-amber">
+        <ShieldCheck size={13} /> {t.pair.certificateTitle}
+      </span>
+      <p className="font-sans text-[12px] leading-relaxed text-text-secondary">{t.pair.certificateHint}</p>
+      <p aria-label={t.pair.certificateTitle} className="break-all font-mono text-[11px] text-text-primary">
+        {fingerprint}
+      </p>
+      <p className="font-sans text-[11.5px] text-text-muted">{t.pair.certificateMatch}</p>
+    </div>
+  )
 }
 
 /** First visit from a browser: redeem a one-time pairing code. */
 export function PairScreen() {
   const t = useT()
   const { error, pair } = useSession()
-  const [code, setCode] = useState(codeFromHash)
+  const [link] = useState(linkFromHash)
+  const [code, setCode] = useState(link.code)
   const [name, setName] = useState(() => defaultDeviceName())
   const [busy, setBusy] = useState(false)
   const complete = code.replace('-', '').length === 8
@@ -125,6 +153,7 @@ export function PairScreen() {
               className="rounded-md border border-hud/70 bg-surface/70 px-3 py-1.5 font-sans text-[13px] text-text-primary outline-none focus:border-cyan/60"
             />
           </label>
+          {link.fingerprint && <CertificateCheck fingerprint={link.fingerprint} />}
           {error && <p className="font-mono text-[11px] text-danger">{error}</p>}
           <button
             type="submit"

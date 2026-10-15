@@ -160,24 +160,34 @@ function add(info: TerminalInfo, after?: string) {
   })
 }
 
+/**
+ * The first init, until it is done: a second caller (a shell from Files or a
+ * project while the last run's tabs are still coming back) waits for it —
+ * else the restored tabs would replace its new shell, which ran on unseen.
+ */
+let initializing: Promise<void> | undefined
+
 export const useTerminals = create<TerminalState>((set, get) => ({
   tabs: [],
   layout: 'single',
   initialized: false,
 
   init: async (openHome = true) => {
-    if (get().initialized) return
+    if (get().initialized) return initializing
     set({ initialized: true })
-    followInfo()
-    await useTerminalSettings.getState().load()
-    try {
-      const existing = await ipc('terminal:list')
-      if (existing.length) set({ tabs: existing, activeId: existing[0].id })
-      else if (!(await restore()) && openHome) await get().open()
-    } catch (err) {
-      set({ error: errorMessage(err) })
-    }
-    startSaving()
+    initializing = (async () => {
+      followInfo()
+      await useTerminalSettings.getState().load()
+      try {
+        const existing = await ipc('terminal:list')
+        if (existing.length) set({ tabs: existing, activeId: existing[0].id })
+        else if (!(await restore()) && openHome) await get().open()
+      } catch (err) {
+        set({ error: errorMessage(err) })
+      }
+      startSaving()
+    })()
+    return initializing
   },
 
   open: async (projectId, profileId) => {

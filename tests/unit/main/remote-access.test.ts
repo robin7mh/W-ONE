@@ -176,6 +176,31 @@ describe('RemoteAccess · projects and files', () => {
     await m.access.check('app:info', undefined)
   })
 
+  it('judges what a file really is: links to keys and credentials are refused, inside the project or out', async () => {
+    const m = await machine()
+    await writeFile(join(m.home, '.ssh', 'id_rsa'), 'KEY')
+    await writeFile(join(m.desk, '.env'), 'TOKEN=1')
+    await writeFile(join(m.desk, 'readme.md'), '# hi')
+    await symlink(join(m.home, '.ssh', 'id_rsa'), join(m.desk, 'notes.txt'))
+    await symlink(join(m.desk, '.env'), join(m.desk, 'config.txt'))
+    await symlink(join(m.home, '.ssh'), join(m.desk, 'docs'))
+    await expect(m.access.check('files:read', { projectId: 'desk', path: 'notes.txt' })).rejects.toThrow('.ssh is off-limits')
+    await expect(m.access.check('files:read', { projectId: 'desk', path: 'config.txt' })).rejects.toThrow('.env is off-limits')
+    await expect(m.access.check('files:list', { projectId: 'desk', dir: 'docs' })).rejects.toThrow('.ssh is off-limits')
+    await expect(m.access.check('scm:stage', { projectId: 'desk', paths: ['readme.md', 'notes.txt'] })).rejects.toThrow('off-limits')
+    await expect(m.access.tool({ path: 'config.txt' }, 'desk')).rejects.toThrow('.env is off-limits')
+    // The assistant's tools name projects by name too.
+    await expect(m.access.tool({ projectId: 'name-desk', path: 'notes.txt' })).rejects.toThrow('.ssh is off-limits')
+    // Plain files, files that don't exist yet, and paths leaving the project (the handler refuses those) pass here.
+    await m.access.check('files:read', { projectId: 'desk', path: 'readme.md' })
+    await m.access.check('files:write', { projectId: 'desk', path: 'new/file.ts' })
+    await m.access.check('files:read', { projectId: 'desk', path: '../../outside' })
+    await m.access.check('scm:status', { projectId: 'desk' })
+    // A project whose folder is gone has nothing to resolve.
+    m.projects.push(project('gone', join(m.code, 'gone')))
+    await m.access.check('files:read', { projectId: 'gone', path: 'a.ts' })
+  })
+
   it('checks a tool call a device started, in the conversation project or the one it names', async () => {
     const m = await machine()
     await m.access.tool({ path: 'src/a.ts' }, 'desk')
@@ -215,6 +240,26 @@ describe('RemoteAccess · platforms', () => {
     await expect(on('win32', 'C:\\Users', 'C:\\Users\\me')).rejects.toThrow('the home folder')
     if (drive === undefined) delete process.env.SystemDrive
     else process.env.SystemDrive = drive
+  })
+
+  it('reads names the way Windows opens them: trailing dots and spaces, streams', () => {
+    const access = (platform: NodeJS.Platform) =>
+      new RemoteAccess({ roots: () => [], projects: () => [], remoteShell: () => true, dirs: async () => ({ path: '', parent: null, home: '', dirs: [] }), protectedDirs: [], platform })
+    const win = access('win32')
+    for (const bad of ['id_rsa.', 'keys\\id_rsa  ', '.env::$DATA', 'certs\\server.pem.', 'x\\.SSH.\\config', 'Login Data .']) {
+      expect(() => win.file(bad), bad).toThrow('off-limits')
+    }
+    expect(() => win.file('src\\app.ts')).not.toThrow()
+    expect(() => win.file('C:\\code\\app\\main.ts')).not.toThrow()
+    // Elsewhere those are other files.
+    expect(access('linux').denied('id_rsa.')).toBeUndefined()
+  })
+
+  it('never touches a network or device path on Windows (it would send the user’s credentials there)', async () => {
+    const win = new RemoteAccess({ roots: () => [], projects: () => [], remoteShell: () => true, dirs: async () => ({ path: '', parent: null, home: '', dirs: [] }), protectedDirs: [], home: 'C:\\Users\\me', platform: 'win32' })
+    for (const unc of ['\\\\evil\\share', '\\\\?\\C:\\code', '//evil/share', '\\\\.\\pipe\\x']) {
+      await expect(win.folder(unc), unc).rejects.toMatchObject({ code: 'remote-forbidden', message: expect.stringContaining('Network and device paths') })
+    }
   })
 
   it('compares without case on macOS and Windows only', async () => {
