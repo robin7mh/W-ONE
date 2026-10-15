@@ -64,6 +64,12 @@ export async function findRipgrep(path = process.env.PATH ?? '', platform: NodeJ
   return null
 }
 
+/** A paired device searching: its results go to it alone, without the files its deny list names. */
+export interface RemoteSearcher {
+  device?: string
+  hidden: (path: string) => boolean
+}
+
 /** One search's results on their way out: batched, capped, and silent once cancelled. */
 class Collector {
   cancelled = false
@@ -79,13 +85,14 @@ class Collector {
     private readonly id: string,
     private readonly publish: (p: SearchProgress) => void,
     private readonly limits: SearchLimits,
-    private readonly skip: Set<string>
+    private readonly skip: Set<string>,
+    private readonly remote?: RemoteSearcher
   ) {}
 
   /** A file's matches; false once no more are wanted (cancelled, or the limit is reached). */
   add(path: string, matches: TextMatch[]): boolean {
     if (this.cancelled || this.capped) return false
-    if (!matches.length || this.skip.has(path)) return true
+    if (!matches.length || this.skip.has(path) || this.remote?.hidden(path)) return true
     const kept = matches.slice(0, this.limits.matches - this.total)
     this.pending.push({ path, matches: kept })
     this.total += kept.length
@@ -112,7 +119,8 @@ class Collector {
     if (this.cancelled) return
     const files = this.pending
     this.pending = []
-    this.publish({ id: this.id, files, done, ...(done && this.capped ? { truncated: true } : {}), ...(error ? { error } : {}) })
+    const device = this.remote?.device
+    this.publish({ id: this.id, files, done, ...(done && this.capped ? { truncated: true } : {}), ...(error ? { error } : {}), ...(device ? { device } : {}) })
   }
 }
 
@@ -289,6 +297,9 @@ async function runBuiltin(root: string, q: TextSearchQuery, out: Collector, limi
   await walk(root, '', [])
 }
 
+/** Searches by caller: the desktop's ids, and each device's apart (no device stops another's search). */
+const runKey = (id: string, device?: string) => (device === undefined ? `desktop:${id}` : `device:${device}:${id}`)
+
 /** A file that vanished or can't be read is skipped; a runaway pattern ends the search. */
 function rethrowTimeout(err: unknown): true {
   if ((err as { code?: string }).code === 'search-timeout') throw err
@@ -299,7 +310,9 @@ function rethrowTimeout(err: unknown): true {
  * Project-wide text search (the editor's ⇧⌘F): ripgrep when the user has it,
  * else a built-in engine in Node. Results stream to the client as
  * `search:progress` events, grouped by file; the client replaces matches
- * itself (open buffers stay undoable). One search per client id at a time.
+ * itself (open buffers stay undoable). One search per client id at a time —
+ * per caller: a paired device's ids are its own (`remote`), and so are its
+ * results.
  */
 export class SearchService {
   private readonly runs = new Map<string, Collector>()
@@ -310,7 +323,7 @@ export class SearchService {
     this.limits = { ...SEARCH_LIMITS, ...deps.limits }
   }
 
-  async start(id: string, projectId: string, query: TextSearchQuery): Promise<{ engine: SearchEngine }> {
+  async start(id: string, projectId: string, query: TextSearchQuery, remote?: RemoteSearcher): Promise<{ engine: SearchEngine }> {
     const root = this.deps.resolveRoot(projectId)
     if (!root) throw coded('not-found', 'Project not found')
     try {
@@ -318,23 +331,29 @@ export class SearchService {
     } catch (err) {
       throw coded('bad-input', (err as Error).message)
     }
-    this.cancel(id)
-    const out = new Collector(id, this.deps.publish, this.limits, new Set(query.skip))
-    this.runs.set(id, out)
+    const key = runKey(id, remote && (remote.device ?? ''))
+    this.stop(key)
+    const out = new Collector(id, this.deps.publish, this.limits, new Set(query.skip), remote)
+    this.runs.set(key, out)
     const rg = await (this.rg ??= this.deps.ripgrep === undefined ? findRipgrep() : Promise.resolve(this.deps.ripgrep))
     void this.run(rg, root, query, out).finally(() => {
-      if (this.runs.get(id) === out) this.runs.delete(id)
+      if (this.runs.get(key) === out) this.runs.delete(key)
     })
     return { engine: rg ? 'ripgrep' : 'builtin' }
   }
 
-  cancel(id: string): void {
-    this.runs.get(id)?.cancel()
-    this.runs.delete(id)
+  /** Stops a search — the desktop's, or (`device`) one a paired device started. */
+  cancel(id: string, device?: string): void {
+    this.stop(runKey(id, device))
   }
 
   dispose(): void {
-    for (const id of [...this.runs.keys()]) this.cancel(id)
+    for (const key of [...this.runs.keys()]) this.stop(key)
+  }
+
+  private stop(key: string): void {
+    this.runs.get(key)?.cancel()
+    this.runs.delete(key)
   }
 
   private async run(rg: string | null, root: string, query: TextSearchQuery, out: Collector): Promise<void> {

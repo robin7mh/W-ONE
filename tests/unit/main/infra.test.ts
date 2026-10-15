@@ -328,8 +328,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       'search',
       registerSearchIpc,
       [
-        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
-        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }, undefined]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i', undefined]]
       ]
     ],
     [
