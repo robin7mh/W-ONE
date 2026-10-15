@@ -202,7 +202,7 @@ describe('EventHub', () => {
 
 // --- HTTP + WebSocket ------------------------------------------------------
 
-async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void } = {}) {
+async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown> } = {}) {
   const dir = await tempDir()
   const auth = new AuthService(join(dir, 'devices.json'))
   const hub = new EventHub()
@@ -219,7 +219,8 @@ async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onC
     version: '9.9.9',
     webRoot: opts.webRoot,
     remoteTerminal: () => terminal,
-    onClients: opts.onClients
+    onClients: opts.onClients,
+    scope: opts.scope
   })
   await http.listen('127.0.0.1', 0)
   servers.push(http)
@@ -377,6 +378,38 @@ describe('HttpServer — events socket', () => {
     await tick(20)
     expect(http.clientCount).toBe(0)
     expect(onClients).toHaveBeenLastCalledWith(0)
+  })
+
+  it('sends devices only what their projects allow, in order; what can’t be checked is not sent', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const scope = vi.fn(async (channel: string, payload: unknown) => {
+      if (channel === 'tests:changed') throw new Error('lookup failed')
+      if (channel === 'agents:message') {
+        await tick(20) // a slow check: what comes after waits for it
+        return (payload as { sessionId: string }).sessionId === 'private' ? null : payload
+      }
+      return channel === 'liveServer:changed' ? (payload as { projectId: string }[]).filter((s) => s.projectId !== 'private') : payload
+    })
+    const { hub, base, token, device } = await startHttp({ scope })
+    const { messages } = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
+    await tick(20)
+    hub.publish('agents:message', { sessionId: 'private', message: {} } as never)
+    hub.publish('agents:message', { sessionId: 'shared', message: {} } as never)
+    hub.publish('tests:changed', { projectId: 'x' } as never)
+    hub.publish('liveServer:changed', [{ projectId: 'private' }, { projectId: 'shared' }] as never)
+    hub.publish('browser:reveal', { tabId: 't' }) // the desktop's own: never even checked
+    // Inline edits are the asking device's code.
+    hub.publish('ai:inlineDelta', { requestId: 'q', text: 'desktop' })
+    hub.publish('ai:inlineDelta', { requestId: 'q', text: 'mine', device: device.id })
+    await tick(80)
+    expect(messages.slice(1)).toEqual([
+      { channel: 'agents:message', payload: { sessionId: 'shared', message: {} } },
+      { channel: 'liveServer:changed', payload: [{ projectId: 'shared' }] },
+      { channel: 'ai:inlineDelta', payload: { requestId: 'q', text: 'mine', device: device.id } }
+    ])
+    expect(scope).not.toHaveBeenCalledWith('browser:reveal', expect.anything())
+    expect(error).toHaveBeenCalledWith('[server] not sending tests:changed:', expect.any(Error))
+    error.mockRestore()
   })
 
   it('heartbeat drops dead clients; closed sockets are skipped; close() is idempotent', async () => {

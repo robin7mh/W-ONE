@@ -9,7 +9,6 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { DESKTOP_EVENTS, TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
 import { EVENTS_PROTOCOL, TOKEN_PROTOCOL_PREFIX } from '@shared/ipc/transport'
 import type { PermissionRequest } from '@shared/types/ai'
-import type { SearchProgress } from '@shared/types/search'
 import type { CoreMode } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
@@ -66,7 +65,12 @@ export interface HttpServerOptions {
   remoteTerminal: () => boolean
   /** Connected WebSocket clients changed (drives remote telemetry sampling). */
   onClients?: (count: number) => void
+  /** A push event as devices may see it (RemoteScope): itself, trimmed, or null — none of theirs. */
+  scope?: (channel: IpcEvent, payload: unknown) => Promise<unknown>
 }
+
+/** Events meant for one device only (`device`): search results and inline edits are its own. */
+const TARGETED: readonly IpcEvent[] = ['search:progress', 'ai:inlineDelta']
 
 interface Client {
   ws: WebSocket
@@ -176,6 +180,8 @@ export class HttpServer {
   private readonly clients = new Set<Client>()
   private readonly pairFailures = new Map<string, number[]>()
   private heartbeat?: NodeJS.Timeout
+  /** Scoped events leave in the order they came (a slow check never lets a later one overtake). */
+  private outbox: Promise<void> = Promise.resolve()
   private unsubscribe?: () => void
 
   constructor(private readonly opts: HttpServerOptions) {}
@@ -388,10 +394,24 @@ export class HttpServer {
   private push(channel: IpcEvent, payload: unknown): void {
     if (!this.clients.size || DESKTOP_EVENTS.includes(channel)) return
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
+    const scope = this.opts.scope
+    if (!scope) return this.deliver(channel, payload)
+    this.outbox = this.outbox.then(async () => {
+      try {
+        const shown = await scope(channel, payload)
+        if (shown !== null) this.deliver(channel, shown)
+      } catch (err) {
+        // What can't be checked is not sent.
+        console.error(`[server] not sending ${channel}:`, err)
+      }
+    })
+  }
+
+  private deliver(channel: IpcEvent, payload: unknown): void {
     // "Always allow" is only ever given at the desktop: devices are not offered it.
     const shown = channel === 'permission:request' ? { ...(payload as PermissionRequest), allowAlways: false } : payload
-    // Search results are file contents: only the device that searched gets them (the desktop's go to none).
-    const only = channel === 'search:progress' ? ((payload as SearchProgress).device ?? null) : undefined
+    // Search results (file contents) and inline edits go only to the device that asked (the desktop's to none).
+    const only = TARGETED.includes(channel) ? ((payload as { device?: string }).device ?? null) : undefined
     const message = JSON.stringify({ channel, payload: shown })
     for (const client of this.clients) {
       if (only !== undefined && client.deviceId !== only) continue

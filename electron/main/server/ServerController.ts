@@ -8,6 +8,7 @@ import {
   type ServerConfig,
   type ServerStatus
 } from '@shared/types/server'
+import type { IpcEvent } from '@shared/ipc/contract'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
@@ -48,6 +49,8 @@ export interface ServerControllerOptions {
   /** The TLS certificate (self-signed in the data folder, or one from the environment). */
   certificates: Certificates
   onClients?: (count: number) => void
+  /** Push events as paired devices may see them (RemoteScope). */
+  scope?: (channel: IpcEvent, payload: unknown) => Promise<unknown>
   /** Injected for tests. */
   addresses?: () => string[]
   createServer?: (opts: ConstructorParameters<typeof HttpServer>[0]) => HttpServer
@@ -103,7 +106,8 @@ export class ServerController {
       version: this.opts.version,
       webRoot: this.opts.webRoot,
       remoteTerminal: () => this.config.remoteTerminal,
-      onClients: this.opts.onClients
+      onClients: this.opts.onClients,
+      scope: this.opts.scope
     })
     try {
       // No plain fallback: a certificate that cannot be made or read keeps the server off.
