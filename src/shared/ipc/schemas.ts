@@ -342,6 +342,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'server:configure': z.object({
     enabled: z.boolean().optional(),
     lan: z.boolean().optional(),
+    tls: z.boolean().optional(),
     port: z.number().int().min(1024).max(65535).optional(),
     remoteTerminal: z.boolean().optional(),
     remoteRoots: z.array(path).max(50).optional()
@@ -570,6 +571,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'finder:move': z.object({ paths: paths, dest: path }),
   'finder:copy': z.object({ paths: paths, dest: path }),
   'finder:untrash': z.object({ items: z.array(z.object({ path, restore: path })).min(1).max(1000) }),
+  'finder:privacySettings': none,
   'finder:conflicts': z.object({ paths: paths, dest: path }),
   'finder:transfer': z.object({
     id,

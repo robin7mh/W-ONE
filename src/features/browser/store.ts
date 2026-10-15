@@ -8,7 +8,8 @@ import {
   type BrowserSettings,
   type BrowserSplit,
   type BrowserState,
-  type BrowserTab
+  type BrowserTab,
+  type WorkspaceKey
 } from '@shared/types/browser'
 import type { BookmarkFolder } from '@shared/types/browserData'
 import { findByUrl } from './library'
@@ -29,6 +30,8 @@ export interface BrowserHandlers {
   settings(): void
   /** A page took the keyboard focus (the user clicked into it). */
   focused?(): void
+  /** A workspace key pressed while a page had the keyboard. */
+  workspaceKey?(key: WorkspaceKey): void
 }
 
 let handlers: BrowserHandlers | null = null
@@ -86,13 +89,14 @@ interface BrowserStore {
 }
 
 export const useBrowser = create<BrowserStore>((set, get) => {
-  const command = (c: BrowserCommand, id?: string) => {
+  const command = (c: BrowserCommand, opts: { key?: WorkspaceKey; id?: string } = {}) => {
     if (c === 'focusOmnibox') set((s) => ({ focusTick: s.focusTick + 1 }))
     else if (c === 'verticalTabs') void get().configure({ verticalTabs: !get().settings.verticalTabs })
-    else if (c === 'editGroup') set({ groupEditor: id ? { id } : undefined })
+    else if (c === 'editGroup') set({ groupEditor: opts.id ? { id: opts.id } : undefined })
     else if (c === 'find') set({ findOpen: true })
     else if (c === 'settings') handlers?.settings()
     else if (c === 'focused') handlers?.focused?.()
+    else if (c === 'workspaceKey') handlers?.workspaceKey?.(opts.key!)
     else if (c === 'tabSearch') set({ tabSearchOpen: true })
     else if (c === 'bookmark') void get().bookmarkActive()
     else if (c === 'bookmarksBar') void get().configure({ bookmarksBar: !get().settings.bookmarksBar })
@@ -120,7 +124,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
       const offs = [
         onEvent('browser:state', (state) => set({ state })),
         onEvent('browser:find', (find) => set({ find })),
-        onEvent('browser:command', ({ command: c, id }) => command(c, id)),
+        onEvent('browser:command', ({ command: c, key, id }) => command(c, { key, id })),
         onEvent('browser:reveal', () => handlers?.reveal()),
         onEvent('browser:bookmarks', (bookmarks) => set({ bookmarks }))
       ]

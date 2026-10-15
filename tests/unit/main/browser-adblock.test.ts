@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { adsAndTrackingLists } from '@ghostery/adblocker'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -116,6 +116,17 @@ describe('the ad and malware blocker', () => {
     expect(blocker.check(req('https://evil.dev/', 'mainFrame', ''))).toEqual({})
   })
 
+  it('sets a damaged state file aside — the exempted sites may still be rescued from it', async () => {
+    const dir = await tempDir()
+    await mkdir(join(dir, 'adblock'))
+    await writeFile(join(dir, 'adblock', 'state.json'), '{"off":["a.dev"')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { blocker } = setup(dir)
+    await blocker.init()
+    expect(blocker.siteOn('https://a.dev/')).toBe(true)
+    expect((await readdir(join(dir, 'adblock'))).some((name) => name.startsWith('state.corrupt-'))).toBe(true)
+  })
+
   it('keeps the old engine when a list host is down, tries the mirror, and reads damaged caches as none', async () => {
     const dir = await tempDir()
     await mkdir(join(dir, 'adblock'))
@@ -133,6 +144,7 @@ describe('the ad and malware blocker', () => {
     await blocker.init()
     expect(blocker.siteOn('https://a.dev/')).toBe(false)
     expect(blocker.check(req('https://a.dev/x.js', 'script', 'https://b.dev/'))).toEqual({}) // the damaged engine was not taken
+    expect(await readdir(join(dir, 'adblock'))).not.toContainEqual(expect.stringContaining('corrupt'))
     // two looks at once share one update
     await Promise.all([blocker.update(), blocker.update()])
     expect(errors).toHaveBeenCalledWith('[browser] updating the ads filter lists failed', expect.any(Error))

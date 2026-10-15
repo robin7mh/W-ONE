@@ -33,6 +33,16 @@ describe('log', () => {
     expect(redact('nothing to hide')).toBe('nothing to hide')
   })
 
+  it('also takes out passwords in URLs, JWTs, private keys and more token kinds', () => {
+    expect(redact('connect mongodb+srv://admin:Pa55w0rd@db.example.net/app failed')).toBe('connect mongodb+srv://admin:‹redacted›@db.example.net/app failed')
+    expect(redact('fatal: https://x-access-token:abc123@github.com/o/r.git')).toBe('fatal: https://x-access-token:‹redacted›@github.com/o/r.git')
+    expect(redact('see https://github.com/o/r and user@host:22')).toBe('see https://github.com/o/r and user@host:22')
+    expect(redact('id eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.sig-nature_x end')).toBe('id ‹redacted› end')
+    expect(redact('-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----\nnext')).toBe('-----BEGIN OPENSSH PRIVATE KEY-----‹redacted›\nnext')
+    expect(redact('cut -----BEGIN PRIVATE KEY-----\nMIIEv')).toBe('cut -----BEGIN PRIVATE KEY-----‹redacted›')
+    expect(redact('glpat-abcdefghijk npm_abcdefghijkl AIzaSyA1234567890 xoxe-123456789')).toBe('glpat-‹redacted› npm_‹redacted› AIza‹redacted› xoxe-‹redacted›')
+  })
+
   it('writes lines to ~/Mindeck/logs (0600), keeps recent warnings and errors, formats errors with their stack', async () => {
     const dir = join(await tempDir(), 'logs')
     const log = new Logger({ dir, now: at })

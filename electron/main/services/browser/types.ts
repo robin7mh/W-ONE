@@ -6,7 +6,8 @@ import type {
   BrowserPermissionKind,
   BrowserProfile,
   TabError,
-  ViewBounds
+  ViewBounds,
+  WorkspaceKey
 } from '@shared/types/browser'
 import type { RequestVerdict } from './adblock'
 import type { ExtensionHost } from './extensions/ExtensionService'
@@ -158,6 +159,8 @@ export interface BrowserHostEvents {
   shortcut(action: ShortcutAction, tabId?: string): void
   /** A page took the keyboard focus (the user clicked into it). */
   focused(tabId: string): void
+  /** A workspace key pressed in a page (the UI has the keyboard again): the UI's to act on. */
+  workspaceKey(key: WorkspaceKey): void
   /** The page's context menu wants something only the core knows. */
   command(tabId: string, command: 'sendToAgent' | 'search', arg?: string): void
   permission(ask: PermissionAsk, respond: (allow: boolean) => void): void

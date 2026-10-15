@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { adsAndTrackingLists, fetchLists, fetchResources, FiltersEngine, Request, type Fetch } from '@ghostery/adblocker'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import type { FetchResponse } from './extensions/ExtensionService'
 import { hostOf, isLoopbackHost } from './url'
@@ -80,7 +81,8 @@ export class AdblockService {
 
   /** The cached engines and the sites the user exempted. */
   async init(): Promise<void> {
-    const state = await this.readJson<{ off?: unknown; updated?: Partial<Record<ListName, unknown>> }>('state.json')
+    // A damaged file is set aside (readJson) — the sites the user exempted may still be rescued from it.
+    const state = await readJson<{ off?: unknown; updated?: Partial<Record<ListName, unknown>> } | null>(this.file('state.json'))
     this.off = new Set(Array.isArray(state?.off) ? state.off.filter((h): h is string => typeof h === 'string') : [])
     for (const name of ['ads', 'malware'] as const) {
       const at = state?.updated?.[name]
@@ -179,14 +181,6 @@ export class AdblockService {
 
   private file(name: string): string {
     return join(this.deps.dir, 'adblock', name)
-  }
-
-  private async readJson<T>(name: string): Promise<T | undefined> {
-    try {
-      return JSON.parse(await readFile(this.file(name), 'utf8')) as T
-    } catch {
-      return undefined
-    }
   }
 
   private async saveState(): Promise<void> {

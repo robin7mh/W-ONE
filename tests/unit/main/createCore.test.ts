@@ -35,7 +35,7 @@ import { createCore, type Core } from '../../../electron/main/core/createCore'
 import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
 import { headlessPlatform } from '../../../electron/main/platform/headless'
 import { mindeckPaths } from '../../../electron/main/lib/paths'
-import { run, serverConfigFromEnv } from '../../../server/main'
+import { run, serverConfigFromEnv, tlsFilesFromEnv } from '../../../server/main'
 
 
 const cores: Core[] = []
@@ -60,7 +60,7 @@ async function core(opts: Partial<Parameters<typeof createCore>[0]> = {}) {
 
 describe('createCore', () => {
   it('wires every service onto one router', async () => {
-    const c = await core({ serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false, remoteRoots: [] } })
+    const c = await core({ serverConfig: { enabled: false, lan: false, tls: true, port: 0, remoteTerminal: false, remoteRoots: [] } })
     expect(await c.router.dispatch('app:info', undefined, { transport: 'ipc' })).toMatchObject({
       ok: true,
       data: { mode: 'server', version: '1.2.3', remoteTerminal: false }
@@ -199,7 +199,7 @@ describe('createCore', () => {
     const realPlatform = process.platform
     Object.defineProperty(process, 'platform', { value: 'linux' }) // no Spotlight here: Files walks
     const openExternal = vi.fn(async () => {})
-    const c = await core({ mode: 'desktop', serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false, remoteRoots: [] }, platform: { ...headlessPlatform, kind: 'desktop', openExternal } })
+    const c = await core({ mode: 'desktop', serverConfig: { enabled: false, lan: false, tls: true, port: 0, remoteTerminal: false, remoteRoots: [] }, platform: { ...headlessPlatform, kind: 'desktop', openExternal } })
     Object.defineProperty(process, 'platform', { value: realPlatform })
     const pushed: string[] = []
     c.hub.subscribe((channel) => pushed.push(channel))
@@ -293,7 +293,7 @@ describe('createCore — assistant end to end (scripted model)', () => {
     }
     try {
       const c = await core({
-        serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false, remoteRoots: [] },
+        serverConfig: { enabled: false, lan: false, tls: true, port: 0, remoteTerminal: false, remoteRoots: [] },
         providerFactory: { create: () => provider as never }
       })
       await c.router.dispatch('memory:createVault', undefined, { transport: 'ipc' })
@@ -471,10 +471,11 @@ describe('standalone server entry', () => {
   })
 
   it('reads its config from the environment', () => {
-    expect(serverConfigFromEnv({})).toEqual({ enabled: true, lan: false, port: 7420, remoteTerminal: false, remoteRoots: ['/projects'] })
-    expect(serverConfigFromEnv({ MINDECK_PORT: '8000', MINDECK_LAN: '1', MINDECK_REMOTE_TERMINAL: 'true', MINDECK_REMOTE_ROOTS: `/srv/code${delimiter}${delimiter}/data/notes` })).toEqual({
+    expect(serverConfigFromEnv({})).toEqual({ enabled: true, lan: false, tls: true, port: 7420, remoteTerminal: false, remoteRoots: ['/projects'] })
+    expect(serverConfigFromEnv({ MINDECK_PORT: '8000', MINDECK_LAN: '1', MINDECK_TLS: '0', MINDECK_REMOTE_TERMINAL: 'true', MINDECK_REMOTE_ROOTS: `/srv/code${delimiter}${delimiter}/data/notes` })).toEqual({
       enabled: true,
       lan: true,
+      tls: false,
       port: 8000,
       remoteTerminal: true,
       remoteRoots: ['/srv/code', '/data/notes']
@@ -482,6 +483,12 @@ describe('standalone server entry', () => {
     expect(serverConfigFromEnv({ MINDECK_PORT: 'abc' }).port).toBe(7420)
     expect(serverConfigFromEnv({ MINDECK_PORT: '70000' }).port).toBe(7420)
     expect(serverConfigFromEnv({ MINDECK_PORT: '0' }).port).toBe(0)
+    expect(serverConfigFromEnv({ MINDECK_TLS: '1' }).tls).toBe(true)
+    // An own certificate: both files or none.
+    expect(tlsFilesFromEnv({})).toBeUndefined()
+    expect(tlsFilesFromEnv({ MINDECK_TLS_CERT: '/c.pem', MINDECK_TLS_KEY: '/k.pem' })).toEqual({ cert: '/c.pem', key: '/k.pem' })
+    expect(() => tlsFilesFromEnv({ MINDECK_TLS_CERT: '/c.pem' })).toThrow('MINDECK_TLS_KEY')
+    expect(() => tlsFilesFromEnv({ MINDECK_TLS_KEY: '/k.pem' })).toThrow('MINDECK_TLS_CERT')
   })
 
   it('`pair` prints a code without starting anything', async () => {
@@ -489,6 +496,23 @@ describe('standalone server entry', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Code: {2}[A-Z2-9]{4}-[A-Z2-9]{4} {3}\(valid 10 minutes, one use\)/))
     expect(await run(['pair', '--admin'], {})).toBeNull()
     expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining('one use, admin device'))
+    expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining('Open:  http://127.0.0.1:7420'))
+  })
+
+  it('serves the network over HTTPS and names the certificate in the banner', async () => {
+    // Before the first start there is no certificate to name yet.
+    expect(await run(['pair'], { MINDECK_LAN: '1' })).toBeNull()
+    expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining('Open:  https://127.0.0.1:7420'))
+    expect(console.log).toHaveBeenLastCalledWith(expect.not.stringContaining('Certificate SHA-256'))
+
+    const c = (await run([], { MINDECK_PORT: '0', MINDECK_LAN: '1' }))!
+    cores.push(c)
+    const tls = c.server.status().tls!
+    expect(tls).toMatchObject({ selfSigned: true })
+    expect(c.server.status().urls[0]).toMatch(/^https:\/\/127\.0\.0\.1:/)
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining(`Certificate SHA-256:\n  │    ${tls.fingerprint}`))
+    expect(await run(['pair'], { MINDECK_LAN: '1' })).toBeNull()
+    expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining(tls.fingerprint))
   })
 
   it('starts, prints a pairing code while no device is paired, serves the API', async () => {

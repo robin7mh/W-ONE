@@ -171,11 +171,26 @@ function RemoteCard() {
         </ul>
       )}
       {s.server?.error && <p className="mt-1 font-mono text-[11px] text-danger">{s.server.error}</p>}
+      {s.server?.tls && (
+        <div className="mt-2">
+          <TechLabel className="text-text-muted">{t.settings.certificate}</TechLabel>
+          <p className="break-all font-mono text-[10.5px] text-text-secondary">{s.server.tls.fingerprint}</p>
+          <p className="font-mono text-[10px] text-text-muted">
+            {(s.server.tls.selfSigned ? t.settings.certificateSelfSigned : t.settings.certificateOwn)(new Date(s.server.tls.expiresAt).toLocaleDateString())}
+          </p>
+        </div>
+      )}
 
       {cfg && editable && (
         <div className="mt-3 border-t border-hud/40 pt-2">
           <Toggle label={t.settings.runServer} hint={t.settings.runServerHint} checked={cfg.enabled} disabled={s.busy} onChange={(v) => void s.configureServer({ enabled: v })} />
           <Toggle label={t.settings.lan} hint={t.settings.lanHint} checked={cfg.lan} disabled={s.busy || !cfg.enabled} onChange={(v) => void s.configureServer({ lan: v })} />
+          <Toggle label={t.settings.tls} hint={t.settings.tlsHint} checked={cfg.tls} disabled={s.busy || !cfg.enabled || !cfg.lan} onChange={(v) => void s.configureServer({ tls: v })} />
+          {cfg.lan && !cfg.tls && (
+            <p className="mb-1 flex items-start gap-1.5 font-sans text-[11.5px] text-amber">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {t.settings.tlsOff}
+            </p>
+          )}
           <Toggle label={t.settings.shells} hint={t.settings.shellsHint} checked={cfg.remoteTerminal} disabled={s.busy} onChange={(v) => void s.configureServer({ remoteTerminal: v })} />
           <label className="mt-1 flex items-center gap-2">
             <TechLabel className="text-text-muted">{t.settings.port}</TechLabel>
@@ -224,6 +239,13 @@ function RemoteCard() {
                 <>
                   <p className="font-sans text-[12px] text-text-secondary">{t.settings.pairingHint}</p>
                   <p className="break-all font-mono text-[11px] text-cyan">{s.pairing.url}</p>
+                  {/* The link names the certificate: the phone's browser will warn about it. */}
+                  {s.pairing.url.includes('&fp=') && (
+                    <>
+                      <p className="font-sans text-[11.5px] text-text-secondary">{t.settings.pairingTls}</p>
+                      <p className="break-all font-mono text-[10.5px] text-text-primary">{s.pairing.fingerprint}</p>
+                    </>
+                  )}
                 </>
               ) : (
                 <p className="font-sans text-[12px] text-amber">{t.settings.pairingLocalOnly}</p>

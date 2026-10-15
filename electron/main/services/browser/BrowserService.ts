@@ -319,12 +319,14 @@ export class BrowserService {
     this.activeId = (this.restorable ? undefined : activeId) ?? this.tabs[0].id
     this.closed = (Array.isArray(saved?.closed) ? (saved.closed as Partial<ClosedTab>[]) : [])
       .filter((c) => typeof c?.url === 'string' && c.url && typeof c.index === 'number')
+      // An agent's closed tab reopens in the agents' container, never in the user's profile.
       .map((c) => ({
         url: c.url!,
         title: typeof c.title === 'string' ? c.title : '',
         index: c.index!,
         pinned: c.pinned === true,
         nav: cleanNav(c.nav),
+        ...(c.profile === 'agents' ? { profile: 'agents' as const } : {}),
         ...(typeof c.groupId === 'string' ? { groupId: c.groupId } : {})
       }))
       .slice(0, MAX_CLOSED)
@@ -360,6 +362,8 @@ export class BrowserService {
     for (const respond of this.authResponders.values()) respond(null)
     this.authResponders.clear()
     this.auth = []
+    // No pages, no filter-list downloads in the background (macOS keeps running without a window).
+    this.adblock.stop()
     this.extensions.detach()
     this.changed()
   }
@@ -387,6 +391,7 @@ export class BrowserService {
         if (id !== this.activeId && this.arrangement.partner(this.activeId) === id) this.activate(id)
         this.deps.publish('browser:command', { command: 'focused' })
       },
+      workspaceKey: (key) => this.deps.publish('browser:command', { command: 'workspaceKey', key }),
       command: (id, command, arg) => this.lookup(id) && this.onCommand(id, command, arg),
       permission: (ask, respond) => this.onPermission(ask, respond),
       permissionCheck: (origin, kind) => this.sites[origin]?.permissions?.[kind] === true,
@@ -492,7 +497,11 @@ export class BrowserService {
     this.tabs.splice(index, 1)
     this.arrangement.prune()
     this.forget(id)
-    if (tab.profile === 'private' && !this.tabs.some((t) => t.profile === 'private')) this.host?.clearPrivate()
+    if (tab.profile === 'private' && !this.tabs.some((t) => t.profile === 'private')) {
+      this.host?.clearPrivate()
+      // The last private tab closed: its downloads leave the list (the files stay where they were saved).
+      this.downloads = this.downloads.filter((d) => !d.private)
+    }
     if (this.activeId === id) this.activeId = partner ?? (this.tabs[index] ?? this.tabs[index - 1])?.id
     if (!this.tabs.length) {
       const fresh = this.model({ url: '' })
@@ -1615,7 +1624,7 @@ export class BrowserService {
       groups: [...groups, ...(pending?.groups ?? [])],
       splits: [...splits, ...(pending?.splits ?? [])],
       closed: this.closed,
-      downloads: this.downloads
+      downloads: this.downloads.filter((d) => !d.private)
     }
     await writeAtomic(this.file('session.json'), JSON.stringify(data), 0o600).catch((err) => console.error('[browser] saving the session failed', err))
   }
