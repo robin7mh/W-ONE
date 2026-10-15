@@ -37,9 +37,14 @@ function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
 }
 
+/** Page text can't close (or open) the wrapper it travels in: such a tag's `<` reaches the model as `&lt;`. */
+export function inert(text: string): string {
+  return text.replace(/<\s*(\/?)\s*(untrusted_web_content)/gi, '&lt;$1$2')
+}
+
 /** Web content goes to the model as data, never as instructions (architecture §9). */
 function untrusted(t: BrowserTab, body: string): string {
-  return `<untrusted_web_content origin="${t.url}">\n${body}\n</untrusted_web_content>`
+  return `<untrusted_web_content origin="${inert(t.url).replace(/"/g, '%22')}">\n${inert(body)}\n</untrusted_web_content>`
 }
 
 const who = (ctx: ToolContext) => ctx.agent ?? 'Agent'
@@ -87,14 +92,14 @@ export function browserTools(browser: BrowserAgentApi): ToolDefinition<never>[] 
     const shot = await (await browser.automation(t.id)).capture()
     browser.noteAgent(t.id, who(ctx), 'screenshot')
     return [
-      { type: 'text', text: `${t.title || '(untitled)'} — ${t.url} (${shot.width}×${shot.height})` },
+      { type: 'text', text: `${inert(t.title) || '(untitled)'} — ${inert(t.url)} (${shot.width}×${shot.height})` },
       { type: 'image', data: shot.png, mimeType: 'image/png' }
     ]
   }
 
   const after = (t: BrowserTab) => {
     const now = browser.agentTabs().find((x) => x.id === t.id) ?? t
-    return `Page now: ${now.title || '(untitled)'} — ${now.url}${now.error ? ` (failed to load: ${now.error.description})` : ''}`
+    return `Page now: ${inert(now.title) || '(untitled)'} — ${inert(now.url)}${now.error ? ` (failed to load: ${now.error.description})` : ''}`
   }
 
   const tools = [
@@ -112,7 +117,7 @@ export function browserTools(browser: BrowserAgentApi): ToolDefinition<never>[] 
           return 'No tabs are shared with agents. Open a page with browser_open, or ask the user to share a tab (the eye icon in the Mindeck browser).'
         }
         return tabs
-          .map((t) => `- [${t.id}] ${t.title || '(untitled)'} — ${t.url}${t.loading ? ' (loading)' : ''}${t.openedBy ? ` · opened by ${t.openedBy}` : ''}`)
+          .map((t) => `- [${t.id}] ${inert(t.title) || '(untitled)'} — ${inert(t.url)}${t.loading ? ' (loading)' : ''}${t.openedBy ? ` · opened by ${t.openedBy}` : ''}`)
           .join('\n')
       }
     } satisfies ToolDefinition<Record<string, never>>,
