@@ -44,6 +44,10 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     if (key === 'r') return 'hardReload'
     if (key === 'a') return 'tabSearch'
     if (key === 'b') return 'bookmarksBar'
+    if (key === 'g') return 'newGroup'
+    if (key === 'd') return 'split'
+    // Edge's key for vertical tabs: ⌘⇧, — whatever ⇧ makes of the comma key on this layout.
+    if (input.code === 'Comma' || key === ',' || key === '<') return 'verticalTabs'
     if (!mac && key === 'o') return 'bookmarkManager'
     if (!mac && key === 'i') return 'devtools'
     if (key === '+' || key === '=') return 'zoomIn'

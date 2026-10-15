@@ -192,6 +192,30 @@ describe('Workspace', () => {
     expect(s().zen).toBe(true)
   })
 
+  it('⌘W / Ctrl+W closes the pane — unless the module in it closed something of its own', async () => {
+    installBridge({}, 'linux')
+    useWorkspace.setState({ layout: makeLayout('columns', ['core', 'terminal']) })
+    render(
+      <>
+        <Workspace render={draw} keep={[]} />
+        <input data-testid="own" onKeyDown={(e) => e.preventDefault()} />
+      </>
+    )
+    const close = async (init: KeyboardEventInit, target: Element = document.body) => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
+      await act(() => new Promise((r) => setTimeout(r)))
+    }
+    expect(s().layout.panes).toHaveLength(2)
+    await close({ key: 'w', ctrlKey: true }, screen.getByTestId('own')) // the module's own tab
+    expect(s().layout.panes).toHaveLength(2)
+    await close({ key: 'w', ctrlKey: true, altKey: true })
+    await close({ key: 'w', metaKey: true })
+    await close({ key: 'w', ctrlKey: true, isComposing: true })
+    expect(s().layout.panes).toHaveLength(2)
+    await close({ key: 'W', ctrlKey: true })
+    expect(s().layout.panes).toHaveLength(1)
+  })
+
   it('elsewhere leaves Ctrl+\\ to a terminal (SIGQUIT)', () => {
     installBridge({}, 'linux')
     render(
