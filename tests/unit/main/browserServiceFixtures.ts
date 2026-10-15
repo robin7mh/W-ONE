@@ -13,7 +13,7 @@ export function fakeHost() {
   return {
     create: vi.fn(),
     destroy: vi.fn(),
-    navigation: vi.fn((): TabNavigation | undefined => undefined),
+    navigation: vi.fn((_id: string): TabNavigation | undefined => undefined),
     load: vi.fn(),
     go: vi.fn(),
     show: vi.fn(),

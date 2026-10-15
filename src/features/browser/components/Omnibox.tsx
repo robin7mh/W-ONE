@@ -5,16 +5,20 @@ import type { BrowserSuggestion, BrowserTab } from '@shared/types/browser'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { useOverlay } from '@/lib/overlay'
+import { findByUrl } from '../library'
 import { useBrowser } from '../store'
-import { displayUrl, inlineCompletion, security } from '../url'
+import { displayUrl, inlineCompletion, security, withSuggestions } from '../url'
 
 const SECURITY_ICON = { secure: Lock, insecure: ShieldAlert, local: Laptop, file: FileText, none: Search }
 const KIND_ICON = { navigate: Globe, search: Search, history: Clock, tab: AppWindow, bookmark: Star, suggestion: Search }
+/** The search engine is asked once typing pauses this long. */
+const SUGGEST_DELAY_MS = 150
 
 /**
  * The address bar: an address or search words, with suggestions from the
- * open tabs and the history, and Chrome's inline completion ("git" →
- * "github.com"). While not editing it shows where the tab is.
+ * open tabs, bookmarks, the history and the search engine, and Chrome's
+ * inline completion ("git" → "github.com"). While not editing it shows where
+ * the tab is — and a star to bookmark it (⌘D).
  */
 export function Omnibox({ tab }: { tab?: BrowserTab }) {
   const t = useT()
@@ -28,6 +32,14 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
   const [index, setIndex] = useState(-1)
   const open = editing && items.length > 0
   useOverlay(open)
+  const bookmarked = useBrowser((s) => !!tab?.url && !!findByUrl(s.bookmarks, tab.url))
+  const remote = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // The engine's suggestions join below the first line — unless one is picked already (nothing moves under the arrows).
+  const picked = useRef(-1)
+  useEffect(() => {
+    picked.current = index
+  }, [index])
+  useEffect(() => () => clearTimeout(remote.current), [])
 
   // ⌘L / ⌘T / a new tab: into the bar, everything selected.
   useEffect(() => {
@@ -64,15 +76,25 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
 
   const suggest = async (text: string, grew: boolean) => {
     const mine = ++seq.current
+    clearTimeout(remote.current)
     const list = text.trim() ? await ipc('browser:suggest', { text }).catch(() => [] as BrowserSuggestion[]) : []
     if (mine !== seq.current) return
     setItems(list)
     setIndex(-1)
     const inline = grew ? inlineCompletion(text, list) : null
     setCompletion(inline && inline.value.length > text.length ? { suffix: inline.value.slice(text.length), url: inline.url } : null)
+    if (list.length) remote.current = setTimeout(() => void ask(text, mine), SUGGEST_DELAY_MS)
+  }
+
+  /** What the search engine suggests (when the user allows it), once typing paused. */
+  const ask = async (text: string, mine: number) => {
+    const extra = await ipc('browser:searchSuggest', { text }).catch(() => [] as BrowserSuggestion[])
+    if (mine !== seq.current || !extra.length || picked.current >= 0) return
+    setItems((list) => withSuggestions(list, extra))
   }
 
   const reset = () => {
+    clearTimeout(remote.current)
     seq.current += 1
     setItems([])
     setIndex(-1)
@@ -167,6 +189,17 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
           onKeyDown={onKeyDown}
           className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text-primary outline-none placeholder:font-sans placeholder:text-text-muted"
         />
+        {!editing && tab && /^(https?|file):/i.test(tab.url) && (
+          <button
+            type="button"
+            aria-label={bookmarked ? t.library.starred : t.library.star}
+            title={bookmarked ? t.library.starred : t.library.star}
+            onClick={() => void useBrowser.getState().bookmarkActive()}
+            className={cn('shrink-0 rounded p-0.5 transition-colors hover:bg-elevated', bookmarked ? 'text-amber' : 'text-text-muted hover:text-amber')}
+          >
+            <Star size={13} className={bookmarked ? 'fill-current' : undefined} />
+          </button>
+        )}
       </div>
       {open && (
         <ul
@@ -189,9 +222,9 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
                   i === index ? 'bg-cyan/10' : 'hover:bg-elevated/50'
                 )}
               >
-                <ItemIcon size={13} className={cn('shrink-0', s.kind === 'tab' ? 'text-purple' : 'text-text-muted')} />
-                <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] text-text-primary">{s.kind === 'search' ? s.title : s.title || displayUrl(s.url)}</span>
-                {s.kind !== 'search' && <span className="max-w-[45%] truncate font-mono text-[11px] text-text-muted">{displayUrl(s.url)}</span>}
+                <ItemIcon size={13} className={cn('shrink-0', s.kind === 'tab' ? 'text-purple' : s.kind === 'bookmark' ? 'text-amber' : 'text-text-muted')} />
+                <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] text-text-primary">{s.kind === 'search' || s.kind === 'suggestion' ? s.title : s.title || displayUrl(s.url)}</span>
+                {s.kind !== 'search' && s.kind !== 'suggestion' && <span className="max-w-[45%] truncate font-mono text-[11px] text-text-muted">{displayUrl(s.url)}</span>}
               </li>
             )
           })}
