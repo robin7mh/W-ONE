@@ -521,6 +521,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       search.dispose()
       notebooks.dispose()
       terminal.killAll()
+      await terminal.saved()
       await browser.dispose()
       await controller.stop()
       await eventLog.flush()

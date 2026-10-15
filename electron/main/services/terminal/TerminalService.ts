@@ -124,6 +124,8 @@ export class TerminalService {
   private limit: number
   /** The integration scripts are written once per run; false: they couldn't be. */
   private scripts?: Promise<boolean>
+  /** Saves of the tabs still being written (the window's last one arrives while Mindeck quits). */
+  private readonly writing = new Set<Promise<unknown>>()
 
   constructor(
     private readonly opts: {
@@ -222,8 +224,18 @@ export class TerminalService {
    */
   async persist(snapshot: TerminalSnapshot): Promise<void> {
     const file = join(this.opts.dir, 'terminals.json')
-    if (!this.settings().restore) return rm(file, { force: true })
-    await writeAtomic(file, JSON.stringify(snapshot), 0o600)
+    const write = this.settings().restore ? writeAtomic(file, JSON.stringify(snapshot), 0o600) : rm(file, { force: true })
+    this.writing.add(write)
+    try {
+      await write
+    } finally {
+      this.writing.delete(write)
+    }
+  }
+
+  /** Once the saves under way are on disk (or failed — persist's caller hears of that): a quit waits for them. */
+  async saved(): Promise<void> {
+    await Promise.allSettled([...this.writing])
   }
 
   /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */
