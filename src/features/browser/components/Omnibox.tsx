@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { AppWindow, Clock, FileText, Globe, Laptop, Lock, Search, ShieldAlert } from 'lucide-react'
+import { AppWindow, Boxes, Clock, FileText, Globe, Laptop, Lock, Search, ShieldAlert, VenetianMask } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { BrowserSuggestion, BrowserTab } from '@shared/types/browser'
 import { cn } from '@/lib/cn'
@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n'
 import { useOverlay } from '@/lib/overlay'
 import { useBrowser } from '../store'
 import { displayUrl, inlineCompletion, security } from '../url'
+import { ShieldButton } from './Protection'
 
 const SECURITY_ICON = { secure: Lock, insecure: ShieldAlert, local: Laptop, file: FileText, none: Search }
 const KIND_ICON = { navigate: Globe, search: Search, history: Clock, tab: AppWindow }
@@ -124,6 +125,16 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
           editing ? 'border-cyan/50 bg-surface' : 'border-hud/60 bg-surface/50 hover:border-hud-strong/70'
         )}
       >
+        {tab?.profile === 'private' && (
+          <span title={t.browserExtras.privateHint} className="flex shrink-0 items-center gap-1 rounded bg-purple/15 px-1.5 py-0.5 font-sans text-[10.5px] text-purple">
+            <VenetianMask size={12} aria-hidden /> {t.browserExtras.privateTab}
+          </span>
+        )}
+        {tab?.profile === 'agents' && (
+          <span title={t.browserExtras.agentsContainer} aria-label={t.browserExtras.agentsContainer} className="shrink-0 text-purple">
+            <Boxes size={13} aria-hidden />
+          </span>
+        )}
         <span title={iconTitle} className={cn('shrink-0', kind === 'insecure' ? 'text-amber' : kind === 'secure' ? 'text-green' : 'text-text-muted')}>
           <Icon size={13} aria-hidden />
         </span>
@@ -167,6 +178,7 @@ export function Omnibox({ tab }: { tab?: BrowserTab }) {
           onKeyDown={onKeyDown}
           className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text-primary outline-none placeholder:font-sans placeholder:text-text-muted"
         />
+        {tab && !editing && <ShieldButton tab={tab} />}
       </div>
       {open && (
         <ul

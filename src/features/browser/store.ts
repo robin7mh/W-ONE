@@ -24,6 +24,7 @@ interface BrowserStore {
   /** Bumped to put the keyboard focus into the address bar. */
   focusTick: number
   downloadsOpen: boolean
+  extensionsOpen: boolean
   error?: string
   /** Push events → this store; `handlers` take the browser's requests to the rest of the app. */
   connect(next: BrowserHandlers): () => void
@@ -32,14 +33,16 @@ interface BrowserStore {
   run<K extends IpcChannel>(channel: K, ...args: IpcChannels[K]['request'] extends void ? [] : [IpcChannels[K]['request']]): Promise<IpcChannels[K]['response'] | undefined>
   /** From anywhere in Mindeck: open `url` in a tab and bring the browser up. */
   show(url: string): Promise<void>
-  /** A new tab with the new-tab page, the address bar ready. */
-  newTab(): Promise<void>
+  /** A new tab with the new-tab page, the address bar ready (`private`: a private tab). */
+  newTab(opts?: { private?: boolean }): Promise<void>
   /** Load what was typed (an address or search words) in the tab on screen. */
   go(input: string): Promise<void>
   /** Share the tab on screen with agents and start a chat about it. */
   sendToAgent(): Promise<void>
   setFindOpen(open: boolean): void
   toggleDownloads(): void
+  /** The extension manager beside the page (it takes the downloads' place). */
+  toggleExtensions(): void
   clearError(): void
 }
 
@@ -59,6 +62,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     findOpen: false,
     focusTick: 0,
     downloadsOpen: false,
+    extensionsOpen: false,
 
     connect: (next) => {
       handlers = next
@@ -95,8 +99,8 @@ export const useBrowser = create<BrowserStore>((set, get) => {
       if (tab) handlers?.reveal()
     },
 
-    newTab: async () => {
-      await get().run('browser:open', {})
+    newTab: async (opts = {}) => {
+      await get().run('browser:open', opts.private ? { private: true } : {})
       set((s) => ({ focusTick: s.focusTick + 1 }))
     },
 
@@ -120,6 +124,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     },
 
     toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen })),
+    toggleExtensions: () => set((s) => ({ extensionsOpen: !s.extensionsOpen, downloadsOpen: false })),
     clearError: () => set({ error: undefined })
   }
 })

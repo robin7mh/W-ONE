@@ -7,6 +7,7 @@ import { useOverlays } from '@/lib/overlay'
 import { useActiveTab, useBrowser } from '../store'
 import { hostOf, security } from '../url'
 import { NewTabPage } from './NewTabPage'
+import { AuthDialog, DangerPage, PrivateTabPage } from './Protection'
 
 /** Net errors that mean "nothing answers there (yet)" — on this machine, a dev server still starting. */
 const NOT_UP_YET = new Set([-102, -100, -101, -324, -7, -21])
@@ -133,10 +134,11 @@ export function Viewport({ active }: { active: boolean }) {
 
   return (
     <div ref={ref} className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-surface/30" data-testid="browser-viewport">
-      {tab && !tab.url && <NewTabPage />}
-      {tab?.error && <ErrorPage tab={tab} />}
+      {tab && !tab.url && (tab.profile === 'private' ? <PrivateTabPage /> : <NewTabPage />)}
+      {tab?.error && (tab.error.danger ? <DangerPage tab={tab} /> : <ErrorPage tab={tab} />)}
       {tab?.crashed && !tab.error && <CrashPage tab={tab} />}
       {shot && <img src={shot} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-fill" />}
+      {active && <AuthDialog tabId={tab?.id} />}
     </div>
   )
 }

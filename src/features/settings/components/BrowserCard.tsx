@@ -5,6 +5,7 @@ import { SEARCH_ENGINES, type BrowserSettings, type SearchEngine } from '@shared
 import { Card } from '@/components/ui/Card'
 import { Select } from '@/components/ui/Select'
 import { useT } from '@/lib/i18n'
+import { BrowserExtrasSettings } from './BrowserExtrasSettings'
 import { Toggle } from './Toggle'
 
 const ENGINE_LABELS: Record<SearchEngine, string> = { google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', ecosia: 'Ecosia', brave: 'Brave Search', kagi: 'Kagi' }
@@ -36,6 +37,7 @@ export function BrowserCard() {
       <div className="mt-2">
         <Toggle label={t.settings.openLinks} hint={t.settings.openLinksHint} checked={settings.openLinksInMindeck} onChange={(v) => configure({ openLinksInMindeck: v })} />
       </div>
+      <BrowserExtrasSettings settings={settings} configure={configure} onChange={setSettings} />
       <button
         type="button"
         onClick={() =>
