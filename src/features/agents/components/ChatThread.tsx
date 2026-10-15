@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { AlertTriangle, Ban, BookOpen, ChevronRight, Globe, Loader2, PencilLine, TerminalSquare, User, Wrench } from 'lucide-react'
-import type { ApprovalDecision, ChatMessage, PermissionRequest, ToolCallPart } from '@shared/types/ai'
+import { AlertTriangle, Ban, BookOpen, BookText, ChevronRight, FileText, Folder, Globe, Image, Loader2, PencilLine, TerminalSquare, User, Wrench, type LucideIcon } from 'lucide-react'
+import type { ApprovalDecision, ChatMessage, MessageAttachment, PermissionRequest, ToolCallPart } from '@shared/types/ai'
 import { renderMarkdown } from '@/features/memory/markdown'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { useAssistant } from '../store'
 import { ApprovalCard } from './ApprovalCard'
+
+const ATTACHMENT_ICON: Record<MessageAttachment['kind'], LucideIcon> = { file: FileText, folder: Folder, note: BookText, tab: Globe, image: Image }
 
 const STATUS_TONE: Record<ToolCallPart['status'], string> = {
   pending: 'text-text-muted',
@@ -108,7 +110,20 @@ function Message({
             <User size={11} className="text-cyan" />
             <TechLabel className="text-text-muted">{t.agents.you}</TechLabel>
           </div>
-          <p className="whitespace-pre-wrap break-words font-sans text-[13px] text-text-primary">{text}</p>
+          {text && <p className="whitespace-pre-wrap break-words font-sans text-[13px] text-text-primary">{text}</p>}
+          {message.attachments && (
+            <ul aria-label={t.agents.attached} className="mt-1 flex flex-wrap gap-1">
+              {message.attachments.map((a, i) => {
+                const Icon = ATTACHMENT_ICON[a.kind]
+                return (
+                  <li key={i} className="flex max-w-[220px] items-center gap-1 rounded border border-cyan/25 px-1.5 py-0.5 font-mono text-[10.5px] text-text-secondary">
+                    <Icon size={10} className="shrink-0 text-cyan" />
+                    <span className="truncate">{a.label}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
       </div>
     )

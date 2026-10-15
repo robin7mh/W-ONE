@@ -222,6 +222,7 @@ describe('data & shared constants', () => {
       'sftp:progress',
       'remote:changed',
       'tests:changed',
+      'search:progress',
       'notebook:event',
       'browser:state',
       'browser:find',

@@ -49,6 +49,7 @@ import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
+import { registerSearchIpc } from '../../../electron/ipc/search.ipc'
 import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
 import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
 import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
@@ -273,7 +274,22 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
         ['scm:original', { projectId: 'p', path: 'a' }, 'original', ['p', 'a']],
         ['scm:files', { projectId: 'p' }, 'files', ['p']],
-        ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
+        ['scm:abort', { projectId: 'p' }, 'abort', ['p']],
+        ['scm:continue', { projectId: 'p' }, 'continue', ['p']],
+        ['scm:stashes', { projectId: 'p' }, 'stashes', ['p']],
+        ['scm:stash', { projectId: 'p', message: 'm', untracked: true }, 'stash', ['p', { message: 'm', untracked: true }]],
+        ['scm:applyStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pop: true }, 'applyStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', true]],
+        ['scm:dropStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'dropStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:stashFiles', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'stashFiles', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:blame', { projectId: 'p', path: 'a', text: 't' }, 'blame', ['p', 'a', 't']]
+      ]
+    ],
+    [
+      'search',
+      registerSearchIpc,
+      [
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
       ]
     ],
     [
@@ -440,7 +456,11 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['agents:list', undefined, 'list', []],
         ['agents:get', { id: 'i' }, 'get', ['i']],
         ['agents:create', { kind: 'claude-code', projectId: 'p', isolated: true }, 'create', [{ kind: 'claude-code', projectId: 'p', isolated: true }]],
-        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi']],
+        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi', {}]],
+        ['agents:send', { id: 'i', text: '', refs: [{ kind: 'file', path: 'a.ts' }] }, 'send', ['i', '', { refs: [{ kind: 'file', path: 'a.ts' }] }]],
+        ['agents:configure', { id: 'i', model: 'opus' }, 'configure', ['i', { model: 'opus' }]],
+        ['agents:pushSettings', undefined, 'settings', []],
+        ['agents:setPushSettings', { enabled: false }, 'configure', [false]],
         ['agents:interrupt', { id: 'i' }, 'interrupt', ['i']],
         ['agents:stop', { id: 'i' }, 'stop', ['i']],
         ['agents:resume', { id: 'i' }, 'resume', ['i']],
@@ -455,7 +475,8 @@ describe('ipc handler modules bind every channel to its service', () => {
   ] as const)('%s', async (_name, register, cases) => {
     const service = spyService()
     const router = new Router()
-    ;(register as (r: Router, s: unknown) => void)(router, service)
+    // Registrations with a second service (the agents' pushes) get the same spy.
+    ;(register as (r: Router, s: unknown, s2: unknown) => void)(router, service, service)
     for (const [channel, req, method, args] of cases) {
       expect(await router.dispatch(channel, req, { transport: 'ipc' })).toEqual({ ok: true, data: { method, args } })
     }
@@ -480,7 +501,8 @@ describe('paths', () => {
         eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
         runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
         agentsDir: join(home, 'Mindeck', 'data', 'agents'),
-        worktreesDir: join(home, 'Mindeck', 'worktrees')
+        worktreesDir: join(home, 'Mindeck', 'worktrees'),
+        logsDir: join(home, 'Mindeck', 'logs')
       })
       // Data from before the rename: used where it is.
       await mkdir(join(home, 'W-ONE'))

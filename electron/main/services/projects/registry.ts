@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Project } from '@shared/types/project'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 
 /**
@@ -19,13 +19,9 @@ export class ProjectRegistry {
 
   async load(): Promise<void> {
     if (this.loaded) return
-    try {
-      const raw = await readFile(this.file, 'utf8')
-      const parsed = JSON.parse(raw)
-      this.projects = Array.isArray(parsed?.projects) ? parsed.projects : []
-    } catch {
-      this.projects = [] // missing/corrupt file → start empty
-    }
+    // Missing/damaged file → start empty (a damaged one is set aside, see readJson).
+    const parsed = await readJson<{ projects?: Project[] }>(this.file)
+    this.projects = Array.isArray(parsed?.projects) ? parsed.projects : []
     this.loaded = true
   }
 
