@@ -352,7 +352,8 @@ describe('ipc handler modules bind every channel to its service', () => {
           { projectId: 'p', path: 'a.ts', range: { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, errorCodes: [2304] },
           'codeFixes',
           ['p', 'a.ts', { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, [2304]]
-        ]
+        ],
+        ['lsp:symbols', { projectId: 'p', path: 'a.py' }, 'symbols', ['p', 'a.py']]
       ]
     ],
     [
