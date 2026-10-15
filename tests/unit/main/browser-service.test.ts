@@ -18,7 +18,7 @@ function fakeHost() {
     go: vi.fn(),
     show: vi.fn(),
     setBounds: vi.fn(),
-    freeze: vi.fn(async () => 'data:image/jpeg;base64,x'),
+    freeze: vi.fn(async (): Promise<Record<string, string> | null> => ({ t: 'data:image/jpeg;base64,x' })),
     unfreeze: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
@@ -385,6 +385,12 @@ describe('BrowserService · tools, menus and suggestions', () => {
       'Ton aus',
       'Für Agents freigeben',
       'Im System-Browser öffnen',
+      '—',
+      'Zu neuer Gruppe hinzufügen',
+      '—',
+      'Mit neuem Tab teilen',
+      '—',
+      'Vertikale Tabs',
       '—',
       'Tab schließen',
       'Andere Tabs schließen'
@@ -770,7 +776,7 @@ describe('BrowserService · the rest of the way', () => {
   it('freezes the visible page for menus, opens links in new tabs, and shows a tab it is asked to', async () => {
     const { b, host, events, ids } = await setup()
     b.attach(host)
-    await expect(b.freeze()).resolves.toBe('data:image/jpeg;base64,x')
+    await expect(b.freeze()).resolves.toEqual({ t: 'data:image/jpeg;base64,x' })
     b.unfreeze()
     expect(host.unfreeze).toHaveBeenCalled()
     const first = b.open({ url: 'https://a.dev/' })

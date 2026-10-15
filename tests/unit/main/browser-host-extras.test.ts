@@ -315,6 +315,31 @@ describe('the browser host · profiles, fullscreen, media, logins', () => {
     expect(b.visible).toBe(true)
   })
 
+  it('in a split view, puts only the one page in fullscreen — switching sides keeps it there', () => {
+    const { host, open } = setup()
+    const a = open('a')
+    const b = open('b')
+    open('c')
+    const panes = [
+      { id: 'a', bounds: { x: 0, y: 0, width: 400, height: 600 } },
+      { id: 'b', bounds: { x: 406, y: 0, width: 400, height: 600 } }
+    ]
+    host.setBounds({ x: 0, y: 0, width: 806, height: 600 }, true, panes)
+    host.show('a', 'b')
+    b.webContents.emit('enter-html-full-screen')
+    expect(b.bounds).toEqual({ x: 0, y: 0, width: 1440, height: 900 })
+    expect([a.visible, b.visible]).toEqual([false, true])
+    // the focus moves to the other side of the split: the page stays in fullscreen
+    host.show('b', 'a')
+    expect(b.webContents.executeJavaScript).not.toHaveBeenCalled()
+    // another tab altogether: it leaves fullscreen
+    host.show('c')
+    expect(b.webContents.executeJavaScript).toHaveBeenCalledWith('document.fullscreenElement && document.exitFullscreen()', true)
+    b.webContents.emit('leave-html-full-screen')
+    host.show('a', 'b')
+    expect(b.bounds).toEqual(panes[1].bounds)
+  })
+
   it('reports media playing, hides ads with a user style sheet, and asks for logins', async () => {
     const { open, ev } = setup()
     const a = open('a')

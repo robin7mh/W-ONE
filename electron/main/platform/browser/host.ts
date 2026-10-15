@@ -12,7 +12,7 @@ import {
   type WebContents,
   type WindowOpenHandlerResponse
 } from 'electron'
-import type { BrowserGo, BrowserProfile, ViewBounds } from '@shared/types/browser'
+import type { BrowserGo, BrowserPane, BrowserProfile, ViewBounds } from '@shared/types/browser'
 import { labels } from '../../services/browser/labels'
 import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry, TabNavigation } from '../../services/browser/types'
 import { ExtensionPopup, loadExtension, unloadExtension } from './extensions'
@@ -53,11 +53,11 @@ export function pipScript(x: number, y: number): string {
 
 /** Native menu items from the core's entries. */
 export function menuTemplate(entries: MenuEntry[]): MenuItemConstructorOptions[] {
-  return entries.map((e) =>
-    'separator' in e
-      ? { type: 'separator' }
-      : { label: e.label, enabled: e.enabled ?? true, click: () => e.run(), ...(e.checked !== undefined ? { type: 'checkbox', checked: e.checked } : {}) }
-  )
+  return entries.map((e): MenuItemConstructorOptions => {
+    if ('separator' in e) return { type: 'separator' }
+    if (e.submenu) return { label: e.label, enabled: e.enabled ?? true, submenu: menuTemplate(e.submenu) }
+    return { label: e.label, enabled: e.enabled ?? true, click: () => e.run(), ...(e.checked !== undefined ? { type: 'checkbox', checked: e.checked } : {}) }
+  })
 }
 
 /**
@@ -66,8 +66,9 @@ export function menuTemplate(entries: MenuEntry[]): MenuItemConstructorOptions[]
  * a private tab's in-memory one, or the agents' container) — sandboxed, no
  * preload, no Node, nothing of Mindeck's bridge. Views sit on top of the UI;
  * the renderer tells where (`setBounds`) and freezes them as a picture while
- * its own menus or dialogs cover that area. A page in HTML fullscreen (a
- * video) covers the whole window until Escape.
+ * its own menus or dialogs cover that area. In a split two views are on
+ * screen, each in its own pane. A page in HTML fullscreen (a video) covers
+ * the whole window until Escape.
  */
 export class ElectronBrowserHost implements BrowserHost {
   private readonly views = new Map<string, WebContentsView>()
@@ -78,6 +79,10 @@ export class ElectronBrowserHost implements BrowserHost {
   private readonly saveAs = new Set<string>()
   private readonly extensionPopup: ExtensionPopup
   private shown?: string
+  /** The other page of a split on screen. */
+  private beside?: string
+  /** Where the pages of a split go, by tab. */
+  private panes = new Map<string, ViewBounds>()
   /** The tab whose page is in HTML fullscreen. */
   private fullscreen?: string
   private bounds: ViewBounds | null = null
@@ -178,28 +183,34 @@ export class ElectronBrowserHost implements BrowserHost {
     else c.stop()
   }
 
-  show(tabId: string | undefined): void {
+  show(tabId: string | undefined, beside?: string): void {
     // Another tab comes up: the fullscreen page leaves fullscreen.
-    if (this.fullscreen && this.fullscreen !== tabId) this.exitFullscreen(this.fullscreen)
+    if (this.fullscreen && this.fullscreen !== tabId && this.fullscreen !== beside) this.exitFullscreen(this.fullscreen)
     this.shown = tabId
+    this.beside = beside
     this.layout()
   }
 
-  setBounds(bounds: ViewBounds | null, focused = true): void {
+  setBounds(bounds: ViewBounds | null, focused = true, panes: BrowserPane[] = []): void {
     this.bounds = bounds
     this.keys = focused
+    this.panes = new Map(panes.map((p) => [p.id, p.bounds]))
     this.layout()
   }
 
-  async freeze(): Promise<string | null> {
-    const view = this.visible()
-    if (!view || this.frozen) return null
+  async freeze(): Promise<Record<string, string> | null> {
+    const views = this.visible()
+    if (!views.length || this.frozen) return null
     const seq = ++this.freezeSeq
-    const image = await view.webContents.capturePage()
-    if (seq !== this.freezeSeq || image.isEmpty()) return null
+    const images = await Promise.all(views.map(([, view]) => view.webContents.capturePage()))
+    if (seq !== this.freezeSeq || images.every((image) => image.isEmpty())) return null
     this.frozen = true
     this.layout()
-    return `data:image/jpeg;base64,${image.toJPEG(85).toString('base64')}`
+    const shots: Record<string, string> = {}
+    views.forEach(([id], i) => {
+      if (!images[i].isEmpty()) shots[id] = `data:image/jpeg;base64,${images[i].toJPEG(85).toString('base64')}`
+    })
+    return shots
   }
 
   unfreeze(): void {
@@ -305,18 +316,26 @@ export class ElectronBrowserHost implements BrowserHost {
     return undefined
   }
 
-  private visible(): WebContentsView | undefined {
-    return this.bounds && this.shown ? this.views.get(this.shown) : undefined
+  /** The tabs whose views are on screen: the shown one, and the one beside it once its pane is known. */
+  private onScreen(): string[] {
+    if (!this.bounds) return []
+    return [this.shown, this.beside && this.panes.has(this.beside) ? this.beside : undefined].filter((id): id is string => !!id && this.views.has(id))
+  }
+
+  private visible(): [string, WebContentsView][] {
+    return this.onScreen().map((id) => [id, this.views.get(id)!])
   }
 
   /**
-   * Every view gets the place (hidden ones too, so pictures of them have a size); only the shown one is visible.
-   * A page in fullscreen gets the whole window instead, over everything else.
+   * Every view gets the place (hidden ones too, so pictures of them have a size) — in a split, the
+   * pages on screen get their panes; only those are visible. A page in fullscreen gets the whole
+   * window instead, over everything else.
    */
   private layout(): void {
     const zoom = this.win.webContents.getZoomFactor()
-    const b = this.bounds ?? DEFAULT_BOUNDS
-    const rect = { x: Math.round(b.x * zoom), y: Math.round(b.y * zoom), width: Math.round(b.width * zoom), height: Math.round(b.height * zoom) }
+    const scale = (b: ViewBounds) => ({ x: Math.round(b.x * zoom), y: Math.round(b.y * zoom), width: Math.round(b.width * zoom), height: Math.round(b.height * zoom) })
+    const rect = scale(this.bounds ?? DEFAULT_BOUNDS)
+    const shown = new Set(this.onScreen())
     const full = this.fullscreen ? this.views.get(this.fullscreen) : undefined
     if (full) {
       const { width, height } = this.win.getContentBounds()
@@ -326,8 +345,9 @@ export class ElectronBrowserHost implements BrowserHost {
     }
     for (const [id, view] of this.views) {
       if (view === full) continue
-      view.setBounds(rect)
-      view.setVisible(!full && !!this.bounds && !this.frozen && id === this.shown)
+      const pane = shown.has(id) ? this.panes.get(id) : undefined
+      view.setBounds(pane ? scale(pane) : rect)
+      view.setVisible(!full && !this.frozen && shown.has(id))
     }
   }
 

@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
-import { SEARCH_ENGINES } from '@shared/types/browser'
+import { SEARCH_ENGINES, TAB_GROUP_COLORS, VERTICAL_TABS_WIDTH } from '@shared/types/browser'
 import { DEVICE_ROLES } from '@shared/types/server'
 import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
@@ -497,14 +497,14 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:navigate': z.object({ id, input: text(8192) }),
   'browser:go': z.object({ id, action: z.enum(['back', 'forward', 'reload', 'hardReload', 'stop']) }),
   'browser:update': z.object({ id, pinned: z.boolean().optional(), muted: z.boolean().optional(), shared: z.boolean().optional() }),
-  'browser:move': z.object({ id, index: z.number().int().min(0).max(10_000) }),
+  'browser:move': z.object({ id, index: z.number().int().min(0).max(10_000), groupId: id.nullable().optional() }),
   'browser:duplicate': z.object({ id }),
   'browser:reopen': none,
   'browser:zoom': z.object({ id, zoom: z.enum(['in', 'out', 'reset']) }),
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
   'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff', 'shield']) }),
-  'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional() }),
+  'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional(), panes: z.array(z.object({ id, bounds: viewBounds })).max(2).optional() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
   'browser:suggest': z.object({ text: text(2000) }),
@@ -525,7 +525,10 @@ export const REQUEST_SCHEMAS: Schemas = {
     askDownloadLocation: z.boolean().optional(),
     downloadDir: text(4096).optional(),
     searchSuggestions: z.boolean().optional(),
-    bookmarksBar: z.boolean().optional()
+    bookmarksBar: z.boolean().optional(),
+    verticalTabs: z.boolean().optional(),
+    verticalTabsWidth: z.number().int().min(VERTICAL_TABS_WIDTH.min).max(VERTICAL_TABS_WIDTH.max).optional(),
+    verticalTabsCollapsed: z.boolean().optional()
   }),
   'browser:ui': z.object({ theme: z.enum(['dark', 'light', 'system']), locale: z.enum(['de', 'en']) }),
   'browser:searchSuggest': z.object({ text: text(2000) }),
@@ -546,6 +549,13 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:importSources': none,
   'browser:import': z.object({ sourceId: text(4096).min(1), kinds: z.array(z.enum(['bookmarks', 'history', 'settings'])).min(1).max(3) }),
   'browser:restoreSession': z.object({ restore: z.boolean() }),
+  'browser:group': z.object({ ids: z.array(id).min(1).max(500), title: text(100).optional(), color: z.enum(TAB_GROUP_COLORS).optional() }),
+  'browser:groupUpdate': z.object({ id, title: text(100).optional(), color: z.enum(TAB_GROUP_COLORS).optional(), collapsed: z.boolean().optional() }),
+  'browser:ungroup': z.object({ id }),
+  'browser:groupClose': z.object({ id }),
+  'browser:split': z.object({ id, with: id.optional(), vertical: z.boolean().optional() }),
+  'browser:splitUpdate': z.object({ id, ratio: z.number().min(0).max(1).optional(), vertical: z.boolean().optional(), swap: z.boolean().optional() }),
+  'browser:unsplit': z.object({ id }),
 
   'finder:places': none,
   'finder:list': z

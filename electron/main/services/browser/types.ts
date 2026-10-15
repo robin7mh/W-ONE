@@ -2,6 +2,7 @@ import type {
   BrowserDownload,
   BrowserFind,
   BrowserGo,
+  BrowserPane,
   BrowserPermissionKind,
   BrowserProfile,
   TabError,
@@ -43,6 +44,9 @@ export type ShortcutAction =
   | 'tabSearch'
   | 'history'
   | 'bookmarkManager'
+  | 'verticalTabs'
+  | 'newGroup'
+  | 'split'
 
 export interface ConsoleEntry {
   level: 'debug' | 'info' | 'warning' | 'error'
@@ -52,8 +56,8 @@ export interface ConsoleEntry {
   at: string
 }
 
-/** One entry of a native menu. */
-export type MenuEntry = { label: string; enabled?: boolean; checked?: boolean; run: () => void } | { separator: true }
+/** One entry of a native menu (`submenu`: it opens these instead of running). */
+export type MenuEntry = { label: string; enabled?: boolean; checked?: boolean; run: () => void; submenu?: MenuEntry[] } | { separator: true }
 
 /** A page's request the user decides on (camera, notifications, another app, …). */
 export interface PermissionAsk {
@@ -106,13 +110,19 @@ export interface BrowserHost extends ExtensionHost {
   navigation(tabId: string): TabNavigation | undefined
   load(tabId: string, url: string): void
   go(tabId: string, action: BrowserGo): void
-  /** The view on screen (undefined: none — the new-tab page or an error page shows instead). */
-  show(tabId: string | undefined): void
-  /** Where views sit; null hides them all (the module is not on screen). */
-  /** `focused`: the browser's pane has the focus, so its keys work from the UI too. */
-  setBounds(bounds: ViewBounds | null, focused?: boolean): void
-  /** A picture of the visible view (data URL), which hides until `unfreeze`; null when none is visible. */
-  freeze(): Promise<string | null>
+  /**
+   * The view on screen (undefined: none — the new-tab page or an error page shows instead);
+   * `beside`: the other page of a split, on screen too once its pane is known.
+   */
+  show(tabId: string | undefined, beside?: string): void
+  /**
+   * Where views sit; null hides them all (the module is not on screen).
+   * `focused`: the browser's pane has the focus, so its keys work from the UI too.
+   * `panes`: in a split, where each of the two pages goes (else the page fills `bounds`).
+   */
+  setBounds(bounds: ViewBounds | null, focused?: boolean, panes?: BrowserPane[]): void
+  /** Pictures of the visible views (data URLs by tab), which hide until `unfreeze`; null when none is visible. */
+  freeze(): Promise<Record<string, string> | null>
   unfreeze(): void
   find(tabId: string, text: string, opts: { forward: boolean; next: boolean }): void
   stopFind(tabId: string): void

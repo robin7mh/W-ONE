@@ -12,13 +12,17 @@ import {
   type BrowserGo,
   type BrowserPermissionRequest,
   type BrowserProfile,
+  type BrowserPane,
   type BrowserSettings,
+  type BrowserSplit,
   type BrowserState,
   type BrowserSuggestion,
   type BrowserTab,
+  type BrowserTabGroup,
   type BrowserTool,
   type HistoryEntry,
   type TabError,
+  type TabGroupColor,
   type ViewBounds
 } from '@shared/types/browser'
 import {
@@ -36,6 +40,7 @@ import type { AppSettings } from '@shared/types/settings'
 import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { AdblockService, type RequestVerdict } from './adblock'
+import { savedGroups, savedSplits, TabArrangement } from './arrangement'
 import { BrowserBookmarks } from './bookmarks'
 import { drmFailure, needsDrm } from './drm'
 import { ExtensionService, type FetchResponse } from './extensions/ExtensionService'
@@ -43,7 +48,8 @@ import { browserRoots, type BrowserRoot } from './extensions/profiles'
 import { bareUrl, BrowserHistory } from './history'
 import { DevServerDetector } from './devServers'
 import { BrowserImporter, type ImportEnv } from './import'
-import { ENGINE_NAMES, labels } from './labels'
+import { arrangeMenu } from './arrangeMenu'
+import { ENGINE_NAMES, labels, type Labels } from './labels'
 import { parseNetscape, toNetscape } from './netscape'
 import { SearchSuggestions, type Fetch } from './suggestions'
 import type { AutomationTarget, BrowserHost, BrowserHostEvents, ConsoleEntry, LoginAsk, MenuEntry, PermissionAsk, ShortcutAction, TabNavigation } from './types'
@@ -110,9 +116,10 @@ interface Tab {
   drmOff?: string
   /** The address the malware list stopped. */
   danger?: string
+  groupId?: string
 }
 
-type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy' | 'nav' | 'profile'>>
+type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy' | 'nav' | 'profile' | 'groupId'>>
 
 interface ClosedTab {
   url: string
@@ -121,6 +128,8 @@ interface ClosedTab {
   pinned: boolean
   nav?: TabNavigation
   profile?: BrowserProfile
+  /** The group it was in — it goes back there if the group is still open. */
+  groupId?: string
 }
 
 interface SiteData {
@@ -179,7 +188,7 @@ function savedDownload(raw: unknown): BrowserDownload | null {
 }
 
 /** Commands the UI answers with a field to type into. */
-const FOCUSING = new Set<BrowserCommand>(['focusOmnibox', 'find', 'tabSearch', 'bookmark', 'import'])
+const FOCUSING = new Set<BrowserCommand>(['focusOmnibox', 'find', 'tabSearch', 'bookmark', 'import', 'editGroup'])
 
 /** A tab with this address has a web view (not the new-tab page, not one of Mindeck's own pages). */
 function hasView(url: string): boolean {
@@ -211,10 +220,15 @@ export class BrowserService {
   private readonly importer?: BrowserImporter
   private host: BrowserHost | null = null
   private tabs: Tab[] = []
+  /** Tab groups and split views over `tabs`. */
+  private readonly arrangement = new TabArrangement<Tab>(
+    () => this.tabs,
+    (tabs) => (this.tabs = tabs)
+  )
   private activeId?: string
   private closed: ClosedTab[] = []
-  /** The tabs of a session that ended in a crash, until the user restores or dismisses them. */
-  private restorable: { tabs: Tab[]; activeId?: string } | null = null
+  /** The tabs of a session that ended in a crash (with their groups and splits), until the user restores or dismisses them. */
+  private restorable: { tabs: Tab[]; activeId?: string; groups: BrowserTabGroup[]; splits: BrowserSplit[] } | null = null
   /** The session file says "running" — on a clean quit it must say so. */
   private marked = false
   private auth: BrowserAuthRequest[] = []
@@ -227,6 +241,8 @@ export class BrowserService {
   private readonly consoles = new Map<string, ConsoleEntry[]>()
   private readonly waiters = new Map<string, (() => void)[]>()
   private bounds: ViewBounds | null = null
+  /** Where each page of the split on screen sits (none: the active page fills `bounds`). */
+  private panes?: BrowserPane[]
   private ui: { theme: 'dark' | 'light' | 'system'; locale: 'de' | 'en' } = { theme: 'system', locale: 'en' }
   private publishTimer?: NodeJS.Timeout
   private saveTimer?: NodeJS.Timeout
@@ -266,7 +282,9 @@ export class BrowserService {
     await Promise.all([this.history.load(), this.bookmarks.load(), this.adblock.init(), this.extensions.init()])
     const sites = await readJson<{ sites?: Record<string, SiteData> }>(this.file('sites.json'))
     this.sites = sites?.sites && typeof sites.sites === 'object' ? sites.sites : {}
-    const saved = await readJson<{ tabs?: SavedTab[]; activeId?: string; closed?: unknown; downloads?: unknown; exit?: unknown }>(this.file('session.json'))
+    const saved = await readJson<{ tabs?: SavedTab[]; activeId?: string; closed?: unknown; downloads?: unknown; exit?: unknown; groups?: unknown; splits?: unknown }>(
+      this.file('session.json')
+    )
     let tabs: Tab[] = []
     for (const t of Array.isArray(saved?.tabs) ? saved.tabs : []) {
       if (typeof t?.id !== 'string' || typeof t.url !== 'string') continue
@@ -283,19 +301,32 @@ export class BrowserService {
           openedBy: typeof t.openedBy === 'string' ? t.openedBy : undefined,
           ...(t.profile === 'agents' ? { profile: 'agents' as const } : {}),
           zoom: this.siteZoom(t.url),
-          nav: cleanNav(t.nav)
+          nav: cleanNav(t.nav),
+          ...(typeof t.groupId === 'string' ? { groupId: t.groupId } : {})
         })
       )
     }
     tabs = [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)]
     const activeId = tabs.find((t) => t.id === saved?.activeId)?.id
-    if (saved?.exit === 'running' && tabs.some((t) => t.url)) this.restorable = { tabs, activeId }
-    else this.tabs = tabs
+    if (saved?.exit === 'running' && tabs.some((t) => t.url)) {
+      const ids = new Set(tabs.map((t) => t.id))
+      this.restorable = { tabs, activeId, groups: savedGroups(saved.groups), splits: savedSplits(saved.splits, ids) }
+    } else {
+      this.tabs = tabs
+      this.arrangement.restore(saved?.groups, saved?.splits)
+    }
     if (!this.tabs.length) this.tabs.push(this.model({ url: '' }))
     this.activeId = (this.restorable ? undefined : activeId) ?? this.tabs[0].id
     this.closed = (Array.isArray(saved?.closed) ? (saved.closed as Partial<ClosedTab>[]) : [])
       .filter((c) => typeof c?.url === 'string' && c.url && typeof c.index === 'number')
-      .map((c) => ({ url: c.url!, title: typeof c.title === 'string' ? c.title : '', index: c.index!, pinned: c.pinned === true, nav: cleanNav(c.nav) }))
+      .map((c) => ({
+        url: c.url!,
+        title: typeof c.title === 'string' ? c.title : '',
+        index: c.index!,
+        pinned: c.pinned === true,
+        nav: cleanNav(c.nav),
+        ...(typeof c.groupId === 'string' ? { groupId: c.groupId } : {})
+      }))
       .slice(0, MAX_CLOSED)
     this.downloads = (Array.isArray(saved?.downloads) ? saved.downloads : [])
       .map(savedDownload)
@@ -317,6 +348,7 @@ export class BrowserService {
   detach(): void {
     this.host = null
     this.bounds = null
+    this.panes = undefined
     for (const t of this.tabs) {
       t.live = false
       t.loading = false
@@ -350,8 +382,11 @@ export class BrowserService {
       found: (result) => this.deps.publish('browser:find', result),
       console: (id, entry) => this.onConsole(id, entry),
       shortcut: (action) => this.onShortcut(action),
-      // The UI moves its focus to the browser's pane.
-      focused: () => this.deps.publish('browser:command', { command: 'focused' }),
+      // The UI moves its focus to the browser's pane — and to the side of a split the user clicked into.
+      focused: (id) => {
+        if (id !== this.activeId && this.arrangement.partner(this.activeId) === id) this.activate(id)
+        this.deps.publish('browser:command', { command: 'focused' })
+      },
       command: (id, command, arg) => this.lookup(id) && this.onCommand(id, command, arg),
       permission: (ask, respond) => this.onPermission(ask, respond),
       permissionCheck: (origin, kind) => this.sites[origin]?.permissions?.[kind] === true,
@@ -392,7 +427,9 @@ export class BrowserService {
       devServers: this.devServers.list(),
       ...(this.restorable ? { restorable: this.restorable.tabs.length } : {}),
       auth: this.auth.map((a) => ({ ...a })),
-      extensions: this.extensions.list()
+      extensions: this.extensions.list(),
+      groups: this.arrangement.groups.map((g) => ({ ...g })),
+      splits: this.arrangement.splits.map((x) => ({ ...x, tabs: [...x.tabs] }))
     }
   }
 
@@ -419,8 +456,11 @@ export class BrowserService {
     }
     const opener = req.opener ? this.lookup(req.opener) : undefined
     const profile = req.private ? 'private' : (opener?.profile ?? (req.openedBy && !this.settings().agentsUseLogins ? 'agents' : undefined))
-    const tab = this.model({ url, openedBy: req.openedBy ?? opener?.openedBy, zoom: this.siteZoom(url), ...(profile ? { profile } : {}) })
+    // A tab opened from a grouped tab joins its group (when it is of the same kind).
+    const groupId = opener?.groupId && (profile === 'private') === (opener.profile === 'private') ? opener.groupId : undefined
+    const tab = this.model({ url, openedBy: req.openedBy ?? opener?.openedBy, zoom: this.siteZoom(url), ...(profile ? { profile } : {}), ...(groupId ? { groupId } : {}) })
     this.insert(tab, opener)
+    this.arrangement.prune()
     if (hasView(url) && this.host) this.goLive(tab)
     if (!req.background) this.activeId = tab.id
     this.touched()
@@ -434,15 +474,26 @@ export class BrowserService {
     if (tab.url && tab.profile !== 'private') {
       const nav = this.navOf(tab)
       this.closed = [
-        { url: tab.url, title: tab.title, index, pinned: tab.pinned, ...(nav ? { nav } : {}), ...(tab.profile ? { profile: tab.profile } : {}) },
+        {
+          url: tab.url,
+          title: tab.title,
+          index,
+          pinned: tab.pinned,
+          ...(nav ? { nav } : {}),
+          ...(tab.profile ? { profile: tab.profile } : {}),
+          ...(tab.groupId ? { groupId: tab.groupId } : {})
+        },
         ...this.closed
       ].slice(0, MAX_CLOSED)
     }
     if (tab.live) this.host?.destroy(id)
+    // The page beside it in a split takes over the screen.
+    const partner = this.arrangement.partner(id)
     this.tabs.splice(index, 1)
+    this.arrangement.prune()
     this.forget(id)
     if (tab.profile === 'private' && !this.tabs.some((t) => t.profile === 'private')) this.host?.clearPrivate()
-    if (this.activeId === id) this.activeId = (this.tabs[index] ?? this.tabs[index - 1])?.id
+    if (this.activeId === id) this.activeId = partner ?? (this.tabs[index] ?? this.tabs[index - 1])?.id
     if (!this.tabs.length) {
       const fresh = this.model({ url: '' })
       this.tabs.push(fresh)
@@ -454,7 +505,9 @@ export class BrowserService {
   activate(id: string): void {
     const tab = this.require(id)
     this.activeId = id
-    if (this.bounds) this.ensureLive(tab)
+    // A tab in a folded group comes into view: its group unfolds.
+    if (tab.groupId) this.arrangement.group(tab.groupId).collapsed = false
+    this.ensureOnScreen()
     this.touched()
   }
 
@@ -501,6 +554,8 @@ export class BrowserService {
       this.tabs.splice(this.tabs.indexOf(tab), 1)
       tab.pinned = patch.pinned
       this.tabs.splice(this.pinnedCount(), 0, tab)
+      // A pinned tab leaves its group.
+      this.arrangement.prune()
     }
     if (patch.muted !== undefined) {
       tab.muted = patch.muted
@@ -511,13 +566,13 @@ export class BrowserService {
     this.touched()
   }
 
-  /** Reorder — within the pinned tabs, or within the others. */
-  move(id: string, index: number): void {
+  /**
+   * Reorder — within the pinned tabs, or within the others; a group's tabs stay together.
+   * `groupId`: the group it joins there (null: out of its group; absent: it stays in its own).
+   */
+  move(id: string, index: number, groupId?: string | null): void {
     const tab = this.require(id)
-    this.tabs.splice(this.tabs.indexOf(tab), 1)
-    const pinned = this.pinnedCount()
-    const [min, max] = tab.pinned ? [0, pinned] : [pinned, this.tabs.length]
-    this.tabs.splice(Math.max(min, Math.min(max, index)), 0, tab)
+    this.arrangement.place(tab, index, groupId)
     this.touched()
   }
 
@@ -537,9 +592,9 @@ export class BrowserService {
       nav: last.nav,
       ...(last.profile ? { profile: last.profile } : {})
     })
-    const pinned = this.pinnedCount()
-    const [min, max] = last.pinned ? [0, pinned] : [pinned, this.tabs.length]
-    this.tabs.splice(Math.max(min, Math.min(max, last.index)), 0, tab)
+    // Back into its group, if that is still open.
+    const group = last.groupId && this.arrangement.groups.find((g) => g.id === last.groupId)
+    this.arrangement.place(tab, last.index, group ? group.id : undefined)
     if (this.host && hasView(tab.url)) this.goLive(tab)
     this.activeId = tab.id
     this.touched()
@@ -592,15 +647,16 @@ export class BrowserService {
    * `focused`: the browser's pane has the focus — only then do its keys win
    * over the UI's (next to an editor, ⌘S and ⌘W stay the editor's).
    */
-  setView(bounds: ViewBounds | null, focused = true): void {
+  setView(bounds: ViewBounds | null, focused = true, panes?: BrowserPane[]): void {
     this.bounds = bounds
-    this.host?.setBounds(bounds, focused)
-    const active = this.active()
-    if (bounds) this.ensureLive(active)
+    this.panes = bounds ? panes : undefined
+    if (this.panes) this.host?.setBounds(bounds, focused, this.panes)
+    else this.host?.setBounds(bounds, focused)
+    this.ensureOnScreen()
     this.syncView()
   }
 
-  freeze(): Promise<string | null> {
+  freeze(): Promise<Record<string, string> | null> {
     return this.host ? this.host.freeze() : Promise.resolve(null)
   }
 
@@ -744,9 +800,84 @@ export class BrowserService {
       if (this.tabs.length === 1 && !this.tabs[0].url) this.tabs = []
       this.tabs.push(...pending.tabs)
       this.tabs = [...this.tabs.filter((t) => t.pinned), ...this.tabs.filter((t) => !t.pinned)]
+      this.arrangement.groups.push(...pending.groups)
+      this.arrangement.splits.push(...pending.splits)
+      this.arrangement.prune()
       if (pending.activeId) this.activate(pending.activeId)
       else this.activeId = this.tabs[0].id
     }
+    this.touched()
+  }
+
+  // --- tab groups ---------------------------------------------------------------------
+
+  /** A new group of these tabs (private and other tabs can't share one), in one run where the first of them is. */
+  group(ids: string[], opts: { title?: string; color?: TabGroupColor } = {}): BrowserTabGroup {
+    const group = this.arrangement.create(
+      ids.map((id) => this.require(id)),
+      opts
+    )
+    this.touched()
+    return { ...group }
+  }
+
+  /** Rename, recolor, fold or unfold a group. Folding the group of the tab on screen shows the next tab outside it. */
+  updateGroup(id: string, patch: { title?: string; color?: TabGroupColor; collapsed?: boolean }): void {
+    this.arrangement.update(id, patch)
+    if (patch.collapsed && this.active().groupId === id) {
+      const index = this.tabs.indexOf(this.active())
+      const outside = [...this.tabs.slice(index), ...this.tabs.slice(0, index).reverse()].find((t) => t.groupId !== id)
+      if (outside) this.activate(outside.id)
+      else this.open()
+    }
+    this.touched()
+  }
+
+  /** The group goes, its tabs stay. */
+  ungroup(id: string): void {
+    this.arrangement.ungroup(id)
+    this.touched()
+  }
+
+  /** Close every tab of the group. */
+  closeGroup(id: string): void {
+    this.arrangement.group(id)
+    for (const tab of this.arrangement.members(id)) this.close(tab.id)
+  }
+
+  // --- split view ---------------------------------------------------------------------
+
+  /**
+   * Two tabs side by side: `id` on the left (top), `withId` beside it — or a
+   * new tab there (of the same kind, in the same group) whose address bar
+   * takes the keyboard. The tab that was not on screen gets the focus.
+   */
+  split(id: string, withId?: string, vertical?: boolean): BrowserSplit {
+    const first = this.require(id)
+    let second: Tab
+    if (withId) second = this.require(withId)
+    else {
+      second = this.model({ url: '', ...(first.profile === 'private' ? { profile: 'private' as const } : {}), ...(first.groupId ? { groupId: first.groupId } : {}) })
+      this.tabs.splice(this.tabs.indexOf(first) + 1, 0, second)
+    }
+    const split = this.arrangement.pair(first, second, vertical)
+    this.arrangement.prune()
+    this.activeId = this.activeId === second.id ? first.id : second.id
+    this.ensureOnScreen()
+    this.touched()
+    if (!withId) this.command('focusOmnibox')
+    return { ...split, tabs: [...split.tabs] }
+  }
+
+  /** Move the divider (`ratio`: the first page's share), stack or unstack, or swap the sides. */
+  updateSplit(id: string, patch: { ratio?: number; vertical?: boolean; swap?: boolean }): void {
+    this.arrangement.updateSplit(id, patch)
+    this.touched()
+  }
+
+  /** Back to one page: the focused one stays on screen. */
+  unsplit(id: string): void {
+    this.arrangement.unsplit(id)
     this.touched()
   }
 
@@ -866,11 +997,19 @@ export class BrowserService {
       return this.view(tab)
     }
     const lastUsed = [...shared].filter((t) => t.agent).sort((a, b) => b.agent!.at.localeCompare(a.agent!.at))[0]
-    const tab = shared.find((t) => t.id === this.activeId) ?? lastUsed ?? shared[0]
+    // The page the user looks at — in a split, the focused side first, then the one beside it.
+    const beside = this.arrangement.partner(this.activeId)
+    const tab = shared.find((t) => t.id === this.activeId) ?? shared.find((t) => t.id === beside) ?? lastUsed ?? shared[0]
     if (!tab) {
       throw coded('no-tab', 'No tab is shared with agents. Open one with browser_open, or ask the user to share a tab (the eye icon in the Mindeck browser).')
     }
     return this.view(tab)
+  }
+
+  /** The tabs on screen: the active one, then the one beside it in a split. */
+  onScreen(): string[] {
+    const beside = this.arrangement.partner(this.activeId)
+    return [this.active().id, ...(beside ? [beside] : [])]
   }
 
   /** An agent opens a page — in a tab of its own, in the background, then waits for it to load. */
@@ -1057,6 +1196,15 @@ export class BrowserService {
     }
   }
 
+  /** The pages on screen (the active tab, and the one beside it in a split) are loaded. */
+  private ensureOnScreen(): void {
+    if (!this.bounds) return
+    const active = this.active()
+    this.ensureLive(active)
+    const beside = this.lookup(this.arrangement.partner(active.id) ?? '')
+    if (beside) this.ensureLive(beside)
+  }
+
   /** One of Mindeck's own pages in this tab: the web view (if any) goes. */
   private showInternal(tab: Tab, url: string): void {
     if (tab.live) {
@@ -1096,10 +1244,16 @@ export class BrowserService {
     this.touched()
   }
 
-  /** The visible web view: the active tab's, unless the new-tab page or an error page shows instead. */
+  /**
+   * The visible web views: the active tab's (and in a split the one beside
+   * it), unless the new-tab page or an error page shows instead.
+   */
   private syncView(): void {
+    const page = (t: Tab | undefined) => (t && t.live && t.url && !t.error && !t.crashed ? t.id : undefined)
     const t = this.active()
-    this.host?.show(t.live && t.url && !t.error && !t.crashed ? t.id : undefined)
+    const beside = page(this.lookup(this.arrangement.partner(t.id) ?? ''))
+    if (beside) this.host?.show(page(t), beside)
+    else this.host?.show(page(t))
   }
 
   /** Something the UI shows changed — and the session with it. */
@@ -1206,10 +1360,23 @@ export class BrowserService {
     this.consoles.set(id, list)
   }
 
-  private command(command: BrowserCommand): void {
+  private command(command: BrowserCommand, id?: string): void {
     // What the UI answers with a field to type into takes the keyboard from the page.
     if (FOCUSING.has(command)) this.host?.focusUi()
-    this.deps.publish('browser:command', { command })
+    this.deps.publish('browser:command', id ? { command, id } : { command })
+  }
+
+  /** ⌘⇧G: the tab on screen goes into a new group, whose name the UI asks for. */
+  private newGroup(tab: Tab): void {
+    const group = this.group([tab.id])
+    this.command('editGroup', group.id)
+  }
+
+  /** ⌘⇧D: the tab on screen splits with a new tab — or, in a split already, goes back to one page. */
+  private toggleSplit(tab: Tab): void {
+    const split = this.arrangement.splitOf(tab.id)
+    if (split) this.unsplit(split.id)
+    else this.split(tab.id)
   }
 
   private onShortcut(action: ShortcutAction): void {
@@ -1252,7 +1419,12 @@ export class BrowserService {
       case 'bookmark':
       case 'tabSearch':
       case 'bookmarksBar':
+      case 'verticalTabs':
         return this.command(action)
+      case 'newGroup':
+        return this.newGroup(tab)
+      case 'split':
+        return this.toggleSplit(tab)
       case 'history':
       case 'bookmarkManager':
         return void this.open({ url: INTERNAL_PAGES[action === 'history' ? 'history' : 'bookmarks'] })
@@ -1335,6 +1507,10 @@ export class BrowserService {
       { label: shared ? l.unshare : l.share, enabled: !!tab.url, run: () => this.update(tab.id, { shared: !shared }) },
       { label: l.handoff(this.deps.appForUrl?.('https://') ?? ''), enabled: isWebUrl(tab.url), run: () => this.tool(tab.id, 'handoff') },
       { separator: true },
+      ...this.arrangeEntries(tab, l),
+      { separator: true },
+      { label: l.verticalTabs, checked: this.settings().verticalTabs, run: () => this.command('verticalTabs') },
+      { separator: true },
       { label: l.close, run: () => this.close(tab.id) },
       {
         label: l.closeOthers,
@@ -1342,6 +1518,27 @@ export class BrowserService {
         run: () => this.tabs.filter((t) => t !== tab && !t.pinned).forEach((t) => this.close(t.id))
       }
     ]
+  }
+
+  /** The tab menu's group and split entries. */
+  private arrangeEntries(tab: Tab, l: Labels): MenuEntry[] {
+    const a = this.arrangement
+    const split = a.splitOf(tab.id)
+    const other = this.activeId !== tab.id && a.partner(this.activeId) !== tab.id ? this.activeId : undefined
+    const groupEnd = (id: string) => this.tabs.indexOf(a.members(id).pop()!)
+    return arrangeMenu(
+      { grouped: !!tab.groupId, groups: a.groups.filter((g) => g.id !== tab.groupId && a.fits(tab, g.id)), split, active: other },
+      {
+        newGroup: () => this.newGroup(tab),
+        join: (groupId) => this.move(tab.id, this.tabs.length, groupId),
+        leave: () => this.move(tab.id, groupEnd(tab.groupId!), null),
+        splitNew: () => void this.split(tab.id),
+        splitBeside: (active) => void this.split(active, tab.id),
+        updateSplit: (s, patch) => this.updateSplit(s.id, patch),
+        unsplit: (s) => this.unsplit(s.id)
+      },
+      l
+    )
   }
 
   private pageMenu(tab: Tab): MenuEntry[] {
@@ -1401,12 +1598,25 @@ export class BrowserService {
         ...(t.share ? { share: t.share } : {}),
         ...(t.openedBy ? { openedBy: t.openedBy } : {}),
         ...(nav ? { nav } : {}),
-        ...(t.profile ? { profile: t.profile } : {})
+        ...(t.profile ? { profile: t.profile } : {}),
+        ...(t.groupId ? { groupId: t.groupId } : {})
       }
     }
-    // Private tabs are never written down.
-    const tabs = [...this.tabs, ...(this.restorable?.tabs ?? [])].filter((t) => t.profile !== 'private').map(save)
-    const data = { version: 1, exit: clean ? 'clean' : 'running', activeId: this.activeId, tabs, closed: this.closed, downloads: this.downloads }
+    // Private tabs are never written down (nor their groups).
+    const kept = this.tabs.filter((t) => t.profile !== 'private')
+    const { groups, splits } = this.arrangement.saved(kept)
+    const pending = this.restorable
+    const tabs = [...kept, ...(pending?.tabs ?? [])].map(save)
+    const data = {
+      version: 1,
+      exit: clean ? 'clean' : 'running',
+      activeId: this.activeId,
+      tabs,
+      groups: [...groups, ...(pending?.groups ?? [])],
+      splits: [...splits, ...(pending?.splits ?? [])],
+      closed: this.closed,
+      downloads: this.downloads
+    }
     await writeAtomic(this.file('session.json'), JSON.stringify(data), 0o600).catch((err) => console.error('[browser] saving the session failed', err))
   }
 
