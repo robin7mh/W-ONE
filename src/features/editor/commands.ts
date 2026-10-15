@@ -5,6 +5,8 @@ import { useGitHub } from './github'
 import { editorActions } from './actions'
 import { useBlame } from './blame'
 import { useEditorPrefs } from './prefs'
+import { formatBinding, shortcutLabel } from '@/lib/shortcuts'
+import { macKeys } from '@/features/workspace/keys'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
 const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string][] = [
@@ -50,7 +52,17 @@ export function buildCommands(t: Dict, { readOnly, extra = [] }: CommandContext)
   const repo = !!status?.repo
   const actions = editorActions()
 
-  const pane = (id: 'files' | 'search' | 'scm' | 'graph' | 'prs', label: string, keys?: string): PickItem => ({ id: `view.${id}`, label: `${p.view}: ${label}`, keys, run: () => scm().setPane(id) })
+  const pane = (id: 'files' | 'outline' | 'search' | 'scm' | 'graph' | 'prs', label: string, keys?: string): PickItem => ({ id: `view.${id}`, label: `${p.view}: ${label}`, keys, run: () => scm().setPane(id) })
+  const prefs = () => useEditorPrefs.getState()
+  const mac = macKeys()
+  // Editor groups: ⌘1…⌘9 focus one (one past the last splits it).
+  const groups = editor().groups.length
+  const focusGroups: PickItem[] = Array.from({ length: Math.min(groups + 1, 9) }, (_, i) => ({
+    id: `view.focusGroup${i + 1}`,
+    label: `${p.view}: ${p.focusGroup(i + 1)}`,
+    keys: formatBinding(`mod+${i + 1}`, mac),
+    run: () => editor().focusGroupAt(i)
+  }))
 
   const git: PickItem[] = !status
     ? []
@@ -133,8 +145,14 @@ export function buildCommands(t: Dict, { readOnly, extra = [] }: CommandContext)
     { id: 'file.close', label: `${p.file}: ${p.closeEditor}`, run: () => editor().focusedId() && editor().requestClose(editor().focusedId()!) },
     { id: 'go.file', label: `${p.go}: ${t.scm.quickOpen}`, keys: '⌘P', run: () => scm().setQuickOpen(true) },
     { id: 'go.line', label: `${p.go}: ${p.goToLine}`, keys: '⌃G', run: () => scm().setQuickOpen(true, ':') },
-    { id: 'view.split', label: `${p.view}: ${p.split}`, keys: '⌘\\', run: () => (editor().splitId ? editor().closeSplit() : editor().split()) },
+    { id: 'view.split', label: `${p.view}: ${p.split}`, keys: shortcutLabel('editor.split', mac), run: () => editor().split('right') },
+    { id: 'view.splitDown', label: `${p.view}: ${p.splitDown}`, keys: shortcutLabel('editor.splitDown', mac), run: () => editor().split('down') },
+    ...(groups > 1 ? [{ id: 'view.closeGroup', label: `${p.view}: ${p.closeGroup}`, run: () => editor().closeGroup() }] : []),
+    ...focusGroups,
+    { id: 'view.minimap', label: `${p.view}: ${p.toggleMinimap}`, run: () => prefs().update({ minimap: prefs().settings.minimap === false }) },
+    { id: 'view.stickyScroll', label: `${p.view}: ${p.toggleStickyScroll}`, run: () => prefs().update({ stickyScroll: prefs().settings.stickyScroll === false }) },
     pane('files', t.explorer.title),
+    pane('outline', t.scm.panes.outline),
     pane('search', t.scm.panes.search, '⇧⌘F'),
     pane('scm', t.scm.panes.scm, '⇧⌘G'),
     ...git,

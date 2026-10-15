@@ -241,6 +241,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'lsp:rename': at.extend({ newName: z.string().min(1).max(1000) }),
   'lsp:signature': at,
   'lsp:codeFixes': z.object({ projectId: id, path, range: z.object({ start: pos, end: pos }), errorCodes: z.array(z.number().int()).max(100) }),
+  'lsp:symbols': z.object({ projectId: id, path }),
 
   'debug:start': z.object({
     projectId: id,

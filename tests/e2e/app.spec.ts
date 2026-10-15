@@ -172,6 +172,52 @@ test('editor: opens a project file in Monaco, saves it with ⌘S and follows cha
   await expect(lines).toContainText('changed outside')
 })
 
+test('editor: three editor groups — split right and down, one file edited in all of them, an outline from the language service', async ({ page, home }) => {
+  const root = join(home, 'groups')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src', 'shared.ts'), 'export function greet(name: string) {\n  return `hi ${name}`\n}\n')
+  writeFileSync(join(root, 'src', 'other.ts'), 'export const other = 1\n')
+  const added = await page.evaluate((path) => window.mindeck!.invoke('projects:add', { path }), root)
+  expect(added).toMatchObject({ ok: true })
+
+  await page.getByTitle('Editor', { exact: true }).click()
+  await page.getByRole('treeitem', { name: 'src' }).click()
+  await page.getByRole('treeitem', { name: 'shared.ts' }).click()
+  const group = (n: number) => page.getByRole('region', { name: `Editor group ${n}` })
+  await expect(group(1).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+
+  // ⌘\ splits right, ⌘K ⌘\ splits the new group down — each new group shows the file too.
+  await group(1).locator('.monaco-editor .view-lines').click()
+  await page.keyboard.press('ControlOrMeta+Backslash')
+  await expect(group(2).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.keyboard.press('ControlOrMeta+Backslash')
+  await expect(page.getByRole('region', { name: /^Editor group \d$/ })).toHaveCount(3)
+  await expect(group(3).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+
+  // An edit in the third group shows in all three (one buffer), unsaved until ⌘S.
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('// edited in group 3')
+  for (const n of [1, 2, 3]) await expect(group(n).locator('.monaco-editor .view-lines')).toContainText('edited in group 3')
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  expect(readFileSync(join(root, 'src', 'shared.ts'), 'utf8')).toContain('// edited in group 3')
+
+  // ⌘1 focuses the first group; a file opened now opens there, the others keep theirs.
+  await page.keyboard.press('ControlOrMeta+1')
+  await page.getByRole('treeitem', { name: 'other.ts' }).click()
+  await expect(group(1).locator('.monaco-editor .view-lines')).toContainText('export const other')
+  await expect(group(2).locator('.monaco-editor .view-lines')).toContainText('edited in group 3')
+
+  // The outline and the breadcrumbs know the file's symbols (Monaco's TypeScript service).
+  await group(2).getByRole('tab', { name: /shared\.ts/ }).click()
+  await page.getByRole('navigation', { name: 'Editor' }).getByRole('button', { name: 'Outline' }).click()
+  await expect(page.getByRole('tree', { name: 'Outline' }).getByRole('treeitem', { name: /greet/ })).toBeVisible()
+  await page.getByRole('tree', { name: 'Outline' }).getByRole('treeitem', { name: /greet/ }).click()
+  await expect(group(2).getByRole('navigation', { name: 'Breadcrumbs' })).toContainText('greet')
+})
+
 test('agents: a coding agent session — chat, approval in Mindeck, the change as a diff, a journal in memory', async ({ page, home }) => {
   const root = join(home, 'agent-demo')
   mkdirSync(root)
