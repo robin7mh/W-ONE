@@ -8,12 +8,14 @@ import type { Project } from '@shared/types/project'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext, ContextProgress } from '@shared/types/context'
 import type {
+  DailyNotesSettings,
   GraphStyle,
   MemoryChanged,
   MemoryGraph,
   Note,
   NoteMeta,
   SearchHit,
+  VaultAttachment,
   VaultStatus
 } from '@shared/types/memory'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
@@ -137,7 +139,8 @@ export interface IpcChannels {
   'memory:list': { request: void; response: NoteMeta[] }
   'memory:read': { request: { path: string }; response: Note }
   'memory:write': { request: { path: string; raw: string }; response: NoteMeta }
-  'memory:create': { request: { title: string; folder?: string }; response: NoteMeta }
+  /** `template`: a template note to start from; `now`: the UI's local time ("2026-10-15T09:30:00") for its dates. */
+  'memory:create': { request: { title: string; folder?: string; template?: string; now?: string }; response: NoteMeta }
   'memory:trash': { request: { path: string }; response: void }
   'memory:graph': { request: void; response: MemoryGraph }
   'memory:search': { request: { query: string }; response: SearchHit[] }
@@ -151,6 +154,15 @@ export interface IpcChannels {
   'memory:moveFolder': { request: { folder: string; into: string }; response: string }
   'memory:link': { request: { from: string; to: string }; response: NoteMeta }
   'memory:unlink': { request: { from: string; to: string }; response: NoteMeta }
+  /** Today's daily note — created from the daily template the first time. */
+  'memory:daily': { request: { now?: string }; response: NoteMeta }
+  'memory:setDailyNotes': { request: DailyNotesSettings; response: DailyNotesSettings }
+  /** A template's body filled in for `title` (for "Insert template"). */
+  'memory:renderTemplate': { request: { path: string; title: string; now?: string }; response: string }
+  /** Save a pasted/dropped picture (base64) under `attachments/`; `link` goes into `![[…]]`. */
+  'memory:attach': { request: { name: string; data: string }; response: { path: string; link: string } }
+  /** A picture a note shows, resolved like Obsidian (relative to `from`, the note) — from the vault only. */
+  'memory:attachment': { request: { target: string; from?: string }; response: VaultAttachment }
 
   /** In a project, in `cwd` (an absolute folder, e.g. from Files), else in Home. */
   'terminal:create': { request: { projectId?: string; cwd?: string; cols?: number; rows?: number }; response: TerminalInfo }
@@ -475,6 +487,11 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'memory:moveFolder': 'any',
   'memory:link': 'any',
   'memory:unlink': 'any',
+  'memory:daily': 'any',
+  'memory:setDailyNotes': 'any',
+  'memory:renderTemplate': 'any',
+  'memory:attach': 'any',
+  'memory:attachment': 'any',
   'memory:setVault': 'any',
   'terminal:create': 'terminal',
   'terminal:list': 'terminal',

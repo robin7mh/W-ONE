@@ -18,6 +18,8 @@ const prNumber = z.number().int().positive()
 const mongoName = z.string().min(1).max(255)
 const none = z.void()
 const email = z.string().trim().min(3).max(254)
+/** The UI's wall-clock time, "2026-10-15T09:30:00" (no zone — the date the user sees). */
+const localTime = z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/)
 
 const pos = z.object({ line: z.number().int().min(1), offset: z.number().int().min(1) })
 const at = z.object({ projectId: id, path, line: z.number().int().min(1), offset: z.number().int().min(1) })
@@ -60,7 +62,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:list': none,
   'memory:read': z.object({ path: notePath }),
   'memory:write': z.object({ path: notePath, raw: text(6 * 1024 * 1024) }),
-  'memory:create': z.object({ title, folder: text(1024).optional() }),
+  'memory:create': z.object({ title, folder: text(1024).optional(), template: notePath.optional(), now: localTime.optional() }),
   'memory:trash': z.object({ path: notePath }),
   'memory:graph': none,
   'memory:search': z.object({ query: text(1000) }),
@@ -74,6 +76,14 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:moveFolder': z.object({ folder: text(1024), into: text(1024) }),
   'memory:link': z.object({ from: notePath, to: notePath }),
   'memory:unlink': z.object({ from: notePath, to: notePath }),
+  'memory:daily': z
+    .object({ now: localTime.optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'memory:setDailyNotes': z.object({ folder: text(1024), template: text(1024) }),
+  'memory:renderTemplate': z.object({ path: notePath, title, now: localTime.optional() }),
+  'memory:attach': z.object({ name: z.string().trim().min(1).max(255), data: z.string().max(28 * 1024 * 1024) }),
+  'memory:attachment': z.object({ target: z.string().min(1).max(1024), from: notePath.optional() }),
   'memory:setVault': z.object({ path }),
 
   'terminal:create': z
