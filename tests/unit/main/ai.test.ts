@@ -677,7 +677,7 @@ describe('PermissionService', () => {
     const a = perms.ask(input(), new AbortController().signal)
     expect(perms.list()).toHaveLength(1)
     expect(requests).toHaveLength(1)
-    await perms.respond(a.id, 'once', 'dev1')
+    await perms.respond(a.id, 'once', { deviceId: 'dev1', shells: true })
     expect(await a.decision).toBe('once')
     expect(resolved).toEqual([{ id: a.id, decision: 'once' }])
     expect(events.map((e) => e.type)).toEqual(['permission.requested', 'permission.granted'])

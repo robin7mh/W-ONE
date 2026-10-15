@@ -41,7 +41,7 @@ interface SocketLike {
   onmessage: ((ev: { data: unknown }) => void) | null
   close(): void
 }
-type SocketCtor = new (url: string) => SocketLike
+type SocketCtor = new (url: string, protocols?: string[]) => SocketLike
 
 export interface RemoteTransportOptions {
   /** Core base URL, e.g. `http://192.168.1.20:7420` ('' = same origin). */
@@ -64,10 +64,20 @@ export interface RemoteTransport extends Transport {
 
 const trimSlash = (url: string) => url.replace(/\/+$/, '')
 
-/** ws(s)://host/api/events?token=… derived from the HTTP base URL. */
-export function eventsUrl(baseUrl: string, token: string, origin?: string): string {
+/** ws(s)://host/api/events derived from the HTTP base URL. */
+export function eventsUrl(baseUrl: string, origin?: string): string {
   const base = trimSlash(baseUrl) || trimSlash(origin ?? '')
-  return `${base.replace(/^http/, 'ws')}/api/events?token=${encodeURIComponent(token)}`
+  return `${base.replace(/^http/, 'ws')}/api/events`
+}
+
+/** The events socket's subprotocol — the core answers with it. */
+export const EVENTS_PROTOCOL = 'mindeck'
+/** The device token travels as a second offered subprotocol: never in the URL (and so never in a log). */
+export const TOKEN_PROTOCOL_PREFIX = 'mindeck.bearer.'
+
+/** What a client offers when it opens the events socket. */
+export function eventsProtocols(token: string): string[] {
+  return [EVENTS_PROTOCOL, `${TOKEN_PROTOCOL_PREFIX}${token}`]
 }
 
 /**
@@ -100,7 +110,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
     if (closed || socket || unauthorized) return
     setLink('connecting')
     const origin = (globalThis as { location?: { origin?: string } }).location?.origin
-    const ws = new Socket(eventsUrl(base, opts.token, origin))
+    const ws = new Socket(eventsUrl(base, origin), eventsProtocols(opts.token))
     socket = ws
     let opened = false
     ws.onopen = () => {

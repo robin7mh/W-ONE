@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import type { Plugin } from 'vite'
 
 // @shared points at src/shared (types + IPC contract shared by main/preload/renderer).
 const shared = { '@shared': resolve(__dirname, 'src/shared') }
@@ -12,6 +13,16 @@ const monacoDeepImports = { find: /^monaco-editor\/esm\/vs\/(.*?)(\.js)?$/, repl
 const cloud = {
   __MINDECK_CLOUD_URL__: JSON.stringify(process.env.MINDECK_CLOUD_URL ?? ''),
   __MINDECK_CLOUD_KEY__: JSON.stringify(process.env.MINDECK_CLOUD_KEY ?? '')
+}
+
+/**
+ * index.html allows no inline scripts. Only the dev server needs one — React
+ * Fast Refresh's preamble — so only `serve` loosens the policy, never a build.
+ */
+const devCsp: Plugin = {
+  name: 'mindeck-dev-csp',
+  apply: 'serve',
+  transformIndexHtml: (html) => html.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
 }
 
 export default defineConfig({
@@ -49,6 +60,6 @@ export default defineConfig({
         input: resolve(__dirname, 'index.html')
       }
     },
-    plugins: [react()]
+    plugins: [react(), devCsp]
   }
 })

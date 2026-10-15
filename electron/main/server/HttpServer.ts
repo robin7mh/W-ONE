@@ -4,6 +4,8 @@ import { extname, join, resolve, sep } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { DESKTOP_EVENTS, TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
+import { EVENTS_PROTOCOL, TOKEN_PROTOCOL_PREFIX } from '@shared/ipc/transport'
+import type { PermissionRequest } from '@shared/types/ai'
 import type { CoreMode } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
@@ -87,6 +89,19 @@ function bearer(req: IncomingMessage): string | undefined {
   return undefined
 }
 
+/**
+ * The events socket's token: offered as a subprotocol (`mindeck.bearer.<token>`),
+ * so it never lands in a URL. The `?token=` query is still read for app builds
+ * from before (deprecated — a URL ends up in proxy and access logs).
+ */
+function socketToken(req: IncomingMessage, url: URL): string | null {
+  const offered = String(req.headers['sec-websocket-protocol'] ?? '')
+    .split(',')
+    .map((p) => p.trim())
+    .find((p) => p.startsWith(TOKEN_PROTOCOL_PREFIX))
+  return offered ? offered.slice(TOKEN_PROTOCOL_PREFIX.length) : url.searchParams.get('token')
+}
+
 function clientIp(req: IncomingMessage): string {
   return String(req.socket.remoteAddress)
 }
@@ -116,7 +131,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
  *   GET  /api/health           liveness + version (public)
  *   POST /api/pair             { code, name } → { token, device } (public, rate limited)
  *   POST /api/rpc/<channel>    payload → IpcResult (Bearer token)
- *   WS   /api/events?token=…   push events as { channel, payload }
+ *   WS   /api/events           push events as { channel, payload } (token as subprotocol)
  *   GET  /*                    the built web UI (single-page app)
  *
  * No cookies and no CORS: credentials are explicit headers, so cross-site
@@ -124,7 +139,12 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
  */
 export class HttpServer {
   private server?: Server
-  private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 })
+  private readonly wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 64 * 1024,
+    // Answer with Mindeck's own protocol — never echo the token one.
+    handleProtocols: (offered) => (offered.has(EVENTS_PROTOCOL) ? EVENTS_PROTOCOL : false)
+  })
   private readonly clients = new Set<Client>()
   private readonly pairFailures = new Map<string, number[]>()
   private heartbeat?: NodeJS.Timeout
@@ -224,7 +244,8 @@ export class HttpServer {
     if (REMOTE_NOOP.has(channel)) return send(res, 200, { ok: true })
     const result = await this.opts.router.dispatch(decodeURIComponent(channel), payload, {
       transport: 'remote',
-      deviceId: device.id
+      deviceId: device.id,
+      role: device.role
     })
     send(res, 200, result)
   }
@@ -256,7 +277,7 @@ export class HttpServer {
 
   private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const url = new URL(req.url as string, 'http://local')
-    const device = url.pathname === '/api/events' ? await this.opts.auth.verify(url.searchParams.get('token')) : null
+    const device = url.pathname === '/api/events' ? await this.opts.auth.verify(socketToken(req, url)) : null
     if (!device) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
       socket.destroy()
@@ -271,14 +292,16 @@ export class HttpServer {
         if (this.clients.delete(client)) this.opts.onClients?.(this.clients.size)
       })
       ws.on('error', () => ws.terminate())
-      ws.send(JSON.stringify({ channel: 'hello', payload: { deviceId: device.id } }))
+      ws.send(JSON.stringify({ channel: 'hello', payload: { deviceId: device.id, role: device.role } }))
     })
   }
 
   private push(channel: IpcEvent, payload: unknown): void {
     if (!this.clients.size || DESKTOP_EVENTS.includes(channel)) return
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
-    const message = JSON.stringify({ channel, payload })
+    // "Always allow" is only ever given at the desktop: devices are not offered it.
+    const shown = channel === 'permission:request' ? { ...(payload as PermissionRequest), allowAlways: false } : payload
+    const message = JSON.stringify({ channel, payload: shown })
     for (const client of this.clients) {
       if (client.ws.readyState === client.ws.OPEN) client.ws.send(message)
     }

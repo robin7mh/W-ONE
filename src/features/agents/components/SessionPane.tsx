@@ -248,7 +248,12 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
             </p>
           </div>
         ) : (
-          <ChatThread messages={messages} pending={pending.filter((p) => p.conversationId === session.id)} onRespond={(id, d) => void respond(id, d)} />
+          <ChatThread
+            messages={messages}
+            pending={pending.filter((p) => p.conversationId === session.id)}
+            conversationId={session.id}
+            onRespond={(id, d) => void respond(id, d)}
+          />
         )}
       </div>
 

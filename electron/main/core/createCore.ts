@@ -65,6 +65,7 @@ import { AuthService } from '../services/auth/AuthService'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
+import { RemoteAccess } from '../server/RemoteAccess'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
 import { InlineService } from '../services/ai/InlineService'
@@ -216,14 +217,16 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     tools: devTools,
     lsp
   })
-  const auth = new AuthService(paths.devicesFile)
+  // A headless core has no desktop to give roles: its first paired device is admin.
+  const auth = new AuthService(paths.devicesFile, undefined, opts.mode === 'server')
 
   // The router asks the server controller whether remote shells are allowed,
-  // and the cloud whether Mindeck is licensed (only ever called per request,
-  // after all of them exist).
+  // the cloud whether Mindeck is licensed, and RemoteAccess what a device may
+  // reach (only ever called per request, after all of them exist).
   const router = new Router({
     remoteTerminal: () => controller.remoteTerminal(),
-    licensed: (channel) => isLicenseFree(channel) || cloud.allowed()
+    licensed: (channel) => isLicenseFree(channel) || cloud.allowed(),
+    guard: (channel, payload) => remoteAccess.check(channel, payload)
   })
 
   const controller: ServerController = new ServerController({
@@ -239,6 +242,15 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       system.setRemoteClients(count)
       cloud.setRemoteClients(count)
     }
+  })
+
+  // What paired devices may reach: the shared folders and the desktop's projects, never keys or system folders.
+  const remoteAccess = new RemoteAccess({
+    roots: () => controller.remoteRoots(),
+    projects: () => projects.list(),
+    remoteShell: () => controller.remoteTerminal(),
+    dirs: (path) => fs.dirs(path),
+    protectedDirs: [paths.dataDir]
   })
 
   const info = (): AppInfo => ({
@@ -300,7 +312,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       search: (q) => vault.search(q)
     }),
     publish: (channel, payload) => hub.publish(channel, payload),
-    remoteShell: () => controller.remoteTerminal()
+    remoteShell: () => controller.remoteTerminal(),
+    remoteAccess
   })
 
   // The agent cockpit: the user's own coding agents (Claude Code), each in a
@@ -329,7 +342,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     projects: (id) => projects.list().find((p) => p.id === id),
     publish: (channel, payload) => hub.publish(channel, payload),
     // The browser lives in the desktop window: only a desktop core offers it to agents.
-    mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS),
+    // Its write tools pass Mindeck's own approval, whatever the agent's settings.
+    mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS, permissions),
     journal: vaultJournal(vault),
     notify: opts.notify,
     push: (notice) => push.send(notice),
@@ -340,7 +354,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
   await Promise.all([agents.init(), local.start()])
 
-  registerProjectIpc(router, projects)
+  registerProjectIpc(router, projects, remoteAccess)
   registerSystemIpc(router, system)
   registerContextIpc(router, context)
   registerMemoryIpc(router, vault)
@@ -381,12 +395,21 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     })
   )
   router.register('app:info', () => info())
-  router.register('fs:dirs', ({ path }) => fs.dirs(path))
+  router.register('fs:dirs', ({ path }, ctx) => (ctx.transport === 'remote' ? remoteAccess.dirs(path) : fs.dirs(path)))
   router.register('server:status', () => controller.status())
-  router.register('server:configure', (patch) => controller.configure(patch))
-  router.register('server:createPairingCode', () => controller.createPairingCode())
+  router.register('server:configure', async ({ remoteRoots, ...patch }) =>
+    controller.configure(remoteRoots ? { ...patch, remoteRoots: await remoteAccess.validateRoots(remoteRoots) } : patch)
+  )
+  router.register('server:createPairingCode', ({ role }) => controller.createPairingCode(role))
   router.register('server:devices', () => controller.devices())
-  router.register('server:revokeDevice', ({ id }) => controller.revoke(id))
+  router.register('server:revokeDevice', ({ id }, ctx) => {
+    // Unpairing itself is every device's right; removing others is an admin's.
+    if (ctx.transport === 'remote' && ctx.role !== 'admin' && id !== ctx.deviceId) {
+      throw Object.assign(new Error('Removing other devices needs the admin role'), { code: 'admin-only' })
+    }
+    return controller.revoke(id)
+  })
+  router.register('server:setDeviceRole', ({ id, role }) => controller.setDeviceRole(id, role))
   router.register('ai:status', () => ai.status())
   router.register('ai:setKey', ({ key }) => ai.setKey(key))
   router.register('ai:clearKey', () => ai.clearKey())
@@ -403,10 +426,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('ai:inlineComplete', (req) => inline.complete(req))
   router.register('ai:inlineEdit', (req) => inline.edit(req))
   router.register('ai:inlineCancel', ({ requestId }) => inline.cancel(requestId))
-  router.register('permission:pending', () => permissions.list())
-  router.register('permission:respond', ({ id, decision }, ctx) => permissions.respond(id, decision, ctx.deviceId))
+  // "Always allow" is the desktop's to give: devices are not offered it.
+  router.register('permission:pending', (_req, ctx) => permissions.list().map((r) => (ctx.transport === 'remote' ? { ...r, allowAlways: false } : r)))
+  router.register('permission:respond', ({ id, decision }, ctx) =>
+    permissions.respond(id, decision, ctx.transport === 'remote' ? { deviceId: ctx.deviceId, shells: controller.remoteTerminal() } : undefined)
+  )
   router.register('permission:grants', () => permissions.grants())
-  router.register('permission:revoke', ({ agentId, toolName }) => permissions.revoke(agentId, toolName))
+  router.register('permission:revoke', ({ agentId, toolName, projectId }) => permissions.revoke(agentId, toolName, projectId))
   router.register('events:recent', (q) => eventLog.recent(q))
   router.register('cloud:status', () => cloud.status())
   router.register('cloud:login', (req) => cloud.login(req))

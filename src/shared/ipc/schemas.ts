@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { DEVICE_ROLES } from '@shared/types/server'
 import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
 import type { IpcChannel, IpcChannels } from './contract'
@@ -277,11 +278,16 @@ export const REQUEST_SCHEMAS: Schemas = {
     enabled: z.boolean().optional(),
     lan: z.boolean().optional(),
     port: z.number().int().min(1024).max(65535).optional(),
-    remoteTerminal: z.boolean().optional()
+    remoteTerminal: z.boolean().optional(),
+    remoteRoots: z.array(path).max(50).optional()
   }),
-  'server:createPairingCode': none,
+  'server:createPairingCode': z
+    .object({ role: z.enum(DEVICE_ROLES).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
   'server:devices': none,
   'server:revokeDevice': z.object({ id }),
+  'server:setDeviceRole': z.object({ id, role: z.enum(DEVICE_ROLES) }),
 
   'ai:status': none,
   'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
@@ -330,7 +336,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'permission:pending': none,
   'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),
   'permission:grants': none,
-  'permission:revoke': z.object({ agentId: id, toolName: id }),
+  'permission:revoke': z.object({ agentId: id, toolName: id, projectId: id.optional() }),
 
   'agents:detect': none,
   'agents:list': none,

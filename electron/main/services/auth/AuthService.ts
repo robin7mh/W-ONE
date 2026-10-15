@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Device, PairResult } from '@shared/types/server'
+import type { Device, DeviceRole, PairResult } from '@shared/types/server'
 import { readJson } from '../../lib/jsonFile'
 
 interface DeviceRecord extends Device {
@@ -10,6 +10,7 @@ interface DeviceRecord extends Device {
 interface PendingCode {
   hash: string
   expiresAt: string
+  role?: DeviceRole
 }
 interface Store {
   devices: DeviceRecord[]
@@ -20,6 +21,8 @@ interface Store {
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const CODE_TTL_MS = 10 * 60_000
 const SEEN_PERSIST_MS = 60_000
+/** Open codes at most — older ones give way. */
+const MAX_CODES = 20
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 const normalizeCode = (code: string) => String(code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -34,6 +37,11 @@ function coded(code: string, message: string): Error {
  * one-time code and receives a random bearer token; only the token's SHA-256
  * is stored (devices.json, mode 0600). Codes are stored hashed too, and the
  * file is re-read when pairing, so `mindeck pair` from a second process works.
+ *
+ * Every device has a role, set by the code it redeemed. A headless core has
+ * no desktop to hand out roles: its first device is admin, and so are devices
+ * paired before roles existed (they could do everything then); on the desktop
+ * those become members.
  */
 export class AuthService {
   private store?: Store
@@ -42,17 +50,18 @@ export class AuthService {
 
   constructor(
     private readonly file: string,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly headless = false
   ) {}
 
-  /** A new one-time pairing code, valid for 10 minutes. */
-  async createPairingCode(): Promise<{ code: string; expiresAt: string }> {
+  /** A new one-time pairing code, valid for 10 minutes, for a device with `role`. */
+  async createPairingCode(role: DeviceRole = 'member'): Promise<{ code: string; role: DeviceRole; expiresAt: string }> {
     const raw = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('')
     const expiresAt = new Date(this.now() + CODE_TTL_MS).toISOString()
     await this.mutate(true, (s) => {
-      s.codes.push({ hash: sha256(raw), expiresAt })
+      s.codes = [...s.codes, { hash: sha256(raw), expiresAt, role }].slice(-MAX_CODES)
     })
-    return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, expiresAt }
+    return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, role, expiresAt }
   }
 
   /** Redeem a code (once) for a device token. */
@@ -62,6 +71,7 @@ export class AuthService {
     const device: DeviceRecord = {
       id: randomUUID(),
       name: String(name ?? '').trim().slice(0, 80) || 'Device',
+      role: 'member',
       createdAt: new Date(this.now()).toISOString(),
       tokenHash: sha256(token)
     }
@@ -70,6 +80,7 @@ export class AuthService {
       const now = this.now()
       const i = s.codes.findIndex((c) => c.hash === hash && Date.parse(c.expiresAt) > now)
       if (i < 0) return
+      device.role = this.headless && !s.devices.length ? 'admin' : (s.codes[i].role ?? 'member')
       s.codes.splice(i, 1)
       s.devices.push(device)
       matched = true
@@ -98,6 +109,19 @@ export class AuthService {
     return (await this.load()).devices.map(publicDevice)
   }
 
+  /** Give a device another role; answers the updated list. */
+  async setRole(id: string, role: DeviceRole): Promise<Device[]> {
+    let found = false
+    await this.mutate(false, (s) => {
+      const device = s.devices.find((d) => d.id === id)
+      if (!device) return
+      device.role = role
+      found = true
+    })
+    if (!found) throw coded('not-found', 'No such device')
+    return this.devices()
+  }
+
   async revoke(id: string): Promise<void> {
     await this.mutate(false, (s) => {
       s.devices = s.devices.filter((d) => d.id !== id)
@@ -118,10 +142,11 @@ export class AuthService {
       devices: Array.isArray(parsed.devices) ? parsed.devices : [],
       codes: Array.isArray(parsed.codes) ? parsed.codes : []
     }
-    // Keep in-memory lastSeen values the file does not have yet.
+    // Keep in-memory lastSeen values the file does not have yet; devices from before roles get one.
     for (const d of store.devices) {
       const known = this.store?.devices.find((k) => k.id === d.id)
       if (known?.lastSeenAt) d.lastSeenAt = known.lastSeenAt
+      if (d.role !== 'admin' && d.role !== 'member') d.role = this.headless ? 'admin' : 'member'
     }
     this.store = store
     return store

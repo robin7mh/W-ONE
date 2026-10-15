@@ -5,6 +5,7 @@ import { currentTransport, ipc, isDesktop, onEvent, setTransport } from '@shared
 import {
   bridgeTransport,
   createRemoteTransport,
+  eventsProtocols,
   eventsUrl,
   pairDevice,
   probeCore,
@@ -37,7 +38,10 @@ class FakeSocket {
   onerror: ((ev: unknown) => void) | null = null
   onmessage: ((ev: { data: unknown }) => void) | null = null
   closed = false
-  constructor(public url: string) {
+  constructor(
+    public url: string,
+    public protocols?: string[]
+  ) {
     FakeSocket.all.push(this)
   }
   close() {
@@ -63,10 +67,11 @@ beforeEach(() => {
 // --- transport -----------------------------------------------------------------
 
 describe('remote transport', () => {
-  it('derives the events URL', () => {
-    expect(eventsUrl('https://core.lan:7420/', 't k')).toBe('wss://core.lan:7420/api/events?token=t%20k')
-    expect(eventsUrl('', 'x', 'http://localhost:5173')).toBe('ws://localhost:5173/api/events?token=x')
-    expect(eventsUrl('', 'x')).toBe('/api/events?token=x')
+  it('derives the events URL — the token is never part of it', () => {
+    expect(eventsUrl('https://core.lan:7420/')).toBe('wss://core.lan:7420/api/events')
+    expect(eventsUrl('', 'http://localhost:5173')).toBe('ws://localhost:5173/api/events')
+    expect(eventsUrl('')).toBe('/api/events')
+    expect(eventsProtocols('mindeck_x')).toEqual(['mindeck', 'mindeck.bearer.mindeck_x'])
   })
 
   it('invokes over HTTP with the bearer token and maps failures', async () => {
@@ -115,7 +120,8 @@ describe('remote transport', () => {
     t.on('system:tick', vi.fn())
     expect(FakeSocket.all).toHaveLength(1)
     const ws = FakeSocket.all[0]
-    expect(ws.url).toBe('ws://core/api/events?token=tok')
+    expect(ws.url).toBe('ws://core/api/events')
+    expect(ws.protocols).toEqual(['mindeck', 'mindeck.bearer.tok'])
     ws.open()
     ws.message(JSON.stringify({ channel: 'memory:changed', payload: { paths: [] } }))
     ws.message('not json')
@@ -506,6 +512,28 @@ describe('FolderPicker', () => {
     await act(async () => pending['/srv']({ path: '/srv/', parent: '/', home: '/root', dirs: ['wanted'] }))
     expect(screen.getByLabelText('Folder path')).toHaveValue('/srv/')
     expect(screen.getByText('wanted')).toBeInTheDocument()
+  })
+
+  it('a paired device jumps between its shared folders', async () => {
+    const roots = ['/srv/code', '/srv/notes']
+    const remote = installRemote({
+      'fs:dirs': ({ path }: { path?: string }) => ({ path: path ?? roots[0], parent: null, home: roots[0], dirs: [], roots })
+    })
+    render(<FolderPicker title="Pick" onPick={vi.fn()} onClose={vi.fn()} />)
+    const shared = await screen.findByLabelText('Shared folders')
+    expect(screen.getByText('/srv/code', { selector: 'button' })).toHaveClass('text-cyan')
+    fireEvent.click(screen.getByText('/srv/notes', { selector: 'button' }))
+    await act(settle)
+    expect(remote.invoke).toHaveBeenLastCalledWith('fs:dirs', { path: '/srv/notes' })
+    expect(shared).toBeInTheDocument()
+    expect(screen.getByText('/srv/notes', { selector: 'button' })).toHaveClass('text-cyan')
+  })
+
+  it('one shared folder needs no chooser', async () => {
+    installRemote({ 'fs:dirs': () => ({ path: '/srv/code', parent: null, home: '/srv/code', dirs: ['app'], roots: ['/srv/code'] }) })
+    render(<FolderPicker title="Pick" onPick={vi.fn()} onClose={vi.fn()} />)
+    expect(await screen.findByText('app')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Shared folders')).toBeNull()
   })
 
   it('cannot confirm before a folder loaded', async () => {
