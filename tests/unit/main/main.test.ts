@@ -673,7 +673,7 @@ describe('stability', () => {
     win.emit('responsive')
 
     // crashing twice in a row asks (in English once the core is gone)
-    h.appHandlers.get('will-quit')!()
+    h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
     win.contentsHandlers.get('render-process-gone')!({}, { reason: 'crashed', exitCode: 11 })
     await flush()
     expect(h.asked[1].options.message).toBe('Mindeck’s window crashed again')
@@ -731,24 +731,58 @@ describe('core push events', () => {
 })
 
 describe('app lifecycle', () => {
-  it('disposes the core once before quitting', async () => {
+  it('waits for the core to save and stop, then quits — once', async () => {
     await boot()
-    h.appHandlers.get('will-quit')!()
+    let finish!: () => void
+    h.core.dispose.mockImplementation(() => new Promise<void>((done) => (finish = done)))
+    const quit = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(quit)
+    expect(quit.preventDefault).toHaveBeenCalled() // held until the core is down
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
-    h.appHandlers.get('will-quit')!() // second quit: core already released
+    await flush()
+    expect(h.quit).not.toHaveBeenCalled()
+    finish()
+    await flush()
+    expect(h.quit).not.toHaveBeenCalled() // not inside this will-quit: Electron would ignore it
+    await new Promise((done) => setImmediate(done))
+    expect(h.quit).toHaveBeenCalledTimes(1)
+    const again = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(again) // the quit goes on: core already released
+    expect(again.preventDefault).not.toHaveBeenCalled()
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
   })
 
-  it('quit before anything started is harmless; a failing dispose is swallowed', async () => {
+  it('a core that does not stop in time does not keep Mindeck from quitting', async () => {
+    await boot()
+    vi.useFakeTimers()
+    try {
+      h.core.dispose.mockImplementation(() => new Promise<void>(() => {}))
+      h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
+      await vi.advanceTimersByTimeAsync(4999)
+      expect(h.quit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(h.quit).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('quit before anything started is harmless; a failing dispose is logged and the quit goes on', async () => {
     await boot({ ready: false })
     const early = { preventDefault: vi.fn() }
     h.appHandlers.get('before-quit')!(early) // nothing runs yet
     expect(early.preventDefault).not.toHaveBeenCalled()
-    expect(() => h.appHandlers.get('will-quit')!()).not.toThrow()
+    const nothing = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(nothing)
+    expect(nothing.preventDefault).not.toHaveBeenCalled()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     h.core.dispose.mockRejectedValue(new Error('pool gone'))
     await boot()
-    h.appHandlers.get('will-quit')!()
+    h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
     await flush()
+    await new Promise((done) => setImmediate(done))
+    expect(error).toHaveBeenCalledWith('[app] shutting the core down failed', expect.any(Error))
+    expect(h.quit).toHaveBeenCalledTimes(1)
   })
 
   it('quits when all windows close, except on macOS', async () => {
