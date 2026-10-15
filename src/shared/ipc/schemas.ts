@@ -342,6 +342,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'server:configure': z.object({
     enabled: z.boolean().optional(),
     lan: z.boolean().optional(),
+    tls: z.boolean().optional(),
     port: z.number().int().min(1024).max(65535).optional(),
     remoteTerminal: z.boolean().optional(),
     remoteRoots: z.array(path).max(50).optional()

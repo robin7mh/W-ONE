@@ -14,6 +14,8 @@ export interface MindeckPaths {
   defaultVaultRoot: string
   /** Paired remote devices (token hashes, never tokens) and pending pairing codes. */
   devicesFile: string
+  /** The network server's self-signed TLS certificate and key (0600). */
+  tlsDir: string
   /** Secrets such as the LLM API key — encrypted on desktop, 0600 on a server. */
   secretsFile: string
   /** The Mindeck account: last signed entitlement, install id (the session token is a secret). */
@@ -51,6 +53,7 @@ export function mindeckPaths(home = homedir()): MindeckPaths {
     settingsFile: join(dataDir, 'settings.json'),
     defaultVaultRoot: join(homeDir, 'vault'),
     devicesFile: join(dataDir, 'devices.json'),
+    tlsDir: join(dataDir, 'tls'),
     secretsFile: join(dataDir, 'secrets.json'),
     cloudFile: join(dataDir, 'cloud.json'),
     grantsFile: join(dataDir, 'grants.json'),

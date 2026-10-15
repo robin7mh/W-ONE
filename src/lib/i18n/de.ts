@@ -269,7 +269,11 @@ export const de: Dict = {
     deviceName: 'Gerätename',
     submit: 'Gerät koppeln',
     noLongerPaired: 'Dieses Gerät ist nicht mehr gekoppelt',
-    noCore: 'Unter dieser Adresse hat kein Mindeck-Core geantwortet'
+    noCore: 'Unter dieser Adresse hat kein Mindeck-Core geantwortet',
+    certificateTitle: 'Zertifikat prüfen',
+    certificateHint:
+      'Dein Browser hat vor dem Zertifikat dieses Cores gewarnt: Der Core hat es selbst ausgestellt, keine Zertifizierungsstelle bürgt dafür. Öffne das Zertifikat (Schloss bzw. „Nicht sicher“ neben der Adresse) und vergleiche seinen SHA-256-Fingerabdruck mit dem aus dem QR-Code:',
+    certificateMatch: 'Gleich: Das ist dein Mindeck-Core. Anders: Nicht koppeln — womöglich hört jemand mit.'
   },
 
   folderPicker: {
@@ -1647,11 +1651,17 @@ agents: {
     runServerHint: 'Browser und die Mindeck-App können sich mit diesem Computer verbinden.',
     lan: 'Im lokalen Netzwerk erreichbar',
     lanHint: 'Aus: nur dieser Computer (127.0.0.1). An: Handys in deinem Netzwerk können sich verbinden — die Kopplung schützt weiterhin.',
+    tls: 'Verschlüsselt (HTTPS)',
+    tlsHint: 'Geräte im Netzwerk verbinden sich nur über HTTPS, mit einem Zertifikat, das dieser Computer selbst ausstellt (geprüft über seinen Fingerabdruck). Dieser Computer selbst behält HTTP auf 127.0.0.1.',
+    tlsOff: 'Unverschlüsselt: Kopplungscodes und Geräte-Tokens gehen im Klartext durchs Netzwerk. Nur in einem Netz, dem du vertraust.',
+    certificate: 'Zertifikat (SHA-256)',
+    certificateSelfSigned: (until) => `Selbst ausgestellt von diesem Core · gültig bis ${until}`,
+    certificateOwn: (until) => `Eigenes Zertifikat · gültig bis ${until}`,
     shells: 'Remote-Shells erlauben',
     shellsHint: 'Gekoppelte Geräte dürfen Terminals öffnen, Agents Befehle ausführen und Dateien ändern lassen und Änderungen freigeben. Standardmäßig aus.',
     port: 'Port',
     desktopOnly: 'Server-Einstellungen lassen sich nur in der Desktop-App ändern.',
-    envOnly: 'Dieser Core wird über seine Umgebung konfiguriert (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS).',
+    envOnly: 'Dieser Core wird über seine Umgebung konfiguriert (MINDECK_PORT, MINDECK_LAN, MINDECK_TLS, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS).',
     sharedFolders: 'Freigegebene Ordner',
     sharedFoldersHint: 'Ohne Remote-Shells erreichen gekoppelte Geräte nur diese Ordner und die hier hinzugefügten Projekte — nie den Benutzerordner selbst, versteckte oder Systemordner, Schlüssel oder Zugangsdaten.',
     addSharedFolder: 'Ordner hinzufügen…',
@@ -1670,6 +1680,7 @@ agents: {
     pairingQr: 'Kopplungs-QR-Code',
     pairingHint: 'Mit der Handykamera scannen oder die Adresse öffnen und den Code eingeben. 10 Minuten gültig, einmalig.',
     pairingLocalOnly: 'Gerade kann sich nur dieser Computer verbinden. Schalte „Im lokalen Netzwerk erreichbar“ ein, um ein Handy zu koppeln.',
+    pairingTls: 'Der Browser dort warnt, dass dem Zertifikat nicht vertraut wird — dieser Core hat es selbst ausgestellt. Fahre nur fort, wenn sein SHA-256-Fingerabdruck dieser ist:',
     closePairing: 'Kopplung schließen',
     noDevices: 'Keine Geräte gekoppelt',
     thisBrowser: 'dieser Browser',
