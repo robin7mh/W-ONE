@@ -25,6 +25,8 @@ export interface XtermHooks {
   onInputAfterExit?: (data: string) => void
   /** ⌘F (Ctrl+Shift+F): the view opens its find bar. Without it the key goes to the program. */
   onFind?: () => void
+  /** ⌘W (macOS): the view closes its tab. Without it the workspace closes the pane. */
+  onClose?: () => void
   /** The shell's folder now — file references in the output resolve against it. Without it: no file links. */
   where?: () => { cwd: string; cwdLabel: string }
   /** A file reference was clicked. */
@@ -229,6 +231,10 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
       else if (action === 'prevCommand') commands.previous()
       else if (action === 'nextCommand') commands.next()
       else if (action === 'clear') term.clear()
+      else if (action === 'close' && hooksRef.current.onClose) hooksRef.current.onClose()
+      // Consumed even without a selection: Ctrl+Shift+C must never reach the shell as Ctrl+C.
+      else if (action === 'copy') api.copy()
+      else if (action === 'paste') void api.paste()
       else return true
       e.preventDefault()
       return false
