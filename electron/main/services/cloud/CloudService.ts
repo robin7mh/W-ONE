@@ -1,6 +1,6 @@
 import type { AiCredit, AiStatus } from '@shared/types/ai'
 import { randomUUID, type KeyObject } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import {
   USABLE_STATES,
@@ -10,6 +10,7 @@ import {
   type LicenseState
 } from '@shared/types/cloud'
 import type { SecretStore } from '../ai/SecretStore'
+import { readJson } from '../../lib/jsonFile'
 import { parsePublicKey, verifyEntitlement, type EntitlementClaims } from './entitlement'
 
 /** The session token's name in the secret store (keychain on desktop). */
@@ -442,12 +443,8 @@ export class CloudService {
   }
 
   private async load(): Promise<Partial<Persisted>> {
-    try {
-      const parsed = JSON.parse(await readFile(this.opts.file, 'utf8')) as Partial<Persisted>
-      return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch {
-      return {}
-    }
+    const parsed = await readJson<Partial<Persisted>>(this.opts.file)
+    return parsed && typeof parsed === 'object' ? parsed : {}
   }
 
   private async save(): Promise<void> {

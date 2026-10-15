@@ -12,7 +12,8 @@ export type AcpKind = 'codex' | 'gemini'
 
 export const ACP_AGENTS: Record<AcpKind, { name: string; file: string; args: string[] }> = {
   // OpenAI's Codex through Zed's ACP adapter; uses the Codex sign-in (ChatGPT plan or API key).
-  codex: { name: 'Codex', file: 'npx', args: ['-y', '@zed-industries/codex-acp@0.16'] },
+  // An exact version: npx fetches it at run time, and a range would run whatever was published last.
+  codex: { name: 'Codex', file: 'npx', args: ['-y', '@zed-industries/codex-acp@0.16.0'] },
   gemini: { name: 'Gemini CLI', file: 'gemini', args: ['--experimental-acp'] }
 }
 

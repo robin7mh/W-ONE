@@ -48,7 +48,8 @@ export class ConversationStore {
 
   async save(c: StoredConversation): Promise<void> {
     if (!SAFE_ID.test(c.id)) throw Object.assign(new Error('Invalid conversation id'), { code: 'bad-id' })
-    await writeAtomic(this.file(c.id), JSON.stringify(c))
+    // Prompts, file contents and tool output: for the user's eyes only.
+    await writeAtomic(this.file(c.id), JSON.stringify(c), 0o600)
     const { messages: _m, transcript: _t, ...summary } = c
     ;(await this.loadIndex()).set(c.id, { ...summary, running: false })
   }
