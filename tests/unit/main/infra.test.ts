@@ -49,6 +49,7 @@ import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
+import { registerSearchIpc } from '../../../electron/ipc/search.ipc'
 import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
 import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
 import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
@@ -262,7 +263,22 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
         ['scm:original', { projectId: 'p', path: 'a' }, 'original', ['p', 'a']],
         ['scm:files', { projectId: 'p' }, 'files', ['p']],
-        ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
+        ['scm:abort', { projectId: 'p' }, 'abort', ['p']],
+        ['scm:continue', { projectId: 'p' }, 'continue', ['p']],
+        ['scm:stashes', { projectId: 'p' }, 'stashes', ['p']],
+        ['scm:stash', { projectId: 'p', message: 'm', untracked: true }, 'stash', ['p', { message: 'm', untracked: true }]],
+        ['scm:applyStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pop: true }, 'applyStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', true]],
+        ['scm:dropStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'dropStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:stashFiles', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'stashFiles', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:blame', { projectId: 'p', path: 'a', text: 't' }, 'blame', ['p', 'a', 't']]
+      ]
+    ],
+    [
+      'search',
+      registerSearchIpc,
+      [
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
       ]
     ],
     [

@@ -14,7 +14,6 @@ import { useScm } from '@/features/editor/scm'
 import { useEditor } from '@/features/editor/store'
 import { useProjects } from '@/features/projects/store'
 import { DiffHeader, ScmPanel } from '@/features/editor/components/ScmPanel'
-import { SearchPanel } from '@/features/editor/components/SearchPanel'
 import { fuzzyScore, QuickOpen } from '@/features/editor/components/QuickOpen'
 import { GitGraph, layoutGraph } from '@/features/editor/components/GitGraph'
 import { EditorView } from '@/features/editor/components/EditorView'
@@ -69,7 +68,7 @@ describe('scm store', () => {
     await s().checkout('main')
     await s().createBranch('x')
     await s().init()
-    const calls = bridge.invoke.mock.calls.map(([c]) => c).filter((c) => !['scm:status', 'scm:branches'].includes(c))
+    const calls = bridge.invoke.mock.calls.map(([c]) => c).filter((c) => !['scm:status', 'scm:branches', 'scm:stashes'].includes(c))
     expect(calls).toEqual(['scm:stage', 'scm:unstage', 'scm:discard', 'scm:fetch', 'scm:pull', 'scm:checkout', 'scm:createBranch', 'scm:init'])
 
     await s().push()
@@ -106,7 +105,6 @@ describe('scm store', () => {
     await s().loadLog()
     await s().select('abcd')
     s().setQuickOpen(true)
-    await s().runSearch()
     expect(bridge.invoke).not.toHaveBeenCalledWith(expect.stringMatching(/^scm:/), expect.anything())
   })
 
@@ -120,7 +118,7 @@ describe('scm store', () => {
     expect(s().branches).toEqual([])
   })
 
-  it('diffs, the log (selecting the newest), commit details, quick open files and search', async () => {
+  it('diffs, the log (selecting the newest), commit details, quick open files', async () => {
     let failing = false
     const bridge = installBridge({
       'scm:status': () => status(),
@@ -128,8 +126,7 @@ describe('scm store', () => {
       'scm:diff': ({ path }: { path: string }) => (failing ? fail('no diff') : { path, original: 'a', modified: 'b' }),
       'scm:log': () => (failing ? fail('no log') : [commit('c2', ['c1']), commit('c1', [])]),
       'scm:show': ({ hash }: { hash: string }) => (failing ? fail('no commit') : { hash, author: 'Ada', email: 'a@a', date: 0, message: 'm', files: [] }),
-      'scm:files': () => (failing ? fail('no files') : ['src/a.ts']),
-      'scm:search': () => (failing ? fail('bad regex') : { matches: [{ path: 'a.ts', line: 1, text: 'x' }], truncated: false })
+      'scm:files': () => (failing ? fail('no files') : ['src/a.ts'])
     })
     await s().openDiff({ path: 'new.ts', from: 'old.ts' }, { kind: 'commit', hash: 'abcd' }, 'new.ts (abcd)')
     expect(bridge.invoke).toHaveBeenCalledWith('scm:diff', { projectId: 'p', path: 'new.ts', target: { kind: 'commit', hash: 'abcd', from: 'old.ts' } })
@@ -153,13 +150,6 @@ describe('scm store', () => {
     expect(s()).toMatchObject({ quickOpen: true, files: ['src/a.ts'] })
     s().setQuickOpen(false)
 
-    await s().runSearch() // empty query: no search
-    expect(bridge.invoke).not.toHaveBeenCalledWith('scm:search', expect.anything())
-    s().setSearch({ query: 'x', regex: true })
-    await s().runSearch()
-    expect(bridge.invoke).toHaveBeenCalledWith('scm:search', { projectId: 'p', query: 'x', regex: true, caseSensitive: false })
-    expect(s().search.result?.matches).toHaveLength(1)
-
     failing = true
     await s().openDiff({ path: 'a' }, { kind: 'unstaged' }, 'a')
     expect(s().error).toBe('no diff')
@@ -170,8 +160,6 @@ describe('scm store', () => {
     s().setQuickOpen(true)
     await act(settle)
     expect(s().error).toBe('no files')
-    await s().runSearch()
-    expect(s()).toMatchObject({ error: 'bad regex', search: { searching: false } })
   })
 
   it('switching projects starts over; opening at a line remembers where to scroll', async () => {
@@ -219,8 +207,8 @@ describe('ScmPanel', () => {
       { path: 'clash.ts', unstaged: 'conflicted' as const }
     ]
     installBridge({ 'files:read': () => ({ path: 'src/new.ts', content: 'x', mtimeMs: 1, size: 1 }) })
-    panel(status({ files, merging: true }), { stage, unstage, discard, openDiff, diff: { path: 'x', original: '', modified: '', title: 'x' } })
-    expect(screen.getByText(/Merge in progress/)).toBeInTheDocument()
+    panel(status({ files, merging: true, operation: { kind: 'merge' } }), { stage, unstage, discard, openDiff, diff: { path: 'x', original: '', modified: '', title: 'x' } })
+    expect(screen.getByText('Merging')).toBeInTheDocument()
     expect(screen.getByText('Merge conflicts')).toBeInTheDocument()
     expect(screen.getAllByText(/^[MAU!]$/).map((n) => n.textContent)).toEqual(['!', 'M', 'A', 'M', 'U'])
 
@@ -328,55 +316,12 @@ describe('ScmPanel', () => {
   })
 })
 
-describe('search and quick open', () => {
+describe('quick open', () => {
   it('fuzzy scores: in order, file names first, misses', () => {
     expect(fuzzyScore('src/app.ts', '')).toBe(0)
     expect(fuzzyScore('src/app.ts', 'zz')).toBeNull()
     expect(fuzzyScore('src/app.ts', 'app')!).toBeLessThan(fuzzyScore('apps/x/p.ts', 'app')!)
     expect(fuzzyScore('src/app.ts', 's a')).not.toBeNull()
-  })
-
-  it('searches as you type, groups results by file and opens a line', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const runSearch = vi.fn(async () => {})
-    useScm.setState({ runSearch })
-    const { rerender, unmount } = render(<SearchPanel />)
-    await act(() => vi.advanceTimersByTimeAsync(300))
-    expect(runSearch).toHaveBeenCalledTimes(1)
-    fireEvent.change(screen.getByLabelText('Search in project'), { target: { value: 'needle' } })
-    fireEvent.click(screen.getByLabelText('Match case'))
-    fireEvent.click(screen.getByLabelText('Use regular expression'))
-    await act(() => vi.advanceTimersByTimeAsync(300))
-    expect(runSearch).toHaveBeenCalledTimes(2) // debounced into one
-    expect(useScm.getState().search).toMatchObject({ query: 'needle', caseSensitive: true, regex: true })
-    fireEvent.keyDown(screen.getByLabelText('Search in project'), { key: 'Enter' })
-    fireEvent.keyDown(screen.getByLabelText('Search in project'), { key: 'a' })
-    expect(runSearch).toHaveBeenCalledTimes(3)
-    vi.useRealTimers()
-
-    installBridge({ 'files:read': () => ({ path: 'src/a.ts', content: 'x\ny', mtimeMs: 1, size: 3 }) })
-    act(() =>
-      useScm.setState({
-        search: {
-          ...useScm.getState().search,
-          searching: true,
-          result: { truncated: true, matches: [{ path: 'src/a.ts', line: 2, text: 'y needle' }, { path: 'src/a.ts', line: 9, text: 'z' }, { path: 'top.md', line: 1, text: 'needle' }] }
-        }
-      })
-    )
-    rerender(<SearchPanel />)
-    expect(screen.getByText('3 results in 2 files')).toBeInTheDocument()
-    expect(screen.getByText(/More results than shown/)).toBeInTheDocument()
-    fireEvent.click(screen.getByText('y needle'))
-    await act(settle)
-    expect(useEditor.getState()).toMatchObject({ activeId: 'p:src/a.ts', reveal: { line: 2 } })
-    unmount()
-
-    // coming back with results: no immediate re-search; none found
-    render(<SearchPanel />)
-    expect(runSearch).toHaveBeenCalledTimes(3)
-    act(() => useScm.setState({ search: { ...useScm.getState().search, searching: false, result: { truncated: false, matches: [] } } }))
-    expect(screen.getByText('No results.')).toBeInTheDocument()
   })
 
   it('⌘P: type, move, open with Enter or a click; Escape and outside clicks close', async () => {
@@ -480,6 +425,7 @@ describe('EditorView with source control', () => {
       'scm:log': () => [commit('c1', [])],
       'scm:show': () => ({ hash: 'c1', author: 'Ada', email: 'a@a', date: 0, message: 'first', files: [] }),
       'scm:files': () => ['a.ts'],
+      'scm:stashes': () => [],
       ...over
     })
 
@@ -496,7 +442,7 @@ describe('EditorView with source control', () => {
     expect(screen.getByRole('dialog', { name: 'Go to file by name…' })).toBeInTheDocument()
     fireEvent.keyDown(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { key: 'Escape' })
     fireEvent.keyDown(window, { key: 'F', metaKey: true, shiftKey: true })
-    expect(screen.getByLabelText('Search in project')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Search' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'g', ctrlKey: true, shiftKey: true })
     expect(screen.getByRole('button', { name: 'Source Control' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.keyDown(window, { key: 'x', metaKey: true }) // not ours

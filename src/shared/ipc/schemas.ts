@@ -32,6 +32,10 @@ const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) 
 /** One file or folder name — no separators, not `.` or `..` (the service checks again). */
 const fileName = z.string().trim().min(1).max(255)
 const paths = z.array(path).min(1).max(1000)
+/** A stash, by its full commit hash. */
+const stashHash = z.string().regex(/^[0-9a-f]{40}$/i)
+/** Include / exclude globs of a project search. */
+const globs = z.array(z.string().min(1).max(500)).max(100).optional()
 
 /** A model or mode id an agent offers. */
 const optionId = z.string().min(1).max(200)
@@ -130,12 +134,35 @@ export const REQUEST_SCHEMAS: Schemas = {
     target: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('unstaged') }),
       z.object({ kind: z.literal('staged') }),
-      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() })
+      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() }),
+      z.object({ kind: z.literal('stash'), hash: stashHash, from: path.optional(), untracked: z.boolean().optional() })
     ])
   }),
   'scm:original': z.object({ projectId: id, path }),
   'scm:files': z.object({ projectId: id }),
-  'scm:search': z.object({ projectId: id, query: text(500), regex: z.boolean().optional(), caseSensitive: z.boolean().optional() }),
+  'scm:abort': z.object({ projectId: id }),
+  'scm:continue': z.object({ projectId: id }),
+  'scm:stashes': z.object({ projectId: id }),
+  'scm:stash': z.object({ projectId: id, message: text(2000).optional(), untracked: z.boolean().optional() }),
+  'scm:applyStash': z.object({ projectId: id, hash: stashHash, pop: z.boolean().optional() }),
+  'scm:dropStash': z.object({ projectId: id, hash: stashHash }),
+  'scm:stashFiles': z.object({ projectId: id, hash: stashHash }),
+  'scm:blame': z.object({ projectId: id, path, text: text(6 * 1024 * 1024).optional() }),
+
+  'search:start': z.object({
+    id,
+    projectId: id,
+    query: z.object({
+      pattern: z.string().min(1).max(2000),
+      regex: z.boolean().optional(),
+      caseSensitive: z.boolean().optional(),
+      wholeWord: z.boolean().optional(),
+      include: globs,
+      exclude: globs,
+      skip: z.array(path).max(1000).optional()
+    })
+  }),
+  'search:cancel': z.object({ id }),
 
   'lsp:open': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
   'lsp:change': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),

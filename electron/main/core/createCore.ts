@@ -14,6 +14,7 @@ import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
 import { registerScmIpc } from '../../ipc/scm.ipc'
+import { registerSearchIpc } from '../../ipc/search.ipc'
 import { registerLspIpc } from '../../ipc/lsp.ipc'
 import { registerDebugIpc } from '../../ipc/debug.ipc'
 import { registerToolsIpc } from '../../ipc/tools.ipc'
@@ -55,6 +56,7 @@ import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
 import { ScmService } from '../services/scm/ScmService'
+import { SearchService } from '../services/search/SearchService'
 import { LspService } from '../services/lsp/LspService'
 import { DebugService } from '../services/debug/DebugService'
 import { ToolsService } from '../services/tools/ToolsService'
@@ -345,6 +347,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
+  const search = new SearchService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'search:progress') })
+  registerSearchIpc(router, search)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)
@@ -472,6 +476,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await mongo.dispose()
       remote.dispose()
       lint.dispose()
+      search.dispose()
       notebooks.dispose()
       terminal.killAll()
       await browser.dispose()

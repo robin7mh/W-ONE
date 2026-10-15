@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
-import { parseLog, parseNameStatus, parseStatus, ScmService } from '../../../electron/main/services/scm/ScmService'
+import { parseBlame, parseLog, parseNameStatus, parseStashes, parseStatus, ScmService } from '../../../electron/main/services/scm/ScmService'
+import { UNCOMMITTED } from '@shared/types/scm'
 
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 const identity = (dir: string) => {
@@ -69,6 +70,17 @@ describe('parsers', () => {
       ]
     })
     expect(parseStatus(['# branch.oid (initial)', '# branch.head (detached)'].join('\0'))).toEqual({ ahead: 0, behind: 0, files: [] })
+  })
+
+  it('blame and stash list records', () => {
+    const a = 'a'.repeat(40)
+    const raw = [`${a} 1 1 2`, 'author Ada', 'author-mail <ada@x>', 'author-time 10', 'summary first', 'filename f', '\tline one', `${a} 2 2`, '\tline two', ''].join('\n')
+    expect(parseBlame(raw)).toEqual({ commits: { [a]: { hash: a, author: 'Ada', email: 'ada@x', date: 10_000, summary: 'first' } }, lines: [a, a] })
+    expect(parseBlame('')).toEqual({ commits: {}, lines: [] })
+    expect(parseStashes(`h1\x1fOn main: x\x1f5\x1e\nh2\x1fWIP on dev: y\x1f6\x1e`)).toEqual([
+      { hash: 'h1', index: 0, message: 'On main: x', date: 5000 },
+      { hash: 'h2', index: 1, message: 'WIP on dev: y', date: 6000 }
+    ])
   })
 
   it('log and name-status records', () => {
@@ -210,7 +222,116 @@ describe('ScmService', () => {
     } catch {
       /* the conflict */
     }
-    expect(await service(dir).status('p')).toMatchObject({ merging: true, files: [{ path: 'a.txt', unstaged: 'conflicted' }] })
+    const s = service(dir)
+    expect(await s.status('p')).toMatchObject({ merging: true, operation: { kind: 'merge' }, files: [{ path: 'a.txt', unstaged: 'conflicted' }] })
+    await expect(s.continue('p')).rejects.toMatchObject({ code: 'git' }) // still unmerged
+    await writeFile(join(dir, 'a.txt'), 'both\n')
+    await s.stage('p', ['a.txt'])
+    await s.continue('p') // the merge commit, with git's message
+    expect(await s.status('p')).toMatchObject({ merging: false, files: [] })
+    expect((await s.status('p')).operation).toBeUndefined()
+    expect((await s.log('p'))[0]).toMatchObject({ subject: "Merge branch 'other'" })
+    await expect(s.abort('p')).rejects.toMatchObject({ code: 'bad-input' })
+    await expect(s.continue('p')).rejects.toMatchObject({ code: 'bad-input' })
+  })
+
+  it('a rebase, cherry-pick and revert that stopped: their state, abort', async () => {
+    const dir = await repo()
+    const s = service(dir)
+    sh(dir, 'switch', '-q', '-c', 'other')
+    await writeFile(join(dir, 'a.txt'), 'theirs\n')
+    sh(dir, 'commit', '-qam', 'theirs')
+    const theirs = sh(dir, 'rev-parse', 'HEAD').trim()
+    await writeFile(join(dir, 'b.txt'), 'theirs too\n')
+    sh(dir, 'commit', '-qam', 'second')
+    sh(dir, 'switch', '-q', 'main')
+    await writeFile(join(dir, 'a.txt'), 'ours\n')
+    sh(dir, 'commit', '-qam', 'ours')
+    const fails = (...args: string[]) => expect(() => execFileSync('git', args, { cwd: dir, stdio: 'pipe' })).toThrow()
+
+    sh(dir, 'switch', '-q', 'other')
+    fails('rebase', 'main')
+    expect((await s.status('p')).operation).toEqual({ kind: 'rebase', step: 1, total: 2 })
+    await s.abort('p')
+    expect(await s.status('p')).toMatchObject({ branch: 'other', files: [] })
+    expect((await s.status('p')).operation).toBeUndefined()
+
+    sh(dir, 'switch', '-q', 'main')
+    fails('cherry-pick', theirs)
+    expect((await s.status('p')).operation).toEqual({ kind: 'cherry-pick' })
+    await s.abort('p')
+    fails('revert', '--no-edit', 'HEAD~1')
+    expect((await s.status('p')).operation).toEqual({ kind: 'revert' })
+    await s.abort('p')
+    expect((await s.status('p')).operation).toBeUndefined()
+
+    // The apply backend (`git rebase --apply`): rebase-apply/{rebasing,next,last}; an unreadable count is just unknown.
+    await mkdir(join(dir, '.git', 'rebase-apply'))
+    await writeFile(join(dir, '.git', 'rebase-apply', 'rebasing'), '')
+    await writeFile(join(dir, '.git', 'rebase-apply', 'next'), '3\n')
+    expect((await s.status('p')).operation).toEqual({ kind: 'rebase', step: 3, total: undefined })
+    await rm(join(dir, '.git', 'rebase-apply', 'rebasing'))
+    expect((await s.status('p')).operation).toBeUndefined() // `git am`'s, not a rebase
+  })
+
+  it('stashes: push (with a message, untracked too), list, files, diffs, apply, pop, drop', async () => {
+    const fresh = await tempDir()
+    sh(fresh, 'init', '-q')
+    expect(await service(fresh).stashes('p')).toEqual([]) // no commit yet
+
+    const dir = await repo()
+    const s = service(dir)
+    await expect(s.stash('p')).rejects.toMatchObject({ code: 'bad-input', message: 'There are no local changes to stash' })
+    await writeFile(join(dir, 'a.txt'), 'one\nTWO\n')
+    await s.stash('p', { message: '  first  ' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('one\ntwo\n')
+    sh(dir, 'mv', 'b.txt', 'bee.txt')
+    await writeFile(join(dir, 'new.txt'), 'fresh\n')
+    await s.stash('p', { untracked: true })
+    expect(existsSync(join(dir, 'new.txt'))).toBe(false)
+    const [second, first] = await s.stashes('p')
+    expect(first).toMatchObject({ index: 1, message: 'On main: first' })
+    expect(second).toMatchObject({ index: 0, message: expect.stringMatching(/^WIP on main: [0-9a-f]+ init$/) })
+    expect(first.date).toBeGreaterThan(0)
+    expect(first.hash).toMatch(/^[0-9a-f]{40}$/)
+
+    expect(await s.stashFiles('p', first.hash)).toEqual([{ path: 'a.txt', change: 'modified' }])
+    expect(await s.stashFiles('p', second.hash)).toEqual([
+      { from: 'b.txt', path: 'bee.txt', change: 'renamed' },
+      { path: 'new.txt', change: 'untracked' }
+    ])
+    await expect(s.stashFiles('p', 'abc')).rejects.toMatchObject({ code: 'bad-input' })
+    expect(await s.diff('p', 'a.txt', { kind: 'stash', hash: first.hash })).toEqual({ path: 'a.txt', original: 'one\ntwo\n', modified: 'one\nTWO\n' })
+    expect(await s.diff('p', 'bee.txt', { kind: 'stash', hash: second.hash, from: 'b.txt' })).toEqual({ path: 'bee.txt', original: 'bee\n', modified: 'bee\n' })
+    expect(await s.diff('p', 'new.txt', { kind: 'stash', hash: second.hash, untracked: true })).toEqual({ path: 'new.txt', original: '', modified: 'fresh\n' })
+    await expect(s.diff('p', 'a.txt', { kind: 'stash', hash: 'zz' })).rejects.toMatchObject({ code: 'bad-input' })
+
+    await s.applyStash('p', first.hash) // stays in the list
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('one\nTWO\n')
+    expect(await s.stashes('p')).toHaveLength(2)
+    await s.discard('p', ['a.txt'])
+    await s.applyStash('p', second.hash, true) // gone from the list
+    expect(existsSync(join(dir, 'new.txt'))).toBe(true)
+    expect((await s.stashes('p')).map((x) => x.hash)).toEqual([first.hash]) // positions shift; hashes stay
+    await s.dropStash('p', first.hash)
+    expect(await s.stashes('p')).toEqual([])
+    await expect(s.dropStash('p', first.hash)).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('blame: per line, from disk or from the buffer (edited lines uncommitted); never outside', async () => {
+    const dir = await repo()
+    const s = service(dir)
+    await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree\n')
+    sh(dir, 'commit', '-qam', 'three')
+    const [head, root] = await s.log('p')
+    const blame = await s.blame('p', 'a.txt')
+    expect(blame.lines).toEqual([root.hash, root.hash, head.hash])
+    expect(blame.commits[head.hash]).toEqual({ hash: head.hash, author: 'Tester', email: 't@t', date: head.date, summary: 'three' })
+    const buffer = await s.blame('p', 'a.txt', 'one\nTWO\nthree\nfour\n')
+    expect(buffer.lines).toEqual([root.hash, UNCOMMITTED, head.hash, UNCOMMITTED])
+    await expect(s.blame('p', '../x')).rejects.toMatchObject({ code: 'outside-project' })
+    await writeFile(join(dir, 'new.txt'), 'n\n')
+    await expect(s.blame('p', 'new.txt')).rejects.toMatchObject({ code: 'git' })
   })
 
   it('commit details and diffs: working tree, index, commit (also a rename)', async () => {
@@ -271,30 +392,6 @@ describe('ScmService', () => {
     await writeFile(join(plain, 'top.md'), 'x')
     await symlink(join(plain, 'top.md'), join(plain, 'link.md'))
     expect((await service(plain).files('p')).sort()).toEqual(['src/deep/x.ts', 'top.md'])
-    expect(await service(plain, { files: 1, matches: 10, line: 10 }).files('p')).toHaveLength(1)
-  })
-
-  it('searches with git grep: case, regex, no match, bad pattern, caps; outside a repo too', async () => {
-    const dir = await repo()
-    await writeFile(join(dir, 'c.txt'), `Hello world\nhello again\n${'x'.repeat(50)} hello long\n`)
-    const s = service(dir)
-    expect(await s.search('p', { query: '' })).toEqual({ matches: [], truncated: false })
-    expect((await s.search('p', { query: 'hello' })).matches).toEqual([
-      { path: 'c.txt', line: 1, text: 'Hello world' },
-      { path: 'c.txt', line: 2, text: 'hello again' },
-      { path: 'c.txt', line: 3, text: `${'x'.repeat(50)} hello long` }
-    ])
-    expect((await s.search('p', { query: 'Hello', caseSensitive: true })).matches).toHaveLength(1)
-    expect((await s.search('p', { query: '^bee$', regex: true })).matches).toEqual([{ path: 'b.txt', line: 1, text: 'bee' }])
-    expect(await s.search('p', { query: 'nowhere to be found' })).toEqual({ matches: [], truncated: false })
-    await expect(s.search('p', { query: '(', regex: true })).rejects.toMatchObject({ code: 'git' })
-    const capped = await service(dir, { files: 10, matches: 2, line: 20 }).search('p', { query: 'hello' })
-    expect(capped).toEqual({ truncated: true, matches: [{ path: 'c.txt', line: 1, text: 'Hello world' }, { path: 'c.txt', line: 2, text: 'hello again' }] })
-    expect((await service(dir, { files: 10, matches: 5, line: 20 }).search('p', { query: 'long' })).matches[0].text).toBe(`${'x'.repeat(20)}…`)
-
-    const plain = await tempDir()
-    await writeFile(join(plain, 'notes.md'), 'find me\n')
-    expect((await service(plain).search('p', { query: 'find' })).matches).toEqual([{ path: 'notes.md', line: 1, text: 'find me' }])
-    expect(existsSync(join(plain, '.git'))).toBe(false) // searching never creates a repo
+    expect(await service(plain, { files: 1 }).files('p')).toHaveLength(1)
   })
 })

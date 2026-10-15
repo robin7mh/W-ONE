@@ -40,7 +40,8 @@ import type { TestItem, TestRunState } from '@shared/types/tests'
 import type { MongoCollection, MongoConnection, MongoDatabase, MongoDocuments, MongoIndex, MongoQuery } from '@shared/types/mongo'
 import type { GitHubStatus, MergeMethod, PullCreate, PullDetail, PullFileDiff, PullFilter, PullListState, PullSummary, ReviewAction } from '@shared/types/github'
 import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
-import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
+import type { ScmBlame, ScmBranch, ScmCommit, ScmCommitDetail, ScmCommitFile, ScmDiffTarget, ScmStash, ScmStatus } from '@shared/types/scm'
+import type { SearchEngine, SearchProgress, TextSearchQuery } from '@shared/types/search'
 import type {
   AgentAvailability,
   AgentMessageUpdate,
@@ -195,7 +196,25 @@ export interface IpcChannels {
   'scm:original': { request: { projectId: string; path: string }; response: string | null }
   /** Every file of the project, for quick open (⌘P). */
   'scm:files': { request: { projectId: string }; response: string[] }
-  'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
+  /** Give up the merge / rebase / cherry-pick / revert in progress. */
+  'scm:abort': { request: { projectId: string }; response: void }
+  /** Go on with it once the conflicts are resolved and staged. */
+  'scm:continue': { request: { projectId: string }; response: void }
+  'scm:stashes': { request: { projectId: string }; response: ScmStash[] }
+  'scm:stash': { request: { projectId: string; message?: string; untracked?: boolean }; response: void }
+  /** `pop`: drop the stash once applied. Stashes are named by hash (their positions shift). */
+  'scm:applyStash': { request: { projectId: string; hash: string; pop?: boolean }; response: void }
+  'scm:dropStash': { request: { projectId: string; hash: string }; response: void }
+  'scm:stashFiles': { request: { projectId: string; hash: string }; response: ScmCommitFile[] }
+  /** Who last changed each line; `text` = the editor's buffer (unsaved edits are uncommitted lines). */
+  'scm:blame': { request: { projectId: string; path: string; text?: string }; response: ScmBlame }
+
+  /**
+   * Project-wide search (⇧⌘F): results stream as `search:progress` events
+   * under the client's `id`; a new search or `search:cancel` stops it.
+   */
+  'search:start': { request: { id: string; projectId: string; query: TextSearchQuery }; response: { engine: SearchEngine } }
+  'search:cancel': { request: { id: string }; response: void }
 
   /** TypeScript intelligence (the project's tsserver). Positions are 1-based. */
   /** `language`: the file's language (registry id), whether or not its server runs. */
@@ -521,7 +540,17 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'scm:diff': 'any',
   'scm:original': 'any',
   'scm:files': 'any',
-  'scm:search': 'any',
+  'scm:abort': 'terminal',
+  'scm:continue': 'terminal',
+  'scm:stashes': 'any',
+  'scm:stash': 'terminal',
+  'scm:applyStash': 'terminal',
+  'scm:dropStash': 'terminal',
+  'scm:stashFiles': 'any',
+  'scm:blame': 'any',
+  // Reading project files, like files:read.
+  'search:start': 'any',
+  'search:cancel': 'any',
   // Starting tsserver runs the project's own TypeScript (and its tsconfig plugins): a shell's power.
   'lsp:open': 'terminal',
   'lsp:change': 'terminal',
@@ -751,6 +780,8 @@ export interface IpcEvents {
   'sftp:progress': SftpProgress
   'remote:changed': RemoteConnection[]
   'tests:changed': TestRunState
+  /** Results of a project-wide search, in batches. */
+  'search:progress': SearchProgress
   'notebook:event': NotebookEvent
   'browser:state': BrowserState
   'browser:find': BrowserFind
@@ -788,6 +819,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'sftp:progress',
   'remote:changed',
   'tests:changed',
+  'search:progress',
   'notebook:event',
   'browser:state',
   'browser:find',
