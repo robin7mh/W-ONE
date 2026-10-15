@@ -173,7 +173,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     openExternal: platform.openExternal,
     appForUrl: platform.appForUrl,
     openPath: platform.openPath,
-    revealPath: platform.revealPath
+    revealPath: platform.revealPath,
+    pickFolder: platform.pickFolder,
+    // The Chromium inside Electron (the Web Store serves extensions per Chrome version).
+    chromeVersion: process.versions.chrome
   })
   await browser.init()
 

@@ -29,7 +29,11 @@ function fakeHost() {
     focusUi: vi.fn(),
     setTheme: vi.fn(),
     automation: vi.fn(() => automation as unknown as AutomationTarget),
-    dispose: vi.fn()
+    dispose: vi.fn(),
+    clearPrivate: vi.fn(),
+    loadExtension: vi.fn(async (path: string) => ({ id: `id:${path}` })),
+    unloadExtension: vi.fn(),
+    openPopup: vi.fn()
   } satisfies BrowserHost
   return Object.assign(host, { target: automation })
 }
@@ -409,6 +413,7 @@ describe('BrowserService · tools, menus and suggestions', () => {
     m = menu(host)
     expect(m.filter((e) => 'label' in e).map((e) => [(e as { label: string }).label, (e as { enabled?: boolean }).enabled ?? true])).toEqual([
       ['New Tab', true],
+      ['New Private Tab', true],
       ['Reopen Closed Tab', true],
       ['Find…', true],
       ['Zoom In', true],
@@ -622,8 +627,8 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     expect(b.openFromApp('https://a.dev/')).toBe(true)
     await tick()
     expect(published).toContainEqual({ channel: 'browser:reveal', payload: { tabId: b.state().activeId } })
-    expect(b.settings()).toEqual({ searchEngine: 'google', openLinksInMindeck: true })
-    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toEqual({ searchEngine: 'kagi', openLinksInMindeck: false })
+    expect(b.settings()).toMatchObject({ searchEngine: 'google', openLinksInMindeck: true })
+    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toMatchObject({ searchEngine: 'kagi', openLinksInMindeck: false })
     expect(b.openFromApp('https://b.dev/')).toBe(false)
   })
 })
@@ -663,7 +668,7 @@ describe('BrowserService · agents', () => {
     await expect(b.agentOpen('file:///etc/passwd', 'Claude Code')).rejects.toThrow('http and https addresses only')
     const opening = b.agentOpen('https://agent.dev/', 'Claude Code')
     const id = b.state().tabs.at(-1)!.id
-    expect(host.create).toHaveBeenLastCalledWith(id, 'https://agent.dev/', { agent: true, zoom: 1, muted: false })
+    expect(host.create).toHaveBeenLastCalledWith(id, 'https://agent.dev/', { agent: true, zoom: 1, muted: false, profile: 'agents' })
     events.loading(id, false)
     expect(await opening).toMatchObject({ url: 'https://agent.dev/', openedBy: 'Claude Code', shared: true, agent: { name: 'Claude Code', action: 'open' } })
     expect(b.state().activeId).not.toBe(id) // in the background
@@ -727,7 +732,7 @@ describe('BrowserService · saving', () => {
       expect.arrayContaining([
         { id: tab.id, url: 'https://a.dev/', title: '', favicon: 'data:image/png;base64,small', pinned: true, muted: true, share: { on: false, origin: 'https://a.dev' } },
         { id: big.id, url: 'https://b.dev/', title: '' },
-        { id: agent.id, url: 'https://c.dev/', title: '', openedBy: 'Codex' }
+        { id: agent.id, url: 'https://c.dev/', title: '', openedBy: 'Codex', profile: 'agents' }
       ])
     )
     expect(JSON.parse(await readFile(join(dir, 'sites.json'), 'utf8')).sites).toEqual({ 'https://a.dev': { zoom: 1.1 } })

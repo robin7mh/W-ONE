@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcEvents } from '@shared/ipc/contract'
 import {
   DEFAULT_BROWSER_SETTINGS,
   type AgentAction,
   type AgentActivity,
+  type BrowserAuthRequest,
   type BrowserCommand,
   type BrowserDownload,
   type BrowserGo,
   type BrowserPermissionRequest,
+  type BrowserProfile,
   type BrowserSettings,
   type BrowserState,
   type BrowserSuggestion,
@@ -21,11 +24,15 @@ import {
 } from '@shared/types/browser'
 import type { AppSettings } from '@shared/types/settings'
 import { writeAtomic } from '../../lib/writeAtomic'
+import { AdblockService, type RequestVerdict } from './adblock'
+import { drmFailure, needsDrm } from './drm'
+import { ExtensionService, type FetchResponse } from './extensions/ExtensionService'
+import { browserRoots, type BrowserRoot } from './extensions/profiles'
 import { bareUrl, BrowserHistory } from './history'
 import { DevServerDetector } from './devServers'
 import { ENGINE_NAMES, labels } from './labels'
-import type { AutomationTarget, BrowserHost, BrowserHostEvents, ConsoleEntry, MenuEntry, PermissionAsk, ShortcutAction } from './types'
-import { isLoopback, isPageUrl, isWebUrl, originOf, resolveInput, searchUrl } from './url'
+import type { AutomationTarget, BrowserHost, BrowserHostEvents, ConsoleEntry, LoginAsk, MenuEntry, PermissionAsk, ShortcutAction } from './types'
+import { hostOf, isLoopback, isPageUrl, isWebUrl, originOf, resolveInput, searchUrl } from './url'
 
 type BrowserEvent = 'browser:state' | 'browser:find' | 'browser:command' | 'browser:reveal'
 
@@ -43,6 +50,14 @@ export interface BrowserDeps {
   /** State pushes are coalesced over this long (ms). */
   publishDelayMs?: number
   now?: () => number
+  /** Network for filter lists and the Chrome Web Store (default: the global fetch). */
+  fetch?: (url: string) => Promise<FetchResponse>
+  /** Chrome's version, which the Web Store asks for (the desktop app's Chromium). */
+  chromeVersion?: string
+  /** Native folder picker (extension folders, the downloads folder). */
+  pickFolder?: (title: string) => Promise<string | null>
+  /** Where other browsers keep their profiles (default: this computer's). */
+  browserRoots?: () => BrowserRoot[]
 }
 
 interface Tab {
@@ -65,9 +80,19 @@ interface Tab {
   crashed?: boolean
   /** Its view exists. Tabs restored from the last session load when first shown. */
   live: boolean
+  profile?: BrowserProfile
+  /** Requests blocked on the page. */
+  blocked: number
+  playing?: boolean
+  drm?: boolean
+  /** The site whose DRM bar the user closed. */
+  drmOff?: string
+  /** The address the malware list stopped. */
+  danger?: string
 }
 
-type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy'>>
+type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy' | 'profile'>>
+type ClosedTab = Pick<Tab, 'url' | 'title' | 'pinned' | 'profile'> & { index: number }
 
 interface SiteData {
   zoom?: number
@@ -82,6 +107,9 @@ const MAX_CONSOLE = 300
 const MAX_FAVICON = 8 * 1024
 const SAVE_DELAY_MS = 400
 const LOAD_TIMEOUT_MS = 15_000
+/** What the Web Store is told when the host did not say (a headless core installs nothing anyway). */
+const CHROME_VERSION = '140.0.0.0'
+const noop = () => {}
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
@@ -113,10 +141,14 @@ export function zoomStep(current: number, direction: 'in' | 'out' | 'reset'): nu
 export class BrowserService {
   readonly history: BrowserHistory
   readonly devServers: DevServerDetector
+  readonly adblock: AdblockService
+  readonly extensions: ExtensionService
   private host: BrowserHost | null = null
   private tabs: Tab[] = []
   private activeId?: string
-  private closed: { url: string; title: string; index: number; pinned: boolean }[] = []
+  private closed: ClosedTab[] = []
+  private auth: BrowserAuthRequest[] = []
+  private readonly authResponders = new Map<string, (credentials: { username: string; password: string } | null) => void>()
   private downloads: BrowserDownload[] = []
   private readonly downloadControls = new Map<string, { cancel(): void }>()
   private permissions: BrowserPermissionRequest[] = []
@@ -136,11 +168,24 @@ export class BrowserService {
   constructor(private readonly deps: BrowserDeps) {
     this.history = new BrowserHistory(join(deps.dir, 'history.jsonl'), deps.now)
     this.devServers = new DevServerDetector(() => this.changed())
+    const fetch = deps.fetch ?? ((url: string) => globalThis.fetch(url))
+    const wanted = () => ({ ads: this.settings().adblock, malware: this.settings().malwareProtection })
+    this.adblock = new AdblockService({ dir: deps.dir, fetch, wanted, now: deps.now })
+    this.extensions = new ExtensionService({
+      dir: deps.dir,
+      fetch,
+      chromeVersion: deps.chromeVersion ?? CHROME_VERSION,
+      locale: () => this.ui.locale,
+      pickFolder: deps.pickFolder,
+      roots: deps.browserRoots ?? (() => browserRoots(process.platform, homedir(), process.env)),
+      onChange: () => this.changed(),
+      now: deps.now
+    })
   }
 
   /** Loads the last session (tabs stay unloaded until shown), the history and per-site choices. */
   async init(): Promise<void> {
-    await this.history.load()
+    await Promise.all([this.history.load(), this.adblock.init(), this.extensions.init()])
     const sites = await readJson<{ sites?: Record<string, SiteData> }>(this.file('sites.json'))
     this.sites = sites?.sites && typeof sites.sites === 'object' ? sites.sites : {}
     const saved = await readJson<{ tabs?: SavedTab[]; activeId?: string }>(this.file('session.json'))
@@ -157,6 +202,7 @@ export class BrowserService {
           muted: t.muted === true,
           share,
           openedBy: typeof t.openedBy === 'string' ? t.openedBy : undefined,
+          ...(t.profile === 'agents' ? { profile: 'agents' as const } : {}),
           zoom: this.siteZoom(t.url)
         })
       )
@@ -171,6 +217,8 @@ export class BrowserService {
   attach(host: BrowserHost): void {
     this.host = host
     host.setTheme(this.ui.theme)
+    this.adblock.start()
+    void this.extensions.attach(host)
     this.changed()
   }
 
@@ -186,6 +234,10 @@ export class BrowserService {
     for (const fns of this.responders.values()) fns.forEach((fn) => fn(false))
     this.responders.clear()
     this.permissions = []
+    for (const respond of this.authResponders.values()) respond(null)
+    this.authResponders.clear()
+    this.auth = []
+    this.extensions.detach()
     this.changed()
   }
 
@@ -194,15 +246,15 @@ export class BrowserService {
       navigated: (id, nav) => this.onNavigated(id, nav),
       title: (id, title) => this.patch(id, (t) => {
         t.title = title
-        this.history.title(t.url, title)
+        if (t.profile !== 'private') this.history.title(t.url, title)
       }),
       favicon: (id, url) => this.patch(id, (t) => (t.favicon = url)),
       loading: (id, loading) => this.onLoading(id, loading),
-      failed: (id, error) => this.onEnded(id, (t) => (t.error = error)),
+      failed: (id, error) => this.onEnded(id, (t) => (t.error = t.danger === error.url ? { ...error, danger: 'malware' } : error)),
       crashed: (id) => this.onEnded(id, (t) => (t.crashed = true)),
       audible: (id, audible) => this.patch(id, (t) => (t.audible = audible), false),
       zoomed: (id, direction) => void (this.lookup(id) && this.zoom(id, direction)),
-      openTab: (url, opts) => void this.open({ url, background: opts.background, opener: opts.opener }),
+      openTab: (url, opts) => void this.open({ url, background: opts.background, opener: opts.opener, private: opts.private }),
       found: (result) => this.deps.publish('browser:find', result),
       console: (id, entry) => this.onConsole(id, entry),
       shortcut: (action) => this.onShortcut(action),
@@ -220,7 +272,12 @@ export class BrowserService {
         this.changed()
       },
       locale: () => this.ui.locale,
-      searchLabel: () => ENGINE_NAMES[this.settings().searchEngine]
+      searchLabel: () => ENGINE_NAMES[this.settings().searchEngine],
+      downloadPrefs: () => ({ ask: this.settings().askDownloadLocation, dir: this.settings().downloadDir }),
+      request: (id, req) => this.onRequest(id, req),
+      cosmetics: (id, url) => (this.lookup(id) ? this.adblock.cosmetics(url) : ''),
+      media: (id, playing) => this.patch(id, (t) => (t.playing = playing), false),
+      login: (id, ask, respond) => this.onLogin(id, ask, respond)
     }
   }
 
@@ -234,12 +291,18 @@ export class BrowserService {
       closed: this.closed.length,
       downloads: this.downloads.map((d) => ({ ...d })),
       permissions: this.permissions.map((p) => ({ ...p })),
-      devServers: this.devServers.list()
+      devServers: this.devServers.list(),
+      auth: this.auth.map((a) => ({ ...a })),
+      extensions: this.extensions.list()
     }
   }
 
-  /** A new tab with what was typed (an address or search words); nothing = the new-tab page. */
-  open(req: { url?: string; background?: boolean; opener?: string; openedBy?: string } = {}): BrowserTab {
+  /**
+   * A new tab with what was typed (an address or search words); nothing = the new-tab page.
+   * It stays in its opener's profile; `private` makes a private tab, and agents' tabs go to
+   * their container unless the user lets agents use the logins.
+   */
+  open(req: { url?: string; background?: boolean; opener?: string; openedBy?: string; private?: boolean } = {}): BrowserTab {
     let url = ''
     if (req.url) {
       const target = this.target(req.url)
@@ -250,7 +313,8 @@ export class BrowserService {
       url = target?.url ?? ''
     }
     const opener = req.opener ? this.lookup(req.opener) : undefined
-    const tab = this.model({ url, openedBy: req.openedBy ?? opener?.openedBy, zoom: this.siteZoom(url) })
+    const profile = req.private ? 'private' : (opener?.profile ?? (req.openedBy && !this.settings().agentsUseLogins ? 'agents' : undefined))
+    const tab = this.model({ url, openedBy: req.openedBy ?? opener?.openedBy, zoom: this.siteZoom(url), ...(profile ? { profile } : {}) })
     this.insert(tab, opener)
     if (url && this.host) this.goLive(tab)
     if (!req.background) this.activeId = tab.id
@@ -261,10 +325,13 @@ export class BrowserService {
   close(id: string): void {
     const tab = this.require(id)
     const index = this.tabs.indexOf(tab)
-    if (tab.url) this.closed = [{ url: tab.url, title: tab.title, index, pinned: tab.pinned }, ...this.closed].slice(0, MAX_CLOSED)
+    // Private tabs leave nothing behind — not even in the list of closed tabs.
+    if (tab.url && tab.profile !== 'private')
+      this.closed = [{ url: tab.url, title: tab.title, index, pinned: tab.pinned, profile: tab.profile }, ...this.closed].slice(0, MAX_CLOSED)
     if (tab.live) this.host?.destroy(id)
     this.tabs.splice(index, 1)
     this.forget(id)
+    if (tab.profile === 'private' && !this.tabs.some((t) => t.profile === 'private')) this.host?.clearPrivate()
     if (this.activeId === id) this.activeId = (this.tabs[index] ?? this.tabs[index - 1])?.id
     if (!this.tabs.length) {
       const fresh = this.model({ url: '' })
@@ -328,7 +395,8 @@ export class BrowserService {
       tab.muted = patch.muted
       if (tab.live) this.host?.setMuted(id, patch.muted)
     }
-    if (patch.shared !== undefined) tab.share = { on: patch.shared, origin: originOf(tab.url) }
+    // A private tab is never shared with agents.
+    if (patch.shared !== undefined && tab.profile !== 'private') tab.share = { on: patch.shared, origin: originOf(tab.url) }
     this.touched()
   }
 
@@ -350,7 +418,13 @@ export class BrowserService {
   reopen(): BrowserTab | null {
     const last = this.closed.shift()
     if (!last) return null
-    const tab = this.model({ url: last.url, title: last.title, pinned: last.pinned, zoom: this.siteZoom(last.url) })
+    const tab = this.model({
+      url: last.url,
+      title: last.title,
+      pinned: last.pinned,
+      zoom: this.siteZoom(last.url),
+      ...(last.profile ? { profile: last.profile } : {})
+    })
     const pinned = this.pinnedCount()
     const [min, max] = last.pinned ? [0, pinned] : [pinned, this.tabs.length]
     this.tabs.splice(Math.max(min, Math.min(max, last.index)), 0, tab)
@@ -366,7 +440,7 @@ export class BrowserService {
     tab.zoom = zoomStep(tab.zoom, direction)
     if (tab.live) this.host?.setZoom(id, tab.zoom)
     const origin = originOf(tab.url)
-    if (origin) {
+    if (origin && tab.profile !== 'private') {
       const site = (this.sites[origin] ??= {})
       if (tab.zoom === 1) delete site.zoom
       else site.zoom = tab.zoom
@@ -391,6 +465,7 @@ export class BrowserService {
     const tab = this.require(id)
     if (tool === 'tabMenu') return this.host?.popup(this.tabMenu(tab))
     if (tool === 'pageMenu') return this.host?.popup(this.pageMenu(tab))
+    if (tool === 'shield') return this.host?.popup(this.shieldMenu(tab))
     if (tool === 'handoff') {
       if (isWebUrl(tab.url)) void this.deps.openExternal?.(tab.url)
       return
@@ -470,12 +545,54 @@ export class BrowserService {
     this.permissions = this.permissions.filter((p) => p.id !== id)
     this.responders.get(id)!.forEach((fn) => fn(allow))
     this.responders.delete(id)
-    if (remember) {
+    // A private tab's choices are not kept.
+    if (remember && this.lookup(req.tabId ?? '')?.profile !== 'private') {
       const site = (this.sites[req.origin] ??= {})
       site.permissions = { ...site.permissions, [permissionKey(req)]: allow }
       this.saveSites()
     }
     this.changed()
+  }
+
+  /** The user's answer to a page's login: a user name and password, or none (cancel). */
+  answerAuth(id: string, username?: string, password?: string): void {
+    const req = this.auth.find((a) => a.id === id)
+    if (!req) throw coded('not-pending', 'This login is no longer pending')
+    this.auth = this.auth.filter((a) => a !== req)
+    const respond = this.authResponders.get(id)!
+    this.authResponders.delete(id)
+    respond(username === undefined ? null : { username, password: password ?? '' })
+    this.changed()
+  }
+
+  /** Open a page the malware list stopped anyway — its site stays allowed until Mindeck quits. */
+  proceed(id: string): void {
+    const tab = this.require(id)
+    if (!tab.error?.danger) throw coded('not-blocked', 'This tab shows no blocked page')
+    this.adblock.trust(tab.error.url)
+    this.load(tab, tab.error.url)
+  }
+
+  /** The user closed the DRM bar: not again on this site, in this tab. */
+  dismissDrm(id: string): void {
+    const tab = this.require(id)
+    tab.drm = false
+    tab.drmOff = originOf(tab.url)
+    this.changed()
+  }
+
+  /** Ad and tracker blocking on the tab's site, on or off — the page reloads to show the difference. */
+  async setShield(id: string, on: boolean): Promise<void> {
+    const tab = this.require(id)
+    await this.adblock.setSite(tab.url, on)
+    this.go(id, 'reload')
+  }
+
+  /** The downloads folder, chosen with the native picker (null: cancelled). */
+  async pickDownloadDir(): Promise<BrowserSettings | null> {
+    if (!this.deps.pickFolder) throw coded('desktop-only', 'The folder picker is only available in the Mindeck desktop app')
+    const dir = await this.deps.pickFolder('Choose a downloads folder')
+    return dir ? this.configure({ downloadDir: dir }) : null
   }
 
   settings(): BrowserSettings {
@@ -596,6 +713,8 @@ export class BrowserService {
 
   async dispose(): Promise<void> {
     clearTimeout(this.publishTimer)
+    this.adblock.dispose()
+    this.extensions.dispose()
     await Promise.all([this.sessionDirty && this.saveSession(), this.sitesDirty && this.writeSites(), this.history.flush()])
   }
 
@@ -621,16 +740,19 @@ export class BrowserService {
       pinned: false,
       zoom: 1,
       live: false,
+      blocked: 0,
       ...init
     }
   }
 
   private view(t: Tab): BrowserTab {
-    const { live: _live, share: _share, ...rest } = t
-    return { ...rest, shared: this.isShared(t) }
+    const { live: _live, share: _share, blocked, drm, drmOff: _drmOff, danger: _danger, ...rest } = t
+    const shield = isWebUrl(t.url) ? { shield: { on: this.settings().adblock && this.adblock.siteOn(t.url), blocked } } : {}
+    return { ...rest, shared: this.isShared(t), ...(drm ? { drm } : {}), ...shield }
   }
 
   private isShared(t: Tab): boolean {
+    if (t.profile === 'private') return false
     if (t.share && t.share.origin === originOf(t.url)) return t.share.on
     return !!t.openedBy || isLoopback(t.url)
   }
@@ -680,7 +802,7 @@ export class BrowserService {
   }
 
   private goLive(tab: Tab): void {
-    this.host!.create(tab.id, tab.url, { agent: !!tab.openedBy, zoom: tab.zoom, muted: tab.muted })
+    this.host!.create(tab.id, tab.url, { agent: !!tab.openedBy, zoom: tab.zoom, muted: tab.muted, ...(tab.profile ? { profile: tab.profile } : {}) })
     tab.live = true
     tab.loading = true
   }
@@ -752,6 +874,11 @@ export class BrowserService {
       this.responders.delete(p.id)
     }
     this.permissions = this.permissions.filter((x) => x.tabId !== tabId)
+    for (const a of this.auth.filter((x) => x.tabId === tabId)) {
+      this.authResponders.get(a.id)!(null)
+      this.authResponders.delete(a.id)
+    }
+    this.auth = this.auth.filter((x) => x.tabId !== tabId)
   }
 
   private onNavigated(id: string, nav: { url: string; canGoBack: boolean; canGoForward: boolean; inPage?: boolean }): void {
@@ -772,8 +899,9 @@ export class BrowserService {
         tab.zoom = zoom
         this.host?.setZoom(id, zoom)
       }
+      tab.drm = needsDrm(nav.url) && tab.drmOff !== originOf(nav.url)
     }
-    this.history.visit(nav.url, nav.inPage ? tab.title : '')
+    if (tab.profile !== 'private') this.history.visit(nav.url, nav.inPage ? tab.title : '')
     this.touched()
   }
 
@@ -798,6 +926,11 @@ export class BrowserService {
   }
 
   private onConsole(id: string, entry: ConsoleEntry): void {
+    const tab = this.lookup(id)
+    if (tab && !tab.drm && drmFailure(entry.level, entry.message) && tab.drmOff !== originOf(tab.url)) {
+      tab.drm = true
+      this.changed()
+    }
     const list = this.consoles.get(id) ?? []
     list.push(entry)
     if (list.length > MAX_CONSOLE) list.splice(0, list.length - MAX_CONSOLE)
@@ -818,7 +951,8 @@ export class BrowserService {
     }
     switch (action) {
       case 'newTab':
-        this.open()
+      case 'newPrivateTab':
+        this.open({ private: action === 'newPrivateTab' })
         return this.command('focusOmnibox')
       case 'closeTab':
         return this.close(tab.id)
@@ -873,6 +1007,46 @@ export class BrowserService {
     this.changed()
   }
 
+  /** A request of a page: the blocker decides; the tab counts what it blocked (from its page's main request on). */
+  private onRequest(id: string | undefined, req: { url: string; type: string; referrer: string }): RequestVerdict {
+    const tab = this.lookup(id ?? '')
+    const main = req.type === 'mainFrame'
+    if (tab && main) {
+      tab.blocked = 0
+      tab.danger = undefined
+      this.changed()
+    }
+    const verdict = this.adblock.check({ url: req.url, type: req.type, sourceUrl: req.referrer, page: main ? req.url : tab?.url || req.referrer })
+    if (tab && verdict.danger) tab.danger = req.url
+    else if (tab && (verdict.cancel || verdict.redirectURL)) {
+      tab.blocked += 1
+      this.changed()
+    }
+    return verdict
+  }
+
+  private onLogin(tabId: string | undefined, ask: LoginAsk, respond: (credentials: { username: string; password: string } | null) => void): void {
+    const tab = this.lookup(tabId ?? '')
+    const req: BrowserAuthRequest = { id: randomUUID(), ...(tab ? { tabId: tab.id } : {}), host: ask.host, realm: ask.realm, isProxy: ask.isProxy }
+    this.auth.push(req)
+    this.authResponders.set(req.id, respond)
+    this.changed()
+  }
+
+  /** The shield in the address bar: what was blocked here, and blocking on this site on or off. */
+  private shieldMenu(tab: Tab): MenuEntry[] {
+    const l = labels(this.ui.locale)
+    const on = this.adblock.siteOn(tab.url)
+    return [
+      { label: l.blocked(tab.blocked), enabled: false, run: noop },
+      { separator: true },
+      this.settings().adblock
+        ? { label: l.blockOn(hostOf(tab.url)), checked: on, enabled: isWebUrl(tab.url) && !isLoopback(tab.url), run: () => void this.setShield(tab.id, !on) }
+        : { label: l.blockingOff, enabled: false, run: noop },
+      { label: l.settings, run: () => this.command('settings') }
+    ]
+  }
+
   private tabMenu(tab: Tab): MenuEntry[] {
     const l = labels(this.ui.locale)
     const shared = this.isShared(tab)
@@ -898,6 +1072,7 @@ export class BrowserService {
     const page = tab.live && !!tab.url
     return [
       { label: l.newTab, run: () => this.onShortcut('newTab') },
+      { label: l.newPrivateTab, run: () => this.onShortcut('newPrivateTab') },
       { label: l.reopen, enabled: this.closed.length > 0, run: () => void this.reopen() },
       { separator: true },
       { label: l.find, enabled: page, run: () => this.command('find') },
@@ -923,7 +1098,9 @@ export class BrowserService {
   private async saveSession(): Promise<void> {
     clearTimeout(this.saveTimer)
     this.sessionDirty = false
-    const tabs: SavedTab[] = this.tabs.map((t) => ({
+    // Private tabs are never written down.
+    const kept = this.tabs.filter((t) => t.profile !== 'private')
+    const tabs: SavedTab[] = kept.map((t) => ({
       id: t.id,
       url: t.url,
       title: t.title,
@@ -931,7 +1108,8 @@ export class BrowserService {
       ...(t.pinned ? { pinned: true } : {}),
       ...(t.muted ? { muted: true } : {}),
       ...(t.share ? { share: t.share } : {}),
-      ...(t.openedBy ? { openedBy: t.openedBy } : {})
+      ...(t.openedBy ? { openedBy: t.openedBy } : {}),
+      ...(t.profile ? { profile: t.profile } : {})
     }))
     await writeAtomic(this.file('session.json'), JSON.stringify({ version: 1, activeId: this.activeId, tabs })).catch((err) =>
       console.error('[browser] saving the session failed', err)

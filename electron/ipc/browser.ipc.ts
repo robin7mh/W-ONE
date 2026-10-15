@@ -3,8 +3,19 @@ import type { BrowserService } from '../main/services/browser/BrowserService'
 
 /** Binds the browser:* contract channels (the desktop window's browser) to BrowserService. */
 export function registerBrowserIpc(router: Router, browser: BrowserService): void {
+  router.register('browser:extensions', () => browser.extensions.list())
+  router.register('browser:extensions:install', (req) => browser.extensions.install(req))
+  router.register('browser:extensions:profiles', () => browser.extensions.profiles())
+  router.register('browser:extensions:update', ({ id, enabled }) => browser.extensions.setEnabled(id, enabled))
+  router.register('browser:extensions:remove', ({ id }) => browser.extensions.remove(id))
+  router.register('browser:extensions:checkUpdates', () => browser.extensions.checkUpdates())
+  router.register('browser:extensions:popup', ({ id, anchor }) => browser.extensions.popup(id, anchor))
+  router.register('browser:auth', ({ id, username, password }) => browser.answerAuth(id, username, password))
+  router.register('browser:proceed', ({ id }) => browser.proceed(id))
+  router.register('browser:dismissDrm', ({ id }) => browser.dismissDrm(id))
+  router.register('browser:pickDownloadDir', () => browser.pickDownloadDir())
   router.register('browser:state', () => browser.state())
-  router.register('browser:open', ({ url, background }) => browser.open({ url, background }))
+  router.register('browser:open', ({ url, background, private: priv }) => browser.open({ url, background, private: priv }))
   router.register('browser:close', ({ id }) => browser.close(id))
   router.register('browser:activate', ({ id }) => browser.activate(id))
   router.register('browser:navigate', ({ id, input }) => browser.navigate(id, input))

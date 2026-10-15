@@ -93,6 +93,7 @@ import type {
   HistoryEntry,
   ViewBounds
 } from '@shared/types/browser'
+import type { BrowserExtension, ChromiumProfile, ExtensionInstall, ExtensionUpdateReport } from '@shared/types/browserExtensions'
 import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
 
 /** A position in a project file, for the lsp:* queries. */
@@ -369,10 +370,31 @@ export interface IpcChannels {
   'update:check': { request: void; response: UpdateStatus }
   'update:install': { request: void; response: void }
 
+  /** The browser's everyday extras: Chrome extensions, a page's login, a malware warning passed, DRM, downloads. */
+  'browser:extensions': { request: void; response: BrowserExtension[] }
+  /** Install from the Web Store, a folder (no path: ask for one; null when the user cancels) or another browser's profile. */
+  'browser:extensions:install': { request: ExtensionInstall; response: BrowserExtension | null }
+  /** Chrome, Brave, Edge … profiles on this computer and their extensions. */
+  'browser:extensions:profiles': { request: void; response: ChromiumProfile[] }
+  'browser:extensions:update': { request: { id: string; enabled: boolean }; response: BrowserExtension }
+  'browser:extensions:remove': { request: { id: string }; response: void }
+  'browser:extensions:checkUpdates': { request: void; response: ExtensionUpdateReport }
+  /** The extension's toolbar popup, under its icon (`anchor`: the icon's place in the window). */
+  'browser:extensions:popup': { request: { id: string; anchor: ViewBounds }; response: void }
+  /** Answer a page's login (HTTP authentication); no user name cancels. */
+  'browser:auth': { request: { id: string; username?: string; password?: string }; response: void }
+  /** Open a page Mindeck stopped as dangerous anyway. */
+  'browser:proceed': { request: { id: string }; response: void }
+  /** Hide the "needs DRM" bar of a tab. */
+  'browser:dismissDrm': { request: { id: string }; response: void }
+  /** Choose the downloads folder (the native picker); null when the user cancels. */
+  'browser:pickDownloadDir': { request: void; response: BrowserSettings | null }
+
   /** The Mindeck browser: tabs are web views in the desktop window (architecture §12.9). */
   'browser:state': { request: void; response: BrowserState }
   /** A new tab: `url` is what was typed (an address or search words); empty = the new-tab page. */
-  'browser:open': { request: { url?: string; background?: boolean }; response: BrowserTab }
+  /** `private`: a private tab (nothing kept). */
+  'browser:open': { request: { url?: string; background?: boolean; private?: boolean }; response: BrowserTab }
   'browser:close': { request: { id: string }; response: void }
   'browser:activate': { request: { id: string }; response: void }
   /** Load what was typed into the address bar (an address, or search words). */
@@ -657,6 +679,17 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'update:status': 'desktop',
   'update:check': 'desktop',
   'update:install': 'desktop',
+  'browser:extensions': 'desktop',
+  'browser:extensions:install': 'desktop',
+  'browser:extensions:profiles': 'desktop',
+  'browser:extensions:update': 'desktop',
+  'browser:extensions:remove': 'desktop',
+  'browser:extensions:checkUpdates': 'desktop',
+  'browser:extensions:popup': 'desktop',
+  'browser:auth': 'desktop',
+  'browser:proceed': 'desktop',
+  'browser:dismissDrm': 'desktop',
+  'browser:pickDownloadDir': 'desktop',
   // The browser lives in the desktop window — and its tabs are the user's private pages.
   'browser:state': 'desktop',
   'browser:open': 'desktop',

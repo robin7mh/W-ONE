@@ -3,13 +3,17 @@ import type {
   BrowserFind,
   BrowserGo,
   BrowserPermissionKind,
+  BrowserProfile,
   TabError,
   ViewBounds
 } from '@shared/types/browser'
+import type { RequestVerdict } from './adblock'
+import type { ExtensionHost } from './extensions/ExtensionService'
 
 /** Keys the browser takes over while it is on screen — even when a page has the focus. */
 export type ShortcutAction =
   | 'newTab'
+  | 'newPrivateTab'
   | 'closeTab'
   | 'reopenTab'
   | 'focusOmnibox'
@@ -62,13 +66,28 @@ export interface AutomationTarget {
   capture(): Promise<{ png: string; width: number; height: number }>
 }
 
+/** A server's question for a login (HTTP authentication). */
+export interface LoginAsk {
+  url: string
+  /** host:port */
+  host: string
+  realm: string
+  isProxy: boolean
+}
+
 /**
  * The web views behind the tabs. Implemented by the desktop app (Electron's
  * WebContentsView, `platform/browser`); the core decides, the host shows.
+ * It also loads the user's Chrome extensions (into the user's profile).
  */
-export interface BrowserHost {
-  /** Create the tab's view and load `url`. `agent`: an agent works here (keeps running in the background). */
-  create(tabId: string, url: string, opts?: { agent?: boolean; zoom?: number; muted?: boolean }): void
+export interface BrowserHost extends ExtensionHost {
+  /**
+   * Create the tab's view and load `url`. `agent`: an agent works here (keeps running in the background).
+   * `profile`: a private tab or the agents' container instead of the user's profile.
+   */
+  create(tabId: string, url: string, opts?: { agent?: boolean; zoom?: number; muted?: boolean; profile?: BrowserProfile }): void
+  /** The last private tab closed: its cookies, cache and storage go. */
+  clearPrivate(): void
   destroy(tabId: string): void
   load(tabId: string, url: string): void
   go(tabId: string, action: BrowserGo): void
@@ -106,8 +125,8 @@ export interface BrowserHostEvents {
   audible(tabId: string, audible: boolean): void
   /** ⌘-scroll or pinch on the page. */
   zoomed(tabId: string, direction: 'in' | 'out'): void
-  /** A link wants a new tab (target=_blank, ⌘-click, "Open in new tab"). */
-  openTab(url: string, opts: { background: boolean; opener?: string }): void
+  /** A link wants a new tab (target=_blank, ⌘-click, "Open in new tab"; `private`: "Open in private tab"). */
+  openTab(url: string, opts: { background: boolean; opener?: string; private?: boolean }): void
   found(result: BrowserFind): void
   console(tabId: string, entry: ConsoleEntry): void
   shortcut(action: ShortcutAction, tabId?: string): void
@@ -118,6 +137,16 @@ export interface BrowserHostEvents {
   permissionCheck(origin: string, kind: BrowserPermissionKind): boolean
   download(download: BrowserDownload, control: { cancel(): void }): void
   downloadUpdated(download: BrowserDownload): void
+  /** Where downloads go ('' = the system's Downloads folder) and whether to ask each time. */
+  downloadPrefs(): { ask: boolean; dir: string }
+  /** A request of a page (`tabId` undefined: a popup window or an extension): blocked, redirected or let through. */
+  request(tabId: string | undefined, req: { url: string; type: string; referrer: string }): RequestVerdict
+  /** Element-hiding CSS for the page the tab just loaded ('' = none). */
+  cosmetics(tabId: string, url: string): string
+  /** Video or audio started (or stopped) playing. */
+  media(tabId: string, playing: boolean): void
+  /** A server asks for a login; `respond(null)` cancels. */
+  login(tabId: string | undefined, ask: LoginAsk, respond: (credentials: { username: string; password: string } | null) => void): void
   /** The UI language, for menus the host draws itself. */
   locale(): 'de' | 'en'
   /** The search engine, for "Search for …" in the context menu. */

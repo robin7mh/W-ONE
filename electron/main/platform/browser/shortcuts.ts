@@ -36,6 +36,7 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
   }
   if (input.shift) {
     if (key === 't') return 'reopenTab'
+    if (key === 'n') return 'newPrivateTab'
     if (key === 'r') return 'hardReload'
     if (!mac && key === 'i') return 'devtools'
     if (key === '+' || key === '=') return 'zoomIn'

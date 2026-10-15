@@ -2,6 +2,8 @@
 // desktop window, which the user's agents can read and — with approval — use.
 // Pure module (no DOM/Node/Electron) so it compiles under both tsconfigs.
 
+import type { BrowserExtension } from './browserExtensions'
+
 /** Search engines for what the address bar does not take as an address. */
 export const SEARCH_ENGINES = ['google', 'duckduckgo', 'bing', 'ecosia', 'brave', 'kagi'] as const
 export type SearchEngine = (typeof SEARCH_ENGINES)[number]
@@ -10,9 +12,34 @@ export interface BrowserSettings {
   searchEngine: SearchEngine
   /** Links clicked inside Mindeck (agent chats, notes) open in the Mindeck browser, not the system's. */
   openLinksInMindeck: boolean
+  /** Block ads and trackers (filter lists, cached and updated daily). */
+  adblock: boolean
+  /** Warn before pages on a malware list open. */
+  malwareProtection: boolean
+  /** Tabs agents open use the user's own profile (logins, cookies) instead of the agents' container. */
+  agentsUseLogins: boolean
+  /** Ask where each download goes instead of saving it to `downloadDir`. */
+  askDownloadLocation: boolean
+  /** Where downloads go; '' = the system's Downloads folder. */
+  downloadDir: string
 }
 
-export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = { searchEngine: 'google', openLinksInMindeck: true }
+export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
+  searchEngine: 'google',
+  openLinksInMindeck: true,
+  adblock: true,
+  malwareProtection: true,
+  agentsUseLogins: false,
+  askDownloadLocation: false,
+  downloadDir: ''
+}
+
+/**
+ * Whose cookies and logins a tab uses: the user's profile (absent), a
+ * private tab (in memory only, gone with the last private tab), or the
+ * agents' container (`persist:mindeck-agents`, without the user's logins).
+ */
+export type BrowserProfile = 'private' | 'agents'
 
 /** What an agent did in a tab — the UI says it in its language. */
 export type AgentAction = 'open' | 'navigate' | 'read' | 'snapshot' | 'screenshot' | 'console' | 'click' | 'type' | 'press'
@@ -30,6 +57,8 @@ export interface TabError {
   code: number
   description: string
   url: string
+  /** Mindeck stopped it: the address is on a malware list. */
+  danger?: 'malware'
 }
 
 export interface BrowserTab {
@@ -57,6 +86,14 @@ export interface BrowserTab {
   error?: TabError
   /** The page's renderer process died. */
   crashed?: boolean
+  /** Not the user's profile: a private tab or the agents' container. */
+  profile?: BrowserProfile
+  /** Ad and tracker blocking on this page's site (web pages only). */
+  shield?: { on: boolean; blocked: number }
+  /** Video or audio plays (perhaps silently). */
+  playing?: boolean
+  /** The page needs DRM (Widevine), which Mindeck's Chromium does not have. */
+  drm?: boolean
 }
 
 export interface BrowserDownload {
@@ -113,6 +150,20 @@ export interface BrowserState {
   downloads: BrowserDownload[]
   permissions: BrowserPermissionRequest[]
   devServers: DevServer[]
+  /** Pages asking for a user name and password (HTTP authentication). */
+  auth?: BrowserAuthRequest[]
+  /** Installed Chrome extensions. */
+  extensions?: BrowserExtension[]
+}
+
+/** A server asks for a user name and password (HTTP Basic/Digest, or a proxy). */
+export interface BrowserAuthRequest {
+  id: string
+  tabId?: string
+  /** host:port */
+  host: string
+  realm: string
+  isProxy: boolean
 }
 
 export interface BrowserSuggestion {
@@ -148,7 +199,7 @@ export interface ViewBounds {
 export type BrowserGo = 'back' | 'forward' | 'reload' | 'hardReload' | 'stop'
 
 /** Native menus and tools of a tab. */
-export type BrowserTool = 'tabMenu' | 'pageMenu' | 'devtools' | 'print' | 'handoff'
+export type BrowserTool = 'tabMenu' | 'pageMenu' | 'devtools' | 'print' | 'handoff' | 'shield'
 
 /** What a shortcut or menu asks the Mindeck UI to do (the page may have the keyboard focus). */
 export type BrowserCommand = 'focusOmnibox' | 'find' | 'sendToAgent' | 'settings'

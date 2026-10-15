@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { EXTENSION_SOURCES } from '@shared/types/browserExtensions'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -335,9 +336,25 @@ export const REQUEST_SCHEMAS: Schemas = {
   'update:check': none,
   'update:install': none,
 
+  'browser:extensions': none,
+  'browser:extensions:install': z.discriminatedUnion('source', [
+    z.object({ source: z.literal(EXTENSION_SOURCES[0]), input: z.string().trim().min(1).max(2048) }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[1]), path: path.optional() }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[2]), path })
+  ]),
+  'browser:extensions:profiles': none,
+  'browser:extensions:update': z.object({ id, enabled: z.boolean() }),
+  'browser:extensions:remove': z.object({ id }),
+  'browser:extensions:checkUpdates': none,
+  'browser:extensions:popup': z.object({ id, anchor: viewBounds }),
+  'browser:auth': z.object({ id, username: text(1024).optional(), password: text(4096).optional() }),
+  'browser:proceed': z.object({ id }),
+  'browser:dismissDrm': z.object({ id }),
+  'browser:pickDownloadDir': none,
+
   'browser:state': none,
   'browser:open': z
-    .object({ url: text(8192).optional(), background: z.boolean().optional() })
+    .object({ url: text(8192).optional(), background: z.boolean().optional(), private: z.boolean().optional() })
     .optional()
     .transform((v) => v ?? {}),
   'browser:close': z.object({ id }),
@@ -351,7 +368,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:zoom': z.object({ id, zoom: z.enum(['in', 'out', 'reset']) }),
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
-  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff']) }),
+  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff', 'shield']) }),
   'browser:view': z.object({ bounds: viewBounds.nullable() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
@@ -364,7 +381,15 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:download': z.object({ id, action: z.enum(['open', 'reveal', 'cancel', 'remove']) }),
   'browser:permission': z.object({ id, allow: z.boolean(), remember: z.boolean().optional() }),
   'browser:settings': none,
-  'browser:configure': z.object({ searchEngine: z.enum(SEARCH_ENGINES).optional(), openLinksInMindeck: z.boolean().optional() }),
+  'browser:configure': z.object({
+    searchEngine: z.enum(SEARCH_ENGINES).optional(),
+    openLinksInMindeck: z.boolean().optional(),
+    adblock: z.boolean().optional(),
+    malwareProtection: z.boolean().optional(),
+    agentsUseLogins: z.boolean().optional(),
+    askDownloadLocation: z.boolean().optional(),
+    downloadDir: text(4096).optional()
+  }),
   'browser:ui': z.object({ theme: z.enum(['dark', 'light', 'system']), locale: z.enum(['de', 'en']) }),
 
   'finder:places': none,
