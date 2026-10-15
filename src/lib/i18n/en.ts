@@ -91,7 +91,7 @@ export const en = {
     doneTitle: 'Ready to go',
     doneIntro: 'Three things worth knowing:',
     tips: [
-      { title: 'Split view', body: 'Two files side by side in the editor: ⌘\\ (Ctrl+\\ on Windows and Linux) or the split button above the editor.' },
+      { title: 'Split view', body: 'Files side by side or stacked, in as many editor groups as you like: ⌘\\ splits right, ⌘K ⌘\\ down (Ctrl on Windows and Linux) — or drag a tab to an edge.' },
       { title: 'Agents', body: 'Agents → New chat starts Claude Code, Codex or Gemini in a project. They ask before they change anything.' },
       { title: 'Command Deck', body: 'The bar at the bottom shows every running agent and what waits for your approval — from every module.' }
     ],
@@ -964,7 +964,12 @@ agents: {
   },
 
   palette: {
-    split: 'Split Editor (on / off)',
+    split: 'Split Editor Right',
+    splitDown: 'Split Editor Down',
+    closeGroup: 'Close Editor Group',
+    focusGroup: (n: number) => `Focus Editor Group ${n}`,
+    toggleMinimap: 'Toggle Minimap',
+    toggleStickyScroll: 'Toggle Sticky Scroll',
     placeholder: 'Type a command',
     noCommands: 'No matching commands',
     noMatches: 'Nothing matches',
@@ -1002,7 +1007,7 @@ agents: {
   },
 
   scm: {
-    panes: { files: 'Explorer', search: 'Search', scm: 'Source Control', graph: 'Git Graph', debug: 'Run and Debug', remote: 'Remote files', prs: 'Pull requests', mongo: 'Databases', tests: 'Testing' },
+    panes: { files: 'Explorer', search: 'Search', scm: 'Source Control', graph: 'Git Graph', debug: 'Run and Debug', remote: 'Remote files', prs: 'Pull requests', mongo: 'Databases', tests: 'Testing', outline: 'Outline' },
     notRepo: 'This project is not a git repository yet.',
     init: 'Initialize repository',
     branch: 'Branch',
@@ -1128,9 +1133,20 @@ agents: {
 
   editor: {
     openToSide: 'Open to the Side',
-    closeSplit: 'Close the split',
-    inSplit: 'Shown on the right',
-    splitLabel: (name: string) => `Right editor: ${name}`,
+    group: (n: number) => `Editor group ${n}`,
+    splitRight: 'Split Right',
+    splitDown: 'Split Down',
+    closeGroup: 'Close Group',
+    close: 'Close',
+    closeOthers: 'Close Others',
+    tabActions: 'Tab actions',
+    resizeGroups: 'Resize the editor groups',
+    resizeHint: 'Drag to resize · double-click for equal sizes',
+    breadcrumbs: 'Breadcrumbs',
+    breadcrumbItems: (name: string) => `In ${name}`,
+    noSymbols: 'No symbols in this file',
+    outlineFilter: 'Filter symbols',
+    outlineEmpty: 'Open a file to see its outline',
     title: 'Editor',
     openFromExplorer: 'Open a file from the explorer',
     shortcuts: (key: string) => `${key}P go to file · ⇧${key}P all commands · ${key}S save`,

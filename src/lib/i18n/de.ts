@@ -89,7 +89,7 @@ export const de: Dict = {
     doneTitle: 'Alles bereit',
     doneIntro: 'Drei Dinge, die sich lohnen:',
     tips: [
-      { title: 'Split-View', body: 'Zwei Dateien nebeneinander im Editor: ⌘\\ (Strg+\\ unter Windows und Linux) oder der Teilen-Knopf über dem Editor.' },
+      { title: 'Split-View', body: 'Dateien nebeneinander oder untereinander, in beliebig vielen Editor-Gruppen: ⌘\\ teilt nach rechts, ⌘K ⌘\\ nach unten (Strg unter Windows und Linux) — oder zieh einen Tab an einen Rand.' },
       { title: 'Agenten', body: 'Agenten → Neuer Chat startet Claude Code, Codex oder Gemini in einem Projekt. Sie fragen, bevor sie etwas ändern.' },
       { title: 'Command Deck', body: 'Die Leiste unten zeigt jeden laufenden Agenten und was auf deine Freigabe wartet — in jedem Modul.' }
     ],
@@ -950,7 +950,12 @@ agents: {
   },
 
   palette: {
-    split: 'Editor teilen (an / aus)',
+    split: 'Editor nach rechts teilen',
+    splitDown: 'Editor nach unten teilen',
+    closeGroup: 'Editor-Gruppe schließen',
+    focusGroup: (n) => `Editor-Gruppe ${n} fokussieren`,
+    toggleMinimap: 'Minimap ein/aus',
+    toggleStickyScroll: 'Sticky Scroll ein/aus',
     placeholder: 'Befehl eingeben',
     noCommands: 'Keine passenden Befehle',
     noMatches: 'Keine Treffer',
@@ -988,7 +993,7 @@ agents: {
   },
 
   scm: {
-    panes: { files: 'Explorer', search: 'Suche', scm: 'Quellcodeverwaltung', graph: 'Git-Graph', debug: 'Ausführen und Debuggen', remote: 'Remote-Dateien', prs: 'Pull Requests', mongo: 'Datenbanken', tests: 'Tests' },
+    panes: { files: 'Explorer', search: 'Suche', scm: 'Quellcodeverwaltung', graph: 'Git-Graph', debug: 'Ausführen und Debuggen', remote: 'Remote-Dateien', prs: 'Pull Requests', mongo: 'Datenbanken', tests: 'Tests', outline: 'Gliederung' },
     notRepo: 'Dieses Projekt ist noch kein Git-Repository.',
     init: 'Repository initialisieren',
     branch: 'Branch',
@@ -1114,9 +1119,20 @@ agents: {
 
   editor: {
     openToSide: 'Zur Seite öffnen',
-    closeSplit: 'Teilung schließen',
-    inSplit: 'Rechts geöffnet',
-    splitLabel: (name) => `Rechter Editor: ${name}`,
+    group: (n) => `Editor-Gruppe ${n}`,
+    splitRight: 'Nach rechts teilen',
+    splitDown: 'Nach unten teilen',
+    closeGroup: 'Gruppe schließen',
+    close: 'Schließen',
+    closeOthers: 'Andere schließen',
+    tabActions: 'Tab-Aktionen',
+    resizeGroups: 'Größe der Editor-Gruppen ändern',
+    resizeHint: 'Ziehen ändert die Größe · Doppelklick: gleich groß',
+    breadcrumbs: 'Navigationspfad',
+    breadcrumbItems: (name) => `In ${name}`,
+    noSymbols: 'Keine Symbole in dieser Datei',
+    outlineFilter: 'Symbole filtern',
+    outlineEmpty: 'Öffne eine Datei, um ihre Gliederung zu sehen',
     title: 'Editor',
     openFromExplorer: 'Öffne eine Datei aus dem Explorer',
     shortcuts: (key) => `${key}P Datei öffnen · ⇧${key}P alle Befehle · ${key}S speichern`,
