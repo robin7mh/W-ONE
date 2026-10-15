@@ -47,7 +47,24 @@ describe('browser and files channels', () => {
       ['browser:permission', { id: 'p', allow: true, remember: true }, 'permission', ['p', true, true]],
       ['browser:settings', undefined, 'settings', []],
       ['browser:configure', { searchEngine: 'kagi' }, 'configure', [{ searchEngine: 'kagi' }]],
-      ['browser:ui', { theme: 'dark', locale: 'de' }, 'setUi', [{ theme: 'dark', locale: 'de' }]]
+      ['browser:ui', { theme: 'dark', locale: 'de' }, 'setUi', [{ theme: 'dark', locale: 'de' }]],
+      ['browser:configure', { searchSuggestions: false, bookmarksBar: true }, 'configure', [{ searchSuggestions: false, bookmarksBar: true }]],
+      ['browser:searchSuggest', { text: 'rea' }, 'searchSuggestions', ['rea']],
+      ['browser:historyList', { query: 'x', before: 5, limit: 50 }, 'historyList', [{ query: 'x', before: 5, limit: 50 }]],
+      ['browser:historyList', undefined, 'historyList', [{}]],
+      ['browser:historyDelete', { urls: ['https://a.dev/'] }, 'deleteHistory', [{ urls: ['https://a.dev/'] }]],
+      ['browser:historyDelete', { from: 1, to: 2 }, 'deleteHistory', [{ from: 1, to: 2 }]],
+      ['browser:historyDelete', { to: 2 }, 'deleteHistory', [{ to: 2 }]],
+      ['browser:bookmarks', undefined, 'bookmarkTree', []],
+      ['browser:bookmarkAdd', { title: 'A', url: 'https://a.dev/', parentId: 'bar', index: 0 }, 'addBookmark', [{ title: 'A', url: 'https://a.dev/', parentId: 'bar', index: 0 }]],
+      ['browser:bookmarkUpdate', { id: 'b', title: 'B' }, 'updateBookmark', ['b', { title: 'B' }]],
+      ['browser:bookmarkMove', { id: 'b', parentId: 'other', index: 2 }, 'moveBookmark', ['b', 'other', 2]],
+      ['browser:bookmarkRemove', { ids: ['b'] }, 'removeBookmarks', [['b']]],
+      ['browser:bookmarksExport', undefined, 'exportBookmarks', []],
+      ['browser:bookmarksImport', { html: '<DL>' }, 'importBookmarksHtml', ['<DL>']],
+      ['browser:importSources', undefined, 'importSources', []],
+      ['browser:import', { sourceId: 'chrome:/p', kinds: ['bookmarks'] }, 'importFrom', [{ sourceId: 'chrome:/p', kinds: ['bookmarks'] }]],
+      ['browser:restoreSession', { restore: true }, 'restoreSession', [true]]
     ]
     for (const [channel, payload, method, args] of calls) {
       const res = await router.dispatch(channel, payload, ipc)
@@ -57,6 +74,10 @@ describe('browser and files channels', () => {
     expect(await router.dispatch('browser:go', { id: 't', action: 'explode' }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('browser:configure', { searchEngine: 'altavista' }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('browser:view', { bounds: { x: 'a' } }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:historyDelete', {}, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:historyDelete', { urls: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:import', { sourceId: 'x', kinds: ['cookies'] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:bookmarkRemove', { ids: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     // a paired phone or browser never reaches the user's tabs
     expect(await router.dispatch('browser:state', undefined, { transport: 'remote' })).toMatchObject({ ok: false, error: { code: 'desktop-only' } })
   })

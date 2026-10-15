@@ -14,7 +14,7 @@ import {
 } from 'electron'
 import type { BrowserGo, BrowserProfile, ViewBounds } from '@shared/types/browser'
 import { labels } from '../../services/browser/labels'
-import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry } from '../../services/browser/types'
+import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry, TabNavigation } from '../../services/browser/types'
 import { ExtensionPopup, loadExtension, unloadExtension } from './extensions'
 import { contextMenu, type ContextActions } from './menus'
 import { clearPrivate, partitionOf, profileSession } from './partitions'
@@ -109,7 +109,7 @@ export class ElectronBrowserHost implements BrowserHost {
     win.on('resize', this.onResize)
   }
 
-  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean; profile?: BrowserProfile } = {}): void {
+  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean; profile?: BrowserProfile; history?: TabNavigation } = {}): void {
     profileSession(opts.profile, () => current)
     const partition = partitionOf(opts.profile)
     const view = new WebContentsView({
@@ -134,7 +134,20 @@ export class ElectronBrowserHost implements BrowserHost {
     if (opts.muted) contents.setAudioMuted(true)
     this.wire(tabId, contents)
     this.layout()
-    void contents.loadURL(url).catch(() => {}) // failures arrive as did-fail-load
+    // Failures arrive as did-fail-load. A tab from the last session gets its back/forward list back
+    // (and just its page, should the list not come back at all).
+    const load = () => void contents.loadURL(url).catch(() => {})
+    if (!opts.history) return load()
+    void contents.navigationHistory.restore({ entries: opts.history.entries, index: opts.history.index }).catch(() => {
+      if (!contents.isDestroyed() && !contents.getURL()) load()
+    })
+  }
+
+  navigation(tabId: string): TabNavigation | undefined {
+    const c = this.contents(tabId)
+    if (!c) return undefined
+    const entries = c.navigationHistory.getAllEntries().map((e) => ({ url: e.url, title: e.title }))
+    return { entries, index: c.navigationHistory.getActiveIndex() }
   }
 
   destroy(tabId: string): void {

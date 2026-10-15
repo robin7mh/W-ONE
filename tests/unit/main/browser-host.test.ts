@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { BrowserHostEvents, MenuEntry } from '../../../electron/main/services/browser/types'
 import type { SessionTarget } from '../../../electron/main/platform/browser/session'
 
@@ -35,7 +35,21 @@ class FakeContents {
     detach: vi.fn(() => (this.debugger.attached = false)),
     sendCommand: vi.fn(async (method: string) => ({ method }))
   }
-  navigationHistory = { canGoBack: () => this.canBack, canGoForward: () => this.canForward, goBack: vi.fn(), goForward: vi.fn() }
+  url = ''
+  entries: { url: string; title: string; pageState?: string }[] = []
+  activeIndex = -1
+  /** How `navigationHistory.restore` goes for every contents (a test may change it). */
+  static restoreWith: (c: FakeContents) => Promise<void> = () => Promise.resolve()
+  navigationHistory = {
+    canGoBack: () => this.canBack,
+    canGoForward: () => this.canForward,
+    goBack: vi.fn(),
+    goForward: vi.fn(),
+    getAllEntries: () => this.entries,
+    getActiveIndex: () => this.activeIndex,
+    restore: vi.fn(() => FakeContents.restoreWith(this))
+  }
+  getURL = () => this.url
   loadURL = vi.fn(async (url: string) => (url.includes('fail') ? Promise.reject(new Error('ERR_ABORTED')) : undefined))
   reload = vi.fn()
   reloadIgnoringCache = vi.fn()
@@ -112,7 +126,8 @@ function fakeSession() {
     setDisplayMediaRequestHandler: vi.fn(),
     setCertificateVerifyProc: vi.fn(),
     on: vi.fn(),
-    webRequest: { onBeforeRequest: vi.fn() },
+    webRequest: { onBeforeRequest: vi.fn(), onBeforeSendHeaders: vi.fn() },
+    registerPreloadScript: vi.fn(),
     fetch: (...a: unknown[]) => h.fetch(...a)
   }
   return s
@@ -240,6 +255,36 @@ describe('the browser host · views', () => {
     expect(open('t2', 'https://b.dev/', { agent: true }).opts.webPreferences.backgroundThrottling).toBe(false)
     open('t3', 'https://fail.dev/') // a failed load is reported by events, not thrown
     open('t4', 'https://d.dev/')
+  })
+
+  it('brings a tab’s back/forward list back after a restart, and reports it for the next one', async () => {
+    const { host, open } = setup()
+    const history = { entries: [{ url: 'https://a.dev/1', title: '1' }, { url: 'https://a.dev/2', title: '2' }], index: 1 }
+    const view = open('r', 'https://a.dev/2', { history })
+    expect(view.webContents.navigationHistory.restore).toHaveBeenCalledWith(history)
+    expect(view.webContents.loadURL).not.toHaveBeenCalled()
+    view.webContents.entries = [{ url: 'https://a.dev/1', title: '1', pageState: 'x' }, { url: 'https://a.dev/2', title: '2' }]
+    view.webContents.activeIndex = 1
+    expect(host.navigation('r')).toEqual(history)
+    expect(host.navigation('nope')).toBeUndefined()
+
+    // the list did not come back: just the page, unless something loaded already or the tab is gone
+    const preps = [(c: FakeContents) => c, (c: FakeContents) => (c.url = 'https://a.dev/1'), (c: FakeContents) => (c.destroyed = true)]
+    try {
+      for (const [i, prep] of preps.entries()) {
+        FakeContents.restoreWith = (c) => {
+          prep(c)
+          return Promise.reject(new Error('restore failed'))
+        }
+        open(`f${i}`, 'https://a.dev/2', { history })
+      }
+    } finally {
+      FakeContents.restoreWith = () => Promise.resolve()
+    }
+    const [plain, loaded, gone] = FakeView.all.slice(-3).map((v) => v.webContents)
+    await vi.waitFor(() => expect(plain.loadURL).toHaveBeenCalledWith('https://a.dev/2'))
+    expect(loaded.loadURL).not.toHaveBeenCalled()
+    expect(gone.loadURL).not.toHaveBeenCalled()
   })
 
   it('places views where the UI says — scaled by the UI zoom — and shows only the shown one', () => {
@@ -622,7 +667,10 @@ describe('the browser profile (session)', () => {
   beforeAll(async () => {
     s = await import('../../../electron/main/platform/browser/session')
     electron = await import('electron')
+    // Electron's Chromium version (Node has none)
+    ;(process.versions as Record<string, string>).chrome = '141.0.7390.54'
   })
+  afterAll(() => delete (process.versions as Record<string, string | undefined>).chrome)
   afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
 
   /** A session that keeps the handlers Mindeck installs. */
@@ -645,8 +693,15 @@ describe('the browser profile (session)', () => {
       setPermissionCheckHandler: (fn: (...a: unknown[]) => boolean) => (p.check = fn),
       setDisplayMediaRequestHandler: (fn: (...a: unknown[]) => void, opts: unknown) => ((p.display = fn), (p.displayOpts = opts)),
       on: (_event: string, fn: (...a: unknown[]) => void) => (p.download = fn),
-      webRequest: { onBeforeRequest: vi.fn() },
-      setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn)
+      setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn),
+      headers: undefined as undefined | ((details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void),
+      headerFilter: undefined as unknown,
+      webRequest: {
+        onBeforeRequest: vi.fn(),
+        onBeforeSendHeaders: (filter: unknown, fn: (details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void) => ((p.headerFilter = filter), (p.headers = fn))
+      },
+      preloads: [] as unknown[],
+      registerPreloadScript: (script: unknown) => p.preloads.push(script)
     }
     return p
   }
@@ -710,6 +765,15 @@ describe('the browser profile (session)', () => {
     s.configureBrowserSession(p as never, () => current)
     expect(p.sets).toBe(1)
     expect(p.ua).toBe('Mozilla/5.0 (X11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36')
+    // Chrome's client hints on every https request, and the page preload that makes navigator.userAgentData agree
+    expect(p.headerFilter).toEqual({ urls: ['https://*/*'] })
+    const sent = vi.fn()
+    p.headers!({ url: 'https://accounts.google.com/signin', requestHeaders: { Accept: '*/*', 'sec-ch-ua': '"Chromium";v="1"' } }, sent)
+    const headers = (sent.mock.calls[0][0] as { requestHeaders: Record<string, string> }).requestHeaders
+    expect(headers).toMatchObject({ Accept: '*/*', 'sec-ch-ua-platform': '"macOS"', 'sec-ch-ua-mobile': '?0' })
+    expect(headers['sec-ch-ua']).toContain('"Google Chrome"')
+    expect(headers['sec-ch-ua-full-version-list']).toContain('"Google Chrome";v="141.0.7390.54"')
+    expect(p.preloads).toEqual([{ id: 'mindeck-browser-page', type: 'frame', filePath: expect.stringMatching(/preload[\\/]browserPage\.js$/) }])
 
     const cb = vi.fn()
     p.request!({}, 'fullscreen', cb, { requestingUrl: 'https://a.dev/' })
@@ -932,6 +996,14 @@ describe('the browser keys', () => {
       [k('i', { meta: true, alt: true }), 'devtools'],
       [k('ˆ', { meta: true, alt: true }), 'devtools'],
       [k('x', { meta: true, alt: true }), null],
+      [k('d', cmd), 'bookmark'],
+      [k('y', cmd), 'history'],
+      [k('h', cmd), null],
+      [k('A', { meta: true, shift: true }), 'tabSearch'],
+      [k('B', { meta: true, shift: true }), 'bookmarksBar'],
+      [k('o', { meta: true, shift: true }), null],
+      [k('b', { meta: true, alt: true }), 'bookmarkManager'],
+      [k('∫', { meta: true, alt: true }), 'bookmarkManager'],
       [k('Tab', { control: true }), 'nextTab'],
       [k('Tab', { control: true, shift: true }), 'prevTab'],
       [k('F5'), 'reload'],
@@ -956,5 +1028,10 @@ describe('the browser keys', () => {
     expect(match(k('ArrowUp', { alt: true }), false)).toBeNull()
     expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBe('prevTab')
     expect(match(k('ArrowLeft', { alt: true, meta: true }), false)).toBeNull()
+    expect(match(k('h', ctrl), false)).toBe('history')
+    expect(match(k('y', ctrl), false)).toBeNull()
+    expect(match(k('O', { control: true, shift: true }), false)).toBe('bookmarkManager')
+    expect(match(k('b', { control: true, alt: true }), false)).toBeNull()
+    expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
   })
 })

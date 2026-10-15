@@ -105,6 +105,7 @@ import type {
   HistoryEntry,
   ViewBounds
 } from '@shared/types/browser'
+import type { BookmarkFolder, BookmarkNode, ImportProgress, ImportRequest, ImportResult, ImportSource } from '@shared/types/browserData'
 import type { BrowserExtension, ChromiumProfile, ExtensionInstall, ExtensionUpdateReport } from '@shared/types/browserExtensions'
 import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
 import type { CloseBehavior, DesktopStatus, RendererError } from '@shared/types/desktop'
@@ -484,6 +485,29 @@ export interface IpcChannels {
   'browser:configure': { request: Partial<BrowserSettings>; response: BrowserSettings }
   /** The UI's look and language: pages follow its light/dark mode, menus speak its language. */
   'browser:ui': { request: { theme: 'dark' | 'light' | 'system'; locale: 'de' | 'en' }; response: void }
+  /** What the search engine suggests for the words typed (empty when the user turned it off). */
+  'browser:searchSuggest': { request: { text: string }; response: BrowserSuggestion[] }
+  /** The history page: newest first, visited before `before` (ms since 1970), matching `query`. */
+  'browser:historyList': { request: { query?: string; before?: number; limit?: number }; response: HistoryEntry[] }
+  /** Forget pages by address, or every page visited in [from, to) (ms); how many went. */
+  'browser:historyDelete': { request: { urls?: string[]; from?: number; to?: number }; response: number }
+  /** The bookmarks: the bar's folder, then Other bookmarks. */
+  'browser:bookmarks': { request: void; response: BookmarkFolder[] }
+  /** A bookmark (with `url`) or a folder (without), into `parentId` (default: the bar) at `index`. */
+  'browser:bookmarkAdd': { request: { parentId?: string; index?: number; title: string; url?: string }; response: BookmarkNode }
+  'browser:bookmarkUpdate': { request: { id: string; title?: string; url?: string }; response: void }
+  'browser:bookmarkMove': { request: { id: string; parentId: string; index: number }; response: void }
+  'browser:bookmarkRemove': { request: { ids: string[] }; response: number }
+  /** All bookmarks as a Netscape bookmark file (HTML). */
+  'browser:bookmarksExport': { request: void; response: string }
+  /** Bookmarks from a Netscape bookmark file; how many were new. */
+  'browser:bookmarksImport': { request: { html: string }; response: number }
+  /** Other browsers' profiles on this machine to import from. */
+  'browser:importSources': { request: void; response: ImportSource[] }
+  /** Take bookmarks, history and the search engine over from one of them (progress: the `browser:import` event). */
+  'browser:import': { request: ImportRequest; response: ImportResult }
+  /** After a crash: bring the last session's tabs back, or let them go. */
+  'browser:restoreSession': { request: { restore: boolean }; response: void }
 
   /** Files: the machine's files, like Finder (absolute paths; writes only under Home and /Volumes). */
   'finder:places': { request: void; response: FinderPlaces }
@@ -808,6 +832,19 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'browser:settings': 'desktop',
   'browser:configure': 'desktop',
   'browser:ui': 'desktop',
+  'browser:searchSuggest': 'desktop',
+  'browser:historyList': 'desktop',
+  'browser:historyDelete': 'desktop',
+  'browser:bookmarks': 'desktop',
+  'browser:bookmarkAdd': 'desktop',
+  'browser:bookmarkUpdate': 'desktop',
+  'browser:bookmarkMove': 'desktop',
+  'browser:bookmarkRemove': 'desktop',
+  'browser:bookmarksExport': 'desktop',
+  'browser:bookmarksImport': 'desktop',
+  'browser:importSources': 'desktop',
+  'browser:import': 'desktop',
+  'browser:restoreSession': 'desktop',
   // The whole disk, beyond projects and the vault: the desktop app only.
   'finder:places': 'desktop',
   'finder:list': 'desktop',
@@ -863,6 +900,10 @@ export interface IpcEvents {
   'browser:command': { command: BrowserCommand }
   /** Something opened a tab for the user (a link in a chat, the Live Server): show the browser. */
   'browser:reveal': { tabId: string }
+  /** The bookmarks changed (the whole tree). */
+  'browser:bookmarks': BookmarkFolder[]
+  /** An import moved on to the next kind of data. */
+  'browser:import': ImportProgress
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -899,11 +940,13 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'browser:state',
   'browser:find',
   'browser:command',
-  'browser:reveal'
+  'browser:reveal',
+  'browser:bookmarks',
+  'browser:import'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
 export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'terminal:info', 'debug:session', 'debug:output', 'notebook:event']
 
 /** Push events that never leave the desktop window (the browser's tabs are private pages). */
-export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal']
+export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import']

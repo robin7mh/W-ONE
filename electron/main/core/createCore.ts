@@ -183,7 +183,9 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     revealPath: platform.revealPath,
     pickFolder: platform.pickFolder,
     // The Chromium inside Electron (the Web Store serves extensions per Chrome version).
-    chromeVersion: process.versions.chrome
+    chromeVersion: process.versions.chrome,
+    // Other browsers' profiles are the desktop user's; a headless core has none to import.
+    ...(platform.kind === 'desktop' ? { importEnv: { home: homedir(), platform: process.platform, env: process.env } } : {})
   })
   await browser.init()
 

@@ -133,6 +133,60 @@ export class BrowserHistory {
       .map(toEntry)
   }
 
+  /** The history page: newest first, visited before `before` (ms), matching every word of `query`. */
+  list(opts: { query?: string; before?: number; limit?: number } = {}): HistoryEntry[] {
+    const words = (opts.query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+    const before = opts.before ?? Infinity
+    return [...this.entries.values()]
+      .filter((e) => e.last < before && words.every((w) => `${bareUrl(e.url)} ${e.title}`.toLowerCase().includes(w)))
+      .sort((a, b) => b.last - a.last)
+      .slice(0, opts.limit ?? 100)
+      .map(toEntry)
+  }
+
+  /**
+   * Forget pages: by address, or every page visited in [from, to) — such a
+   * page goes entirely, earlier visits included (what was seen then stays unseen).
+   */
+  async remove(what: { urls?: string[]; from?: number; to?: number }): Promise<number> {
+    const urls = new Set(what.urls ?? [])
+    const ranged = what.from !== undefined || what.to !== undefined
+    const from = what.from ?? -Infinity
+    const to = what.to ?? Infinity
+    let removed = 0
+    for (const e of [...this.entries.values()]) {
+      if (urls.has(e.url) || (ranged && e.last >= from && e.last < to)) {
+        this.entries.delete(e.url)
+        removed += 1
+      }
+    }
+    if (removed) await this.compact()
+    return removed
+  }
+
+  /**
+   * Pages from another browser. Merging is idempotent — a page keeps the
+   * larger visit count and the later visit — so importing twice counts once.
+   */
+  async merge(pages: { url: string; title: string; visits: number; last: number }[]): Promise<number> {
+    let merged = 0
+    for (const p of pages) {
+      if (!this.keeps(p.url) || !Number.isFinite(p.last)) continue
+      const e = this.entries.get(p.url) ?? { url: p.url, title: '', visits: 0, last: 0 }
+      e.visits = Math.max(e.visits, Math.max(1, Math.floor(p.visits) || 1))
+      if (p.last > e.last) {
+        e.last = p.last
+        if (p.title) e.title = p.title
+      } else if (!e.title) {
+        e.title = p.title
+      }
+      this.entries.set(p.url, e)
+      merged += 1
+    }
+    if (merged) await this.compact()
+    return merged
+  }
+
   async clear(): Promise<void> {
     this.entries.clear()
     this.extra = 0
@@ -176,9 +230,8 @@ export class BrowserHistory {
     this.entries.clear()
     for (const e of keep) this.entries.set(e.url, e)
     this.extra = 0
-    const text = keep.map((e) => JSON.stringify({ u: e.url, t: e.title, v: e.visits, l: e.last } satisfies Line)).join('\n')
-    // Only a visit compacts, so there is always at least that page to write.
-    return this.enqueue(() => writeAtomic(this.file, `${text}\n`, 0o600))
+    const text = keep.map((e) => `${JSON.stringify({ u: e.url, t: e.title, v: e.visits, l: e.last } satisfies Line)}\n`).join('')
+    return this.enqueue(() => (text ? writeAtomic(this.file, text, 0o600) : rm(this.file, { force: true })))
   }
 
   private enqueue(task: () => Promise<unknown>): Promise<void> {

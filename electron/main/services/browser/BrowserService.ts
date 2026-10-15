@@ -21,20 +21,35 @@ import {
   type TabError,
   type ViewBounds
 } from '@shared/types/browser'
+import {
+  BROWSER_NAMES,
+  INTERNAL_PAGES,
+  internalPage,
+  type BookmarkFolder,
+  type BookmarkNode,
+  type ImportKind,
+  type ImportRequest,
+  type ImportResult,
+  type ImportSource
+} from '@shared/types/browserData'
 import type { AppSettings } from '@shared/types/settings'
 import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { AdblockService, type RequestVerdict } from './adblock'
+import { BrowserBookmarks } from './bookmarks'
 import { drmFailure, needsDrm } from './drm'
 import { ExtensionService, type FetchResponse } from './extensions/ExtensionService'
 import { browserRoots, type BrowserRoot } from './extensions/profiles'
 import { bareUrl, BrowserHistory } from './history'
 import { DevServerDetector } from './devServers'
+import { BrowserImporter, type ImportEnv } from './import'
 import { ENGINE_NAMES, labels } from './labels'
-import type { AutomationTarget, BrowserHost, BrowserHostEvents, ConsoleEntry, LoginAsk, MenuEntry, PermissionAsk, ShortcutAction } from './types'
+import { parseNetscape, toNetscape } from './netscape'
+import { SearchSuggestions, type Fetch } from './suggestions'
+import type { AutomationTarget, BrowserHost, BrowserHostEvents, ConsoleEntry, LoginAsk, MenuEntry, PermissionAsk, ShortcutAction, TabNavigation } from './types'
 import { hostOf, isLoopback, isPageUrl, isWebUrl, originOf, resolveInput, searchUrl } from './url'
 
-type BrowserEvent = 'browser:state' | 'browser:find' | 'browser:command' | 'browser:reveal'
+type BrowserEvent = 'browser:state' | 'browser:find' | 'browser:command' | 'browser:reveal' | 'browser:bookmarks' | 'browser:import'
 
 export interface BrowserDeps {
   /** ~/Mindeck/data/browser — the session, the history, per-site choices. */
@@ -50,13 +65,17 @@ export interface BrowserDeps {
   /** State pushes are coalesced over this long (ms). */
   publishDelayMs?: number
   now?: () => number
+  /** Where other browsers keep their profiles (no import without it). */
+  importEnv?: ImportEnv
+  /** How search suggestions are fetched (default: global fetch). */
+  fetch?: Fetch
   /** Network for filter lists and the Chrome Web Store (default: the global fetch). */
-  fetch?: (url: string) => Promise<FetchResponse>
+  download?: (url: string) => Promise<FetchResponse>
   /** Chrome's version, which the Web Store asks for (the desktop app's Chromium). */
   chromeVersion?: string
   /** Native folder picker (extension folders, the downloads folder). */
   pickFolder?: (title: string) => Promise<string | null>
-  /** Where other browsers keep their profiles (default: this computer's). */
+  /** Where other browsers keep their extensions (default: this computer's). */
   browserRoots?: () => BrowserRoot[]
 }
 
@@ -80,6 +99,8 @@ interface Tab {
   crashed?: boolean
   /** Its view exists. Tabs restored from the last session load when first shown. */
   live: boolean
+  /** Restored back/forward list, handed to the view when it is created. */
+  nav?: TabNavigation
   profile?: BrowserProfile
   /** Requests blocked on the page. */
   blocked: number
@@ -91,8 +112,16 @@ interface Tab {
   danger?: string
 }
 
-type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy' | 'profile'>>
-type ClosedTab = Pick<Tab, 'url' | 'title' | 'pinned' | 'profile'> & { index: number }
+type SavedTab = Pick<Tab, 'id' | 'url' | 'title'> & Partial<Pick<Tab, 'favicon' | 'pinned' | 'muted' | 'share' | 'openedBy' | 'nav' | 'profile'>>
+
+interface ClosedTab {
+  url: string
+  title: string
+  index: number
+  pinned: boolean
+  nav?: TabNavigation
+  profile?: BrowserProfile
+}
 
 interface SiteData {
   zoom?: number
@@ -103,6 +132,8 @@ interface SiteData {
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5]
 const MAX_CLOSED = 25
 const MAX_DOWNLOADS = 30
+/** Back/forward entries kept per tab across restarts. */
+const MAX_NAV = 50
 const MAX_CONSOLE = 300
 const MAX_FAVICON = 8 * 1024
 const SAVE_DELAY_MS = 400
@@ -113,6 +144,46 @@ const noop = () => {}
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
+}
+
+/** A saved back/forward list, if it is one — at most MAX_NAV entries around the current one. */
+export function cleanNav(raw: unknown): TabNavigation | undefined {
+  const r = raw as Partial<TabNavigation> | undefined
+  if (!r || !Array.isArray(r.entries) || typeof r.index !== 'number' || !r.entries[r.index]) return undefined
+  // Only web pages come back (not about:blank or a file); the current one must be among them.
+  const ok = (e: unknown) => typeof (e as TabNavigation['entries'][number])?.url === 'string' && isWebUrl((e as TabNavigation['entries'][number]).url)
+  if (!ok(r.entries[r.index])) return undefined
+  const index = r.entries.slice(0, r.index).filter(ok).length
+  const entries = r.entries.filter(ok).map((e) => ({ url: e.url, title: typeof e.title === 'string' ? e.title : '' }))
+  if (entries.length < 2) return undefined
+  const start = Math.max(0, Math.min(index - Math.floor(MAX_NAV / 2), entries.length - MAX_NAV))
+  return { entries: entries.slice(start, start + MAX_NAV), index: index - start }
+}
+
+const DOWNLOAD_STATES = new Set(['progressing', 'completed', 'cancelled', 'interrupted'])
+
+/** A download from the saved list — one that was running when Mindeck went down is interrupted now. */
+function savedDownload(raw: unknown): BrowserDownload | null {
+  const d = raw as Partial<BrowserDownload> | null
+  if (!d || typeof d.id !== 'string' || typeof d.path !== 'string' || typeof d.filename !== 'string' || !DOWNLOAD_STATES.has(String(d.state))) return null
+  return {
+    id: d.id,
+    filename: d.filename,
+    path: d.path,
+    url: typeof d.url === 'string' ? d.url : '',
+    state: d.state === 'progressing' ? 'interrupted' : d.state!,
+    received: typeof d.received === 'number' ? d.received : 0,
+    total: typeof d.total === 'number' ? d.total : 0,
+    startedAt: typeof d.startedAt === 'string' ? d.startedAt : ''
+  }
+}
+
+/** Commands the UI answers with a field to type into. */
+const FOCUSING = new Set<BrowserCommand>(['focusOmnibox', 'find', 'tabSearch', 'bookmark', 'import'])
+
+/** A tab with this address has a web view (not the new-tab page, not one of Mindeck's own pages). */
+function hasView(url: string): boolean {
+  return !!url && !internalPage(url)
 }
 
 /** The next zoom step in `direction` (or 100 %). */
@@ -133,12 +204,19 @@ export function zoomStep(current: number, direction: 'in' | 'out' | 'reset'): nu
 export class BrowserService {
   readonly history: BrowserHistory
   readonly devServers: DevServerDetector
+  readonly bookmarks: BrowserBookmarks
   readonly adblock: AdblockService
   readonly extensions: ExtensionService
+  private readonly suggestions: SearchSuggestions
+  private readonly importer?: BrowserImporter
   private host: BrowserHost | null = null
   private tabs: Tab[] = []
   private activeId?: string
   private closed: ClosedTab[] = []
+  /** The tabs of a session that ended in a crash, until the user restores or dismisses them. */
+  private restorable: { tabs: Tab[]; activeId?: string } | null = null
+  /** The session file says "running" — on a clean quit it must say so. */
+  private marked = false
   private auth: BrowserAuthRequest[] = []
   private readonly authResponders = new Map<string, (credentials: { username: string; password: string } | null) => void>()
   private downloads: BrowserDownload[] = []
@@ -160,12 +238,15 @@ export class BrowserService {
   constructor(private readonly deps: BrowserDeps) {
     this.history = new BrowserHistory(join(deps.dir, 'history.jsonl'), deps.now)
     this.devServers = new DevServerDetector(() => this.changed())
-    const fetch = deps.fetch ?? ((url: string) => globalThis.fetch(url))
+    this.bookmarks = new BrowserBookmarks(join(deps.dir, 'bookmarks.json'), () => this.deps.publish('browser:bookmarks', this.bookmarks.tree()), deps.now)
+    this.suggestions = new SearchSuggestions(deps.fetch)
+    if (deps.importEnv) this.importer = new BrowserImporter(deps.importEnv)
+    const download = deps.download ?? ((url: string) => globalThis.fetch(url))
     const wanted = () => ({ ads: this.settings().adblock, malware: this.settings().malwareProtection })
-    this.adblock = new AdblockService({ dir: deps.dir, fetch, wanted, now: deps.now })
+    this.adblock = new AdblockService({ dir: deps.dir, fetch: download, wanted, now: deps.now })
     this.extensions = new ExtensionService({
       dir: deps.dir,
-      fetch,
+      fetch: download,
       chromeVersion: deps.chromeVersion ?? CHROME_VERSION,
       locale: () => this.ui.locale,
       pickFolder: deps.pickFolder,
@@ -175,16 +256,22 @@ export class BrowserService {
     })
   }
 
-  /** Loads the last session (tabs stay unloaded until shown), the history and per-site choices. */
+  /**
+   * Loads the last session (tabs stay unloaded until shown, with their
+   * back/forward lists), closed tabs, downloads, the history, bookmarks and
+   * per-site choices. A session that ended in a crash is not reopened at once:
+   * its tabs wait for the user to restore them (a page may have caused it).
+   */
   async init(): Promise<void> {
-    await Promise.all([this.history.load(), this.adblock.init(), this.extensions.init()])
+    await Promise.all([this.history.load(), this.bookmarks.load(), this.adblock.init(), this.extensions.init()])
     const sites = await readJson<{ sites?: Record<string, SiteData> }>(this.file('sites.json'))
     this.sites = sites?.sites && typeof sites.sites === 'object' ? sites.sites : {}
-    const saved = await readJson<{ tabs?: SavedTab[]; activeId?: string }>(this.file('session.json'))
+    const saved = await readJson<{ tabs?: SavedTab[]; activeId?: string; closed?: unknown; downloads?: unknown; exit?: unknown }>(this.file('session.json'))
+    let tabs: Tab[] = []
     for (const t of Array.isArray(saved?.tabs) ? saved.tabs : []) {
       if (typeof t?.id !== 'string' || typeof t.url !== 'string') continue
       const share = t.share && typeof t.share.on === 'boolean' && typeof t.share.origin === 'string' ? { on: t.share.on, origin: t.share.origin } : undefined
-      this.tabs.push(
+      tabs.push(
         this.model({
           id: t.id,
           url: t.url,
@@ -195,13 +282,25 @@ export class BrowserService {
           share,
           openedBy: typeof t.openedBy === 'string' ? t.openedBy : undefined,
           ...(t.profile === 'agents' ? { profile: 'agents' as const } : {}),
-          zoom: this.siteZoom(t.url)
+          zoom: this.siteZoom(t.url),
+          nav: cleanNav(t.nav)
         })
       )
     }
-    this.tabs = [...this.tabs.filter((t) => t.pinned), ...this.tabs.filter((t) => !t.pinned)]
+    tabs = [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)]
+    const activeId = tabs.find((t) => t.id === saved?.activeId)?.id
+    if (saved?.exit === 'running' && tabs.some((t) => t.url)) this.restorable = { tabs, activeId }
+    else this.tabs = tabs
     if (!this.tabs.length) this.tabs.push(this.model({ url: '' }))
-    this.activeId = this.tabs.find((t) => t.id === saved?.activeId)?.id ?? this.tabs[0].id
+    this.activeId = (this.restorable ? undefined : activeId) ?? this.tabs[0].id
+    this.closed = (Array.isArray(saved?.closed) ? (saved.closed as Partial<ClosedTab>[]) : [])
+      .filter((c) => typeof c?.url === 'string' && c.url && typeof c.index === 'number')
+      .map((c) => ({ url: c.url!, title: typeof c.title === 'string' ? c.title : '', index: c.index!, pinned: c.pinned === true, nav: cleanNav(c.nav) }))
+      .slice(0, MAX_CLOSED)
+    this.downloads = (Array.isArray(saved?.downloads) ? saved.downloads : [])
+      .map(savedDownload)
+      .filter((d): d is BrowserDownload => !!d)
+      .slice(0, MAX_DOWNLOADS)
   }
 
   // --- the desktop host ---------------------------------------------------------
@@ -236,10 +335,11 @@ export class BrowserService {
   hostEvents(): BrowserHostEvents {
     return {
       navigated: (id, nav) => this.onNavigated(id, nav),
-      title: (id, title) => this.patch(id, (t) => {
-        t.title = title
-        if (t.profile !== 'private') this.history.title(t.url, title)
-      }),
+      title: (id, title) =>
+        this.patch(id, (t) => {
+          t.title = title
+          if (t.profile !== 'private') this.history.title(t.url, title)
+        }),
       favicon: (id, url) => this.patch(id, (t) => (t.favicon = url)),
       loading: (id, loading) => this.onLoading(id, loading),
       failed: (id, error) => this.onEnded(id, (t) => (t.error = t.danger === error.url ? { ...error, danger: 'malware' } : error)),
@@ -259,10 +359,14 @@ export class BrowserService {
         this.downloads = [download, ...this.downloads].slice(0, MAX_DOWNLOADS)
         this.downloadControls.set(download.id, control)
         this.changed()
+        this.save()
       },
       downloadUpdated: (download) => {
         this.downloads = this.downloads.map((d) => (d.id === download.id ? download : d))
-        if (download.state !== 'progressing') this.downloadControls.delete(download.id)
+        if (download.state !== 'progressing') {
+          this.downloadControls.delete(download.id)
+          this.save()
+        }
         this.changed()
       },
       locale: () => this.ui.locale,
@@ -286,6 +390,7 @@ export class BrowserService {
       downloads: this.downloads.map((d) => ({ ...d })),
       permissions: this.permissions.map((p) => ({ ...p })),
       devServers: this.devServers.list(),
+      ...(this.restorable ? { restorable: this.restorable.tabs.length } : {}),
       auth: this.auth.map((a) => ({ ...a })),
       extensions: this.extensions.list()
     }
@@ -304,13 +409,19 @@ export class BrowserService {
         void this.external(target.url)
         return this.view(this.active())
       }
+      // Mindeck's own pages (history, bookmarks) open once: a second ask shows the open one.
+      const open = target?.kind === 'internal' && this.tabs.find((t) => t.url === target.url)
+      if (open) {
+        this.activate(open.id)
+        return this.view(open)
+      }
       url = target?.url ?? ''
     }
     const opener = req.opener ? this.lookup(req.opener) : undefined
     const profile = req.private ? 'private' : (opener?.profile ?? (req.openedBy && !this.settings().agentsUseLogins ? 'agents' : undefined))
     const tab = this.model({ url, openedBy: req.openedBy ?? opener?.openedBy, zoom: this.siteZoom(url), ...(profile ? { profile } : {}) })
     this.insert(tab, opener)
-    if (url && this.host) this.goLive(tab)
+    if (hasView(url) && this.host) this.goLive(tab)
     if (!req.background) this.activeId = tab.id
     this.touched()
     return this.view(tab)
@@ -320,8 +431,13 @@ export class BrowserService {
     const tab = this.require(id)
     const index = this.tabs.indexOf(tab)
     // Private tabs leave nothing behind — not even in the list of closed tabs.
-    if (tab.url && tab.profile !== 'private')
-      this.closed = [{ url: tab.url, title: tab.title, index, pinned: tab.pinned, profile: tab.profile }, ...this.closed].slice(0, MAX_CLOSED)
+    if (tab.url && tab.profile !== 'private') {
+      const nav = this.navOf(tab)
+      this.closed = [
+        { url: tab.url, title: tab.title, index, pinned: tab.pinned, ...(nav ? { nav } : {}), ...(tab.profile ? { profile: tab.profile } : {}) },
+        ...this.closed
+      ].slice(0, MAX_CLOSED)
+    }
     if (tab.live) this.host?.destroy(id)
     this.tabs.splice(index, 1)
     this.forget(id)
@@ -352,12 +468,13 @@ export class BrowserService {
     tab.openedBy = undefined
     tab.agent = undefined
     tab.share = undefined
+    if (target.kind === 'internal') return this.showInternal(tab, target.url)
     this.load(tab, target.url)
   }
 
   go(id: string, action: BrowserGo): void {
     const tab = this.require(id)
-    if (!tab.url) return
+    if (!hasView(tab.url)) return
     if (!tab.live) {
       if (action === 'reload' || action === 'hardReload') this.ensureLive(tab, true)
       return
@@ -417,12 +534,13 @@ export class BrowserService {
       title: last.title,
       pinned: last.pinned,
       zoom: this.siteZoom(last.url),
+      nav: last.nav,
       ...(last.profile ? { profile: last.profile } : {})
     })
     const pinned = this.pinnedCount()
     const [min, max] = last.pinned ? [0, pinned] : [pinned, this.tabs.length]
     this.tabs.splice(Math.max(min, Math.min(max, last.index)), 0, tab)
-    if (this.host) this.goLive(tab)
+    if (this.host && hasView(tab.url)) this.goLive(tab)
     this.activeId = tab.id
     this.touched()
     return this.view(tab)
@@ -490,7 +608,7 @@ export class BrowserService {
     this.host?.unfreeze()
   }
 
-  /** Address-bar suggestions: go there or search first, then open tabs and history. */
+  /** Address-bar suggestions: go there or search first, then open tabs, bookmarks and history. */
   suggest(text: string): BrowserSuggestion[] {
     const q = text.trim()
     if (!q) return []
@@ -506,10 +624,19 @@ export class BrowserService {
         .slice(0, 3)
         .map((t): BrowserSuggestion => ({ kind: 'tab', url: t.url, title: t.title || t.url, tabId: t.id }))
     )
+    out.push(...this.bookmarks.suggest(q, 3).map((b): BrowserSuggestion => ({ kind: 'bookmark', url: b.url, title: b.title || b.url })))
     out.push(...this.history.suggest(q, 6).map((h): BrowserSuggestion => ({ kind: 'history', url: h.url, title: h.title || h.url })))
     if (navigate) out.push(search)
     const seen = new Set<string>()
     return out.filter((s) => (s.kind === 'tab' || !seen.has(s.url)) && !!seen.add(s.url)).slice(0, 8)
+  }
+
+  /** What the search engine suggests for the words typed — when the user allows asking it. */
+  async searchSuggestions(text: string): Promise<BrowserSuggestion[]> {
+    const { searchEngine, searchSuggestions } = this.settings()
+    if (!searchSuggestions) return []
+    const list = await this.suggestions.get(searchEngine, text)
+    return list.map((s) => ({ kind: 'suggestion', url: searchUrl(searchEngine, s), title: s }))
   }
 
   /** Visited pages matching `query`; without one, the most visited sites. */
@@ -517,8 +644,110 @@ export class BrowserService {
     return query?.trim() ? this.history.search(query, limit) : this.history.top(limit)
   }
 
+  /** The history page: newest first, before `before` (ms), matching `query`. */
+  historyList(opts: { query?: string; before?: number; limit?: number }): HistoryEntry[] {
+    return this.history.list(opts)
+  }
+
+  /** Forget pages by address, or every page visited in a time span. */
+  deleteHistory(what: { urls?: string[]; from?: number; to?: number }): Promise<number> {
+    return this.history.remove(what)
+  }
+
   clearHistory(): Promise<void> {
     return this.history.clear()
+  }
+
+  // --- bookmarks ------------------------------------------------------------------
+
+  bookmarkTree(): BookmarkFolder[] {
+    return this.bookmarks.tree()
+  }
+
+  addBookmark(req: { parentId?: string; index?: number; title: string; url?: string }): BookmarkNode {
+    return this.bookmarks.add(req)
+  }
+
+  updateBookmark(id: string, patch: { title?: string; url?: string }): void {
+    this.bookmarks.update(id, patch)
+  }
+
+  moveBookmark(id: string, parentId: string, index: number): void {
+    this.bookmarks.move(id, parentId, index)
+  }
+
+  removeBookmarks(ids: string[]): number {
+    return this.bookmarks.remove(ids)
+  }
+
+  /** All bookmarks as a Netscape bookmark file (what every browser imports). */
+  exportBookmarks(): string {
+    const [bar, other] = this.bookmarks.tree()
+    return toNetscape({ bar, other }, labels(this.ui.locale).barFolder)
+  }
+
+  /** Bookmarks from a Netscape bookmark file (exported from any browser); how many were new. */
+  importBookmarksHtml(html: string): number {
+    return this.bookmarks.merge(parseNetscape(html, this.now()), labels(this.ui.locale).imported)
+  }
+
+  // --- other browsers -------------------------------------------------------------
+
+  /** The other browsers' profiles on this machine (none on a core that can't see the user's files). */
+  importSources(): Promise<ImportSource[]> {
+    return this.importer ? this.importer.sources() : Promise.resolve([])
+  }
+
+  /**
+   * Takes bookmarks, history and the search engine over from another
+   * browser's profile. Each kind on its own: one that fails is reported and
+   * the others still come. Progress goes out as `browser:import` events.
+   */
+  async importFrom(req: ImportRequest): Promise<ImportResult> {
+    const importer = this.importer
+    if (!importer) throw coded('desktop-only', 'Importing is only available in the Mindeck desktop app')
+    const source = (await importer.sources()).find((s) => s.id === req.sourceId)
+    if (!source) throw coded('not-found', 'That browser profile is gone')
+    const result: ImportResult = { sourceId: source.id, bookmarks: 0, history: 0, errors: [] }
+    const order: ImportKind[] = ['bookmarks', 'history', 'settings']
+    for (const kind of order.filter((k) => req.kinds.includes(k) && source.kinds.includes(k))) {
+      this.deps.publish('browser:import', { sourceId: source.id, kind })
+      try {
+        if (kind === 'bookmarks') {
+          result.bookmarks = this.bookmarks.merge(await importer.bookmarks(source.id), labels(this.ui.locale).importedFrom(BROWSER_NAMES[source.browser]))
+        } else if (kind === 'history') {
+          result.history = await this.history.merge(await importer.history(source.id))
+        } else {
+          const engine = await importer.searchEngine(source.id)
+          if (engine) {
+            await this.configure({ searchEngine: engine })
+            result.searchEngine = engine
+          }
+        }
+      } catch (err) {
+        console.error(`[browser] importing ${kind} failed`, err)
+        result.errors.push({ kind, message: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return result
+  }
+
+  // --- the session after a crash ---------------------------------------------------
+
+  /** Bring back the tabs of a session that ended in a crash — or let them go. */
+  restoreSession(restore: boolean): void {
+    const pending = this.restorable
+    if (!pending) return
+    this.restorable = null
+    if (restore) {
+      // A lone new-tab page (what the browser started with) makes way.
+      if (this.tabs.length === 1 && !this.tabs[0].url) this.tabs = []
+      this.tabs.push(...pending.tabs)
+      this.tabs = [...this.tabs.filter((t) => t.pinned), ...this.tabs.filter((t) => !t.pinned)]
+      if (pending.activeId) this.activate(pending.activeId)
+      else this.activeId = this.tabs[0].id
+    }
+    this.touched()
   }
 
   download(id: string, action: 'open' | 'reveal' | 'cancel' | 'remove'): void {
@@ -709,11 +938,17 @@ export class BrowserService {
     })
   }
 
+  /** A clean quit: everything unsaved goes to disk, and the session says it ended well. */
   async dispose(): Promise<void> {
     clearTimeout(this.publishTimer)
     this.adblock.dispose()
     this.extensions.dispose()
-    await Promise.all([this.sessionDirty && this.saveSession(), this.sitesDirty && this.writeSites(), this.history.flush()])
+    await Promise.all([
+      (this.sessionDirty || this.marked) && this.saveSession(true),
+      this.sitesDirty && this.writeSites(),
+      this.history.flush(),
+      this.bookmarks.flush()
+    ])
   }
 
   // --- internals ------------------------------------------------------------------
@@ -744,13 +979,13 @@ export class BrowserService {
   }
 
   private view(t: Tab): BrowserTab {
-    const { live: _live, share: _share, blocked, drm, drmOff: _drmOff, danger: _danger, ...rest } = t
+    const { live: _live, share: _share, nav: _nav, blocked, drm, drmOff: _drmOff, danger: _danger, ...rest } = t
     const shield = isWebUrl(t.url) ? { shield: { on: this.settings().adblock && this.adblock.siteOn(t.url), blocked } } : {}
     return { ...rest, shared: this.isShared(t), ...(drm ? { drm } : {}), ...shield }
   }
 
   private isShared(t: Tab): boolean {
-    if (t.profile === 'private') return false
+    if (!hasView(t.url) || t.profile === 'private') return false
     if (t.share && t.share.origin === originOf(t.url)) return t.share.on
     return !!t.openedBy || isLoopback(t.url)
   }
@@ -782,8 +1017,10 @@ export class BrowserService {
     return this.sites[originOf(url)]?.zoom ?? 1
   }
 
-  /** What typed text leads to: a page for a tab, a link for another app, or nothing. */
-  private target(input: string): { kind: 'page' | 'external'; url: string } | null {
+  /** What typed text leads to: a page for a tab, one of Mindeck's own pages, a link for another app, or nothing. */
+  private target(input: string): { kind: 'page' | 'internal' | 'external'; url: string } | null {
+    const page = internalPage(input)
+    if (page) return { kind: 'internal', url: INTERNAL_PAGES[page] }
     const url = resolveInput(input, this.settings().searchEngine)
     if (!url || /^(javascript|vbscript):/i.test(url)) return null
     return { kind: isPageUrl(url) ? 'page' : 'external', url }
@@ -800,21 +1037,55 @@ export class BrowserService {
   }
 
   private goLive(tab: Tab): void {
-    this.host!.create(tab.id, tab.url, { agent: !!tab.openedBy, zoom: tab.zoom, muted: tab.muted, ...(tab.profile ? { profile: tab.profile } : {}) })
+    this.host!.create(tab.id, tab.url, {
+      agent: !!tab.openedBy,
+      zoom: tab.zoom,
+      muted: tab.muted,
+      ...(tab.profile ? { profile: tab.profile } : {}),
+      ...(tab.nav ? { history: tab.nav } : {})
+    })
+    tab.nav = undefined
     tab.live = true
     tab.loading = true
   }
 
   /** Load the tab's page if it has none yet (on screen, or `force`d for an agent / a reload). */
   private ensureLive(tab: Tab, force = false): void {
-    if (tab.url && !tab.live && this.host && (force || this.bounds)) {
+    if (hasView(tab.url) && !tab.live && this.host && (force || this.bounds)) {
       this.goLive(tab)
       this.touched()
     }
   }
 
+  /** One of Mindeck's own pages in this tab: the web view (if any) goes. */
+  private showInternal(tab: Tab, url: string): void {
+    if (tab.live) {
+      this.host?.destroy(tab.id)
+      tab.live = false
+      this.forget(tab.id)
+    }
+    Object.assign(tab, {
+      url,
+      title: '',
+      favicon: undefined,
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      error: undefined,
+      crashed: false,
+      nav: undefined
+    })
+    this.touched()
+  }
+
+  /** The tab's back/forward list: from its view, else as restored. */
+  private navOf(tab: Tab): TabNavigation | undefined {
+    return cleanNav(tab.live ? this.host?.navigation(tab.id) : tab.nav)
+  }
+
   private load(tab: Tab, url: string): void {
     tab.url = url
+    tab.nav = undefined
     tab.error = undefined
     tab.crashed = false
     if (this.host) {
@@ -936,7 +1207,8 @@ export class BrowserService {
   }
 
   private command(command: BrowserCommand): void {
-    if (command === 'focusOmnibox' || command === 'find') this.host?.focusUi()
+    // What the UI answers with a field to type into takes the keyboard from the page.
+    if (FOCUSING.has(command)) this.host?.focusUi()
     this.deps.publish('browser:command', { command })
   }
 
@@ -977,6 +1249,13 @@ export class BrowserService {
       case 'devtools':
       case 'print':
         return this.tool(tab.id, action)
+      case 'bookmark':
+      case 'tabSearch':
+      case 'bookmarksBar':
+        return this.command(action)
+      case 'history':
+      case 'bookmarkManager':
+        return void this.open({ url: INTERNAL_PAGES[action === 'history' ? 'history' : 'bookmarks'] })
       default:
         return pick(Number(action.slice(3)) - 1)
     }
@@ -1072,6 +1351,14 @@ export class BrowserService {
       { label: l.newTab, run: () => this.onShortcut('newTab') },
       { label: l.newPrivateTab, run: () => this.onShortcut('newPrivateTab') },
       { label: l.reopen, enabled: this.closed.length > 0, run: () => void this.reopen() },
+      { label: l.tabSearch, run: () => this.command('tabSearch') },
+      { separator: true },
+      // A private tab leaves no bookmarks behind either.
+      { label: l.bookmarkPage, enabled: hasView(tab.url) && tab.profile !== 'private', run: () => this.command('bookmark') },
+      { label: l.bookmarksBar, checked: this.settings().bookmarksBar, run: () => this.onShortcut('bookmarksBar') },
+      { label: l.bookmarkManager, run: () => this.onShortcut('bookmarkManager') },
+      { label: l.history, run: () => this.onShortcut('history') },
+      { label: l.importData, enabled: !!this.importer, run: () => this.command('import') },
       { separator: true },
       { label: l.find, enabled: page, run: () => this.command('find') },
       { label: l.zoomIn, run: () => void this.zoom(tab.id, 'in') },
@@ -1093,25 +1380,34 @@ export class BrowserService {
     this.saveTimer = setTimeout(() => void this.saveSession(), SAVE_DELAY_MS)
   }
 
-  private async saveSession(): Promise<void> {
+  /**
+   * The session: tabs with their back/forward lists, closed tabs, downloads —
+   * and whether Mindeck is still running (`exit`), so a crash shows on the next start.
+   * Tabs still waiting to be restored after a crash are kept, behind the open ones.
+   */
+  private async saveSession(clean = false): Promise<void> {
     clearTimeout(this.saveTimer)
     this.sessionDirty = false
+    this.marked = !clean
+    const save = (t: Tab): SavedTab => {
+      const nav = this.navOf(t)
+      return {
+        id: t.id,
+        url: t.url,
+        title: t.title,
+        ...(t.favicon && t.favicon.length <= MAX_FAVICON ? { favicon: t.favicon } : {}),
+        ...(t.pinned ? { pinned: true } : {}),
+        ...(t.muted ? { muted: true } : {}),
+        ...(t.share ? { share: t.share } : {}),
+        ...(t.openedBy ? { openedBy: t.openedBy } : {}),
+        ...(nav ? { nav } : {}),
+        ...(t.profile ? { profile: t.profile } : {})
+      }
+    }
     // Private tabs are never written down.
-    const kept = this.tabs.filter((t) => t.profile !== 'private')
-    const tabs: SavedTab[] = kept.map((t) => ({
-      id: t.id,
-      url: t.url,
-      title: t.title,
-      ...(t.favicon && t.favicon.length <= MAX_FAVICON ? { favicon: t.favicon } : {}),
-      ...(t.pinned ? { pinned: true } : {}),
-      ...(t.muted ? { muted: true } : {}),
-      ...(t.share ? { share: t.share } : {}),
-      ...(t.openedBy ? { openedBy: t.openedBy } : {}),
-      ...(t.profile ? { profile: t.profile } : {})
-    }))
-    await writeAtomic(this.file('session.json'), JSON.stringify({ version: 1, activeId: this.activeId, tabs }), 0o600).catch((err) =>
-      console.error('[browser] saving the session failed', err)
-    )
+    const tabs = [...this.tabs, ...(this.restorable?.tabs ?? [])].filter((t) => t.profile !== 'private').map(save)
+    const data = { version: 1, exit: clean ? 'clean' : 'running', activeId: this.activeId, tabs, closed: this.closed, downloads: this.downloads }
+    await writeAtomic(this.file('session.json'), JSON.stringify(data), 0o600).catch((err) => console.error('[browser] saving the session failed', err))
   }
 
   private saveSites(): void {

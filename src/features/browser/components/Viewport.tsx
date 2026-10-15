@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, RotateCw, ServerCrash } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { BrowserTab, ViewBounds } from '@shared/types/browser'
+import { internalPage } from '@shared/types/browserData'
 import { useT } from '@/lib/i18n'
 import { useOverlays } from '@/lib/overlay'
 import { onRelayout } from '@/lib/relayout'
@@ -9,6 +10,8 @@ import { usePaneFocused } from '@/features/workspace/pane'
 import { useActiveTab, useBrowser } from '../store'
 import { hostOf, security } from '../url'
 import { NewTabPage } from './NewTabPage'
+import { HistoryPage } from './HistoryPage'
+import { BookmarksPage } from './BookmarksPage'
 import { AuthDialog, DangerPage, PrivateTabPage } from './Protection'
 
 /** Net errors that mean "nothing answers there (yet)" — on this machine, a dev server still starting. */
@@ -91,7 +94,9 @@ export function Viewport({ active }: { active: boolean }) {
   const tab = useActiveTab()
   const covered = useOverlays((s) => s.count > 0)
   const [shot, setShot] = useState<string | null>(null)
-  const page = !!tab?.url && !tab.error && !tab.crashed
+  const own = tab ? internalPage(tab.url) : undefined
+  // A web page shows (Mindeck's own pages, the new-tab page and error pages are drawn here instead).
+  const page = !!tab?.url && !own && !tab.error && !tab.crashed
 
   const report = (bounds: ViewBounds | null) => {
     const last = sent.current
@@ -143,6 +148,8 @@ export function Viewport({ active }: { active: boolean }) {
   return (
     <div ref={ref} className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-surface/30" data-testid="browser-viewport" data-native-view>
       {tab && !tab.url && (tab.profile === 'private' ? <PrivateTabPage /> : <NewTabPage />)}
+      {own === 'history' && <HistoryPage />}
+      {own === 'bookmarks' && <BookmarksPage />}
       {tab?.error && (tab.error.danger ? <DangerPage tab={tab} /> : <ErrorPage tab={tab} />)}
       {tab?.crashed && !tab.error && <CrashPage tab={tab} />}
       {shot && <img src={shot} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-fill" />}

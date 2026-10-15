@@ -14,6 +14,7 @@ function fakeHost() {
   return {
     create: vi.fn(),
     destroy: vi.fn(),
+    navigation: vi.fn(() => undefined),
     load: vi.fn(),
     go: vi.fn(),
     show: vi.fn(),
@@ -48,7 +49,7 @@ async function setup(opts: { settings?: AppSettings; session?: unknown; deps?: P
     settings: { get: () => current, update: vi.fn(async (patch: Partial<AppSettings>) => (current = { ...current, ...patch })) },
     publish: (channel, payload) => published.push({ channel, payload }),
     publishDelayMs: 0,
-    fetch: vi.fn(async () => ({ ok: false, status: 404, text: async () => '', arrayBuffer: async () => new ArrayBuffer(0) })),
+    download: vi.fn(async () => ({ ok: false, status: 404, text: async () => '', arrayBuffer: async () => new ArrayBuffer(0) })),
     browserRoots: () => [],
     ...opts.deps
   }
@@ -311,7 +312,7 @@ describe('BrowserService · logins, media, downloads, extensions', () => {
     const fetch = vi.fn(async () => ({ ok: false, status: 500, text: async () => '' }))
     vi.stubGlobal('fetch', fetch)
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { b } = await setup({ deps: { fetch: undefined, browserRoots: undefined } })
+    const { b } = await setup({ deps: { download: undefined, browserRoots: undefined } })
     await b.adblock.update()
     expect(fetch).toHaveBeenCalled()
     expect(errors).toHaveBeenCalled()

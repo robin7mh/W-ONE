@@ -44,7 +44,8 @@ export default defineConfig({
     resolve: { alias: shared },
     build: {
       outDir: 'out/preload',
-      lib: { entry: { index: resolve(__dirname, 'electron/preload.ts') } }
+      // browserPage: the browser tabs' own preload (session.ts), apart from Mindeck's bridge.
+      lib: { entry: { index: resolve(__dirname, 'electron/preload.ts'), browserPage: resolve(__dirname, 'electron/browserPage.ts') } }
     }
   },
   renderer: {

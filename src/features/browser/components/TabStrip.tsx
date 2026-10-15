@@ -1,13 +1,17 @@
 import { useState, type DragEvent } from 'react'
-import { Bot, Boxes, Globe, Loader2, Play, Plus, VenetianMask, Volume2, VolumeX, X } from 'lucide-react'
+import { Bot, Boxes, Clock, Globe, Loader2, Play, Plus, Star, VenetianMask, Volume2, VolumeX, X } from 'lucide-react'
 import type { BrowserTab } from '@shared/types/browser'
+import { internalPage } from '@shared/types/browserData'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { tabLabel } from '../library'
 import { useBrowser } from '../store'
 
 const DRAG_TYPE = 'application/x-mindeck-tab'
 
 function Favicon({ tab }: { tab: BrowserTab }) {
+  const own = internalPage(tab.url)
+  if (own) return own === 'history' ? <Clock size={13} className="shrink-0 text-cyan" aria-hidden /> : <Star size={13} className="shrink-0 text-cyan" aria-hidden />
   if (tab.loading) return <Loader2 size={13} className="shrink-0 animate-spin text-cyan" aria-hidden />
   if (tab.favicon) return <img src={tab.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-contain" draggable={false} />
   return <Globe size={13} className="shrink-0 text-text-muted" aria-hidden />
@@ -37,7 +41,7 @@ export function TabStrip() {
       <div role="tablist" aria-label={t.browser.title} className="flex min-w-0 items-end gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeId
-          const title = tab.title || (tab.url ? tab.url : t.browser.untitled)
+          const title = tabLabel(tab, t.library.pages) || t.browser.untitled
           const agentic = !!tab.openedBy
           return (
             <div

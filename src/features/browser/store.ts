@@ -1,9 +1,15 @@
 import { create } from 'zustand'
 import { errorMessage, ipc, isDesktop, onEvent } from '@shared/ipc/client'
 import type { IpcChannel, IpcChannels } from '@shared/ipc/contract'
-import type { BrowserCommand, BrowserFind, BrowserState, BrowserTab } from '@shared/types/browser'
+import { DEFAULT_BROWSER_SETTINGS, type BrowserCommand, type BrowserFind, type BrowserSettings, type BrowserState, type BrowserTab } from '@shared/types/browser'
+import type { BookmarkFolder } from '@shared/types/browserData'
+import { findByUrl } from './library'
 
 const EMPTY: BrowserState = { available: false, tabs: [], closed: 0, downloads: [], permissions: [], devServers: [] }
+const NO_BOOKMARKS: BookmarkFolder[] = [
+  { id: 'bar', title: '', children: [], added: 0 },
+  { id: 'other', title: '', children: [], added: 0 }
+]
 
 /** What the browser asks of the rest of the app (the shell decides where to go). */
 export interface BrowserHandlers {
@@ -27,6 +33,14 @@ interface BrowserStore {
   focusTick: number
   downloadsOpen: boolean
   extensionsOpen: boolean
+  /** The bookmarks: the bar's folder, then Other bookmarks. */
+  bookmarks: BookmarkFolder[]
+  settings: BrowserSettings
+  /** ⌘⇧A: the search over tabs, history and bookmarks. */
+  tabSearchOpen: boolean
+  /** The bookmark (or folder) in the editor; `added`: ⌘D just saved it. */
+  editing?: { id: string; added?: boolean }
+  importOpen: boolean
   error?: string
   /** Push events → this store; `handlers` take the browser's requests to the rest of the app. */
   connect(next: BrowserHandlers): () => void
@@ -46,6 +60,14 @@ interface BrowserStore {
   /** The extension manager beside the page (it takes the downloads' place). */
   toggleExtensions(): void
   clearError(): void
+  /** Change browser settings (the bookmarks bar, suggestions, …). */
+  configure(patch: Partial<BrowserSettings>): Promise<void>
+  /** ⌘D: bookmark the page on screen on the bar — or edit its bookmark if it has one. */
+  bookmarkActive(): Promise<void>
+  /** Open the editor for a bookmark or folder; none closes it. */
+  edit(id?: string): void
+  setTabSearch(open: boolean): void
+  setImport(open: boolean): void
 }
 
 export const useBrowser = create<BrowserStore>((set, get) => {
@@ -54,6 +76,10 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     else if (c === 'find') set({ findOpen: true })
     else if (c === 'settings') handlers?.settings()
     else if (c === 'focused') handlers?.focused?.()
+    else if (c === 'tabSearch') set({ tabSearchOpen: true })
+    else if (c === 'bookmark') void get().bookmarkActive()
+    else if (c === 'bookmarksBar') void get().configure({ bookmarksBar: !get().settings.bookmarksBar })
+    else if (c === 'import') set({ importOpen: true })
     else {
       const tab = activeTab(get().state)
       if (tab) handlers?.sendToAgent(tab)
@@ -66,6 +92,10 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     focusTick: 0,
     downloadsOpen: false,
     extensionsOpen: false,
+    bookmarks: NO_BOOKMARKS,
+    settings: DEFAULT_BROWSER_SETTINGS,
+    tabSearchOpen: false,
+    importOpen: false,
 
     connect: (next) => {
       handlers = next
@@ -74,7 +104,8 @@ export const useBrowser = create<BrowserStore>((set, get) => {
         onEvent('browser:state', (state) => set({ state })),
         onEvent('browser:find', (find) => set({ find })),
         onEvent('browser:command', ({ command: c }) => command(c)),
-        onEvent('browser:reveal', () => handlers?.reveal())
+        onEvent('browser:reveal', () => handlers?.reveal()),
+        onEvent('browser:bookmarks', (bookmarks) => set({ bookmarks }))
       ]
       return () => {
         offs.forEach((off) => off())
@@ -84,8 +115,8 @@ export const useBrowser = create<BrowserStore>((set, get) => {
 
     refresh: async () => {
       if (!isDesktop()) return
-      const state = await get().run('browser:state')
-      if (state) set({ state })
+      const [state, bookmarks, settings] = await Promise.all([get().run('browser:state'), get().run('browser:bookmarks'), get().run('browser:settings')])
+      set({ ...(state ? { state } : {}), ...(bookmarks ? { bookmarks } : {}), ...(settings ? { settings } : {}) })
     },
 
     run: async (channel, ...args) => {
@@ -128,7 +159,26 @@ export const useBrowser = create<BrowserStore>((set, get) => {
 
     toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen })),
     toggleExtensions: () => set((s) => ({ extensionsOpen: !s.extensionsOpen, downloadsOpen: false })),
-    clearError: () => set({ error: undefined })
+    clearError: () => set({ error: undefined }),
+
+    configure: async (patch) => {
+      const settings = await get().run('browser:configure', patch)
+      if (settings) set({ settings })
+    },
+
+    bookmarkActive: async () => {
+      const tab = activeTab(get().state)
+      // A private tab leaves no bookmarks behind.
+      if (!tab || tab.profile === 'private' || !/^(https?|file):/i.test(tab.url)) return
+      const saved = findByUrl(get().bookmarks, tab.url)
+      if (saved) return set({ editing: { id: saved.id } })
+      const node = await get().run('browser:bookmarkAdd', { parentId: 'bar', title: tab.title || tab.url, url: tab.url })
+      if (node) set({ editing: { id: node.id, added: true } })
+    },
+
+    edit: (id) => set({ editing: id ? { id } : undefined }),
+    setTabSearch: (open) => set({ tabSearchOpen: open }),
+    setImport: (open) => set({ importOpen: open })
   }
 })
 

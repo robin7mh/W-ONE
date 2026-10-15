@@ -32,12 +32,17 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     if (key === 'ArrowRight') return 'nextTab'
     if (key === 'ArrowLeft') return 'prevTab'
     if (mac && (key === 'i' || input.key === 'ˆ')) return 'devtools'
+    // ⌥ turns letters into symbols on a Mac keyboard: ⌘⌥B arrives as "∫".
+    if (mac && (key === 'b' || input.key === '∫')) return 'bookmarkManager'
     return null
   }
   if (input.shift) {
     if (key === 't') return 'reopenTab'
     if (key === 'n') return 'newPrivateTab'
     if (key === 'r') return 'hardReload'
+    if (key === 'a') return 'tabSearch'
+    if (key === 'b') return 'bookmarksBar'
+    if (!mac && key === 'o') return 'bookmarkManager'
     if (!mac && key === 'i') return 'devtools'
     if (key === '+' || key === '=') return 'zoomIn'
     if (key === ']' || key === '}') return 'nextTab'
@@ -57,7 +62,10 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     '+': 'zoomIn',
     '-': 'zoomOut',
     '0': 'zoomReset',
-    '9': 'lastTab'
+    '9': 'lastTab',
+    d: 'bookmark',
+    // Chrome: ⌘Y on a Mac, Ctrl+H elsewhere.
+    [mac ? 'y' : 'h']: 'history'
   }
   if (plain[key]) return plain[key]
   if (/^[1-8]$/.test(key)) return `tab${key}` as ShortcutAction

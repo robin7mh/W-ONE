@@ -1,4 +1,7 @@
-import type { BrowserSuggestion } from '@shared/types/browser'
+import type { BrowserSuggestion, SearchEngine } from '@shared/types/browser'
+
+/** How the search engines are called in the UI. */
+export const ENGINE_LABELS: Record<SearchEngine, string> = { google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', ecosia: 'Ecosia', brave: 'Brave Search', kagi: 'Kagi' }
 
 /** The address as the bar shows it when not editing: no scheme, no lone trailing slash; file paths as paths. */
 export function displayUrl(url: string): string {
@@ -47,7 +50,7 @@ export function initial(url: string, title = ''): string {
 const bare = (url: string) => url.replace(/^[a-z]+:\/\//i, '').replace(/^www\./i, '')
 
 /**
- * Chrome's inline completion: when a visited page's address starts with what
+ * Chrome's inline completion: when a visited or saved page's address starts with what
  * was typed, the bar completes it — to the host while the typing is within
  * it, else to the whole address. Null when nothing fits.
  */
@@ -55,7 +58,7 @@ export function inlineCompletion(text: string, suggestions: BrowserSuggestion[])
   const typed = text.toLowerCase()
   if (!typed || /\s/.test(typed)) return null
   for (const s of suggestions) {
-    if (s.kind !== 'history' && s.kind !== 'tab') continue
+    if (s.kind !== 'history' && s.kind !== 'tab' && s.kind !== 'bookmark') continue
     const address = bare(s.url).replace(/\/$/, '')
     if (!address.toLowerCase().startsWith(typed)) continue
     const host = address.split('/')[0]
@@ -63,4 +66,11 @@ export function inlineCompletion(text: string, suggestions: BrowserSuggestion[])
     return { value: text + address.slice(text.length), url: s.url }
   }
   return null
+}
+
+/** The search engine's suggestions below the first line (go there / search), without doubles, at most ten lines. */
+export function withSuggestions(list: BrowserSuggestion[], extra: BrowserSuggestion[]): BrowserSuggestion[] {
+  const seen = new Set(list.map((s) => s.url))
+  const fresh = extra.filter((s) => !seen.has(s.url))
+  return [...list.slice(0, 1), ...fresh, ...list.slice(1)].slice(0, 10)
 }
