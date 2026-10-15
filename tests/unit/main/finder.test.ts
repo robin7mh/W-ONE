@@ -70,7 +70,7 @@ describe('FinderService · reading', () => {
     const listing = await finder.list()
     expect(listing.path).toBe(home)
     expect(listing.parent).not.toBeNull()
-    expect(listing.truncated).toBe(false)
+    expect(listing).toMatchObject({ total: 9, offset: 0 })
     expect(listing.entries.map((e) => `${e.kind}:${e.name}${e.link ? '@' : ''}${e.bundle ? '+' : ''}`)).toEqual([
       'dir:Desktop',
       'dir:Docs link@',
@@ -107,15 +107,38 @@ describe('FinderService · reading', () => {
     await expect(finder.list(home)).rejects.toMatchObject({ code: 'error' })
   })
 
-  it('lists at most 5000 entries and says so', async () => {
+  it('lists big folders in pages of 1000, keeping the names a while for the next pages', async () => {
     const { finder, home } = await world()
     const big = join(home, 'Big')
     await mkdir(big)
-    await Promise.all(Array.from({ length: 5001 }, (_, i) => writeFile(join(big, `f${i}`), '')))
-    const listing = await finder.list(big)
-    expect(listing.entries).toHaveLength(5000)
-    expect(listing.truncated).toBe(true)
-  }, 30_000)
+    await Promise.all(Array.from({ length: 2501 }, (_, i) => writeFile(join(big, `f${i}`), '')))
+    const first = await finder.list(big)
+    expect(first).toMatchObject({ total: 2501, offset: 0 })
+    expect(first.entries).toHaveLength(1000)
+    expect(first.entries[0].name).toBe('f0')
+    // Changes meanwhile do not shift the pages (the names are kept).
+    await writeFile(join(big, 'a-new'), '')
+    const second = await finder.list(big, false, 1000)
+    expect(second).toMatchObject({ total: 2501, offset: 1000 })
+    expect(second.entries[0].name).toBe('f1000')
+    expect((await finder.list(big, false, 2500)).entries.map((e) => e.name)).toEqual(['f2500'])
+    // After a while (or for another view) the folder is read again.
+    const now = Date.now()
+    const later = vi.spyOn(Date, 'now').mockReturnValue(now + 31_000)
+    expect((await finder.list(big, false, 2500)).total).toBe(2502)
+    later.mockRestore()
+    expect((await finder.list(big, true, 1000)).total).toBe(2502)
+    // Small folders are not kept: their page 2 reads again.
+    expect((await finder.list(home, false, 5)).entries.length).toBe(5)
+    // Only a few big folders are kept at once.
+    for (const n of [1, 2, 3, 4]) {
+      const d = join(home, `Many${n}`)
+      await mkdir(d)
+      await Promise.all(Array.from({ length: 1001 }, (_, i) => writeFile(join(d, `g${i}`), '')))
+      await finder.list(d)
+    }
+    expect((finder as unknown as { listings: Map<string, unknown> }).listings.size).toBe(4)
+  }, 60_000)
 
   it('searches with Spotlight where there is one, else (or when it finds nothing) walks — skipping hidden places, packages and node_modules', async () => {
     const { finder, home, trash } = await world()
@@ -214,12 +237,12 @@ describe('FinderService · changes', () => {
     const { finder, home, trash } = await world()
     const docs = join(home, 'Documents')
     const desk = join(home, 'Desktop')
-    await finder.trash([join(docs, 'report 2.md')])
+    expect(await finder.trash([join(docs, 'report 2.md')])).toEqual([{ path: join(docs, 'report 2.md') }])
     expect(trash).toHaveBeenCalledWith(join(docs, 'report 2.md'))
 
     await writeFile(join(desk, 'report 10.md'), 'taken')
     expect(await finder.move([join(docs, 'report 10.md')], desk)).toEqual([join(desk, 'report 10 2.md')])
-    expect(await finder.move([join(desk, 'report 10.md')], desk)).toEqual([join(desk, 'report 10.md')]) // already there
+    expect(await finder.move([join(desk, 'report 10.md')], desk)).toEqual([]) // already there
     await expect(finder.move([docs], join(docs))).rejects.toMatchObject({ code: 'bad-move' })
     await mkdir(join(docs, 'inner'))
     await expect(finder.move([docs], join(docs, 'inner'))).rejects.toMatchObject({ code: 'bad-move' })

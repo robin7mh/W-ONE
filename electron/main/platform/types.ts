@@ -1,3 +1,5 @@
+import type { RestorableTrash } from './trash'
+
 /**
  * What the core needs from its host. The same services run inside Electron
  * (desktop: native dialogs, Finder, OS trash) and as a headless Node server
@@ -18,6 +20,10 @@ export interface Platform {
   appForUrl?: (url: string) => string
   /** Move a file to a recoverable trash. `root` is the vault it belongs to. */
   trashItem: (path: string, root: string) => Promise<void>
+  /** A trash Mindeck can also put things back from (Linux desktop) — Files' ⌘Z after trashing. */
+  restorableTrash?: RestorableTrash
+  /** Files on the system clipboard (Finder / Explorer copy and paste). Absent on a server. */
+  fileClipboard?: { write(paths: string[], cut: boolean): Promise<void>; read(): Promise<string[]> }
   /**
    * A window on a remote core's web UI (Remote-SSH, Dev Container), signed in
    * with its device token. Resolves once it is closed. Absent on a server.

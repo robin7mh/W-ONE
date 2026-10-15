@@ -1,5 +1,8 @@
-import { app, BrowserWindow, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { homedir } from 'node:os'
 import type { Cipher } from '../services/ai/SecretStore'
+import { fileClipboard } from './fileClipboard'
+import { desktopTrash } from './trash'
 import type { Platform } from './types'
 
 /** Desktop host: native dialogs, the OS file manager, its link handlers and the OS trash. */
@@ -24,6 +27,8 @@ export const electronPlatform: Platform = {
   async trashItem(path) {
     await shell.trashItem(path)
   },
+  restorableTrash: desktopTrash(process.platform, process.env, homedir()),
+  fileClipboard: fileClipboard(clipboard, (data) => new ClipboardItem(data), process.platform),
   openRemoteWindow({ title, url, token, deviceId }) {
     const win = new BrowserWindow({
       width: 1440,

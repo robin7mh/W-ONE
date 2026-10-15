@@ -36,7 +36,8 @@ vi.mock('electron', () => ({
   ipcMain: electron.ipcMain,
   app: electron.app,
   contextBridge: electron.contextBridge,
-  ipcRenderer: electron.ipcRenderer
+  ipcRenderer: electron.ipcRenderer,
+  webUtils: { getPathForFile: (f: { name: string }) => `/dropped/${f.name}` }
 }))
 
 import { bindIpc } from '../../../electron/ipc/registry'
@@ -520,6 +521,9 @@ describe('preload bridge', () => {
     api.toggleMaximize()
     api.close()
     expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close'])
+    api.startDrag(['/a', '/b'])
+    expect(electron.ipcRenderer.send).toHaveBeenLastCalledWith('files:start-drag', ['/a', '/b'])
+    expect(api.pathForFile({ name: 'x.png' })).toBe('/dropped/x.png')
 
     await api.isMaximized()
     await api.isFullScreen()

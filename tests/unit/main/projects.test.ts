@@ -36,10 +36,15 @@ const electron = vi.hoisted(() => ({
   openExternal: vi.fn(async () => {}),
   appForProtocol: vi.fn((_url: string) => ''),
   reveal: vi.fn(),
-  encryption: true
+  encryption: true,
+  clipboardWrites: [] as unknown[]
 }))
 vi.mock('electron', () => ({
   app: { getApplicationNameForProtocol: electron.appForProtocol },
+  clipboard: { write: async (items: unknown[]) => void electron.clipboardWrites.push(...items), read: async () => [] },
+  ClipboardItem: class {
+    constructor(public data: Record<string, string>) {}
+  },
   dialog: { showOpenDialog: electron.showOpenDialog },
   shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.reveal },
   safeStorage: {
@@ -215,8 +220,12 @@ describe('ProjectService', () => {
     electron.encryption = true
   })
 
-  it('shows files in the OS file manager on the desktop', () => {
+  it('shows files in the OS file manager on the desktop', async () => {
     electronPlatform.revealPath!('/Users/me/report.pdf')
+    // Files on the system clipboard go as the OS's ClipboardItem.
+    await electronPlatform.fileClipboard!.write(['/Users/me/a.txt'], false)
+    expect((electron.clipboardWrites[0] as { data: Record<string, string> }).data['text/plain']).toBe('/Users/me/a.txt')
+    expect(electronPlatform.restorableTrash === undefined).toBe(process.platform !== 'linux')
     expect(electron.reveal).toHaveBeenCalledWith('/Users/me/report.pdf')
   })
 

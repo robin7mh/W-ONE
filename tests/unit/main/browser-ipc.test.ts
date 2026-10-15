@@ -66,8 +66,9 @@ describe('browser and files channels', () => {
     registerFinderIpc(router, finder as unknown as FinderService)
     const calls: [string, unknown, string, unknown[]][] = [
       ['finder:places', undefined, 'places', []],
-      ['finder:list', { path: '/Users/me', hidden: true }, 'list', ['/Users/me', true]],
-      ['finder:list', undefined, 'list', [undefined, undefined]],
+      ['finder:list', { path: '/Users/me', hidden: true }, 'list', ['/Users/me', true, undefined]],
+      ['finder:list', { path: '/Users/me', offset: 1000 }, 'list', ['/Users/me', undefined, 1000]],
+      ['finder:list', undefined, 'list', [undefined, undefined, undefined]],
       ['finder:search', { path: '/Users/me', query: ' report ' }, 'search', ['/Users/me', 'report']],
       ['finder:preview', { path: '/a.png' }, 'preview', ['/a.png']],
       ['finder:mkdir', { parent: '/Users/me', name: 'New' }, 'mkdir', ['/Users/me', 'New']],
@@ -76,12 +77,30 @@ describe('browser and files channels', () => {
       ['finder:move', { paths: ['/a.txt'], dest: '/b' }, 'move', [['/a.txt'], '/b']],
       ['finder:copy', { paths: ['/a.txt'], dest: '/b' }, 'copy', [['/a.txt'], '/b']],
       ['finder:open', { path: '/a.txt' }, 'open', ['/a.txt']],
-      ['finder:reveal', { path: '/a.txt' }, 'reveal', ['/a.txt']]
+      ['finder:reveal', { path: '/a.txt' }, 'reveal', ['/a.txt']],
+      ['finder:untrash', { items: [{ path: '/a', restore: '/t/a' }] }, 'untrash', [[{ path: '/a', restore: '/t/a' }]]],
+      ['finder:conflicts', { paths: ['/a'], dest: '/b' }, 'conflicts', [['/a'], '/b']],
+      [
+        'finder:transfer',
+        { id: 't1', paths: ['/a'], dest: '/b', mode: 'copy', choices: { a: 'replace' } },
+        'transfer',
+        [{ id: 't1', paths: ['/a'], dest: '/b', mode: 'copy', choices: { a: 'replace' } }]
+      ],
+      ['finder:cancel', { id: 't1' }, 'cancel', ['t1']],
+      ['finder:restore', { moves: [{ from: '/b/a', to: '/a' }] }, 'restore', [[{ from: '/b/a', to: '/a' }]]],
+      ['finder:info', { path: '/a' }, 'info', ['/a']],
+      ['finder:folderSize', { path: '/a', id: 's' }, 'folderSize', ['/a', 's']],
+      ['finder:compress', { paths: ['/a'], id: 'z' }, 'compress', [['/a'], 'z']],
+      ['finder:extract', { path: '/a.zip', id: 'u' }, 'extract', ['/a.zip', 'u']],
+      ['finder:clipboardWrite', { paths: ['/a'], cut: true }, 'clipboardWrite', [['/a'], true]],
+      ['finder:clipboardRead', undefined, 'clipboardRead', []]
     ]
     for (const [channel, payload, method, args] of calls) {
       expect(await router.dispatch(channel, payload, ipc), channel).toEqual({ ok: true, data: { called: method, args } })
     }
     expect(await router.dispatch('finder:trash', { paths: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('finder:transfer', { id: 't', paths: ['/a'], dest: '/b', mode: 'delete' }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('finder:transfer', { id: 't', paths: ['/a'], dest: '/b', mode: 'copy', choices: { a: 'overwrite' } }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('finder:mkdir', { parent: '/x', name: '   ' }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('finder:list', undefined, { transport: 'remote' })).toMatchObject({ ok: false, error: { code: 'desktop-only' } })
   })

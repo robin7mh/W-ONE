@@ -379,7 +379,7 @@ export const REQUEST_SCHEMAS: Schemas = {
 
   'finder:places': none,
   'finder:list': z
-    .object({ path: path.optional(), hidden: z.boolean().optional() })
+    .object({ path: path.optional(), hidden: z.boolean().optional(), offset: z.number().int().min(0).optional() })
     .optional()
     .transform((v) => v ?? {}),
   'finder:search': z.object({ path, query: z.string().trim().min(1).max(200) }),
@@ -389,6 +389,23 @@ export const REQUEST_SCHEMAS: Schemas = {
   'finder:trash': z.object({ paths: paths }),
   'finder:move': z.object({ paths: paths, dest: path }),
   'finder:copy': z.object({ paths: paths, dest: path }),
+  'finder:untrash': z.object({ items: z.array(z.object({ path, restore: path })).min(1).max(1000) }),
+  'finder:conflicts': z.object({ paths: paths, dest: path }),
+  'finder:transfer': z.object({
+    id,
+    paths: paths,
+    dest: path,
+    mode: z.enum(['copy', 'move']),
+    choices: z.record(z.string().max(255), z.enum(['replace', 'keep', 'skip'])).optional()
+  }),
+  'finder:cancel': z.object({ id }),
+  'finder:restore': z.object({ moves: z.array(z.object({ from: path, to: path })).min(1).max(1000) }),
+  'finder:info': z.object({ path }),
+  'finder:folderSize': z.object({ path, id }),
+  'finder:compress': z.object({ paths: paths, id }),
+  'finder:extract': z.object({ path, id }),
+  'finder:clipboardWrite': z.object({ paths: paths, cut: z.boolean() }),
+  'finder:clipboardRead': none,
   'finder:open': z.object({ path }),
   'finder:reveal': z.object({ path }),
 

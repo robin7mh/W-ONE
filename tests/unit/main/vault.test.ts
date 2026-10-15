@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   failWrite: null as string | null
 }))
 vi.mock('electron', () => ({
+  clipboard: {},
+  ClipboardItem: class {},
   dialog: { showOpenDialog: h.dialog },
   shell: {
     trashItem: async (p: string) => (await import('node:fs/promises')).rm(p, { recursive: true }),
