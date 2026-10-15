@@ -6,6 +6,8 @@ import { setEditorActions, type EditorActionHost } from '../actions'
 import { attachGutter } from '../monaco/gutter'
 import { setupLsp } from '../monaco/lsp'
 import { attachBreakpoints } from '../monaco/breakpoints'
+import { attachConflicts } from '../monaco/conflicts'
+import { attachBlame } from '../monaco/blame'
 import { setupUserPrefs } from '../monaco/userPrefs'
 import { monacoOptions, settingsFor, useEditorPrefs } from '../prefs'
 import { addEditorActions, formatModel, replaceText, setupExtras } from '../monaco/extras'
@@ -160,6 +162,18 @@ function registerBufferHost(): void {
       buffers.delete(id)
       viewers.forEach((v) => v.shown() === id && v.moved(next.id, model))
       b.model.dispose()
+    },
+    // Only called for a buffer that exists (editBuffer asks for its snapshot first).
+    edit: (id, edits) => {
+      const b = buffers.get(id)!
+      // Its own undo step: ⌘Z takes back the replace, nothing else.
+      b.model.pushStackElement()
+      b.model.pushEditOperations(
+        [],
+        edits.map((e) => ({ range: new monaco.Range(e.line, e.column + 1, e.line, e.column + 1 + e.length), text: e.text })),
+        () => null
+      )
+      b.model.pushStackElement()
     }
   })
 }
@@ -223,6 +237,8 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     const shownTab = () => useEditor.getState().tabs.find((t) => t.id === shown.current)
     const detachGutter = attachGutter(editor, shownTab)
     const detachBreakpoints = attachBreakpoints(editor, shownTab)
+    const detachConflicts = attachConflicts(editor, shownTab)
+    const detachBlame = attachBlame(editor, shownTab)
     const detachVim = attachVim(editor, vimRef.current!)
     const actionHost: EditorActionHost = {
       // Actions added to this editor carry an instance prefix ("vs.editor.ICodeEditor:4:mindeck.…"): the palette knows them by their own id.
@@ -282,6 +298,8 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
       actions.forEach((a) => a.dispose())
       detachGutter()
       detachBreakpoints()
+      detachConflicts()
+      detachBlame()
       detachVim()
       unsubscribePrefs()
       theme.disconnect()
@@ -328,7 +346,9 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     if (!reveal || reveal.id !== shown.current) return
     const editor = editorRef.current!
     editor.revealLineInCenter(reveal.line)
-    editor.setPosition({ lineNumber: reveal.line, column: 1 })
+    const { match } = reveal
+    if (!match) editor.setPosition({ lineNumber: reveal.line, column: 1 })
+    else editor.setSelection(new monaco.Range(reveal.line, match.column + 1, reveal.line, match.column + 1 + match.length))
     editor.focus()
     useEditor.setState({ reveal: undefined })
   }, [reveal, tab?.id, text === undefined])

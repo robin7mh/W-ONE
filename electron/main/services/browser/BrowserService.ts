@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcEvents } from '@shared/ipc/contract'
@@ -23,6 +22,7 @@ import {
   type ViewBounds
 } from '@shared/types/browser'
 import type { AppSettings } from '@shared/types/settings'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { AdblockService, type RequestVerdict } from './adblock'
 import { drmFailure, needsDrm } from './drm'
@@ -113,14 +113,6 @@ const noop = () => {}
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
-}
-
-async function readJson<T>(file: string): Promise<T | undefined> {
-  try {
-    return JSON.parse(await readFile(file, 'utf8')) as T
-  } catch {
-    return undefined
-  }
 }
 
 /** The next zoom step in `direction` (or 100 %). */
@@ -1111,7 +1103,7 @@ export class BrowserService {
       ...(t.openedBy ? { openedBy: t.openedBy } : {}),
       ...(t.profile ? { profile: t.profile } : {})
     }))
-    await writeAtomic(this.file('session.json'), JSON.stringify({ version: 1, activeId: this.activeId, tabs })).catch((err) =>
+    await writeAtomic(this.file('session.json'), JSON.stringify({ version: 1, activeId: this.activeId, tabs }), 0o600).catch((err) =>
       console.error('[browser] saving the session failed', err)
     )
   }
