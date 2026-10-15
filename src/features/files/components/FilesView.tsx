@@ -142,7 +142,8 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
     return () => clearTimeout(timer)
   }, [s.notice])
 
-  const projectOf = (path: string) => projects.find((p) => path === p.path || path.startsWith(`${p.path}/`))
+  // Windows paths come with backslashes.
+  const projectOf = (path: string) => projects.find((p) => path === p.path || path.startsWith(`${p.path}/`) || path.startsWith(`${p.path}\\`))
   const editable = (e: FinderEntry) => e.kind === 'file' && fileType(e.name) === 'text' && !!projectOf(e.path)
 
   const openInEditor = async (path: string) => {

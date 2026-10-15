@@ -458,11 +458,25 @@ describe('FilesView', () => {
       ['code', 'C:\\Users\\me\\code']
     ])
     act(() => useFiles.setState({ listing: { path: 'D:\\data', parent: 'D:\\', entries: [], total: 0, offset: 0 } }))
+    // the drive's root (D:\\), not the bare drive — that would be its current folder
     expect(within(crumbs).getAllByRole('button').map((b) => [b.textContent, b.title])).toEqual([
-      ['\\', '\\'],
-      ['D:', 'D:'],
+      ['D:', 'D:\\'],
       ['data', 'D:\\data']
     ])
+  })
+
+  it('opens a project’s files in the Editor on Windows too (backslashes)', async () => {
+    const selectProject = vi.fn(async () => {})
+    const open = vi.fn(async () => {})
+    useEditor.setState({ selectProject, open })
+    setup({ 'projects:list': () => [{ id: 'w', name: 'shop', path: 'C:\\shop', addedAt: '', lastSeenAt: '' }] })
+    await settle()
+    const file = entry('C:\\shop\\src\\App.tsx', { name: 'App.tsx' })
+    act(() => useFiles.setState({ listing: { path: 'C:\\shop\\src', parent: 'C:\\shop', entries: [file], total: 1, offset: 0 } }))
+    fireEvent.doubleClick(row('App.tsx'))
+    await settle()
+    expect(selectProject).toHaveBeenCalledWith('w')
+    expect(open).toHaveBeenCalledWith('src/App.tsx')
   })
 
   it('explains folders it may not read, and errors it got; notices fade', async () => {

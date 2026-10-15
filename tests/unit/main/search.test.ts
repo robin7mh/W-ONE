@@ -29,7 +29,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...real, readdir: wrap(real.readdir as never), stat: wrap(real.stat as never) }
 })
 
-import { findRipgrep, ripgrepArgs, SEARCH_LIMITS, SearchService } from '../../../electron/main/services/search/SearchService'
+import { findRipgrep, rgPath, ripgrepArgs, SEARCH_LIMITS, SearchService } from '../../../electron/main/services/search/SearchService'
 
 const q = (pattern: string, more: Partial<TextSearchQuery> = {}): TextSearchQuery => ({ pattern, ...more })
 
@@ -135,6 +135,14 @@ describe('finding ripgrep', () => {
     } finally {
       process.env.PATH = path
     }
+  })
+
+  it('its paths, relative and with / — also from the Windows build (.\\src\\a.ts)', () => {
+    expect(rgPath('./src/a.ts', false)).toBe('src/a.ts')
+    expect(rgPath('.\\src\\a.ts', true)).toBe('src/a.ts')
+    expect(rgPath('src\\a.ts', true)).toBe('src/a.ts')
+    expect(rgPath('odd\\name.ts', false)).toBe('odd\\name.ts') // a backslash is part of a POSIX file name
+    expect(rgPath('./a.ts')).toBe('a.ts') // this platform's default
   })
 
   it('its command line', () => {

@@ -67,7 +67,15 @@ describe('files helpers (more)', () => {
     expect(formatMode(0o600)).toBe('rw-------')
     expect(pathChain('/home/a/b', '/home').map((c) => c.name)).toEqual(['~', 'a', 'b'])
     expect(pathChain('/etc/x', '/home').map((c) => c.path)).toEqual(['/', '/etc', '/etc/x'])
-    expect(pathChain('C:\\Users\\me').map((c) => c.path)).toEqual(['\\', 'C:', 'C:\\Users', 'C:\\Users\\me'])
+    // Windows: the drive's root, never the bare drive (its current folder)
+    expect(pathChain('C:\\Users\\me')).toEqual([
+      { name: 'C:', path: 'C:\\' },
+      { name: 'Users', path: 'C:\\Users' },
+      { name: 'me', path: 'C:\\Users\\me' }
+    ])
+    expect(pathChain('D:\\').map((c) => c.path)).toEqual(['D:\\'])
+    expect(pathChain('C:\\Users\\me\\code', 'C:\\Users\\me').map((c) => c.name)).toEqual(['~', 'code'])
+    expect(pathChain('rel/x').map((c) => c.path)).toEqual(['/', 'rel', 'rel/x'])
     expect(['a.zip', 'b.TAR.GZ', 'c.tgz', 'd.tar', 'e.rar'].map(isArchive)).toEqual([true, true, true, true, false])
     expect(de.files.folderSize('5 KB', 1, false)).toBe('5 KB · 1 Datei')
     expect(de.files.folderSize('5 KB', 2, true)).toBe('mindestens 5 KB · 2 Dateien')
