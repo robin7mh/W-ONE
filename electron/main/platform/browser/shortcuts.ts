@@ -46,6 +46,10 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     // Mindeck's command palette — also while a page has the keyboard (⌘K stays the page's own).
     if (key === 'p') return 'palette'
     if (key === 'b') return 'bookmarksBar'
+    if (key === 'g') return 'newGroup'
+    if (key === 'd') return 'split'
+    // Edge's key for vertical tabs: ⌘⇧, — whatever ⇧ makes of the comma key on this layout.
+    if (input.code === 'Comma' || key === ',' || key === '<') return 'verticalTabs'
     if (!mac && key === 'o') return 'bookmarkManager'
     if (!mac && key === 'i') return 'devtools'
     if (key === '+' || key === '=') return 'zoomIn'

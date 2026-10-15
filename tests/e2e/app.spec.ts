@@ -279,6 +279,99 @@ test('browser: a local page in a real Chromium tab — back and forth, kept acro
   }
 })
 
+test('browser: two local pages side by side in a split view, a tab group, vertical tabs — kept in the session', async ({ app, page, home }) => {
+  const site = await localSite()
+  try {
+    await page.getByTitle('Browser', { exact: true }).click()
+    const address = page.getByRole('textbox', { name: 'Address or search' })
+    await address.fill(`localhost:${site.port}`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Mindeck E2E/ })).toBeVisible()
+
+    // split with a new tab: two panes, the new one's address bar ready to type
+    await page.getByRole('button', { name: 'Split with a new tab (⌘⇧D)' }).click()
+    await expect(page.getByTestId('browser-pane')).toHaveCount(2)
+    await expect(address).toBeFocused()
+    await address.fill(`localhost:${site.port}/second`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Second page/ })).toBeVisible()
+    const browser = async () => {
+      const res = (await page.evaluate(() => window.mindeck!.invoke('browser:state'))) as IpcResult<BrowserState>
+      if (!res.ok) throw new Error(res.error.message)
+      const title = (id: string) => res.data.tabs.find((t) => t.id === id)?.title
+      return { ...res.data, title, splitTitles: res.data.splits.map((s) => s.tabs.map(title)) }
+    }
+    await expect.poll(async () => (await browser()).splitTitles).toEqual([['Mindeck E2E', 'Second page']])
+    // The browser's keys are taken in the main process (before-input-event), which keys typed by
+    // Playwright (CDP) skip: these go in as real input events of the window.
+    const shortcut = (keyCode: string) =>
+      app.evaluate(({ BrowserWindow }, keyCode) => {
+        const wc = BrowserWindow.getAllWindows()[0].webContents
+        wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers: [process.platform === 'darwin' ? 'meta' : 'control', 'shift'] })
+        wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers: [process.platform === 'darwin' ? 'meta' : 'control', 'shift'] })
+      }, keyCode)
+    // the omnibox shows the focused side
+    await expect(address).toHaveValue(`localhost:${site.port}/second`)
+
+    // both pages are real web views on screen, side by side in their panes
+    const views = () =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]
+          .contentView.children.filter((v) => v.getVisible())
+          .map((v) => v.getBounds())
+          .sort((a, b) => a.x - b.x)
+      )
+    await expect
+      .poll(async () => {
+        const v = await views()
+        return v.length === 2 && v[0].y === v[1].y && v[0].height === v[1].height && v[0].x + v[0].width < v[1].x
+      })
+      .toBe(true)
+    // swapped, then stacked: one above the other
+    await page.getByRole('button', { name: 'Swap sides' }).click()
+    await expect.poll(async () => (await browser()).splitTitles).toEqual([['Second page', 'Mindeck E2E']])
+    await page.getByRole('button', { name: 'Stack top and bottom' }).click()
+    await expect
+      .poll(async () => {
+        const v = (await views()).sort((a, b) => a.y - b.y)
+        return v.length === 2 && v[0].x === v[1].x && v[0].y + v[0].height < v[1].y
+      })
+      .toBe(true)
+
+    // the focused tab into a new group (⌘⇧G / Ctrl+Shift+G), named in the editor
+    await shortcut('G')
+    const editor = page.getByRole('dialog', { name: 'Edit group' })
+    await expect(editor).toBeVisible()
+    await editor.getByRole('textbox', { name: 'Group name' }).fill('Research')
+    await editor.getByRole('textbox', { name: 'Group name' }).press('Enter')
+    await expect(editor).toBeHidden()
+    const chip = page.getByRole('button', { name: 'Fold Research' })
+    await expect(chip).toBeVisible()
+    await expect.poll(async () => (await browser()).groups.map((g) => g.title)).toEqual(['Research'])
+    await expect.poll(async () => {
+      const b = await browser()
+      return b.tabs.filter((t) => t.groupId === b.groups[0]?.id).map((t) => t.title)
+    }).toEqual(['Second page'])
+
+    // vertical tabs (⌘⇧, / Ctrl+Shift+,): the sidebar instead of the strip — the group and both tabs in it
+    await page.getByRole('button', { name: 'Close split view' }).click()
+    await expect(page.getByTestId('browser-pane')).toHaveCount(0)
+    await shortcut(',')
+    const sidebar = page.getByRole('complementary', { name: 'Tabs' })
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Fold Research' })).toBeVisible()
+    await expect(sidebar.getByRole('tab')).toHaveCount(2)
+
+    // the session file keeps the group (written shortly after a change)
+    const session = join(home, 'data', 'browser', 'session.json')
+    await expect
+      .poll(() => (existsSync(session) ? (JSON.parse(readFileSync(session, 'utf8')) as { groups?: { title: string }[] }).groups?.map((g) => g.title) : null))
+      .toEqual(['Research'])
+  } finally {
+    await site.close()
+  }
+})
+
 test('a dev server started in the terminal opens in the browser with one click', async ({ page, home }) => {
   const script = join(home, 'dev-server.mjs')
   writeFileSync(

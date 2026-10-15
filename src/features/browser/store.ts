@@ -1,11 +1,20 @@
 import { create } from 'zustand'
 import { errorMessage, ipc, isDesktop, onEvent } from '@shared/ipc/client'
 import type { IpcChannel, IpcChannels } from '@shared/ipc/contract'
-import { DEFAULT_BROWSER_SETTINGS, type BrowserCommand, type BrowserFind, type BrowserSettings, type BrowserState, type BrowserTab, type WorkspaceKey } from '@shared/types/browser'
+import {
+  DEFAULT_BROWSER_SETTINGS,
+  type BrowserCommand,
+  type BrowserFind,
+  type BrowserSettings,
+  type BrowserSplit,
+  type BrowserState,
+  type BrowserTab,
+  type WorkspaceKey
+} from '@shared/types/browser'
 import type { BookmarkFolder } from '@shared/types/browserData'
 import { findByUrl } from './library'
 
-const EMPTY: BrowserState = { available: false, tabs: [], closed: 0, downloads: [], permissions: [], devServers: [] }
+const EMPTY: BrowserState = { available: false, tabs: [], closed: 0, downloads: [], permissions: [], devServers: [], groups: [], splits: [] }
 const NO_BOOKMARKS: BookmarkFolder[] = [
   { id: 'bar', title: '', children: [], added: 0 },
   { id: 'other', title: '', children: [], added: 0 }
@@ -45,6 +54,10 @@ interface BrowserStore {
   /** The bookmark (or folder) in the editor; `added`: ⌘D just saved it. */
   editing?: { id: string; added?: boolean }
   importOpen: boolean
+  /** The tab being dragged (the page area offers its edges for a split view). */
+  dragging?: string
+  /** The group whose name and color are being edited — at the point it was asked from, if any. */
+  groupEditor?: { id: string; at?: { x: number; y: number } }
   error?: string
   /** Push events → this store; `handlers` take the browser's requests to the rest of the app. */
   connect(next: BrowserHandlers): () => void
@@ -72,15 +85,20 @@ interface BrowserStore {
   edit(id?: string): void
   setTabSearch(open: boolean): void
   setImport(open: boolean): void
+  setDragging(id?: string): void
+  /** Open the group editor (none closes it). */
+  editGroup(id?: string, at?: { x: number; y: number }): void
 }
 
 export const useBrowser = create<BrowserStore>((set, get) => {
-  const command = (c: BrowserCommand, key?: WorkspaceKey) => {
+  const command = (c: BrowserCommand, opts: { key?: WorkspaceKey; id?: string } = {}) => {
     if (c === 'focusOmnibox') set((s) => ({ focusTick: s.focusTick + 1 }))
+    else if (c === 'verticalTabs') void get().configure({ verticalTabs: !get().settings.verticalTabs })
+    else if (c === 'editGroup') set({ groupEditor: opts.id ? { id: opts.id } : undefined })
     else if (c === 'find') set({ findOpen: true })
     else if (c === 'settings') handlers?.settings()
     else if (c === 'focused') handlers?.focused?.()
-    else if (c === 'workspaceKey') handlers?.workspaceKey?.(key!)
+    else if (c === 'workspaceKey') handlers?.workspaceKey?.(opts.key!)
     else if (c === 'tabSearch') set({ tabSearchOpen: true })
     else if (c === 'bookmark') void get().bookmarkActive()
     else if (c === 'bookmarksBar') void get().configure({ bookmarksBar: !get().settings.bookmarksBar })
@@ -109,7 +127,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
       const offs = [
         onEvent('browser:state', (state) => set({ state })),
         onEvent('browser:find', (find) => set({ find })),
-        onEvent('browser:command', ({ command: c, key }) => command(c, key)),
+        onEvent('browser:command', ({ command: c, key, id }) => command(c, { key, id })),
         onEvent('browser:reveal', () => handlers?.reveal()),
         onEvent('browser:bookmarks', (bookmarks) => set({ bookmarks }))
       ]
@@ -184,7 +202,9 @@ export const useBrowser = create<BrowserStore>((set, get) => {
 
     edit: (id) => set({ editing: id ? { id } : undefined }),
     setTabSearch: (open) => set({ tabSearchOpen: open }),
-    setImport: (open) => set({ importOpen: open })
+    setImport: (open) => set({ importOpen: open }),
+    setDragging: (id) => set({ dragging: id }),
+    editGroup: (id, at) => set({ groupEditor: id ? { id, ...(at ? { at } : {}) } : undefined })
   }
 })
 
@@ -195,4 +215,14 @@ export function activeTab(state: BrowserState): BrowserTab | undefined {
 /** The tab on screen. */
 export function useActiveTab(): BrowserTab | undefined {
   return useBrowser((s) => activeTab(s.state))
+}
+
+/** The split view a tab is in. */
+export function splitOf(state: BrowserState, tabId: string | undefined): BrowserSplit | undefined {
+  return state.splits.find((s) => s.tabs.includes(tabId as string))
+}
+
+/** The split view on screen: the active tab's. */
+export function useActiveSplit(): BrowserSplit | undefined {
+  return useBrowser((s) => splitOf(s.state, activeTab(s.state)?.id))
 }
