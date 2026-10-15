@@ -43,6 +43,9 @@ function fakeCloud(clock: { now: number }) {
     lease: true as boolean | 'forged' | 'broken',
     /** A lifetime account's offline certificate (newer clouds); undefined = an older cloud without the field. */
     cert: undefined as undefined | 'good' | 'forged' | 'temporary',
+    /** The id the cloud gave the device (`dev` of leases and certificates); `certDev` overrides it for the certificate. */
+    dev: undefined as string | undefined,
+    certDev: undefined as string | undefined,
     fail: {} as Record<string, { status: number; body?: unknown }>,
     ai: {
       available: true,
@@ -71,9 +74,9 @@ function fakeCloud(clock: { now: number }) {
       case '/v1/license/heartbeat': {
         if (s.lease === 'broken') return json({})
         const iat = Math.floor(clock.now / 1000)
-        const claims = { sub: 'u1', email: 'robin@mindeck.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, iat, exp: iat + s.ttl }
+        const claims = { sub: 'u1', email: 'robin@mindeck.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, ...(s.dev ? { dev: s.dev } : {}), iat, exp: iat + s.ttl }
         const token = s.lease === 'forged' ? signToken(JSON.stringify(claims), keys().privateKey) : signToken(JSON.stringify(claims), k.privateKey)
-        const perpetual = { ...claims, perpetual: s.cert !== 'temporary', exp: iat + 100 * 365 * 86_400 }
+        const perpetual = { ...claims, ...(s.certDev ? { dev: s.certDev } : {}), perpetual: s.cert !== 'temporary', exp: iat + 100 * 365 * 86_400 }
         const certSigner = s.cert === 'forged' ? keys().privateKey : k.privateKey
         return json({
           license: license(),
@@ -470,6 +473,49 @@ describe('CloudService', () => {
     const again = await setup({ dir: t.dir, secrets: t.secrets, offline: true })
     again.advance(3 * 86_400 * 365)
     expect(again.svc.status()).toMatchObject({ state: 'active', allowed: true })
+  })
+
+  it('lifetime: a certificate holds on the device it was issued to only', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const t = await setup()
+    t.cloud.s.plan = 'lifetime'
+    t.cloud.s.cert = 'good'
+    t.cloud.s.dev = 'dev-row-1' // the cloud's id for this install
+    await t.signIn()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeDefined()
+    expect(JSON.parse(await readFile(join(t.dir, 'cloud.json'), 'utf8')).deviceId).toBe('dev-row-1')
+    // Bound by the install id works too.
+    const installId = JSON.parse(await readFile(join(t.dir, 'cloud.json'), 'utf8')).installId as string
+    t.cloud.s.certDev = installId
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeDefined()
+    // Another device's certificate: not kept.
+    await t.secrets.set(OFFLINE_SECRET, null)
+    t.cloud.s.certDev = 'someone-elses-device'
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('offline certificate'))
+    // …nor used when it is copied into this installation's store.
+    t.cloud.s.certDev = undefined
+    t.cloud.s.cert = 'good'
+    await t.svc.refresh()
+    const genuine = (await t.secrets.get(OFFLINE_SECRET))!
+    t.svc.dispose()
+    const saved = JSON.parse(await readFile(join(t.dir, 'cloud.json'), 'utf8')) as Record<string, unknown>
+    const other = await tempDir()
+    const store = new SecretStore(join(other, 'secrets.json'))
+    await store.set(OFFLINE_SECRET, genuine)
+    await store.set(SESSION_SECRET, 'ws_secret')
+    await writeFile(join(other, 'cloud.json'), JSON.stringify({ ...saved, installId: 'another-install', deviceId: undefined, entitlement: null }))
+    const copied = await setup({ dir: other, secrets: store, offline: true })
+    copied.advance(3 * 86_400)
+    expect(copied.svc.status().state).toBe('offline')
+    // The installation it was issued to runs on it — also when saved before the device id was (its last lease names it).
+    await writeFile(join(t.dir, 'cloud.json'), JSON.stringify({ ...saved, deviceId: undefined }))
+    const original = await setup({ dir: t.dir, secrets: t.secrets, offline: true })
+    original.advance(3 * 86_400)
+    expect(original.svc.status().state).toBe('active')
+    warn.mockRestore()
   })
 
   it('lifetime: a refund (the cloud says inactive) drops the certificate; an older cloud without it changes nothing', async () => {
