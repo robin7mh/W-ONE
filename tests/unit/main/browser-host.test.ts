@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { BrowserHostEvents, MenuEntry } from '../../../electron/main/services/browser/types'
+import type { SessionTarget } from '../../../electron/main/platform/browser/session'
 
 // --- electron double -------------------------------------------------------------
 type Fn = (...a: never[]) => unknown
@@ -125,7 +126,7 @@ function fakeSession() {
     setDisplayMediaRequestHandler: vi.fn(),
     setCertificateVerifyProc: vi.fn(),
     on: vi.fn(),
-    webRequest: { onBeforeSendHeaders: vi.fn() },
+    webRequest: { onBeforeRequest: vi.fn(), onBeforeSendHeaders: vi.fn() },
     registerPreloadScript: vi.fn(),
     fetch: (...a: unknown[]) => h.fetch(...a)
   }
@@ -172,6 +173,9 @@ function fakeWindow() {
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     webContents: new FakeContents(),
     isDestroyed: () => win.destroyed,
+    on: vi.fn(),
+    removeListener: vi.fn(),
+    getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
     fullScreen: false,
     isFullScreen: () => win.fullScreen,
     setFullScreen: vi.fn((v: boolean) => (win.fullScreen = v))
@@ -200,7 +204,12 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     download: vi.fn(),
     downloadUpdated: vi.fn(),
     locale: vi.fn(() => 'en' as const),
-    searchLabel: vi.fn(() => 'Google')
+    searchLabel: vi.fn(() => 'Google'),
+    downloadPrefs: vi.fn(() => ({ ask: false, dir: '' })),
+    request: vi.fn(() => ({})),
+    cosmetics: vi.fn(() => ''),
+    media: vi.fn(),
+    login: vi.fn()
   }
 }
 
@@ -688,6 +697,7 @@ describe('the browser profile (session)', () => {
       headers: undefined as undefined | ((details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void),
       headerFilter: undefined as unknown,
       webRequest: {
+        onBeforeRequest: vi.fn(),
         onBeforeSendHeaders: (filter: unknown, fn: (details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void) => ((p.headerFilter = filter), (p.headers = fn))
       },
       preloads: [] as unknown[],
@@ -750,7 +760,7 @@ describe('the browser profile (session)', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     s.configureBrowserSession(p as never, () => current)
     expect(p.sets).toBe(1)
@@ -821,7 +831,7 @@ describe('the browser profile (session)', () => {
   it('answers Chromium’s quick checks from what was remembered', () => {
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     expect(p.check!(null, 'fullscreen', 'https://a.dev', {})).toBe(true)
     expect(p.check!(null, 'usb', 'https://a.dev', {})).toBe(false)
@@ -836,7 +846,7 @@ describe('the browser profile (session)', () => {
   it('shares the screen with the system picker, or the whole screen after asking', async () => {
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     expect(p.displayOpts).toEqual({ useSystemPicker: true })
     const share = async (allow: boolean) => {
@@ -866,7 +876,7 @@ describe('the browser profile (session)', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     const item = () => {
       const handlers: Record<string, (...a: unknown[]) => void> = {}
@@ -875,6 +885,7 @@ describe('the browser profile (session)', () => {
         received: 0,
         getFilename: () => 'report.pdf',
         setSavePath: vi.fn(),
+        getSavePath: () => '/Downloads/report.pdf',
         getURL: () => 'https://a.dev/report.pdf',
         getTotalBytes: () => 100,
         getReceivedBytes() {

@@ -11,6 +11,7 @@ import { DEVICE_ROLES } from '@shared/types/server'
 import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
 import { TERMINAL_CURSORS, TERMINAL_LIMITS } from '@shared/types/terminal'
+import { EXTENSION_SOURCES } from '@shared/types/browserExtensions'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -460,9 +461,25 @@ export const REQUEST_SCHEMAS: Schemas = {
     componentStack: text(16_000).optional()
   }),
 
+  'browser:extensions': none,
+  'browser:extensions:install': z.discriminatedUnion('source', [
+    z.object({ source: z.literal(EXTENSION_SOURCES[0]), input: z.string().trim().min(1).max(2048) }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[1]), path: path.optional() }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[2]), path })
+  ]),
+  'browser:extensions:profiles': none,
+  'browser:extensions:update': z.object({ id, enabled: z.boolean() }),
+  'browser:extensions:remove': z.object({ id }),
+  'browser:extensions:checkUpdates': none,
+  'browser:extensions:popup': z.object({ id, anchor: viewBounds }),
+  'browser:auth': z.object({ id, username: text(1024).optional(), password: text(4096).optional() }),
+  'browser:proceed': z.object({ id }),
+  'browser:dismissDrm': z.object({ id }),
+  'browser:pickDownloadDir': none,
+
   'browser:state': none,
   'browser:open': z
-    .object({ url: text(8192).optional(), background: z.boolean().optional() })
+    .object({ url: text(8192).optional(), background: z.boolean().optional(), private: z.boolean().optional() })
     .optional()
     .transform((v) => v ?? {}),
   'browser:close': z.object({ id }),
@@ -476,7 +493,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:zoom': z.object({ id, zoom: z.enum(['in', 'out', 'reset']) }),
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
-  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff']) }),
+  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff', 'shield']) }),
   'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
@@ -492,6 +509,11 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:configure': z.object({
     searchEngine: z.enum(SEARCH_ENGINES).optional(),
     openLinksInMindeck: z.boolean().optional(),
+    adblock: z.boolean().optional(),
+    malwareProtection: z.boolean().optional(),
+    agentsUseLogins: z.boolean().optional(),
+    askDownloadLocation: z.boolean().optional(),
+    downloadDir: text(4096).optional(),
     searchSuggestions: z.boolean().optional(),
     bookmarksBar: z.boolean().optional()
   }),

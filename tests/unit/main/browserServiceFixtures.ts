@@ -30,7 +30,11 @@ export function fakeHost() {
     focusUi: vi.fn(),
     setTheme: vi.fn(),
     automation: vi.fn(() => automation as unknown as AutomationTarget),
-    dispose: vi.fn()
+    dispose: vi.fn(),
+    clearPrivate: vi.fn(),
+    loadExtension: vi.fn(async (path: string) => ({ id: `id:${path}` })),
+    unloadExtension: vi.fn(),
+    openPopup: vi.fn()
   } satisfies BrowserHost
 }
 

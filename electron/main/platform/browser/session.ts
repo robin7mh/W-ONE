@@ -16,6 +16,8 @@ export interface SessionTarget {
   events: BrowserHostEvents
   /** The tab a page belongs to (undefined: a popup window). */
   tabOf(contents: WebContents | null | undefined): string | undefined
+  /** "Save … As" was picked for this address: ask where (once). */
+  takeSaveAs(url: string): boolean
 }
 
 /**
@@ -89,10 +91,11 @@ async function osAllows(kind: BrowserPermissionKind): Promise<boolean> {
 const configured = new WeakSet<Session>()
 
 /**
- * Sets the browser profile up once per run: Chrome's user agent, a question
+ * Sets a browser profile up once per run: Chrome's user agent, a question
  * to the user for everything sensitive (camera, notifications, screen,
- * another app), downloads into ~/Downloads, and trust for local dev
- * certificates. Every answer comes from whichever window's host is current.
+ * another app), downloads (into the downloads folder, or asked), ad and
+ * malware blocking, and trust for local dev certificates. Every answer comes
+ * from whichever window's host is current.
  */
 export function configureBrowserSession(ses: Session, current: () => SessionTarget | null): void {
   if (configured.has(ses)) return
@@ -146,17 +149,39 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
 
   ses.on('will-download', (_event, item) => track(item, current))
 
+  // Ads, trackers and malware: every request asks the blocker (pages and their frames; a popup counts for no tab).
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    const target = current()
+    if (!target) return callback({})
+    const { cancel, redirectURL } = target.events.request(target.tabOf(details.webContents), {
+      url: details.url,
+      type: details.resourceType,
+      referrer: details.referrer
+    })
+    callback(redirectURL ? { redirectURL } : { cancel: !!cancel })
+  })
+
   // Local dev servers often use self-signed certificates (mkcert, Vite's basic-ssl): trust them on this machine only.
   ses.setCertificateVerifyProc((request, callback) => callback(isLoopbackHost(request.hostname) ? 0 : -3))
 }
 
-/** A download: saved under a free name in ~/Downloads, its progress reported (at most ~4× a second). */
+/**
+ * A download: saved under a free name in the downloads folder — or, when the
+ * user wants to be asked (or picked "Save … As"), where the save dialog says.
+ * Its progress is reported at most ~4× a second.
+ */
 function track(item: DownloadItem, current: () => SessionTarget | null): void {
-  const path = freeDownloadPath(app.getPath('downloads'), item.getFilename())
-  item.setSavePath(path)
+  const target = current()
+  const prefs = target?.events.downloadPrefs() ?? { ask: false, dir: '' }
+  const dir = prefs.dir && existsSync(prefs.dir) ? prefs.dir : app.getPath('downloads')
+  const ask = target?.takeSaveAs(item.getURL()) || prefs.ask
+  let path = ''
+  // Without a save path Chromium shows its save dialog (and cancels the download when the user does).
+  if (ask) item.setSaveDialogOptions({ defaultPath: join(dir, basename(item.getFilename()) || 'download') })
+  else item.setSavePath((path = freeDownloadPath(dir, item.getFilename())))
   const base: BrowserDownload = {
     id: randomUUID(),
-    filename: basename(path),
+    filename: basename(path || item.getFilename()),
     path,
     url: item.getURL(),
     state: 'progressing',
@@ -164,16 +189,22 @@ function track(item: DownloadItem, current: () => SessionTarget | null): void {
     total: item.getTotalBytes(),
     startedAt: new Date().toISOString()
   }
-  current()?.events.download(base, { cancel: () => item.cancel() })
+  target?.events.download(base, { cancel: () => item.cancel() })
+  // Where it went: known once the save dialog closed.
+  const where = () => {
+    const saved = item.getSavePath()
+    return saved ? { path: saved, filename: basename(saved) } : {}
+  }
   let last = 0
   item.on('updated', (_event, state) => {
     const now = Date.now()
     if (state === 'progressing' && now - last < 250) return
     last = now
-    current()?.events.downloadUpdated({ ...base, state, received: item.getReceivedBytes(), total: item.getTotalBytes() })
+    current()?.events.downloadUpdated({ ...base, ...where(), state, received: item.getReceivedBytes(), total: item.getTotalBytes() })
   })
   item.once('done', (_event, state) => {
-    current()?.events.downloadUpdated({ ...base, state, received: item.getReceivedBytes(), total: item.getTotalBytes() })
-    if (state === 'completed') quarantine(path)
+    const done = { ...base, ...where(), state, received: item.getReceivedBytes(), total: item.getTotalBytes() }
+    current()?.events.downloadUpdated(done)
+    if (state === 'completed') quarantine(done.path)
   })
 }

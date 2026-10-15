@@ -32,6 +32,7 @@ interface BrowserStore {
   /** Bumped to put the keyboard focus into the address bar. */
   focusTick: number
   downloadsOpen: boolean
+  extensionsOpen: boolean
   /** The bookmarks: the bar's folder, then Other bookmarks. */
   bookmarks: BookmarkFolder[]
   settings: BrowserSettings
@@ -48,14 +49,16 @@ interface BrowserStore {
   run<K extends IpcChannel>(channel: K, ...args: IpcChannels[K]['request'] extends void ? [] : [IpcChannels[K]['request']]): Promise<IpcChannels[K]['response'] | undefined>
   /** From anywhere in Mindeck: open `url` in a tab and bring the browser up. */
   show(url: string): Promise<void>
-  /** A new tab with the new-tab page, the address bar ready. */
-  newTab(): Promise<void>
+  /** A new tab with the new-tab page, the address bar ready (`private`: a private tab). */
+  newTab(opts?: { private?: boolean }): Promise<void>
   /** Load what was typed (an address or search words) in the tab on screen. */
   go(input: string): Promise<void>
   /** Share the tab on screen with agents and start a chat about it. */
   sendToAgent(): Promise<void>
   setFindOpen(open: boolean): void
   toggleDownloads(): void
+  /** The extension manager beside the page (it takes the downloads' place). */
+  toggleExtensions(): void
   clearError(): void
   /** Change browser settings (the bookmarks bar, suggestions, …). */
   configure(patch: Partial<BrowserSettings>): Promise<void>
@@ -88,6 +91,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     findOpen: false,
     focusTick: 0,
     downloadsOpen: false,
+    extensionsOpen: false,
     bookmarks: NO_BOOKMARKS,
     settings: DEFAULT_BROWSER_SETTINGS,
     tabSearchOpen: false,
@@ -129,8 +133,8 @@ export const useBrowser = create<BrowserStore>((set, get) => {
       if (tab) handlers?.reveal()
     },
 
-    newTab: async () => {
-      await get().run('browser:open', {})
+    newTab: async (opts = {}) => {
+      await get().run('browser:open', opts.private ? { private: true } : {})
       set((s) => ({ focusTick: s.focusTick + 1 }))
     },
 
@@ -154,6 +158,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     },
 
     toggleDownloads: () => set((s) => ({ downloadsOpen: !s.downloadsOpen })),
+    toggleExtensions: () => set((s) => ({ extensionsOpen: !s.extensionsOpen, downloadsOpen: false })),
     clearError: () => set({ error: undefined }),
 
     configure: async (patch) => {
@@ -163,7 +168,8 @@ export const useBrowser = create<BrowserStore>((set, get) => {
 
     bookmarkActive: async () => {
       const tab = activeTab(get().state)
-      if (!tab || !/^(https?|file):/i.test(tab.url)) return
+      // A private tab leaves no bookmarks behind.
+      if (!tab || tab.profile === 'private' || !/^(https?|file):/i.test(tab.url)) return
       const saved = findByUrl(get().bookmarks, tab.url)
       if (saved) return set({ editing: { id: saved.id } })
       const node = await get().run('browser:bookmarkAdd', { parentId: 'bar', title: tab.title || tab.url, url: tab.url })

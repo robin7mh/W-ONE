@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { AlertTriangle, ArrowLeft, ArrowRight, Bot, Download, Eye, EyeOff, Globe, MoreHorizontal, RotateCw, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Bot, Download, Eye, EyeOff, Globe, MoreHorizontal, Puzzle, RotateCw, X } from 'lucide-react'
 import { isDesktop } from '@shared/ipc/client'
 import { internalPage } from '@shared/types/browserData'
 import { cn } from '@/lib/cn'
@@ -16,6 +16,8 @@ import { BookmarkEditor } from './BookmarkEditor'
 import { ImportDialog } from './ImportDialog'
 import { RestoreBar } from './RestoreBar'
 import { TabSearch } from './TabSearch'
+import { ExtensionButtons, ExtensionsPanel } from './Extensions'
+import { DrmBar } from './Protection'
 
 const tool =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text-primary disabled:pointer-events-none disabled:opacity-35'
@@ -45,6 +47,7 @@ export function BrowserView({ active }: { active: boolean }) {
   const available = useBrowser((s) => s.state.available)
   const findOpen = useBrowser((s) => s.findOpen)
   const downloadsOpen = useBrowser((s) => s.downloadsOpen)
+  const extensionsOpen = useBrowser((s) => s.extensionsOpen)
   const downloading = useBrowser((s) => s.state.downloads.filter((d) => d.state === 'progressing').length)
   const error = useBrowser((s) => s.error)
   const importOpen = useBrowser((s) => s.importOpen)
@@ -103,7 +106,7 @@ export function BrowserView({ active }: { active: boolean }) {
           aria-label={tab?.shared ? t.browser.shared : t.browser.private}
           aria-pressed={!!tab?.shared}
           title={tab?.shared ? t.browser.shared : t.browser.private}
-          disabled={!page}
+          disabled={!page || tab?.profile === 'private'}
           onClick={() => void run('browser:update', { id, shared: !tab?.shared })}
           className={cn(tool, tab?.shared && 'text-purple hover:text-purple')}
         >
@@ -111,6 +114,17 @@ export function BrowserView({ active }: { active: boolean }) {
         </button>
         <button type="button" aria-label={t.browser.sendToAgent} title={t.browser.sendToAgent} disabled={!page} onClick={() => void useBrowser.getState().sendToAgent()} className={tool}>
           <Bot size={15} />
+        </button>
+        <ExtensionButtons />
+        <button
+          type="button"
+          aria-label={t.browserExtras.manageExtensions}
+          aria-pressed={extensionsOpen}
+          title={t.browserExtras.manageExtensions}
+          onClick={() => useBrowser.getState().toggleExtensions()}
+          className={cn(tool, extensionsOpen && 'bg-elevated text-cyan')}
+        >
+          <Puzzle size={15} />
         </button>
         <button
           type="button"
@@ -144,9 +158,11 @@ export function BrowserView({ active }: { active: boolean }) {
       <PermissionBar tabId={tab?.id} />
       {active && <ApprovalDock />}
       {tab && <AgentBar tab={tab} />}
+      {tab && <DrmBar tab={tab} />}
       <div className="flex min-h-0 flex-1">
         <Viewport active={active} />
         {downloadsOpen && <DownloadsPanel />}
+        {extensionsOpen && <ExtensionsPanel />}
       </div>
       <BookmarkEditor />
       <TabSearch />

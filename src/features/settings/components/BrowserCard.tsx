@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n'
 import { ImportDialog } from '@/features/browser/components/ImportDialog'
 import { useBrowser } from '@/features/browser/store'
 import { ENGINE_LABELS } from '@/features/browser/url'
+import { BrowserExtrasSettings } from './BrowserExtrasSettings'
 import { Toggle } from './Toggle'
 
 const action =
@@ -26,13 +27,11 @@ export function BrowserCard() {
 
   if (!settings) return null
   // The browser module shows the bookmarks bar from its own copy: keep both in step.
-  const configure = (patch: Partial<BrowserSettings>) =>
-    void ipc('browser:configure', patch)
-      .then((next) => {
-        setSettings(next)
-        useBrowser.setState({ settings: next })
-      })
-      .catch(() => {})
+  const apply = (next: BrowserSettings) => {
+    setSettings(next)
+    useBrowser.setState({ settings: next })
+  }
+  const configure = (patch: Partial<BrowserSettings>) => void ipc('browser:configure', patch).then(apply).catch(() => {})
 
   return (
     <Card icon={Globe} title={t.settings.browserCard}>
@@ -50,6 +49,7 @@ export function BrowserCard() {
         <Toggle label={t.settings.bookmarksBar} checked={settings.bookmarksBar} onChange={(v) => configure({ bookmarksBar: v })} />
         <Toggle label={t.settings.openLinks} hint={t.settings.openLinksHint} checked={settings.openLinksInMindeck} onChange={(v) => configure({ openLinksInMindeck: v })} />
       </div>
+      <BrowserExtrasSettings settings={settings} configure={configure} onChange={apply} />
       <button type="button" onClick={() => setImporting(true)} className={`${action} hover:border-cyan/50 hover:text-cyan`}>
         <Import size={12} /> {t.settings.importBrowser}
       </button>

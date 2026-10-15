@@ -1,5 +1,5 @@
 import { useState, type DragEvent } from 'react'
-import { Bot, Clock, Globe, Loader2, Plus, Star, Volume2, VolumeX, X } from 'lucide-react'
+import { Bot, Boxes, Clock, Globe, Loader2, Play, Plus, Star, VenetianMask, Volume2, VolumeX, X } from 'lucide-react'
 import type { BrowserTab } from '@shared/types/browser'
 import { internalPage } from '@shared/types/browserData'
 import { cn } from '@/lib/cn'
@@ -69,11 +69,15 @@ export function TabStrip() {
                 tab.pinned ? 'w-9 justify-center px-0' : 'w-[clamp(120px,14vw,220px)] pl-2.5 pr-1',
                 active ? 'border-hud/70 bg-surface text-text-primary' : 'border-transparent text-text-secondary hover:bg-elevated/40',
                 dropAt === tab.id && 'border-cyan/60',
-                agentic && 'shadow-[inset_0_2px_0_0_rgb(var(--accent-purple)/0.8)]'
+                agentic && 'shadow-[inset_0_2px_0_0_rgb(var(--accent-purple)/0.8)]',
+                tab.profile === 'private' && 'bg-purple/[0.08]'
               )}
             >
               <Favicon tab={tab} />
+              {tab.profile === 'private' && <VenetianMask size={12} className="shrink-0 text-purple" aria-label={t.browserExtras.privateTab} />}
+              {tab.profile === 'agents' && !agentic && <Boxes size={12} className="shrink-0 text-purple" aria-label={t.browserExtras.agentsContainer} />}
               {!tab.pinned && <span className="min-w-0 flex-1 truncate font-sans text-[12px]">{title}</span>}
+              {tab.playing && !tab.audible && !tab.muted && !tab.pinned && <Play size={11} className="shrink-0 text-text-muted" aria-label={t.browserExtras.playing} />}
               {agentic && !tab.pinned && <Bot size={12} className="shrink-0 text-purple" aria-label={t.browser.agentTab(tab.openedBy!)} />}
               {(tab.audible || tab.muted) && !tab.pinned && (
                 <button
