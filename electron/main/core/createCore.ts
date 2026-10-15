@@ -183,10 +183,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     emit: (channel, payload) => {
       hub.publish(channel, payload as never)
       if (channel === 'terminal:exit') return browser.devServers.exit((payload as TerminalExit).id)
+      if (channel !== 'terminal:data') return
       const { id, data } = payload as TerminalData
       browser.devServers.feed({ id, projectId: terminal.info(id)?.projectId }, data)
     },
-    resolveProject: (id) => projects.list().find((p) => p.id === id)
+    resolveProject: (id) => projects.list().find((p) => p.id === id),
+    settings,
+    dir: paths.dataDir
   })
 
   const fs = new FsService()

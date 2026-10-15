@@ -16,7 +16,15 @@ import type {
   SearchHit,
   VaultStatus
 } from '@shared/types/memory'
-import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
+import type {
+  TerminalAttach,
+  TerminalData,
+  TerminalExit,
+  TerminalInfo,
+  TerminalSettings,
+  TerminalShell,
+  TerminalSnapshot
+} from '@shared/types/terminal'
 import type { FileContent, FileEntry, FileStat } from '@shared/types/files'
 import type {
   LspCodeFix,
@@ -153,12 +161,21 @@ export interface IpcChannels {
   'memory:unlink': { request: { from: string; to: string }; response: NoteMeta }
 
   /** In a project, in `cwd` (an absolute folder, e.g. from Files), else in Home. */
-  'terminal:create': { request: { projectId?: string; cwd?: string; cols?: number; rows?: number }; response: TerminalInfo }
+  /** A shell in a project, a folder or Home — with a profile (`terminal:shells` or the user's), else the default one. */
+  'terminal:create': { request: { projectId?: string; cwd?: string; cols?: number; rows?: number; profileId?: string }; response: TerminalInfo }
   'terminal:list': { request: void; response: TerminalInfo[] }
   'terminal:attach': { request: { id: string }; response: TerminalAttach }
   'terminal:write': { request: { id: string; data: string }; response: void }
   'terminal:resize': { request: { id: string; cols: number; rows: number }; response: void }
   'terminal:kill': { request: { id: string }; response: void }
+  /** The shells installed on this machine (zsh, bash, fish, pwsh · cmd, WSL on Windows). */
+  'terminal:shells': { request: void; response: TerminalShell[] }
+  'terminal:settings': { request: void; response: TerminalSettings }
+  'terminal:configure': { request: Partial<TerminalSettings>; response: TerminalSettings }
+  /** The tabs, layout and recent output, saved for the next start. */
+  'terminal:persist': { request: TerminalSnapshot; response: void }
+  /** What `terminal:persist` saved last (null: nothing, or restoring is off). */
+  'terminal:restore': { request: void; response: TerminalSnapshot | null }
 
   'files:list': { request: { projectId: string; dir?: string }; response: FileEntry[] }
   'files:read': { request: { projectId: string; path: string }; response: FileContent }
@@ -482,6 +499,12 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'terminal:write': 'terminal',
   'terminal:resize': 'terminal',
   'terminal:kill': 'terminal',
+  'terminal:shells': 'terminal',
+  'terminal:settings': 'terminal',
+  // Profiles name programs to run: only the desktop sets them up.
+  'terminal:configure': 'desktop',
+  'terminal:persist': 'desktop',
+  'terminal:restore': 'desktop',
   'files:list': 'any',
   'files:read': 'any',
   'files:stat': 'any',
@@ -707,6 +730,8 @@ export interface IpcEvents {
   'memory:changed': MemoryChanged
   'terminal:data': TerminalData
   'terminal:exit': TerminalExit
+  /** A session's folder changed (the shell reported it): new folder, label and title. */
+  'terminal:info': TerminalInfo
   'ai:delta': AiDelta
   'ai:inlineDelta': InlineDelta
   'ai:message': AiMessageUpdate
@@ -745,6 +770,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'memory:changed',
   'terminal:data',
   'terminal:exit',
+  'terminal:info',
   'ai:delta',
   'ai:inlineDelta',
   'ai:message',
@@ -772,7 +798,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
-export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output', 'notebook:event']
+export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'terminal:info', 'debug:session', 'debug:output', 'notebook:event']
 
 /** Push events that never leave the desktop window (the browser's tabs are private pages). */
 export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal']

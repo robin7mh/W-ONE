@@ -6,6 +6,7 @@ import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
 import type { EditorSettings } from './migrate'
 import type { BrowserSettings } from './browser'
+import type { TerminalSettings } from './terminal'
 
 export interface AppSettings {
   /**
@@ -23,6 +24,8 @@ export interface AppSettings {
   editor?: EditorSettings
   /** The Mindeck browser: search engine, where links from Mindeck open. */
   browser?: Partial<BrowserSettings>
+  /** The Terminal: font, cursor, scrollback, profiles, restore and shell integration. */
+  terminal?: Partial<TerminalSettings>
   /** Settings Sync: the account copy's version this core last saved or loaded. */
   sync?: { version: number; syncedAt: string }
 }

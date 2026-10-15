@@ -21,6 +21,7 @@ import { MigrateCard } from './MigrateCard'
 import { EditorCard } from './EditorCard'
 import { AiCard } from './AiCard'
 import { BrowserCard } from './BrowserCard'
+import { TerminalCard } from './TerminalCard'
 import { Toggle } from './Toggle'
 
 const input =
@@ -318,6 +319,7 @@ export function SettingsView() {
         <AgentsCard />
         <BrowserCard />
         <EditorCard />
+        <TerminalCard />
         <MigrateCard />
         <LanguagesCard />
         <AiCard />

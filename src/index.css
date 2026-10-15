@@ -368,3 +368,16 @@
 .monaco-editor .mindeck-ai-target {
   background: rgb(var(--accent-cyan) / 0.08);
 }
+
+/* Terminal: a finished command's mark at the margin of its prompt (shell integration). */
+.xterm .xterm-decoration.mindeck-command-mark {
+  width: 4px !important;
+  margin-left: -8px;
+  border-radius: 2px;
+}
+.xterm .xterm-decoration.mindeck-command-mark.is-ok {
+  background: rgb(var(--accent-green) / 0.7);
+}
+.xterm .xterm-decoration.mindeck-command-mark.is-error {
+  background: rgb(var(--accent-danger));
+}

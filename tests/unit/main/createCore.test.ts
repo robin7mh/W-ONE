@@ -124,12 +124,12 @@ describe('createCore', () => {
     await c.router.dispatch('context:reindex', { projectId }, { transport: 'ipc' })
     const term = await c.router.dispatch('terminal:create', { projectId }, { transport: 'ipc' })
     expect(term).toMatchObject({ ok: true, data: { projectId } })
-    h.ptyData!('hello')
+    h.ptyData!('hello\x1b]7;file://h/tmp\x07') // the shell reports its folder too
     await new Promise((r) => setTimeout(r, 30))
     c.system.setRemoteClients(1)
     await new Promise((r) => setTimeout(r, 30))
     c.system.setRemoteClients(0)
-    expect(pushed).toEqual(expect.arrayContaining(['context:progress', 'terminal:data', 'system:tick']))
+    expect(pushed).toEqual(expect.arrayContaining(['context:progress', 'terminal:data', 'terminal:info', 'system:tick']))
 
     // The editor's language service and debugger find projects the same way; the debugger publishes its session.
     expect(await c.router.dispatch('lsp:open', { projectId: 'none', path: 'a.ts', text: '' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })

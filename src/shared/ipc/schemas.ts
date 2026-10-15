@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { TERMINAL_CURSORS, TERMINAL_LIMITS } from '@shared/types/terminal'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -30,6 +31,51 @@ const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) 
 /** One file or folder name — no separators, not `.` or `..` (the service checks again). */
 const fileName = z.string().trim().min(1).max(255)
 const paths = z.array(path).min(1).max(1000)
+
+/** An absolute folder: `/…`, `~`-less, or a Windows drive / UNC path. */
+const absolute = path.refine((p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p), 'must be an absolute path')
+const range = ([min, max]: readonly [number, number]) => z.number().finite().min(min).max(max)
+const terminalProfile = z.object({
+  id: z.string().regex(/^custom-[\w-]{1,64}$/),
+  name: z.string().trim().min(1).max(80),
+  command: z.string().trim().min(1).max(4096),
+  args: z.array(text(4096)).max(64),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).max(200), text(8192)).refine((e) => Object.keys(e).length <= 64),
+  cwd: absolute.optional()
+})
+const terminalSettings = z
+  .object({
+    fontFamily: z.string().trim().min(1).max(200),
+    fontSize: range(TERMINAL_LIMITS.fontSize),
+    lineHeight: range(TERMINAL_LIMITS.lineHeight),
+    cursorStyle: z.enum(TERMINAL_CURSORS),
+    cursorBlink: z.boolean(),
+    scrollback: range(TERMINAL_LIMITS.scrollback).int(),
+    bufferKb: range(TERMINAL_LIMITS.bufferKb).int(),
+    copyOnSelect: z.boolean(),
+    gpu: z.boolean(),
+    restore: z.boolean(),
+    shellIntegration: z.boolean(),
+    defaultProfile: text(200),
+    profiles: z.array(terminalProfile).max(TERMINAL_LIMITS.profiles)
+  })
+  .partial()
+const terminalSnapshot = z.object({
+  layout: z.enum(['single', 'cols', 'rows', 'grid']),
+  active: z.number().int().min(0).max(100),
+  tabs: z
+    .array(
+      z.object({
+        title,
+        cwd: path,
+        projectId: id.optional(),
+        profileId: id.optional(),
+        scrollback: text(512 * 1024)
+      })
+    )
+    .max(12),
+  savedAt: z.string().max(64)
+})
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -77,7 +123,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:setVault': z.object({ path }),
 
   'terminal:create': z
-    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional() })
+    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional(), profileId: id.optional() })
     .optional()
     .transform((v) => v ?? {}),
   'terminal:list': none,
@@ -85,6 +131,11 @@ export const REQUEST_SCHEMAS: Schemas = {
   'terminal:write': z.object({ id, data: text(1024 * 1024) }),
   'terminal:resize': z.object({ id, cols: z.number(), rows: z.number() }),
   'terminal:kill': z.object({ id }),
+  'terminal:shells': none,
+  'terminal:settings': none,
+  'terminal:configure': terminalSettings,
+  'terminal:persist': terminalSnapshot,
+  'terminal:restore': none,
 
   'files:list': z.object({ projectId: id, dir: text(4096).optional() }),
   'files:read': z.object({ projectId: id, path }),

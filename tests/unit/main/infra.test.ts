@@ -223,7 +223,18 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['terminal:attach', { id: 'i' }, 'attach', ['i']],
         ['terminal:write', { id: 'i', data: 'ls' }, 'write', ['i', 'ls']],
         ['terminal:resize', { id: 'i', cols: 80, rows: 24 }, 'resize', ['i', 80, 24]],
-        ['terminal:kill', { id: 'i' }, 'kill', ['i']]
+        ['terminal:kill', { id: 'i' }, 'kill', ['i']],
+        ['terminal:create', { profileId: 'zsh' }, 'create', [{ profileId: 'zsh' }]],
+        ['terminal:shells', undefined, 'shells', []],
+        ['terminal:settings', undefined, 'settings', []],
+        ['terminal:configure', { fontSize: 14, profiles: [] }, 'configure', [{ fontSize: 14, profiles: [] }]],
+        [
+          'terminal:persist',
+          { layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' },
+          'persist',
+          [{ layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' }]
+        ],
+        ['terminal:restore', undefined, 'restore', []]
       ]
     ],
     [
