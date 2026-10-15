@@ -36,6 +36,8 @@ interface TerminalState {
   openProject: (projectId: string) => Promise<void>
   /** From Files: a shell in any folder (absolute path), likewise without the extra Home shell. */
   openFolder: (cwd: string) => Promise<void>
+  /** A new shell in Home that runs `command` (the onboarding's installs and sign-ins); its tab, unless it failed. */
+  run: (command: string) => Promise<TerminalTab | undefined>
   close: (id: string) => Promise<void>
   /** Replace an exited tab with a fresh shell in the same place. */
   restart: (id: string) => Promise<void>
@@ -101,6 +103,20 @@ export const useTerminals = create<TerminalState>((set, get) => ({
       set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
     } catch (err) {
       set({ error: errorMessage(err) })
+    }
+  },
+
+  run: async (command) => {
+    await get().init(false)
+    try {
+      const info = await ipc('terminal:create', {})
+      set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
+      // The shell reads it once it is up, as if typed.
+      await ipc('terminal:write', { id: info.id, data: `${command}\r` })
+      return info
+    } catch (err) {
+      set({ error: errorMessage(err) })
+      return undefined
     }
   },
 
