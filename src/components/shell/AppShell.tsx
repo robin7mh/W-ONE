@@ -37,6 +37,8 @@ import { visiblePanes, focusedPane } from '@/features/workspace/layout'
 import { relayout } from '@/lib/relayout'
 import { PaletteHost } from '@/features/palette/components/PaletteHost'
 import { usePalette } from '@/features/palette/store'
+import { macKeys, matchWorkspaceKey } from '@/features/workspace/keys'
+import { perform } from '@/features/workspace/actions'
 
 /** Browser without remote shells: explain instead of failing. */
 function RemoteShellsOff() {
@@ -98,6 +100,12 @@ export function AppShell() {
       settings: () => show('settings'),
       // A click into a page focuses the browser's pane.
       focused: () => show('browser'),
+      // A workspace key pressed in a page: the workspace acts on it as if the UI had it.
+      workspaceKey: (key) => {
+        const action = matchWorkspaceKey(key, macKeys())
+        if (action) perform(action)
+      },
+      // ⇧⌘P in a page: the command palette (the same key closes it).
       palette: () => usePalette.getState().toggle('commands')
     })
     return () => {

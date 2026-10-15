@@ -16,7 +16,7 @@ export const CONTEXTS: ShortcutContext[] = ['global', 'editor', 'terminal', 'bro
  * `mod` is ⌘ on macOS and Ctrl elsewhere, `ctrl` the Control key on both,
  * `alt` ⌥ / Alt. The key is a character (`k`, `/`, `\`, `?`), a range of
  * digits (`1-9`), `arrows` (all four) or a name (`enter`, `up`, `f11`,
- * `space`, `backspace`, `tab`).
+ * `space`, `backspace`, `tab`, `insert`).
  */
 export type Binding = string
 
@@ -40,10 +40,11 @@ const SHORTCUT_LIST = [
   // The editor splits itself on ⌘\; Ctrl+\ in a terminal is SIGQUIT.
   { id: 'workspace.split', context: 'global', keys: ['mod+\\'], yields: ['editor', 'terminal'] },
   { id: 'workspace.close', context: 'global', keys: ['mod+shift+w'] },
+  // ⌘W closes what the module in focus has open (a tab); where it has nothing, the pane (workspace/keys.ts `isCloseKey`).
+  { id: 'workspace.closeAny', context: 'global', keys: ['mod+w'], yields: ['editor', 'terminal', 'browser', 'files'] },
   // ⇧⌘↵ in the code editor inserts a line above.
   { id: 'workspace.maximize', context: 'global', keys: ['mod+shift+enter'], yields: ['editor'] },
-  // The browser switches tabs on ⌘⌥←/→ (as Chrome does).
-  { id: 'workspace.focus', context: 'global', keys: ['mod+alt+arrows'], yields: ['browser'] },
+  { id: 'workspace.focus', context: 'global', keys: ['mod+alt+arrows'] },
   { id: 'workspace.switch', context: 'global', keys: ['mod+alt+1-9'] },
   { id: 'workspace.zen', context: 'global', keys: ['mod+alt+z'] },
   { id: 'workspace.fullscreen', context: 'global', keys: [{ mac: 'ctrl+mod+f', other: 'f11' }] },
@@ -53,6 +54,7 @@ const SHORTCUT_LIST = [
   { id: 'editor.goToLine', context: 'editor', keys: ['ctrl+g'] },
   { id: 'editor.save', context: 'editor', keys: ['mod+s'] },
   { id: 'editor.saveAll', context: 'editor', keys: ['mod+alt+s'] },
+  { id: 'editor.closeTab', context: 'editor', keys: ['mod+w'] },
   { id: 'editor.split', context: 'editor', keys: ['mod+\\'] },
   { id: 'editor.search', context: 'editor', keys: ['mod+shift+f'] },
   { id: 'editor.replace', context: 'editor', keys: ['mod+shift+h'] },
@@ -81,6 +83,10 @@ const SHORTCUT_LIST = [
   { id: 'terminal.clear', context: 'terminal', keys: [{ mac: 'mod+k', other: 'ctrl+shift+k' }] },
   { id: 'terminal.prevCommand', context: 'terminal', keys: [{ mac: 'mod+up', other: 'ctrl+shift+up' }] },
   { id: 'terminal.nextCommand', context: 'terminal', keys: [{ mac: 'mod+down', other: 'ctrl+shift+down' }] },
+  // On a Mac ⌘C / ⌘V are the Edit menu's; Ctrl+W stays the shell's elsewhere.
+  { id: 'terminal.copy', context: 'terminal', keys: [{ other: 'ctrl+shift+c' }, { other: 'ctrl+insert' }] },
+  { id: 'terminal.paste', context: 'terminal', keys: [{ other: 'ctrl+shift+v' }, { other: 'shift+insert' }] },
+  { id: 'terminal.close', context: 'terminal', keys: [{ mac: 'mod+w' }] },
 
   // As in Chrome (electron/main/platform/browser/shortcuts.ts).
   { id: 'browser.newTab', context: 'browser', keys: ['mod+t'] },
@@ -96,8 +102,9 @@ const SHORTCUT_LIST = [
   { id: 'browser.zoomIn', context: 'browser', keys: ['mod+='] },
   { id: 'browser.zoomOut', context: 'browser', keys: ['mod+-'] },
   { id: 'browser.zoomReset', context: 'browser', keys: ['mod+0'] },
-  { id: 'browser.nextTab', context: 'browser', keys: ['ctrl+tab', 'mod+alt+right'] },
-  { id: 'browser.prevTab', context: 'browser', keys: ['ctrl+shift+tab', 'mod+alt+left'] },
+  // ⌘⌥←/→ are the workspace's (the focus to the next pane).
+  { id: 'browser.nextTab', context: 'browser', keys: ['ctrl+tab', 'mod+shift+]'] },
+  { id: 'browser.prevTab', context: 'browser', keys: ['ctrl+shift+tab', 'mod+shift+['] },
   { id: 'browser.tabN', context: 'browser', keys: ['mod+1-8'] },
   { id: 'browser.lastTab', context: 'browser', keys: ['mod+9'] },
   { id: 'browser.bookmark', context: 'browser', keys: ['mod+d'] },
@@ -151,8 +158,8 @@ function parse(binding: Binding): Parsed {
   return { mods: new Set(parts.filter(Boolean)), key }
 }
 
-const MAC_KEYS: Record<string, string> = { enter: '↵', up: '↑', down: '↓', left: '←', right: '→', arrows: '←→↑↓', backspace: '⌫', space: 'Space', tab: '⇥' }
-const OTHER_KEYS: Record<string, string> = { enter: 'Enter', up: '↑', down: '↓', left: '←', right: '→', arrows: '←→↑↓', backspace: 'Backspace', space: 'Space', tab: 'Tab' }
+const MAC_KEYS: Record<string, string> = { enter: '↵', up: '↑', down: '↓', left: '←', right: '→', arrows: '←→↑↓', backspace: '⌫', space: 'Space', tab: '⇥', insert: 'Insert' }
+const OTHER_KEYS: Record<string, string> = { enter: 'Enter', up: '↑', down: '↓', left: '←', right: '→', arrows: '←→↑↓', backspace: 'Backspace', space: 'Space', tab: 'Tab', insert: 'Insert' }
 
 function keyName(key: string, mac: boolean): string {
   const named = (mac ? MAC_KEYS : OTHER_KEYS)[key]

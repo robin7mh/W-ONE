@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { chords, findConflicts, formatBinding, matchesBinding, shortcutBindings, shortcutLabel, SHORTCUTS, type Shortcut, type ShortcutId } from '@/lib/shortcuts'
-import { matchWorkspaceKey, type KeyLike, type WorkspaceAction } from '@/features/workspace/keys'
+import { isCloseKey, matchWorkspaceKey, type KeyLike, type WorkspaceAction } from '@/features/workspace/keys'
 import { shortcutLabel as terminalLabel, terminalAction, type TerminalAction } from '@/features/terminal/keys'
 import { matchPaletteKey } from '@/features/palette/keys'
 import { de } from '@/lib/i18n/de'
 import { en } from '@/lib/i18n/en'
 
-const NAMED: Record<string, string> = { enter: 'Enter', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', space: ' ', backspace: 'Backspace', tab: 'Tab' }
+const NAMED: Record<string, string> = { enter: 'Enter', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', space: ' ', backspace: 'Backspace', tab: 'Tab', insert: 'Insert' }
 
 /** The key presses a binding stands for, as keyboard events (US layout). */
 function presses(binding: string, mac: boolean): KeyLike[] {
@@ -125,7 +125,10 @@ describe('the modules keep to the list', () => {
     'terminal.find': 'find',
     'terminal.clear': 'clear',
     'terminal.prevCommand': 'prevCommand',
-    'terminal.nextCommand': 'nextCommand'
+    'terminal.nextCommand': 'nextCommand',
+    'terminal.copy': 'copy',
+    'terminal.paste': 'paste',
+    'terminal.close': 'close'
   }
 
   for (const mac of [true, false]) {
@@ -133,13 +136,16 @@ describe('the modules keep to the list', () => {
       for (const [id, action] of Object.entries(WORKSPACE)) {
         presses(shortcutBindings(id as ShortcutId, mac)[0], mac).forEach((press, i) => expect(matchWorkspaceKey(press, mac), `${id} ${i}`).toEqual(action!(i)))
       }
+      const [closeAny] = presses(shortcutBindings('workspace.closeAny', mac)[0], mac)
+      expect(isCloseKey(closeAny, mac)).toBe(true)
+      expect(matchWorkspaceKey(closeAny, mac)).toBeNull() // after the modules, not ahead of them
     })
 
     it(`the terminal answers its keys, and labels them as the list does (${mac ? 'Mac' : 'elsewhere'})`, () => {
       for (const [id, action] of Object.entries(TERMINAL)) {
-        const [press] = presses(shortcutBindings(id as ShortcutId, mac)[0], mac)
-        expect(terminalAction({ type: 'keydown', ...press }, mac), id).toBe(action)
-        expect(terminalLabel(action!, mac)).toBe(shortcutLabel(id as ShortcutId, mac))
+        const bindings = shortcutBindings(id as ShortcutId, mac)
+        for (const binding of bindings) for (const press of presses(binding, mac)) expect(terminalAction({ type: 'keydown', ...press }, mac), `${id} ${binding}`).toBe(action)
+        if (bindings.length) expect(terminalLabel(action!, mac)).toBe(formatBinding(bindings[0], mac))
       }
     })
 

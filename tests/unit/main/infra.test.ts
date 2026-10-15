@@ -328,8 +328,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       'search',
       registerSearchIpc,
       [
-        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
-        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }, undefined]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i', undefined]]
       ]
     ],
     [
@@ -536,6 +536,7 @@ describe('paths', () => {
         settingsFile: join(home, 'Mindeck', 'data', 'settings.json'),
         defaultVaultRoot: join(home, 'Mindeck', 'vault'),
         devicesFile: join(home, 'Mindeck', 'data', 'devices.json'),
+        tlsDir: join(home, 'Mindeck', 'data', 'tls'),
         secretsFile: join(home, 'Mindeck', 'data', 'secrets.json'),
         cloudFile: join(home, 'Mindeck', 'data', 'cloud.json'),
         grantsFile: join(home, 'Mindeck', 'data', 'grants.json'),

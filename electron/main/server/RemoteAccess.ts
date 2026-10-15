@@ -1,6 +1,8 @@
+import { realpath as realpathCallback } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { posix, win32, type PlatformPath } from 'node:path'
+import { promisify } from 'node:util'
 import type { IpcChannel } from '@shared/ipc/contract'
 import type { Project } from '@shared/types/project'
 import type { DirListing } from '@shared/types/server'
@@ -39,6 +41,15 @@ function filePaths(payload: Record<string, unknown>): string[] {
   const many = Array.isArray(payload.paths) ? payload.paths.filter((v): v is string => typeof v === 'string') : []
   return [...one, ...many]
 }
+
+/**
+ * The OS's own name for a path (Windows: long names, not `ENV~1.LOC`; links
+ * followed) — what the deny list must judge, not the spelling a device sent.
+ */
+const canonical = promisify(realpathCallback.native)
+
+/** A Windows path to another machine or a device (`\\host\share`, `\\?\C:\…`): touching it sends the user's credentials there. */
+const NETWORK_PATH = /^[\\/]{2}/
 
 function refused(message: string): Error {
   return Object.assign(new Error(message), { code: 'remote-forbidden' })
@@ -91,7 +102,7 @@ export class RemoteAccess {
     if (channel === 'projects:add' || channel === 'memory:setVault') await this.folder(String(p.path))
     if (typeof p.projectId === 'string') {
       await this.project(p.projectId)
-      for (const file of filePaths(p)) this.file(file)
+      await this.files(filePaths(p), p.projectId)
     }
     if (channel === 'agents:diff') this.file(String(p.path))
   }
@@ -101,7 +112,7 @@ export class RemoteAccess {
     const p = (input ?? {}) as Record<string, unknown>
     const id = typeof p.projectId === 'string' && p.projectId ? p.projectId : projectId
     if (id) await this.project(id, true)
-    for (const file of filePaths(p)) this.file(file)
+    await this.files(filePaths(p), id, true)
   }
 
   /**
@@ -128,13 +139,24 @@ export class RemoteAccess {
 
   /** A path inside a project that names something on the deny list. */
   file(path: string): void {
-    const hit = path.split(/[\\/]+/).find((segment) => DENIED.some((re) => re.test(segment.toLowerCase())))
+    const hit = this.denied(path)
     if (hit) throw refused(`${hit} is off-limits for paired devices`)
+  }
+
+  /**
+   * The segment of `path` on the deny list, if any. Windows opens `id_rsa.`,
+   * `id_rsa ` and `id_rsa::$DATA` as `id_rsa`: trailing dots and spaces and
+   * stream names don't count there.
+   */
+  denied(path: string): string | undefined {
+    const segments = path.split(/[\\/]+/).map((s) => (this.path === win32 ? s.replace(/:.*$/, '').replace(/[. ]+$/, '') : s))
+    return segments.find((segment) => DENIED.some((re) => re.test(segment.toLowerCase())))
   }
 
   /** An existing folder a device may add (project, vault) or browse: its canonical path. */
   async folder(path: string): Promise<string> {
     if (!this.path.isAbsolute(path)) throw Object.assign(new Error('Path must be absolute'), { code: 'bad-path' })
+    if (this.path === win32 && NETWORK_PATH.test(path)) throw refused('Network and device paths are off-limits for paired devices')
     const abs = await realpath(path).catch(() => {
       throw Object.assign(new Error(`Folder not found: ${path}`), { code: 'not-found' })
     })
@@ -198,6 +220,27 @@ export class RemoteAccess {
     if (segments.some((s) => s.startsWith('.'))) return 'a hidden folder'
     if (segments.some((s) => DENIED.some((re) => re.test(s.toLowerCase())))) return 'keys or credentials'
     return null
+  }
+
+  /**
+   * Files a call names in a project: by how they are written, and — for those
+   * that exist inside it — by what they really are (a link to `~/.ssh`, a
+   * Windows short name such as `ENV~1.LOC`). Paths that leave the project are
+   * the handler's to refuse; nothing outside it is touched here.
+   */
+  private async files(paths: string[], projectId?: string, byName = false): Promise<void> {
+    for (const file of paths) this.file(file)
+    if (!paths.length) return
+    for (const project of this.deps.projects().filter((p) => p.id === projectId || (byName && p.name === projectId))) {
+      const root = await canonical(project.path).catch(() => null)
+      if (!root) continue
+      for (const file of paths) {
+        const abs = this.path.resolve(root, file)
+        if (!this.inside(abs, root)) continue
+        const real = await canonical(abs).catch(() => null)
+        if (real) this.file(this.path.relative(root, real))
+      }
+    }
   }
 
   private within(abs: string, roots: string[]): boolean {

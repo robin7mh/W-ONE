@@ -458,11 +458,25 @@ describe('FilesView', () => {
       ['code', 'C:\\Users\\me\\code']
     ])
     act(() => useFiles.setState({ listing: { path: 'D:\\data', parent: 'D:\\', entries: [], total: 0, offset: 0 } }))
+    // the drive's root (D:\\), not the bare drive — that would be its current folder
     expect(within(crumbs).getAllByRole('button').map((b) => [b.textContent, b.title])).toEqual([
-      ['\\', '\\'],
-      ['D:', 'D:'],
+      ['D:', 'D:\\'],
       ['data', 'D:\\data']
     ])
+  })
+
+  it('opens a project’s files in the Editor on Windows too (backslashes)', async () => {
+    const selectProject = vi.fn(async () => {})
+    const open = vi.fn(async () => {})
+    useEditor.setState({ selectProject, open })
+    setup({ 'projects:list': () => [{ id: 'w', name: 'shop', path: 'C:\\shop', addedAt: '', lastSeenAt: '' }] })
+    await settle()
+    const file = entry('C:\\shop\\src\\App.tsx', { name: 'App.tsx' })
+    act(() => useFiles.setState({ listing: { path: 'C:\\shop\\src', parent: 'C:\\shop', entries: [file], total: 1, offset: 0 } }))
+    fireEvent.doubleClick(row('App.tsx'))
+    await settle()
+    expect(selectProject).toHaveBeenCalledWith('w')
+    expect(open).toHaveBeenCalledWith('src/App.tsx')
   })
 
   it('explains folders it may not read, and errors it got; notices fade', async () => {
@@ -481,6 +495,18 @@ describe('FilesView', () => {
       vi.advanceTimersByTime(3600)
     })
     expect(screen.queryByText('3 items moved to the Trash')).toBeNull()
+    act(() => useFiles.setState({ notice: { key: 'trashed', count: 3, noUndo: 1 } }))
+    expect(screen.getByText('3 items moved to the Trash · 1 of them cannot be put back with ⌘Z')).toBeInTheDocument()
+    // ⌘Z after the trash was emptied: what is lost, by name.
+    act(() => useFiles.setState({ error: 'a.txt, b.txt', errorCode: 'trash-gone' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('No longer in the Trash, so it cannot come back: a.txt, b.txt')
+    expect(screen.queryByRole('button', { name: 'Open System Settings' })).toBeNull()
+    // macOS without Full Disk Access: which switch, and a way there.
+    act(() => useFiles.setState({ error: 'EPERM', errorCode: 'full-disk-access' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('only with Full Disk Access')
+    fireEvent.click(screen.getByRole('button', { name: 'Open System Settings' }))
+    await settle()
+    expect(useFiles.getState().errorCode).toBe('full-disk-access')
     act(() => useFiles.setState({ listing: { path: '/home/shop/src', parent: '/home/shop', entries: [], total: 0, offset: 0 } }))
     expect(screen.getByText('This folder is empty')).toBeInTheDocument()
     act(() => useFiles.setState({ selected: ['/x'] }))

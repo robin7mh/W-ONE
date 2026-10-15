@@ -169,6 +169,24 @@ describe('terminal store', () => {
     expect(useTerminals.getState().error).toBe('no main')
   })
 
+  it('a shell opened while the last run’s tabs are still coming back joins them instead of being replaced', async () => {
+    const restored = info({ cwd: '/h/a' })
+    const folder = info({ cwd: '/h/code' })
+    let release!: () => void
+    const slow = new Promise<void>((r) => (release = r))
+    installBridge({
+      'terminal:list': () => [],
+      'terminal:restore': () => ({ layout: 'single', active: 0, tabs: [{ title: 'a', cwd: '/h/a', scrollback: '' }], savedAt: '2026-01-01T00:00:00Z' }),
+      'terminal:create': async (p: { cwd?: string }) => (p.cwd === '/h/a' ? slow.then(() => restored) : folder)
+    })
+    const first = useTerminals.getState().init() // the Terminal module restores the last run …
+    const second = useTerminals.getState().openFolder('/h/code') // … while Files opens a shell
+    await Promise.resolve()
+    release()
+    await Promise.all([first, second])
+    expect(useTerminals.getState().tabs.map((t) => t.id)).toEqual([restored.id, folder.id])
+  })
+
   it('open / close / restart / markExited, with active-tab bookkeeping', async () => {
     const queue: TerminalInfo[] = []
     const kill = vi.fn()

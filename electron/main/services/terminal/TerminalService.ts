@@ -1,6 +1,6 @@
 import { spawn, type IPty } from 'node-pty'
 import { existsSync } from 'node:fs'
-import { readFile, rm, stat } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -16,6 +16,7 @@ import {
   type TerminalShell,
   type TerminalSnapshot
 } from '@shared/types/terminal'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { integrate, scanCwd, shellKind, writeScripts, type ShellLaunch } from './integration'
 import { detectShells } from './shells'
@@ -215,22 +216,22 @@ export class TerminalService {
     return integrate(command, dir, { ...shellEnv(), ...env })
   }
 
-  /** Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off). */
+  /**
+   * Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off).
+   * Scrollback holds whatever the shells printed (tokens, keys): for the user's eyes only (0600).
+   */
   async persist(snapshot: TerminalSnapshot): Promise<void> {
     const file = join(this.opts.dir, 'terminals.json')
     if (!this.settings().restore) return rm(file, { force: true })
-    await writeAtomic(file, JSON.stringify(snapshot))
+    await writeAtomic(file, JSON.stringify(snapshot), 0o600)
   }
 
   /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */
   async restore(): Promise<TerminalSnapshot | null> {
     if (!this.settings().restore) return null
-    try {
-      const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(JSON.parse(await readFile(join(this.opts.dir, 'terminals.json'), 'utf8')))
-      return parsed.success ? parsed.data : null
-    } catch {
-      return null
-    }
+    // A damaged file is set aside (readJson) rather than overwritten by the next save.
+    const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(await readJson(join(this.opts.dir, 'terminals.json')))
+    return parsed.success ? parsed.data : null
   }
 
   /**

@@ -65,6 +65,7 @@ import { AuthService } from '../services/auth/AuthService'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
+import { Certificates } from '../server/Certificates'
 import { RemoteAccess } from '../server/RemoteAccess'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
@@ -96,6 +97,8 @@ export interface CoreOptions {
   serverConfig?: ServerConfig
   /** Built web UI the network API serves at `/`. */
   webRoot?: string
+  /** An own TLS certificate for the network API (PEM files) instead of the self-signed one. */
+  tlsFiles?: { cert: string; key: string }
   /** Encrypts stored secrets (desktop: OS keychain via Electron safeStorage). */
   cipher?: Cipher
   /** Injected LLM provider factory (tests). */
@@ -246,6 +249,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     settings: opts.serverConfig ? undefined : settings,
     fixedConfig: opts.serverConfig,
     webRoot: opts.webRoot,
+    certificates: new Certificates({ dir: paths.tlsDir, files: opts.tlsFiles }),
     onClients: (count) => {
       system.setRemoteClients(count)
       cloud.setRemoteClients(count)
@@ -370,7 +374,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
   const search = new SearchService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'search:progress') })
-  registerSearchIpc(router, search)
+  registerSearchIpc(router, search, remoteAccess)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)
@@ -398,6 +402,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       alsoWritable: [paths.homeDir],
       openPath: platform.openPath,
       revealPath: platform.revealPath,
+      openExternal: platform.openExternal,
       trash: (path) => platform.trashItem(path, dirname(path)),
       restorableTrash: platform.restorableTrash,
       clipboard: platform.fileClipboard,

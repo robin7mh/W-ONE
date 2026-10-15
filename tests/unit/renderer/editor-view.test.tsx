@@ -353,6 +353,17 @@ describe('EditorView', () => {
     expect(checkDisk.mock.calls.length).toBeGreaterThan(polls)
     fireEvent.keyDown(window, { key: 's', metaKey: true })
     expect(save).toHaveBeenCalledTimes(2)
+
+    // the window hidden, Mindeck running in the background: no disk and git polling for hours
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    const idle = checkDisk.mock.calls.length
+    act(() => {
+      vi.advanceTimersByTime(9000)
+    })
+    expect(checkDisk).toHaveBeenCalledTimes(idle)
+    hidden.mockReturnValue(false)
+    fireEvent.focus(window) // back on screen: it looks again
+    expect(checkDisk).toHaveBeenCalledTimes(idle + 1)
     vi.useRealTimers()
   })
 

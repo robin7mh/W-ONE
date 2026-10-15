@@ -630,6 +630,15 @@ describe('AppShell with panes', () => {
 
     act(() => handlers.focused!()) // a click into the page
     expect(useWorkspace.getState().layout.focus).toBe('p2')
+    // a workspace key pressed in the page: the focus moves to the pane on the left
+    const { macKeys } = await import('@/features/workspace/keys')
+    const mac = macKeys()
+    const paneKey = (key: string) => ({ key, code: key, metaKey: mac, ctrlKey: !mac, altKey: true, shiftKey: false })
+    act(() => handlers.workspaceKey!(paneKey('PageUp'))) // not one of the workspace's
+    expect(useWorkspace.getState().layout.focus).toBe('p2')
+    act(() => handlers.workspaceKey!(paneKey('ArrowLeft')))
+    expect(useWorkspace.getState().layout.focus).toBe('p1')
+    act(() => handlers.focused!())
     const { usePalette } = await import('@/features/palette/store')
     act(() => handlers.palette!()) // ⇧⌘P while the page has the keyboard: the palette, over everything
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()

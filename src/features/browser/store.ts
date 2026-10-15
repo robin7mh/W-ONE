@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { errorMessage, ipc, isDesktop, onEvent } from '@shared/ipc/client'
 import type { IpcChannel, IpcChannels } from '@shared/ipc/contract'
-import { DEFAULT_BROWSER_SETTINGS, type BrowserCommand, type BrowserFind, type BrowserSettings, type BrowserState, type BrowserTab } from '@shared/types/browser'
+import { DEFAULT_BROWSER_SETTINGS, type BrowserCommand, type BrowserFind, type BrowserSettings, type BrowserState, type BrowserTab, type WorkspaceKey } from '@shared/types/browser'
 import type { BookmarkFolder } from '@shared/types/browserData'
 import { findByUrl } from './library'
 
@@ -21,6 +21,8 @@ export interface BrowserHandlers {
   settings(): void
   /** A page took the keyboard focus (the user clicked into it). */
   focused?(): void
+  /** A workspace key pressed while a page had the keyboard. */
+  workspaceKey?(key: WorkspaceKey): void
   /** ⇧⌘P while a page has the keyboard: Mindeck's command palette. */
   palette?(): void
 }
@@ -73,11 +75,12 @@ interface BrowserStore {
 }
 
 export const useBrowser = create<BrowserStore>((set, get) => {
-  const command = (c: BrowserCommand) => {
+  const command = (c: BrowserCommand, key?: WorkspaceKey) => {
     if (c === 'focusOmnibox') set((s) => ({ focusTick: s.focusTick + 1 }))
     else if (c === 'find') set({ findOpen: true })
     else if (c === 'settings') handlers?.settings()
     else if (c === 'focused') handlers?.focused?.()
+    else if (c === 'workspaceKey') handlers?.workspaceKey?.(key!)
     else if (c === 'tabSearch') set({ tabSearchOpen: true })
     else if (c === 'bookmark') void get().bookmarkActive()
     else if (c === 'bookmarksBar') void get().configure({ bookmarksBar: !get().settings.bookmarksBar })
@@ -106,7 +109,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
       const offs = [
         onEvent('browser:state', (state) => set({ state })),
         onEvent('browser:find', (find) => set({ find })),
-        onEvent('browser:command', ({ command: c }) => command(c)),
+        onEvent('browser:command', ({ command: c, key }) => command(c, key)),
         onEvent('browser:reveal', () => handlers?.reveal()),
         onEvent('browser:bookmarks', (bookmarks) => set({ bookmarks }))
       ]
