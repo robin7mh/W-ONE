@@ -142,7 +142,8 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
     return () => clearTimeout(timer)
   }, [s.notice])
 
-  const projectOf = (path: string) => projects.find((p) => path === p.path || path.startsWith(`${p.path}/`))
+  // Windows paths come with backslashes.
+  const projectOf = (path: string) => projects.find((p) => path === p.path || path.startsWith(`${p.path}/`) || path.startsWith(`${p.path}\\`))
   const editable = (e: FinderEntry) => e.kind === 'file' && fileType(e.name) === 'text' && !!projectOf(e.path)
 
   const openInEditor = async (path: string) => {
@@ -280,7 +281,7 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
     : s.notice.key === 'copied'
       ? t.files.copied
       : s.notice.key === 'trashed'
-        ? t.files.trashed(s.notice.count)
+        ? t.files.trashed(s.notice.count) + (s.notice.noUndo ? ` · ${t.files.noUndo(s.notice.noUndo)}` : '')
         : s.notice.key === 'clipboard'
           ? t.files.onClipboard(s.notice.count, s.notice.cut)
           : s.notice.key === 'undone'
@@ -397,7 +398,20 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
           {s.error && (
             <div role="alert" className="m-2 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/[0.06] px-2.5 py-2">
               <AlertTriangle size={13} className="mt-0.5 shrink-0 text-danger" />
-              <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">{/no-access|EPERM|EACCES/.test(s.error) ? t.files.noAccess : s.error}</span>
+              <span className="min-w-0 flex-1 font-mono text-[11px] text-text-secondary">
+                {s.errorCode === 'trash-gone'
+                  ? t.files.trashGone(s.error)
+                  : s.errorCode === 'full-disk-access'
+                    ? t.files.fullDiskAccess
+                    : /no-access|EPERM|EACCES/.test(s.error)
+                      ? t.files.noAccess
+                      : s.error}
+                {s.errorCode === 'full-disk-access' && (
+                  <button type="button" onClick={() => void s.privacySettings()} className="ml-1.5 font-sans text-cyan hover:underline">
+                    {t.files.openPrivacySettings}
+                  </button>
+                )}
+              </span>
               <button type="button" aria-label={t.common.dismiss} onClick={() => s.clearError()} className="text-text-muted hover:text-text-primary">
                 <X size={12} />
               </button>

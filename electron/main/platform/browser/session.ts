@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { app, desktopCapturer, systemPreferences, type DownloadItem, type Session, type WebContents } from 'electron'
 import type { BrowserDownload, BrowserPermissionKind } from '@shared/types/browser'
@@ -70,8 +71,25 @@ export function freeDownloadPath(dir: string, filename: string): string {
   return path
 }
 
-/** macOS: mark a download as coming from the internet, so Gatekeeper checks it before it runs. */
-export function quarantine(path: string, run: typeof execFile = execFile): void {
+/**
+ * Marks a download as coming from the internet (Electron leaves that to the app): on macOS
+ * Gatekeeper checks it before it runs, on Windows the Mark of the Web makes SmartScreen and
+ * Office's Protected View do so.
+ */
+export function quarantine(path: string, url: string, run: typeof execFile = execFile, write = (file: string, data: string) => writeFile(file, data)): void {
+  if (process.platform === 'win32') {
+    // Like Chrome: the address only when it is a web one, never its user name or password.
+    let host = 'about:internet'
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') host = `${u.origin}${u.pathname}${u.search}`
+    } catch {
+      // not an address: the internet zone, without one
+    }
+    // A disk without streams (FAT, exFAT) can't take the mark: nothing to do then.
+    void write(`${path}:Zone.Identifier`, `[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=${host}\r\n`).catch(() => {})
+    return
+  }
   if (process.platform !== 'darwin') return
   run('xattr', ['-p', 'com.apple.quarantine', path], (missing) => {
     if (!missing) return // Chromium marked it already
@@ -147,7 +165,8 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
     { useSystemPicker: true }
   )
 
-  ses.on('will-download', (_event, item) => track(item, current))
+  // A private tab's profile lives in memory: its downloads are listed, never written down.
+  ses.on('will-download', (_event, item) => track(item, current, !ses.isPersistent()))
 
   // Ads, trackers and malware: every request asks the blocker (pages and their frames; a popup counts for no tab).
   ses.webRequest.onBeforeRequest((details, callback) => {
@@ -170,7 +189,7 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
  * user wants to be asked (or picked "Save … As"), where the save dialog says.
  * Its progress is reported at most ~4× a second.
  */
-function track(item: DownloadItem, current: () => SessionTarget | null): void {
+function track(item: DownloadItem, current: () => SessionTarget | null, inMemory: boolean): void {
   const target = current()
   const prefs = target?.events.downloadPrefs() ?? { ask: false, dir: '' }
   const dir = prefs.dir && existsSync(prefs.dir) ? prefs.dir : app.getPath('downloads')
@@ -187,7 +206,8 @@ function track(item: DownloadItem, current: () => SessionTarget | null): void {
     state: 'progressing',
     received: 0,
     total: item.getTotalBytes(),
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    ...(inMemory ? { private: true } : {})
   }
   target?.events.download(base, { cancel: () => item.cancel() })
   // Where it went: known once the save dialog closed.
@@ -205,6 +225,6 @@ function track(item: DownloadItem, current: () => SessionTarget | null): void {
   item.once('done', (_event, state) => {
     const done = { ...base, ...where(), state, received: item.getReceivedBytes(), total: item.getTotalBytes() }
     current()?.events.downloadUpdated(done)
-    if (state === 'completed') quarantine(done.path)
+    if (state === 'completed') quarantine(done.path, base.url)
   })
 }

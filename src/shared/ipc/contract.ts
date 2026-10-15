@@ -100,13 +100,18 @@ import type {
   BrowserCommand,
   BrowserFind,
   BrowserGo,
+  BrowserPane,
   BrowserSettings,
+  BrowserSplit,
   BrowserState,
   BrowserSuggestion,
   BrowserTab,
+  BrowserTabGroup,
   BrowserTool,
   HistoryEntry,
-  ViewBounds
+  TabGroupColor,
+  ViewBounds,
+  WorkspaceKey
 } from '@shared/types/browser'
 import type {
   FinderEntry,
@@ -118,7 +123,8 @@ import type {
   FolderSize,
   TransferRequest,
   TransferResult,
-  TrashedItem
+  TrashedItem,
+  UntrashResult
 } from '@shared/types/finder'
 import type { BookmarkFolder, BookmarkNode, ImportProgress, ImportRequest, ImportResult, ImportSource } from '@shared/types/browserData'
 import type { BrowserExtension, ChromiumProfile, ExtensionInstall, ExtensionUpdateReport } from '@shared/types/browserExtensions'
@@ -487,7 +493,8 @@ export interface IpcChannels {
   'browser:navigate': { request: { id: string; input: string }; response: void }
   'browser:go': { request: { id: string; action: BrowserGo }; response: void }
   'browser:update': { request: { id: string; pinned?: boolean; muted?: boolean; shared?: boolean }; response: void }
-  'browser:move': { request: { id: string; index: number }; response: void }
+  /** Reorder a tab; `groupId` puts it into that group (null: out of any group, absent: as it is). */
+  'browser:move': { request: { id: string; index: number; groupId?: string | null }; response: void }
   'browser:duplicate': { request: { id: string }; response: BrowserTab }
   /** Bring back the most recently closed tab. */
   'browser:reopen': { request: void; response: BrowserTab | null }
@@ -497,9 +504,9 @@ export interface IpcChannels {
   /** Native tab / page menu, DevTools, print, or hand the page to the system browser. */
   'browser:tool': { request: { id: string; tool: BrowserTool }; response: void }
   /** Where the web view sits in the window; null hides it (the module is not on screen). */
-  'browser:view': { request: { bounds: ViewBounds | null; focused?: boolean }; response: void }
+  'browser:view': { request: { bounds: ViewBounds | null; focused?: boolean; panes?: BrowserPane[] }; response: void }
   /** A picture of the visible page while a menu or dialog covers it (the view itself hides); null if none. */
-  'browser:freeze': { request: void; response: string | null }
+  'browser:freeze': { request: void; response: Record<string, string> | null }
   'browser:unfreeze': { request: void; response: void }
   'browser:suggest': { request: { text: string }; response: BrowserSuggestion[] }
   'browser:history': { request: { query?: string; limit?: number }; response: HistoryEntry[] }
@@ -534,6 +541,15 @@ export interface IpcChannels {
   'browser:import': { request: ImportRequest; response: ImportResult }
   /** After a crash: bring the last session's tabs back, or let them go. */
   'browser:restoreSession': { request: { restore: boolean }; response: void }
+  /** Tab groups: make one of these tabs, rename/recolor/fold it, dissolve it, close all its tabs. */
+  'browser:group': { request: { ids: string[]; title?: string; color?: TabGroupColor }; response: BrowserTabGroup }
+  'browser:groupUpdate': { request: { id: string; title?: string; color?: TabGroupColor; collapsed?: boolean }; response: void }
+  'browser:ungroup': { request: { id: string }; response: void }
+  'browser:groupClose': { request: { id: string }; response: void }
+  /** Split view: `id` on the left (top), `with` beside it — a new tab when absent. */
+  'browser:split': { request: { id: string; with?: string; vertical?: boolean }; response: BrowserSplit }
+  'browser:splitUpdate': { request: { id: string; ratio?: number; vertical?: boolean; swap?: boolean }; response: void }
+  'browser:unsplit': { request: { id: string }; response: void }
 
   /** Files: the machine's files, like Finder (absolute paths; writes only under Home and /Volumes). */
   'finder:places': { request: void; response: FinderPlaces }
@@ -547,8 +563,10 @@ export interface IpcChannels {
   'finder:rename': { request: { path: string; name: string }; response: string }
   /** Into the trash, never deleted outright; `restore` set where Mindeck can undo it. */
   'finder:trash': { request: { paths: string[] }; response: TrashedItem[] }
-  /** Undo a trash (only items with `restore`). */
-  'finder:untrash': { request: { items: { path: string; restore: string }[] }; response: void }
+  /** Undo a trash (only items with `restore`): what came back where, and what had left the trash. */
+  'finder:untrash': { request: { items: { path: string; restore: string }[] }; response: UntrashResult }
+  /** macOS: opens System Settings at Full Disk Access (needed to take things out of the Trash). */
+  'finder:privacySettings': { request: void; response: void }
   /** Returns the new paths. */
   'finder:move': { request: { paths: string[]; dest: string }; response: string[] }
   'finder:copy': { request: { paths: string[]; dest: string }; response: string[] }
@@ -897,6 +915,13 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'browser:importSources': 'desktop',
   'browser:import': 'desktop',
   'browser:restoreSession': 'desktop',
+  'browser:group': 'desktop',
+  'browser:groupUpdate': 'desktop',
+  'browser:ungroup': 'desktop',
+  'browser:groupClose': 'desktop',
+  'browser:split': 'desktop',
+  'browser:splitUpdate': 'desktop',
+  'browser:unsplit': 'desktop',
   // The whole disk, beyond projects and the vault: the desktop app only.
   'finder:places': 'desktop',
   'finder:list': 'desktop',
@@ -908,6 +933,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'finder:move': 'desktop',
   'finder:copy': 'desktop',
   'finder:untrash': 'desktop',
+  'finder:privacySettings': 'desktop',
   'finder:conflicts': 'desktop',
   'finder:transfer': 'desktop',
   'finder:cancel': 'desktop',
@@ -960,7 +986,7 @@ export interface IpcEvents {
   'browser:state': BrowserState
   'browser:find': BrowserFind
   /** A shortcut or menu (maybe pressed while a page had the focus) for the Mindeck UI. */
-  'browser:command': { command: BrowserCommand }
+  'browser:command': { command: BrowserCommand; key?: WorkspaceKey; id?: string }
   /** Something opened a tab for the user (a link in a chat, the Live Server): show the browser. */
   'browser:reveal': { tabId: string }
   /** The bookmarks changed (the whole tree). */

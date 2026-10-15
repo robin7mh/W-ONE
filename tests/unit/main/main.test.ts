@@ -85,6 +85,7 @@ const h = vi.hoisted(() => ({
     quitAndInstall: vi.fn()
   },
   packaged: false,
+  appMenu: undefined as unknown,
   dark: true,
   fileIconFails: false,
   migrate: vi.fn((_legacy?: string): boolean => false),
@@ -130,7 +131,7 @@ vi.mock('electron', () => ({
     }
   },
   crashReporter: { start: h.crashStart },
-  Menu: { buildFromTemplate: (items: unknown) => items },
+  Menu: { buildFromTemplate: (items: unknown) => items, setApplicationMenu: (menu: unknown) => (h.appMenu = menu) },
   Tray: class {
     tooltip?: string
     menu?: { label?: string; click?: () => void }[]
@@ -307,6 +308,11 @@ describe('main process boot', () => {
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+    // its own application menu: no reload on ⌘R, no window closing on ⌘W (development keeps reload and DevTools)
+    const roles = JSON.stringify(h.appMenu)
+    expect(roles).toContain('"editMenu"')
+    expect(roles).toContain('"toggleDevTools"')
+    expect(roles).not.toContain('"close"')
   })
 
   it('updates itself only when packaged, through desktop channels on the core router', async () => {

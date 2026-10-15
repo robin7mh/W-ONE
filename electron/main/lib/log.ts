@@ -27,18 +27,25 @@ const FILE = 'mindeck.log'
 const RECENT = 50
 const MAX_MESSAGE = 8000
 const R = '‹redacted›'
+/** `token=…`, `"password": "…"` — unless a rule before took the value out already (or it is a Bearer's, done too). */
+const KEYED = new RegExp(String.raw`((?:token|password|passwd|secret|api[_-]?key|authorization|cookie)["']?\s*[:=]\s*["']?)(?!(?:Bearer|Basic)\s|${R})[^\s"'&,;}]+`, 'gi')
 
 /**
  * Takes secrets out of a log line: bearer and session tokens, signed
- * entitlements, API keys, and `token=` / `password: …` style values. Logs are
- * shared in bug reports — nothing in them may sign anyone in.
+ * entitlements, JWTs, API keys, private keys, passwords in URLs
+ * (`mongodb://user:pw@host`, a git remote) and `token=` / `password: …`
+ * style values. Logs are shared in bug reports — nothing in them may sign
+ * anyone in.
  */
 export function redact(text: string): string {
   return text
+    .replace(/-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]*?(?:-----END \1PRIVATE KEY-----|$)/g, `-----BEGIN $1PRIVATE KEY-----${R}`)
     .replace(/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, `$1 ${R}`)
     .replace(/\bmindeck1\.[\w-]+\.[\w-]+/g, `mindeck1.${R}`)
-    .replace(/\b(sk-ant-|sk-|ghp_|gho_|ghs_|github_pat_|xox[abp]-|AKIA)[\w-]{8,}/g, `$1${R}`)
-    .replace(/((?:token|password|passwd|secret|api[_-]?key|authorization|cookie)["']?\s*[:=]\s*["']?)(?!(?:Bearer|Basic)\s)[^\s"'&,;}]+/gi, `$1${R}`)
+    .replace(/\beyJ[\w-]{8,}\.eyJ[\w-]{8,}\.[\w-]+/g, R)
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s/:@]+):[^\s/@]+@/gi, `$1:${R}@`)
+    .replace(/\b(sk-ant-|sk-|ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|glpat-|npm_|xox[abpe]-|AKIA|AIza)[\w-]{8,}/g, `$1${R}`)
+    .replace(KEYED, `$1${R}`)
 }
 
 /**

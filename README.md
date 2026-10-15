@@ -38,7 +38,7 @@ Mindeck ist ein **Core** (alle Dienste), den du auf drei Arten startest:
 |---|---|---|
 | **Desktop-App** | `npm run dev` | Electron-Fenster (im Dev-Modus mit HMR) |
 | **Web-UI + API, ohne Docker** | `npm run web` | baut Web-UI und Core-Server und stellt beides unter `http://127.0.0.1:7420` bereit |
-| **Docker** | `npm run docker:up` | der Core als Container unter `http://127.0.0.1:7420` (Heimserver, NAS) |
+| **Docker** | `npm run docker:up` | der Core als Container unter `https://127.0.0.1:7420` (Heimserver, NAS) |
 
 **Zugriff aus dem Browser wird gekoppelt.** Öffne die Adresse und gib den Einmal-Code ein. Den
 Code bekommst du auf einem dieser Wege:
@@ -58,6 +58,15 @@ ist das erste Gerät Admin).
 
 **Die Desktop-App kann die Web-UI auch selbst ausliefern:** Schalte Settings → Remote access →
 *Run the API server* ein, fürs Handy zusätzlich *Reachable on the local network*.
+
+**Im Netzwerk verschlüsselt:** Sobald der Core übers Netzwerk erreichbar ist (*Reachable on the
+local network*, `MINDECK_LAN=1`, Docker), spricht er dort nur HTTPS/WSS — mit einem selbst
+ausgestellten Zertifikat (im Datenordner unter `data/tls`, rechtzeitig und bei neuer IP erneuert).
+Der Browser warnt einmal; der QR-Code und die Kopplungsseite zeigen den SHA-256-Fingerabdruck des
+Zertifikats, den du mit dem im Browser vergleichst. Der Computer selbst behält
+`http://127.0.0.1:7420`. Abschalten: *Encrypted (HTTPS)* bzw. `MINDECK_TLS=0` (etwa hinter einem
+Reverse-Proxy); ein eigenes Zertifikat: `MINDECK_TLS_CERT` + `MINDECK_TLS_KEY`. Details:
+[docs/API.md](docs/API.md#encryption-https--wss).
 
 ### Agents
 
@@ -116,7 +125,7 @@ Weitere Skripte:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # die Web-UI → out/web
 npm run server:build  # der eigenständige Core → out/server/index.cjs
-npm run server        # ihn starten (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
+npm run server        # ihn starten (MINDECK_PORT, MINDECK_LAN, MINDECK_TLS, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
 npm run web:dev       # Web-UI mit HMR; leitet /api an einen Core auf :7420 weiter
 npm run typecheck     # tsc für node (electron + server), web (renderer) und die Tests
 ```
@@ -304,7 +313,7 @@ Mindeck is one **core** (all services) with three ways to run it:
 |---|---|---|
 | **Desktop app** | `npm run dev` | Electron window (HMR in dev) |
 | **Web UI + API, no Docker** | `npm run web` | builds the web UI and the core server and serves both on `http://127.0.0.1:7420` |
-| **Docker** | `npm run docker:up` | the core as a container on `http://127.0.0.1:7420` (home server, NAS) |
+| **Docker** | `npm run docker:up` | the core as a container on `https://127.0.0.1:7420` (home server, NAS) |
 
 **Browser access is paired.** Open the address and enter the one-time code. You get the code in
 one of these ways:
@@ -323,6 +332,15 @@ the core in or out of the account are for the desktop and *admin* devices (chose
 
 **The desktop app can serve the web UI too:** turn on Settings → Remote access → *Run the API
 server*, and also *Reachable on the local network* for your phone.
+
+**Encrypted on the network:** as soon as the core is reachable over the network (*Reachable on the
+local network*, `MINDECK_LAN=1`, Docker), it speaks HTTPS/WSS only there — with a certificate it
+makes itself (kept in the data folder under `data/tls`, renewed in time and for a new IP). The
+browser warns once; the QR code and the pairing page show the certificate's SHA-256 fingerprint
+to compare with the one in the browser. The computer itself keeps `http://127.0.0.1:7420`. To
+switch it off: *Encrypted (HTTPS)* or `MINDECK_TLS=0` (e.g. behind a reverse proxy); an own
+certificate: `MINDECK_TLS_CERT` + `MINDECK_TLS_KEY`. Details:
+[docs/API.md](docs/API.md#encryption-https--wss).
 
 ### Agents
 
@@ -376,7 +394,7 @@ Other scripts:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # the web UI → out/web
 npm run server:build  # the standalone core → out/server/index.cjs
-npm run server        # run it (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
+npm run server        # run it (MINDECK_PORT, MINDECK_LAN, MINDECK_TLS, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
 npm run web:dev       # web UI with HMR; proxies /api to a core on :7420
 npm run typecheck     # tsc for node (electron + server), web (renderer) and the tests
 ```

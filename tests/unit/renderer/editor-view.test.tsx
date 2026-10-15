@@ -363,7 +363,42 @@ describe('EditorView', () => {
     expect(checkDisk.mock.calls.length).toBeGreaterThan(polls)
     fireEvent.keyDown(window, { key: 's', metaKey: true })
     expect(save).toHaveBeenCalledTimes(2)
+
+    // the window hidden, Mindeck running in the background: no disk and git polling for hours
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    const idle = checkDisk.mock.calls.length
+    act(() => {
+      vi.advanceTimersByTime(9000)
+    })
+    expect(checkDisk).toHaveBeenCalledTimes(idle)
+    hidden.mockReturnValue(false)
+    fireEvent.focus(window) // back on screen: it looks again
+    expect(checkDisk).toHaveBeenCalledTimes(idle + 1)
     vi.useRealTimers()
+  })
+
+  it('⌘W / Ctrl+W closes the editor’s tab (asking when it has edits) — without one the key is the workspace’s', async () => {
+    installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [] })
+    useProjects.setState({ projects: [project('p')] })
+    const requestClose = vi.fn()
+    useEditor.setState({ ...seed([tab('a.ts')]), requestClose })
+    render(view(true))
+    await act(settle)
+    const press = (init: KeyboardEventInit) => {
+      const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+      window.dispatchEvent(e)
+      return e.defaultPrevented
+    }
+    expect(press({ key: 'w', metaKey: true })).toBe(true)
+    expect(requestClose).toHaveBeenCalledWith('p:a.ts')
+    expect(press({ key: 'w', ctrlKey: true, altKey: true })).toBe(false)
+    act(() => useEditor.setState({ activeId: undefined }))
+    expect(press({ key: 'w', ctrlKey: true })).toBe(false) // nothing open: the pane closes
+    expect(requestClose).toHaveBeenCalledTimes(1)
+    // An empty group next to others closes itself (like VS Code).
+    act(() => e().split('right', 'p:none'))
+    expect(press({ key: 'w', metaKey: true })).toBe(true)
+    expect(e().groups).toHaveLength(1)
   })
 
   it('unsaved edits veto closing the window', async () => {

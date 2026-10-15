@@ -198,6 +198,7 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     console: vi.fn(),
     shortcut: vi.fn(),
     focused: vi.fn(),
+    workspaceKey: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
@@ -311,7 +312,7 @@ describe('the browser host · views', () => {
     expect(await host.freeze()).toBeNull() // nothing on screen
     host.setBounds({ x: 0, y: 0, width: 10, height: 10 })
     host.show('a')
-    expect(await host.freeze()).toBe(`data:image/jpeg;base64,${Buffer.from('jpeg85').toString('base64')}`)
+    expect(await host.freeze()).toEqual({ a: `data:image/jpeg;base64,${Buffer.from('jpeg85').toString('base64')}` })
     expect(a.visible).toBe(false)
     expect(await host.freeze()).toBeNull() // already frozen
     host.unfreeze()
@@ -578,6 +579,18 @@ describe('the browser host · what pages report', () => {
     expect(ev.shortcut).not.toHaveBeenCalledWith('find', 'a')
   })
 
+  it('hands the workspace’s keys from a page to the Mindeck UI (a page would swallow them)', () => {
+    const { win, ev, open } = setup()
+    const c = open('a').webContents
+    const mac = process.platform === 'darwin'
+    const pane = { preventDefault: vi.fn() }
+    c.emit('before-input-event', pane, { ...key('ArrowLeft', { meta: mac, control: !mac, alt: true }), code: 'ArrowLeft' })
+    expect(pane.preventDefault).toHaveBeenCalled()
+    expect(win.webContents.focus).toHaveBeenCalled()
+    expect(ev.workspaceKey).toHaveBeenCalledWith({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: mac, ctrlKey: !mac, altKey: true, shiftKey: false })
+    expect(ev.shortcut).not.toHaveBeenCalled() // not the browser's previous tab any more
+  })
+
   it('builds the page context menu and does what each entry says', () => {
     const { ev, open } = setup()
     const c = open('a').webContents
@@ -693,6 +706,8 @@ describe('the browser profile (session)', () => {
       setPermissionCheckHandler: (fn: (...a: unknown[]) => boolean) => (p.check = fn),
       setDisplayMediaRequestHandler: (fn: (...a: unknown[]) => void, opts: unknown) => ((p.display = fn), (p.displayOpts = opts)),
       on: (_event: string, fn: (...a: unknown[]) => void) => (p.download = fn),
+      persistent: true,
+      isPersistent: () => p.persistent,
       setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn),
       headers: undefined as undefined | ((details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void),
       headerFilter: undefined as unknown,
@@ -740,19 +755,36 @@ describe('the browser profile (session)', () => {
 
     const run = vi.fn()
     Object.defineProperty(process, 'platform', { value: 'linux' })
-    s.quarantine('/d/a.zip', run as never)
+    s.quarantine('/d/a.zip', 'https://a.dev/a.zip', run as never)
     expect(run).not.toHaveBeenCalled()
+    // Windows: the Mark of the Web (SmartScreen, Protected View) — the web address without credentials, else the internet zone.
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const write = vi.fn(async () => {})
+    s.quarantine('C:\\D\\a.exe', 'https://user:pw@a.dev/dl/a.exe?v=1#x', run as never, write)
+    s.quarantine('C:\\D\\b.exe', 'blob:https://a.dev/1234', run as never, write)
+    s.quarantine('C:\\D\\c.exe', 'not a url', run as never, write)
+    expect(write.mock.calls).toEqual([
+      ['C:\\D\\a.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://a.dev/dl/a.exe?v=1\r\n'],
+      ['C:\\D\\b.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n'],
+      ['C:\\D\\c.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n']
+    ])
+    expect(run).not.toHaveBeenCalled()
+    // A disk without streams refuses: nothing breaks.
+    s.quarantine('C:\\D\\d.exe', 'https://a.dev/', run as never, async () => Promise.reject(new Error('EINVAL')))
+    // The real file system (here: a file whose name ends in the stream's).
+    s.quarantine(`${dir}/e.exe`, 'https://a.dev/e.exe')
+    await vi.waitFor(async () => expect((await import('node:fs')).existsSync(`${dir}/e.exe:Zone.Identifier`)).toBe(true))
     Object.defineProperty(process, 'platform', { value: 'darwin' })
-    s.quarantine('/d/a.zip', run as never)
+    s.quarantine('/d/a.zip', 'https://a.dev/a.zip', run as never)
     expect(run).toHaveBeenLastCalledWith('xattr', ['-p', 'com.apple.quarantine', '/d/a.zip'], expect.any(Function))
     ;(run.mock.calls[0][2] as (err: Error | null) => void)(new Error('no such xattr'))
     expect(run).toHaveBeenLastCalledWith('xattr', ['-w', 'com.apple.quarantine', expect.stringMatching(/^0081;[0-9a-f]+;Mindeck;[0-9A-F-]{36}$/), '/d/a.zip'], expect.any(Function))
     ;(run.mock.calls[1][2] as () => void)()
     run.mockClear()
-    s.quarantine('/d/b.zip', run as never)
+    s.quarantine('/d/b.zip', 'https://a.dev/b.zip', run as never)
     ;(run.mock.calls[0][2] as (err: Error | null) => void)(null) // Chromium marked it already
     expect(run).toHaveBeenCalledTimes(1)
-    s.quarantine('/d/c.zip') // the real execFile (mocked here)
+    s.quarantine('/d/c.zip', 'https://a.dev/c.zip') // the real execFile (mocked here)
     expect(h.exec).toHaveBeenCalledWith('xattr', ['-p', 'com.apple.quarantine', '/d/c.zip'], expect.any(Function))
   })
 
@@ -921,6 +953,13 @@ describe('the browser profile (session)', () => {
     h.exec.mockClear()
     cancelled.handlers.done({}, 'cancelled')
     expect(h.exec).not.toHaveBeenCalled()
+    expect(started).not.toHaveProperty('private')
+    // a private tab's profile (in memory): its downloads say so — they are never written down
+    const priv = profile()
+    priv.persistent = false
+    s.configureBrowserSession(priv as never, () => current)
+    priv.download!({}, item(), {})
+    expect(ev.download.mock.calls.at(-1)![0]).toMatchObject({ filename: 'report.pdf', private: true })
     // the window went away mid-download: nothing to tell
     current = null
     const orphan = item()
@@ -965,7 +1004,7 @@ describe('the browser keys', () => {
 
   it('are Chrome’s keys with ⌘ on macOS', () => {
     const cmd = { meta: true }
-    const table: [ReturnType<typeof k>, string | null][] = [
+    const table: [ReturnType<typeof k> & { code?: string }, string | null][] = [
       [k('t', cmd), 'newTab'],
       [k('W', cmd), 'closeTab'],
       [k('l', cmd), 'focusOmnibox'],
@@ -991,8 +1030,9 @@ describe('the browser keys', () => {
       [k('[', { meta: true, shift: true }), 'prevTab'],
       [k('i', { meta: true, shift: true }), null],
       [k('q', { meta: true, shift: true }), null],
-      [k('ArrowRight', { meta: true, alt: true }), 'nextTab'],
-      [k('ArrowLeft', { meta: true, alt: true }), 'prevTab'],
+      // ⌘⌥←/→ move between the workspace's panes
+      [k('ArrowRight', { meta: true, alt: true }), null],
+      [k('ArrowLeft', { meta: true, alt: true }), null],
       [k('i', { meta: true, alt: true }), 'devtools'],
       [k('ˆ', { meta: true, alt: true }), 'devtools'],
       [k('x', { meta: true, alt: true }), null],
@@ -1002,6 +1042,12 @@ describe('the browser keys', () => {
       [k('A', { meta: true, shift: true }), 'tabSearch'],
       [k('B', { meta: true, shift: true }), 'bookmarksBar'],
       [k('o', { meta: true, shift: true }), null],
+      [k('G', { meta: true, shift: true }), 'newGroup'],
+      [k('D', { meta: true, shift: true }), 'split'],
+      [k('<', { meta: true, shift: true }), 'verticalTabs'],
+      [k(',', { meta: true, shift: true }), 'verticalTabs'],
+      [{ ...k(';', { meta: true, shift: true }), code: 'Comma' }, 'verticalTabs'],
+      [k(';', { meta: true, shift: true }), null],
       [k('b', { meta: true, alt: true }), 'bookmarkManager'],
       [k('∫', { meta: true, alt: true }), 'bookmarkManager'],
       [k('Tab', { control: true }), 'nextTab'],
@@ -1026,12 +1072,133 @@ describe('the browser keys', () => {
     expect(match(k('ArrowLeft', { alt: true }), false)).toBe('back')
     expect(match(k('ArrowRight', { alt: true }), false)).toBe('forward')
     expect(match(k('ArrowUp', { alt: true }), false)).toBeNull()
-    expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBe('prevTab')
+    expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBeNull() // the workspace's pane focus
     expect(match(k('ArrowLeft', { alt: true, meta: true }), false)).toBeNull()
     expect(match(k('h', ctrl), false)).toBe('history')
     expect(match(k('y', ctrl), false)).toBeNull()
     expect(match(k('O', { control: true, shift: true }), false)).toBe('bookmarkManager')
     expect(match(k('b', { control: true, alt: true }), false)).toBeNull()
     expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
+    expect(match(k('G', { control: true, shift: true }), false)).toBe('newGroup')
+    expect(match({ ...k('<', { control: true, shift: true }), code: 'Comma' }, false)).toBe('verticalTabs')
+  })
+})
+
+describe('the browser host · split view', () => {
+  const area = { x: 0, y: 40, width: 1000, height: 600 }
+  const panes = [
+    { id: 'a', bounds: { x: 0, y: 40, width: 497, height: 600 } },
+    { id: 'b', bounds: { x: 503, y: 40, width: 497, height: 600 } }
+  ]
+
+  it('shows two pages side by side, each in its pane — the second only once its pane is known', () => {
+    const { host, open } = setup()
+    const a = open('a')
+    const b = open('b')
+    const c = open('c')
+    host.setBounds(area)
+    host.show('a', 'b')
+    // the UI has not told where the panes are yet: the focused page fills the place, the other waits
+    expect([a.visible, b.visible, c.visible]).toEqual([true, false, false])
+    expect(a.bounds).toEqual({ x: 0, y: 40, width: 1000, height: 600 })
+    host.setBounds(area, true, panes)
+    expect([a.visible, b.visible, c.visible]).toEqual([true, true, false])
+    expect(a.bounds).toEqual(panes[0].bounds)
+    expect(b.bounds).toEqual(panes[1].bounds)
+    expect(c.bounds).toEqual({ x: 0, y: 40, width: 1000, height: 600 }) // hidden ones keep the whole place
+    // the focused side has no page (a new-tab page): only the other one shows
+    host.show(undefined, 'b')
+    expect([a.visible, b.visible]).toEqual([false, true])
+    // back to one page: it fills the place again once the UI says so
+    host.show('a')
+    host.setBounds(area)
+    expect([a.visible, b.visible]).toEqual([true, false])
+    expect(a.bounds).toEqual({ x: 0, y: 40, width: 1000, height: 600 })
+    // a pane for a tab without a view changes nothing; the module hidden hides both
+    host.setBounds(area, true, [{ id: 'gone', bounds: panes[0].bounds }, panes[1]])
+    host.show('a', 'b')
+    expect([a.visible, b.visible]).toEqual([true, true])
+    host.setBounds(null, true, panes)
+    expect([a.visible, b.visible]).toEqual([false, false])
+  })
+
+  it('freezes both pages of a split as pictures, by tab', async () => {
+    const { host, open } = setup()
+    const a = open('a')
+    const b = open('b')
+    host.setBounds(area, true, panes)
+    host.show('a', 'b')
+    const shot = `data:image/jpeg;base64,${Buffer.from('jpeg85').toString('base64')}`
+    expect(await host.freeze()).toEqual({ a: shot, b: shot })
+    expect([a.visible, b.visible]).toEqual([false, false])
+    host.unfreeze()
+    expect([a.visible, b.visible]).toEqual([true, true])
+    // one page has no picture (still painting): the other's still comes
+    b.webContents.image = new FakeImage(0, 0, true)
+    expect(await host.freeze()).toEqual({ a: shot })
+  })
+
+  it('turns submenus of the core’s menu entries into native submenus', () => {
+    const run = vi.fn()
+    const entries: MenuEntry[] = [{ label: 'Add Tab to Group', run: () => {}, submenu: [{ label: 'Work', run }] }]
+    const [item] = menuTemplate(entries)
+    expect(item).toMatchObject({ label: 'Add Tab to Group', enabled: true })
+    expect(item.click).toBeUndefined()
+    const [work] = item.submenu as Electron.MenuItemConstructorOptions[]
+    work.click!(undefined as never, undefined as never, undefined as never)
+    expect(run).toHaveBeenCalled()
+  })
+})
+
+describe('the workspace keys a page hands on', () => {
+  let wsKey: typeof import('../../../electron/main/platform/browser/shortcuts').workspaceKey
+  let match: typeof import('../../../electron/main/platform/browser/shortcuts').matchShortcut
+  beforeAll(async () => {
+    ;({ workspaceKey: wsKey, matchShortcut: match } = await import('../../../electron/main/platform/browser/shortcuts'))
+  })
+  type Mods = Partial<Record<'meta' | 'control' | 'alt' | 'shift', boolean>>
+  const k = (keyName: string, mods: Mods = {}, code?: string, type = 'keyDown') => ({ ...key(keyName, mods), type, ...(code ? { code } : {}) })
+
+  it('are ⌘ with ⌥ arrows and digits, ⌥Z, ⇧W, ⇧↵ and \\ on macOS — by the key’s place where ⌥ changes it', () => {
+    const yes = [
+      k('ArrowUp', { meta: true, alt: true }),
+      k('¡', { meta: true, alt: true }, 'Digit1'),
+      k('Ω', { meta: true, alt: true }, 'KeyZ'),
+      k('W', { meta: true, shift: true }, 'KeyW'),
+      k('Enter', { meta: true, shift: true }),
+      k('\\', { meta: true })
+    ]
+    for (const input of yes) {
+      expect(wsKey(input, true), JSON.stringify(input)).toMatchObject({ key: input.key, metaKey: true })
+      // never a browser key as well
+      expect(match(input, true), JSON.stringify(input)).toBeNull()
+    }
+    const no = [
+      k('ArrowUp', { meta: true, alt: true }, undefined, 'keyUp'),
+      k('ArrowUp', { meta: true, control: true, alt: true }),
+      k('ArrowUp', { control: true, alt: true }),
+      k('¡', { meta: true, alt: true }),
+      k('0', { meta: true, alt: true }, 'Digit0'),
+      k('z', { meta: true, alt: true }),
+      k('x', { meta: true, alt: true }, 'KeyX'),
+      k('w', { meta: true, shift: true }),
+      k('q', { meta: true, shift: true }, 'KeyQ'),
+      k('Enter', { meta: true, shift: true, alt: true }),
+      k('\\', { meta: true, shift: true, alt: true }),
+      k('t', { meta: true })
+    ]
+    for (const input of no) expect(wsKey(input, true), JSON.stringify(input)).toBeNull()
+  })
+
+  it('are Ctrl combinations by the key itself on Windows and Linux', () => {
+    expect(wsKey(k('ArrowRight', { control: true, alt: true }), false)).toEqual({ key: 'ArrowRight', code: '', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false })
+    expect(wsKey(k('3', { control: true, alt: true }, 'Digit3'), false)).toMatchObject({ key: '3', code: 'Digit3' })
+    expect(wsKey(k('Z', { control: true, alt: true }), false)).toMatchObject({ key: 'Z' })
+    expect(wsKey(k('w', { control: true, shift: true }), false)).toMatchObject({ key: 'w', shiftKey: true })
+    expect(wsKey(k('\\', { control: true }), false)).toMatchObject({ key: '\\' })
+    // AltGr (Ctrl+Alt) types characters: those are text
+    expect(wsKey(k('@', { control: true, alt: true }, 'KeyQ'), false)).toBeNull()
+    expect(wsKey(k('\\', { meta: true }), false)).toBeNull()
+    expect(wsKey(k('\\', { control: true, meta: true }), false)).toBeNull()
   })
 })

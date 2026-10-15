@@ -27,7 +27,8 @@ export function macKeys(): boolean {
  * maximizes it, ⌘⌥Z toggles zen mode, ⌘⌥1…9 switch saved workspaces.
  * They avoid the browser's keys (shortcuts.ts) and the editor's; where one
  * overlaps a key of the module in focus, the module keeps it (see
- * `Workspace`). Full screen (⌃⌘F, F11) is the main process's in the app
+ * `Workspace`). A web page with the keyboard hands them on (the main
+ * process's `workspaceKey` in shortcuts.ts). Full screen (⌃⌘F, F11) is the main process's in the app
  * (shortcuts.ts) and the browser's own on the web — `fullscreen` here only
  * runs from the menu and the palette.
  */
@@ -75,4 +76,14 @@ export function keyLabel(type: keyof typeof MAC_LABELS, mac: boolean = macKeys()
 export function workspaceKey(index: number, mac: boolean = macKeys()): string | undefined {
   if (index > 8) return undefined
   return mac ? `⌥⌘${index + 1}` : `Ctrl+Alt+${index + 1}`
+}
+
+/**
+ * ⌘W (Ctrl+W elsewhere): the module in focus closes what it has open — the
+ * editor's tab, the browser's, the terminal's (macOS; Ctrl+W is the shell's),
+ * a Files tab — and prevents the default; otherwise the workspace closes the pane.
+ */
+export function isCloseKey(e: KeyLike, mac: boolean): boolean {
+  const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+  return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w'
 }

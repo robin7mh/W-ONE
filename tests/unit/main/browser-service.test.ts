@@ -18,7 +18,7 @@ function fakeHost() {
     go: vi.fn(),
     show: vi.fn(),
     setBounds: vi.fn(),
-    freeze: vi.fn(async () => 'data:image/jpeg;base64,x'),
+    freeze: vi.fn(async (): Promise<Record<string, string> | null> => ({ t: 'data:image/jpeg;base64,x' })),
     unfreeze: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
@@ -386,6 +386,12 @@ describe('BrowserService · tools, menus and suggestions', () => {
       'Für Agents freigeben',
       'Im System-Browser öffnen',
       '—',
+      'Zu neuer Gruppe hinzufügen',
+      '—',
+      'Mit neuem Tab teilen',
+      '—',
+      'Vertikale Tabs',
+      '—',
       'Tab schließen',
       'Andere Tabs schließen'
     ])
@@ -568,6 +574,9 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     const active = () => b.state().activeId
     events.focused('x') // a click into a page: the UI moves its focus to the browser's pane
     expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'focused' } })
+    const wsKey = { key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, ctrlKey: false, altKey: true, shiftKey: false }
+    events.workspaceKey(wsKey) // a pane key pressed in a page: the UI's workspace acts on it
+    expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'workspaceKey', key: wsKey } })
     events.shortcut('newTab')
     expect(b.state().tabs.at(-1)!.url).toBe('')
     expect(host.focusUi).toHaveBeenCalled()
@@ -605,7 +614,7 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     events.shortcut('hardReload')
     await tick()
     const commands = published.filter((p) => p.channel === 'browser:command').map((p) => (p.payload as { command: string }).command)
-    expect(commands).toEqual(['focused', 'focusOmnibox', 'focusOmnibox', 'find'])
+    expect(commands).toEqual(['focused', 'workspaceKey', 'focusOmnibox', 'focusOmnibox', 'find'])
   })
 
   it('answers the page: search for a selection, send to an agent, find results, console', async () => {
@@ -770,7 +779,7 @@ describe('BrowserService · the rest of the way', () => {
   it('freezes the visible page for menus, opens links in new tabs, and shows a tab it is asked to', async () => {
     const { b, host, events, ids } = await setup()
     b.attach(host)
-    await expect(b.freeze()).resolves.toBe('data:image/jpeg;base64,x')
+    await expect(b.freeze()).resolves.toEqual({ t: 'data:image/jpeg;base64,x' })
     b.unfreeze()
     expect(host.unfreeze).toHaveBeenCalled()
     const first = b.open({ url: 'https://a.dev/' })

@@ -41,6 +41,8 @@ export interface SearchProgress {
   /** Stopped at the match limit — there is more. */
   truncated?: boolean
   error?: string
+  /** The paired device that searched: only it hears the results (none: the desktop's search, for no device). */
+  device?: string
 }
 
 export type SearchEngine = 'ripgrep' | 'builtin'

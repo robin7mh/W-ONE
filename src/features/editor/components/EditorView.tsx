@@ -314,8 +314,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   // While visible: follow the disk, and ⌘S / Ctrl+S saves (while focused).
   useEffect(() => {
     if (!active) return
-    // Disk and git both follow edits made elsewhere (agents, terminals, other editors).
+    // Disk and git both follow edits made elsewhere (agents, terminals, other editors) — not while the
+    // window is hidden with Mindeck running in the background (no git status every few seconds for hours);
+    // the window coming back has the focus, and that looks again.
     const check = () => {
+      if (document.hidden) return
       void useEditor.getState().checkDisk()
       void useScm.getState().refresh()
     }
@@ -352,7 +355,13 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         useSearch.getState().set({ showReplace: true })
       }
       else if (key === 'g' && e.shiftKey) scm.setPane('scm')
-      else if (key === '\\') useEditor.getState().split('right')
+      // ⌘W / Ctrl+W: the focused group's tab (asking first when it has unsaved edits) — an empty group of several
+      // closes itself, like VS Code; with nothing to close, the workspace closes the pane.
+      else if (key === 'w' && !e.shiftKey && !e.altKey && (useEditor.getState().activeId || useEditor.getState().groups.length > 1)) {
+        const editor = useEditor.getState()
+        if (editor.activeId) editor.requestClose(editor.activeId)
+        else editor.closeGroup()
+      } else if (key === '\\') useEditor.getState().split('right')
       else return
       e.preventDefault()
     }

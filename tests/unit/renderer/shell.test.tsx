@@ -630,6 +630,15 @@ describe('AppShell with panes', () => {
 
     act(() => handlers.focused!()) // a click into the page
     expect(useWorkspace.getState().layout.focus).toBe('p2')
+    // a workspace key pressed in the page: the focus moves to the pane on the left
+    const { macKeys } = await import('@/features/workspace/keys')
+    const mac = macKeys()
+    const paneKey = (key: string) => ({ key, code: key, metaKey: mac, ctrlKey: !mac, altKey: true, shiftKey: false })
+    act(() => handlers.workspaceKey!(paneKey('PageUp'))) // not one of the workspace's
+    expect(useWorkspace.getState().layout.focus).toBe('p2')
+    act(() => handlers.workspaceKey!(paneKey('ArrowLeft')))
+    expect(useWorkspace.getState().layout.focus).toBe('p1')
+    act(() => handlers.focused!())
     fireEvent.click(screen.getByTitle('Core')) // the side navigation fills the focused pane
     expect(useWorkspace.getState().layout.panes.map((p) => p.module)).toEqual(['agents', 'core'])
     expect(screen.getByText('DASHBOARD')).toBeInTheDocument()

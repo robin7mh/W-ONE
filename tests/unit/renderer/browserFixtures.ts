@@ -25,6 +25,8 @@ export const state = (tabs: BrowserTab[], extra: Partial<BrowserState> = {}): Br
   downloads: [],
   permissions: [],
   devServers: [],
+  groups: [],
+  splits: [],
   ...extra
 })
 

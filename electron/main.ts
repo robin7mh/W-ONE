@@ -16,6 +16,7 @@ import { manualUpdateFile, UpdateService } from './main/services/update/UpdateSe
 import { createBrowserHost } from './main/platform/browser/host'
 import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
+import { appMenuTemplate } from './main/platform/menu'
 
 /** A 1×1 picture for drags whose file has no icon. */
 const DRAG_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
@@ -334,6 +335,8 @@ app.whenReady().then(async () => {
       }
     })
   )
+  // Mindeck's own menu: Electron's default one would reload the UI on ⌘R and close the window on ⌘W.
+  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, !app.isPackaged)))
   await startCore()
   createWindow()
   // The Dock (macOS), or a second start: the window back — a new one if it really closed.
