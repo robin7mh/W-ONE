@@ -299,6 +299,16 @@ describe('markdown', () => {
     expect(html).not.toMatch(/<script|onerror/)
   })
 
+  it('shows pictures only from the vault: embeds and sources move to data-embed, data: stays', () => {
+    const html = renderMarkdown('![[bild.png]] ![[w.jpg|300]] ![[Note]] ![alt](attachments/a%20b.png) ![remote](https://x.dev/p.png) ![inline](data:image/png;base64,AA)', {})
+    expect(html).toContain('<img class="embed" data-embed="bild.png" alt="bild.png">')
+    expect(html).toContain('<img class="embed" data-embed="w.jpg" alt="w.jpg" width="300">')
+    expect(html).toContain('data-target="Note">Note</a>')
+    expect(html).toContain('<img alt="alt" data-embed="attachments/a%20b.png">')
+    expect(html).toContain('<img alt="remote" data-embed="https://x.dev/p.png">')
+    expect(html).toContain('<img src="data:image/png;base64,AA" alt="inline">')
+  })
+
   it('escapes HTML inside link labels and tags', () => {
     const html = renderMarkdown('[[a&b|<x>"]]', {})
     expect(html).toContain('data-target="a&amp;b"')

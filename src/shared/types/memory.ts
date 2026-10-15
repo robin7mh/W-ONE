@@ -120,6 +120,12 @@ export function isAttachmentTarget(target: string): boolean {
   return !!m && ATTACHMENT_EXTS.has(m[1].toLowerCase())
 }
 
+/** `bild.PNG` → a picture Mindeck shows inline. */
+export function isImageTarget(target: string): boolean {
+  const m = /\.([a-z0-9]+)$/i.exec(target.trim())
+  return !!m && (IMAGE_EXTS as readonly string[]).includes(m[1].toLowerCase())
+}
+
 /** A vault file for the renderer: a picture as a data: URL. */
 export interface VaultAttachment {
   /** Vault-relative path. */
