@@ -156,6 +156,8 @@ function UpdateRow() {
           ? t.update.downloading(status.progress ?? 0)
           : status.state === 'ready'
             ? t.update.ready(status.version ?? '')
+            : status.state === 'available'
+              ? t.update.available(status.version ?? '')
             : status.state === 'error'
               ? t.update.error
               : t.update.idle
@@ -168,6 +170,10 @@ function UpdateRow() {
         <button type="button" onClick={() => void update.install()} className={cn(primaryButton, 'ml-auto !py-1.5')}>
           {t.update.install}
         </button>
+      ) : status.state === 'available' && status.downloadUrl ? (
+        <a href={status.downloadUrl} target="_blank" rel="noreferrer" className={cn(primaryButton, 'ml-auto !py-1.5')}>
+          {t.update.download}
+        </a>
       ) : (
         status.state !== 'disabled' &&
         status.state !== 'downloading' && (
@@ -194,7 +200,7 @@ export function AccountView() {
     : []
   return (
     <Panel title={t.account.title} corners flush className="min-h-0 flex-1" bodyClassName="min-h-0 overflow-y-auto">
-      <div className="grid gap-3 p-3 lg:grid-cols-2">
+      <div className="grid gap-3 p-3 pane-lg:grid-cols-2">
         <Card icon={UserRound} title={t.account.accountCard}>
           {cloud ? <AccountCard status={cloud} /> : <p className="font-mono text-[11px] text-text-muted">{t.account.linking}</p>}
         </Card>

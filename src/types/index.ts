@@ -4,6 +4,8 @@ export type ModuleId =
   | 'core'
   | 'editor'
   | 'terminal'
+  | 'browser'
+  | 'files'
   | 'projects'
   | 'memory'
   | 'agents'

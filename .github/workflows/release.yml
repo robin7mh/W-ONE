@@ -1,0 +1,197 @@
+# The desktop app for every platform, in one GitHub release (tags v*):
+# macOS arm64 + x64 (signed and notarized), Windows x64 + arm64 in one NSIS
+# installer (signed when a certificate or Azure Trusted Signing is set up),
+# Linux AppImage + .deb per architecture (node-pty is compiled there, so each
+# architecture builds on its own runner). The latest*.yml feeds go along for
+# electron-updater. A manual run builds everything and keeps it as workflow
+# artifacts — no release. Secrets: docs/RELEASE.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (arm64 + x64)
+            os: macos-latest
+            platform: mac
+            arch: universal
+          - name: Windows (x64 + arm64)
+            os: windows-latest
+            platform: win
+            arch: universal
+          - name: Linux x64
+            os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - name: Linux arm64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: The tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json ($version) — the update feed would announce the wrong version."
+            exit 1
+          fi
+
+      # electron-builder's bundled fpm (for the .deb) is x64 only.
+      - name: fpm for the arm64 .deb
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rpm
+          sudo gem install --no-document fpm
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: Build (Mindeck Cloud baked in)
+        run: npm run build
+        env:
+          MINDECK_CLOUD_URL: ${{ vars.MINDECK_CLOUD_URL }}
+          MINDECK_CLOUD_KEY: ${{ secrets.MINDECK_CLOUD_KEY }}
+
+      - name: Package macOS (signed + notarized)
+        if: matrix.platform == 'mac'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          args=(--mac --arm64 --x64 --publish never)
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::CSC_LINK is not set — the macOS build is NOT signed or notarized; Gatekeeper blocks it on other Macs."
+            unset CSC_LINK CSC_KEY_PASSWORD
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            args+=(-c.mac.identity=null)
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          elif [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::warning::APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are incomplete — signed, but NOT notarized."
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          npx electron-builder "${args[@]}"
+
+      - name: Package Windows (signed when a certificate or Azure Trusted Signing is set up)
+        if: matrix.platform == 'win'
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+          AZURE_PUBLISHER_NAME: ${{ secrets.AZURE_PUBLISHER_NAME }}
+        run: |
+          args=(--win --x64 --arm64 --publish never)
+          export CSC_IDENTITY_AUTO_DISCOVERY=false
+          if [ -n "$WIN_CSC_LINK" ]; then
+            echo "Signing with the code signing certificate (WIN_CSC_LINK)."
+          elif [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_ENDPOINT" ] && [ -n "$AZURE_CODE_SIGNING_ACCOUNT" ] && [ -n "$AZURE_CERT_PROFILE" ] && [ -n "$AZURE_PUBLISHER_NAME" ]; then
+            echo "Signing with Azure Trusted Signing."
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+            args+=(
+              "-c.win.azureSignOptions.endpoint=$AZURE_ENDPOINT"
+              "-c.win.azureSignOptions.codeSigningAccountName=$AZURE_CODE_SIGNING_ACCOUNT"
+              "-c.win.azureSignOptions.certificateProfileName=$AZURE_CERT_PROFILE"
+              "-c.win.azureSignOptions.publisherName=$AZURE_PUBLISHER_NAME"
+            )
+          else
+            echo "::warning::Neither WIN_CSC_LINK nor the AZURE_* secrets are set — the Windows installer is NOT signed; SmartScreen warns on every download."
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          fi
+          npx electron-builder "${args[@]}"
+
+      - name: Package Linux
+        if: matrix.platform == 'linux'
+        run: |
+          args=(--linux --${{ matrix.arch }} --publish never)
+          # x64 keeps the plain names; arm64 adds its architecture.
+          if [ "${{ matrix.arch }}" != "x64" ]; then
+            args+=("-c.appImage.artifactName=\${productName}-${{ matrix.arch }}.\${ext}" "-c.deb.artifactName=\${productName}-${{ matrix.arch }}.\${ext}")
+          fi
+          npx electron-builder "${args[@]}"
+
+      - name: What was built
+        run: ls -l release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+
+  publish:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      # The website links releases/latest/download/<name>, the updaters read latest*.yml.
+      - name: Every download and feed is there
+        working-directory: release
+        run: |
+          missing=0
+          for file in Mindeck-mac-arm64.dmg Mindeck-mac-x64.dmg Mindeck-mac-arm64.zip Mindeck-mac-x64.zip \
+                      Mindeck-Setup.exe Mindeck.AppImage Mindeck.deb Mindeck-arm64.AppImage Mindeck-arm64.deb \
+                      latest-mac.yml latest.yml latest-linux.yml latest-linux-arm64.yml; do
+            if [ ! -f "$file" ]; then echo "::error::$file is missing"; missing=1; fi
+          done
+          ls -l
+          exit $missing
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

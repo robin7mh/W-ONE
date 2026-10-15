@@ -4,15 +4,17 @@ import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { ServerStatus } from '@shared/types/server'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext } from '@shared/types/context'
-import { isLoopback, pairingReachable, pairingUrl, useSettings } from '@/features/settings/store'
+import { canManage, isLoopback, myDeviceId, pairingReachable, pairingUrl, useSettings } from '@/features/settings/store'
 import { SettingsView } from '@/features/settings/components/SettingsView'
 import { SystemView } from '@/features/system/components/SystemView'
 import { ContextSection } from '@/features/projects/components/ContextSection'
 import { useContextStore } from '@/features/context/store'
 import { useAssistant } from '@/features/agents/store'
+import { useComposerPrefs } from '@/features/agents/composerPrefs'
 import { useSession } from '@/features/session/store'
 import { codeFromHash, PairScreen } from '@/features/session/components/PairScreen'
 import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
+import { BrowserCard } from '@/features/settings/components/BrowserCard'
 import { surfaceTokens, useAppearance } from '@/lib/theme'
 
 const initialSettings = useSettings.getState()
@@ -24,7 +26,7 @@ beforeEach(() => {
 })
 
 const server = (over: Partial<ServerStatus> = {}): ServerStatus => ({
-  config: { enabled: true, lan: false, port: 7420, remoteTerminal: false },
+  config: { enabled: true, lan: false, port: 7420, remoteTerminal: false, remoteRoots: [] },
   running: true,
   urls: ['http://127.0.0.1:7420'],
   configurable: true,
@@ -36,10 +38,13 @@ function settingsCore(over: Record<string, (p: never) => unknown> = {}) {
     'agents:detect': () => [],
     'server:status': () => server(),
     'server:devices': () => [
-      { id: 'd1', name: 'Pixel Phone', createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() },
-      { id: 'd2', name: 'Chrome · macOS', createdAt: new Date().toISOString() }
+      { id: 'd1', name: 'Pixel Phone', role: 'member', createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() },
+      { id: 'd2', name: 'Chrome · macOS', role: 'member', createdAt: new Date().toISOString() }
     ],
     'permission:grants': () => [{ agentId: 'assistant', toolName: 'memory_create_note', createdAt: '' }],
+    'server:setDeviceRole': ({ id, role }: { id: string; role: string }) => [
+      { id: 'd2', name: 'Chrome · macOS', role: id === 'd2' ? role : 'member', createdAt: new Date().toISOString() }
+    ],
     'server:configure': (patch: Record<string, unknown>) => server({ config: { ...server().config, ...patch } as never }),
     'server:createPairingCode': () => ({ code: 'ABCD-EFGH', expiresAt: '', urls: ['http://127.0.0.1:7420', 'http://192.168.1.9:7420'] }),
     'server:revokeDevice': () => undefined,
@@ -111,6 +116,22 @@ describe('settings store', () => {
     expect(s()).toMatchObject({ busy: false, error: 'port busy' })
   })
 
+  it('knows who may manage devices: the desktop window, or an admin device', () => {
+    const devices = [{ id: 'me', name: 'x', role: 'admin' as const, createdAt: '' }, { id: 'other', name: 'y', role: 'member' as const, createdAt: '' }]
+    expect(canManage(devices, true, null)).toBe(true)
+    expect(canManage(devices, false, 'me')).toBe(true)
+    expect(canManage(devices, false, 'other')).toBe(false)
+    expect(canManage(devices, false, null)).toBe(false)
+    localStorage.setItem('mindeck.deviceId', 'me')
+    expect(myDeviceId()).toBe('me')
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    expect(myDeviceId()).toBeNull()
+    get.mockRestore()
+    localStorage.removeItem('mindeck.deviceId')
+  })
+
   it('loads, configures, pairs (with a QR code), revokes; reports failures', async () => {
     installBridge(settingsCore())
     const s = () => useSettings.getState()
@@ -120,6 +141,9 @@ describe('settings store', () => {
     await s().configureServer({ lan: true })
     expect(s().server?.config.lan).toBe(true)
     await s().createPairing()
+    expect(window.mindeck!.invoke).toHaveBeenLastCalledWith('server:createPairingCode', {})
+    await s().createPairing('admin')
+    expect(window.mindeck!.invoke).toHaveBeenLastCalledWith('server:createPairingCode', { role: 'admin' })
     expect(s().pairing).toMatchObject({ code: 'ABCD-EFGH', url: expect.stringContaining('#pair=ABCD-EFGH') })
     expect(s().pairing!.qr).toContain('<svg')
     s().closePairing()
@@ -127,12 +151,19 @@ describe('settings store', () => {
     await settle() // closing reloads the device list
     await s().revokeDevice('d1')
     expect(s().devices.map((d) => d.id)).toEqual(['d2'])
-    await s().revokeGrant('assistant', 'memory_create_note')
+    await s().setDeviceRole('d2', 'admin')
+    expect(s().devices).toEqual([expect.objectContaining({ id: 'd2', role: 'admin' })])
+    await s().revokeGrant(s().grants[0])
+    expect(window.mindeck!.invoke).toHaveBeenLastCalledWith('permission:revoke', { agentId: 'assistant', toolName: 'memory_create_note' })
     expect(s().grants).toEqual([])
+    useSettings.setState({ grants: [{ agentId: 'claude-code', toolName: 'Write', projectId: 'p1', createdAt: '' }] })
+    await s().revokeGrant(s().grants[0])
+    expect(window.mindeck!.invoke).toHaveBeenLastCalledWith('permission:revoke', { agentId: 'claude-code', toolName: 'Write', projectId: 'p1' })
+    expect(s().projects).toEqual([]) // the bridge had no projects:list
 
     installBridge(
       Object.fromEntries(
-        ['server:status', 'server:configure', 'server:createPairingCode', 'server:revokeDevice', 'permission:revoke'].map((ch) => [ch, () => fail(`${ch} failed`)])
+        ['server:status', 'server:configure', 'server:createPairingCode', 'server:revokeDevice', 'server:setDeviceRole', 'permission:revoke'].map((ch) => [ch, () => fail(`${ch} failed`)])
       )
     )
     for (const [run, text] of [
@@ -140,7 +171,8 @@ describe('settings store', () => {
       [() => s().configureServer({}), 'server:configure failed'],
       [() => s().createPairing(), 'server:createPairingCode failed'],
       [() => s().revokeDevice('x'), 'server:revokeDevice failed'],
-      [() => s().revokeGrant('a', 't'), 'permission:revoke failed']
+      [() => s().setDeviceRole('x', 'admin'), 'server:setDeviceRole failed'],
+      [() => s().revokeGrant({ agentId: 'a', toolName: 't', createdAt: '' }), 'permission:revoke failed']
     ] as const) {
       await run()
       expect(s()).toMatchObject({ error: text, busy: false })
@@ -168,6 +200,47 @@ describe('SettingsView', () => {
     await act(settle)
     expect(detect).toHaveBeenCalledTimes(2)
     expect(screen.queryByText('Codex')).toBeNull()
+  })
+
+  it('the composer\'s send key and pushes to the phone (with a Mindeck account)', async () => {
+    const setPush = vi.fn(({ enabled }: { enabled: boolean }) => ({ enabled, signedIn: true }))
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: true }), 'agents:setPushSettings': setPush }))
+    render(<SettingsView />)
+    await act(settle)
+    const push = screen.getByRole('switch', { name: 'Notifications on your phone' })
+    expect(push).toBeChecked()
+    fireEvent.click(push)
+    await act(settle)
+    expect(setPush).toHaveBeenCalledWith({ enabled: false })
+    expect(push).not.toBeChecked()
+    const mod = screen.getByRole('switch', { name: '⌘/Ctrl+Enter sends' })
+    fireEvent.click(mod)
+    expect(useComposerPrefs.getState().sendKey).toBe('mod-enter')
+    fireEvent.click(mod)
+    expect(useComposerPrefs.getState().sendKey).toBe('enter')
+  })
+
+  it('pushes need a Mindeck account; a failing core changes nothing', async () => {
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: false }) }))
+    const { unmount } = render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).toBeDisabled()
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).not.toBeChecked()
+    expect(screen.getByText(/Sign in to your Mindeck account to get them/)).toBeInTheDocument()
+    unmount()
+
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: true }), 'agents:setPushSettings': () => fail('core down') }))
+    const second = render(<SettingsView />)
+    await act(settle)
+    fireEvent.click(screen.getByRole('switch', { name: 'Notifications on your phone' }))
+    await act(settle)
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).toBeChecked()
+    second.unmount()
+
+    installBridge(settingsCore({ 'agents:pushSettings': () => fail('core down') }))
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.queryByRole('switch', { name: 'Notifications on your phone' })).toBeNull()
   })
 
   it('pairing without the LAN explains itself; switching the LAN on brings the QR code (same code)', async () => {
@@ -309,11 +382,16 @@ describe('SettingsView', () => {
     fireEvent.blur(port)
     await act(settle)
 
-    // pairing + devices
+    // pairing (as admin) + devices and their roles
     act(() => useSettings.setState({ server: server() }))
+    fireEvent.click(screen.getByLabelText('Pair as admin'))
     fireEvent.click(screen.getByText('Pair a device'))
     await act(settle)
+    expect(window.mindeck!.invoke).toHaveBeenCalledWith('server:createPairingCode', { role: 'admin' })
     expect(screen.getByText('ABCD-EFGH')).toBeInTheDocument()
+    expect(screen.queryByText('For an admin device')).toBeNull() // the fake core answered a member code
+    act(() => useSettings.setState({ pairing: { ...useSettings.getState().pairing!, role: 'admin' } }))
+    expect(screen.getByText('For an admin device')).toBeInTheDocument()
     expect(screen.getByLabelText('Pairing QR code').innerHTML).toContain('<svg')
     fireEvent.click(screen.getByLabelText('Close pairing'))
     expect(screen.queryByText('ABCD-EFGH')).toBeNull()
@@ -322,12 +400,12 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByLabelText('Revoke Pixel Phone'))
     await act(settle)
     expect(screen.queryByText('Pixel Phone')).toBeNull()
+    choose('Role of Chrome · macOS', 'Admin')
+    await act(settle)
+    expect(useSettings.getState().devices[0].role).toBe('admin')
 
     // grants
     expect(screen.getByText('assistant → memory_create_note')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Revoke assistant memory_create_note'))
-    await act(settle)
-    expect(screen.getByText('No standing permissions')).toBeInTheDocument()
 
     // vault (desktop: native picker)
     expect(screen.getByText('/v')).toBeInTheDocument()
@@ -343,10 +421,92 @@ describe('SettingsView', () => {
     useSession.setState({ info: undefined })
   })
 
+  it('desktop: shared folders for paired devices', async () => {
+    installBridge(settingsCore())
+    render(<SettingsView />)
+    await act(settle)
+    // shared folders: added through the folder browser, removed with a click (a core from before has none)
+    act(() => useSettings.setState({ server: server({ config: { ...server().config, remoteRoots: undefined as never } }) }))
+    expect(screen.getByText('None — only the projects added here')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Add folder…'))
+    fireEvent.click(await screen.findByText('Share'))
+    await act(settle)
+    expect(useSettings.getState().server?.config.remoteRoots).toEqual(['/srv/notes'])
+    fireEvent.click(screen.getByText('Add folder…'))
+    fireEvent.click(await screen.findByText('Share')) // already shared: nothing changes
+    await act(settle)
+    fireEvent.click(screen.getByText('Add folder…'))
+    fireEvent.click(await screen.findByLabelText('Close'))
+    fireEvent.click(screen.getByLabelText('Stop sharing /srv/notes'))
+    await act(settle)
+    expect(useSettings.getState().server?.config.remoteRoots).toEqual([])
+
+  })
+
+  it('desktop: what each grant holds for, revoked one by one', async () => {
+    installBridge(settingsCore())
+    render(<SettingsView />)
+    await act(settle)
+    act(() =>
+      useSettings.setState({
+        projects: [{ id: 'p1', name: 'Shop', path: '/p', addedAt: '', lastSeenAt: '' }],
+        grants: [
+          { agentId: 'assistant', toolName: 'memory_create_note', createdAt: '' },
+          { agentId: 'claude-code', toolName: 'Write', projectId: 'p1', createdAt: '' },
+          { agentId: 'claude-code', toolName: 'Edit', projectId: 'gone', createdAt: '' },
+          { agentId: 'claude-code', toolName: 'Bash', projectId: '*', createdAt: '' }
+        ]
+      })
+    )
+    expect(screen.getByText('assistant → memory_create_note')).toBeInTheDocument()
+    expect(screen.getByText('Outside projects')).toBeInTheDocument()
+    expect(screen.getByText('Shop')).toBeInTheDocument()
+    expect(screen.getByText('A removed project')).toBeInTheDocument()
+    expect(screen.getByText('All projects (from before grants were per project)')).toHaveClass('text-amber')
+    for (const label of ['assistant memory_create_note · Outside projects', 'claude-code Write · Shop', 'claude-code Edit · A removed project', 'claude-code Bash · All projects (from before grants were per project)']) {
+      fireEvent.click(screen.getByLabelText(`Revoke ${label}`))
+      await act(settle)
+    }
+    expect(screen.getByText('No standing permissions')).toBeInTheDocument()
+
+  })
+
+  it('in a browser: an admin device manages devices; a member removes only itself and sees the grants', async () => {
+    const devices = (meRole: 'admin' | 'member') => [
+      { id: 'me', name: 'This laptop', role: meRole, createdAt: new Date().toISOString() },
+      { id: 'phone', name: 'Pixel Phone', role: 'member' as const, createdAt: new Date().toISOString() }
+    ]
+    localStorage.setItem('mindeck.deviceId', 'me')
+    const remote = installRemote(settingsCore({ 'server:devices': () => devices('admin') }))
+    useSession.setState({ info: { mode: 'server', version: '1', platform: 'linux', hostname: 'nas', remoteTerminal: false } })
+    const { unmount } = render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText('Pair a device')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pair as admin')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Role of Pixel Phone' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Revoke Pixel Phone')).toBeInTheDocument()
+    expect(screen.getByLabelText('Revoke assistant memory_create_note · Outside projects')).toBeInTheDocument()
+    unmount()
+
+    remote.routes['server:devices'] = () => devices('member')
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.queryByText('Pair a device')).toBeNull()
+    expect(screen.queryByLabelText('Pair as admin')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Role of Pixel Phone' })).toBeNull()
+    expect(screen.getAllByText('Member')).toHaveLength(2)
+    expect(screen.queryByLabelText('Revoke Pixel Phone')).toBeNull()
+    expect(screen.getByLabelText('Revoke This laptop')).toBeInTheDocument() // unpairing itself
+    expect(screen.getByText('assistant → memory_create_note')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Revoke assistant/)).toBeNull()
+    localStorage.removeItem('mindeck.deviceId')
+    useSession.setState({ info: undefined })
+  })
+
   it('in a browser: server settings are read-only, vault via folder browser, errors show', async () => {
     installRemote(
       settingsCore({
-        'server:status': () => server({ configurable: false, running: false, error: 'EADDRINUSE', config: { enabled: true, lan: true, port: 7420, remoteTerminal: true } }),
+        'server:status': () => server({ configurable: false, running: false, error: 'EADDRINUSE', config: { enabled: true, lan: true, port: 7420, remoteTerminal: true, remoteRoots: [] } }),
         'server:devices': () => [],
         'memory:setVault': () => fail('That folder does not exist')
       })
@@ -363,7 +523,7 @@ describe('SettingsView', () => {
     expect(screen.getByText(/Remote shells: allowed/)).toBeInTheDocument()
     expect(screen.queryByLabelText('Port')).toBeNull()
     expect(screen.getByText('No devices paired')).toBeInTheDocument()
-    expect(screen.getByText('Pair a device').closest('button')).toBeDisabled()
+    expect(screen.queryByText('Pair a device')).toBeNull() // not an admin device
     expect(screen.getByText('Server')).toBeInTheDocument()
     expect(screen.getByText('Browser (paired)')).toBeInTheDocument()
 
@@ -562,5 +722,48 @@ describe('Appearance', () => {
 
     fireEvent.click(reset)
     expect({ ...root.dataset }).toEqual({ theme: 'dark', accent: 'cyan', surface: 'cyber' })
+  })
+})
+
+describe('BrowserCard', () => {
+  it('shows nothing outside the desktop app, or before the core answered', async () => {
+    const { container } = render(<BrowserCard />)
+    expect(container).toBeEmptyDOMElement()
+    installBridge({ 'browser:settings': () => fail('no core') })
+    render(<BrowserCard />)
+    await act(settle)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('picks the search engine and where links open, and clears the history', async () => {
+    let current = { searchEngine: 'google', openLinksInMindeck: true }
+    const configure = vi.fn((patch: Partial<typeof current>) => (current = { ...current, ...patch }))
+    let clearFails = true
+    installBridge({
+      'browser:settings': () => current,
+      'browser:configure': configure,
+      'browser:clearHistory': () => (clearFails ? fail('busy') : undefined)
+    })
+    render(<BrowserCard />)
+    await act(settle)
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('Google')
+    choose('Search engine', 'DuckDuckGo')
+    await act(settle)
+    expect(configure).toHaveBeenLastCalledWith({ searchEngine: 'duckduckgo' })
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('DuckDuckGo')
+    fireEvent.click(screen.getByRole('switch', { name: 'Open links in Mindeck' }))
+    await act(settle)
+    expect(configure).toHaveBeenLastCalledWith({ openLinksInMindeck: false })
+    expect(screen.getByRole('switch', { name: 'Open links in Mindeck' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear history' })) // fails: stays as it was
+    await act(settle)
+    clearFails = false
+    fireEvent.click(screen.getByRole('button', { name: 'Clear history' }))
+    await act(settle)
+    expect(screen.getByRole('button', { name: 'History cleared' })).toBeInTheDocument()
+    configure.mockImplementation(() => fail('bad engine'))
+    choose('Search engine', 'Kagi') // a refused change keeps the old value
+    await act(settle)
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('DuckDuckGo')
   })
 })

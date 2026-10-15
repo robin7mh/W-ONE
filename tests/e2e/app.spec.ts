@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
+import type { IpcResult } from '@shared/ipc/contract'
+import type { BrowserState } from '@shared/types/browser'
 import { expect, test } from './fixtures'
 
 test('boots into the Command Center without any database; the activity log is a file', async ({ page, home }) => {
@@ -8,6 +12,19 @@ test('boots into the Command Center without any database; the activity log is a 
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening|night)/)
   const log = join(home, 'data', 'events.jsonl')
   await expect.poll(() => (existsSync(log) ? readFileSync(log, 'utf8') : '')).toContain('"app.started"')
+})
+
+test('a first start opens the setup over the window; skipping it leaves the Command Center', async ({ app }) => {
+  const page = await app.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+  const setup = page.getByRole('dialog', { name: 'Set up Mindeck' })
+  await expect(setup).toBeVisible()
+  await setup.getByRole('button', { name: 'Skip setup' }).click()
+  await expect(setup).toBeHidden()
+  const boot = page.getByText('click to skip')
+  if (await boot.isVisible()) await boot.click()
+  await expect(page.getByText('Command Center').first()).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('mindeck.onboarding'))).toContain('"done":true')
 })
 
 test('navigates every module', async ({ page }) => {
@@ -73,7 +90,7 @@ test('memory: creates the starter vault, writes a note to disk and links it', as
   const title = page.getByPlaceholder('Note title…')
   await title.fill('E2E Note')
   await title.press('Enter')
-  const editor = page.locator('textarea')
+  const editor = page.locator('.cm-content')
   await expect(editor).toBeVisible()
   await editor.fill('Written by Playwright, see [[Willkommen]]')
   await page.keyboard.press('Control+s')
@@ -176,3 +193,141 @@ test('agents: a coding agent session — chat, approval in Mindeck, the change a
   await page.getByLabel('End session').click()
   await expect(page.getByText('· Ended')).toBeVisible()
 })
+
+/** A local site for the browser: `/` and `/second`, each with its own title. */
+async function localSite() {
+  const server = createServer((req, res) => {
+    if (req.url === '/favicon.ico') {
+      res.statusCode = 404
+      return void res.end()
+    }
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(req.url === '/second' ? '<!doctype html><title>Second page</title><h1>Second</h1>' : '<!doctype html><title>Mindeck E2E</title><h1>Hello from localhost</h1>')
+  })
+  await new Promise<void>((done) => server.listen(0, done))
+  return { port: (server.address() as AddressInfo).port, close: () => new Promise<void>((done) => server.close(() => done())) }
+}
+
+test('browser: a local page in a real Chromium tab — back and forth, kept across modules, remembered', async ({ page, home }) => {
+  const site = await localSite()
+  try {
+    await page.getByTitle('Browser', { exact: true }).click()
+    await expect(page.getByText('Search the web or type an address')).toBeVisible() // the new-tab page
+    const address = page.getByRole('textbox', { name: 'Address or search' })
+    await address.fill(`localhost:${site.port}`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Mindeck E2E/ })).toBeVisible()
+    await expect(address).toHaveValue(`localhost:${site.port}`)
+    await expect(page.getByTitle('Local page on this computer')).toBeVisible()
+    // a local page: agents may see it (the dev loop) without sharing it first
+    const tabs = async () => {
+      const res = (await page.evaluate(() => window.mindeck!.invoke('browser:state'))) as IpcResult<BrowserState>
+      return res.ok ? res.data.tabs.map((t) => [t.title, t.url, t.shared]) : []
+    }
+    await expect.poll(tabs).toEqual([['Mindeck E2E', `http://localhost:${site.port}/`, true]])
+
+    await address.fill(`localhost:${site.port}/second`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Second page/ })).toBeVisible()
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.getByRole('tab', { name: /Mindeck E2E/ })).toBeVisible()
+
+    // other modules and back: the same tab, still there
+    await page.getByTitle('Core', { exact: true }).click()
+    await page.getByTitle('Browser', { exact: true }).click()
+    await expect(page.getByRole('tab', { name: /Mindeck E2E/ })).toBeVisible()
+
+    // a new tab: its own empty address bar, ready to type; closing it shows the page again
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.getByText('Search the web or type an address')).toBeVisible()
+    await expect(address).toBeFocused()
+    await expect(address).toHaveValue('')
+    await page.getByRole('button', { name: 'Close New tab' }).click()
+    await expect(page.getByRole('tab')).toHaveCount(1)
+
+    // the history is a file in Mindeck's folder
+    await expect.poll(() => readFileSync(join(home, 'data', 'browser', 'history.jsonl'), 'utf8')).toContain(`http://localhost:${site.port}/second`)
+  } finally {
+    await site.close()
+  }
+})
+
+test('a dev server started in the terminal opens in the browser with one click', async ({ page, home }) => {
+  const script = join(home, 'dev-server.mjs')
+  writeFileSync(
+    script,
+    `import { createServer } from 'node:http'
+const server = createServer((req, res) => {
+  res.setHeader('content-type', 'text/html; charset=utf-8')
+  res.end('<!doctype html><title>Dev preview</title><h1>Running</h1>')
+})
+server.listen(0, () => console.log('  Local:   http://localhost:' + server.address().port + '/'))
+`
+  )
+  await page.getByTitle('Terminal', { exact: true }).click()
+  await expect(page.locator('.xterm-rows').first()).toBeVisible()
+  await page.locator('.xterm-helper-textarea').first().focus()
+  await page.keyboard.type(`"${process.execPath}" "${script}"\n`)
+  const chip = page.getByTitle(/^Open localhost:\d+$/)
+  await expect(chip).toBeVisible()
+  await chip.click()
+  await expect(page.getByRole('tab', { name: /Dev preview/ })).toBeVisible()
+})
+
+test('files: browses a folder, previews notes and pictures, renames, creates, searches — and opens a terminal there', async ({ page, home }) => {
+  const demo = join(home, 'Demo')
+  mkdirSync(join(demo, 'sub'), { recursive: true })
+  writeFileSync(join(demo, 'README.md'), '# Demo notes\n\nPreviewed **in Mindeck**.\n')
+  writeFileSync(join(demo, 'notes.txt'), 'plain text\n')
+  copyFileSync(resolve('build/icon.png'), join(demo, 'icon.png'))
+
+  await page.getByTitle('Files', { exact: true }).click()
+  await expect(page.getByRole('navigation', { name: 'Files' })).toContainText('Home')
+  // ⌘⇧G (Ctrl elsewhere): any folder by its path
+  await page.getByRole('region', { name: 'Files' }).locator('[tabindex="0"]').press('Control+Shift+G')
+  const goTo = page.getByRole('textbox', { name: /Go to folder/ })
+  await goTo.fill(demo)
+  await goTo.press('Enter')
+  await page.getByRole('button', { name: 'List', exact: true }).click()
+  await expect(page.getByRole('row', { name: /^README\.md/ })).toBeVisible()
+  await expect(page.getByText('4 items')).toBeVisible()
+
+  const preview = page.getByRole('complementary', { name: 'Preview' })
+  await page.getByRole('row', { name: /^README\.md/ }).click()
+  await expect(preview.getByRole('heading', { name: 'Demo notes' })).toBeVisible()
+  await page.getByRole('row', { name: /^icon\.png/ }).click()
+  const picture = preview.locator('img[alt="icon.png"]')
+  await expect(picture).toBeVisible()
+  await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0) // streamed over mindeck-file:
+
+  await page.getByRole('row', { name: /^notes\.txt/ }).click()
+  await page.keyboard.press('F2')
+  await expect(page.getByRole('textbox', { name: 'Rename' })).toBeFocused()
+  await page.keyboard.type('todo') // the name is selected, not the extension
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('row', { name: /^todo\.txt/ })).toBeVisible()
+  expect(existsSync(join(demo, 'todo.txt'))).toBe(true)
+
+  await page.getByRole('button', { name: 'New folder', exact: true }).click()
+  const folder = page.getByRole('textbox', { name: 'New folder' })
+  await folder.fill('Plans')
+  await folder.press('Enter')
+  await expect(page.getByRole('row', { name: /^Plans/ })).toBeVisible()
+  expect(statSync(join(demo, 'Plans')).isDirectory()).toBe(true)
+
+  const search = page.getByRole('textbox', { name: 'Search in “Demo”' })
+  await search.fill('todo')
+  await expect(page.getByText('1 found')).toBeVisible()
+  await search.press('Escape')
+  await expect(page.getByText('5 items')).toBeVisible()
+
+  await page.getByRole('row', { name: /^sub/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Open Terminal here' }).click()
+  const screen = page.locator('.xterm-rows').first()
+  await expect(screen).toBeVisible()
+  await page.locator('.xterm-helper-textarea').first().focus()
+  await page.keyboard.type('pwd\n')
+  await expect(screen).toContainText('/Demo/sub')
+})
+

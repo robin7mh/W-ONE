@@ -6,11 +6,14 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { GlowBackground } from '@/components/shell/GlowBackground'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { useOverlay } from '@/lib/overlay'
 import { useCloud } from '../store'
 import { CloudNotice, primaryButton, quietButton, SignInForm } from './CloudForms'
 
 function Frame({ children, overlay }: { children: ReactNode; overlay?: boolean }) {
   const t = useT()
+  // Covering the app: the browser's page must not show through.
+  useOverlay(!!overlay)
   return (
     <div
       className={cn(

@@ -3,11 +3,13 @@ import { ArrowUp, Check, Folder, Home, Loader2, X } from 'lucide-react'
 import { errorMessage, ipc } from '@shared/ipc/client'
 import type { DirListing } from '@shared/types/server'
 import { useT } from '@/lib/i18n'
+import { cn } from '@/lib/cn'
 import { TechLabel } from './TechLabel'
 
 /**
  * Folder chooser for the web/mobile UI — browses folders on the machine the
  * Mindeck core runs on (fs:dirs), standing in for the desktop's native dialog.
+ * A paired device sees the shared folders only; the core lists them as `roots`.
  */
 export function FolderPicker({
   title,
@@ -100,6 +102,24 @@ export function FolderPicker({
             className="min-w-0 flex-1 rounded-md border border-hud/70 bg-surface/70 px-2 py-1 font-mono text-[12px] text-text-primary outline-none focus:border-cyan/60"
           />
         </form>
+
+        {listing?.roots && listing.roots.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-hud/50 px-2 py-1.5" aria-label={t.folderPicker.sharedFolders}>
+            {listing.roots.map((root) => (
+              <button
+                key={root}
+                type="button"
+                onClick={() => void open(root)}
+                className={cn(
+                  'max-w-full truncate rounded border px-1.5 py-0.5 font-mono text-[10.5px]',
+                  root === listing.path ? 'border-cyan/50 text-cyan' : 'border-hud/60 text-text-muted hover:border-cyan/40 hover:text-cyan'
+                )}
+              >
+                {root}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="min-h-[200px] flex-1 overflow-y-auto p-1.5">
           {loading && (

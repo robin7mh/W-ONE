@@ -1,6 +1,9 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { tempDir } from './helpers'
 import { detectAgents, loginShellProbe, type Probe } from '../../../electron/main/services/agents/detect'
-import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
+import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MCP_BROWSER_READ_TOOLS, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
 import { applyHook, toolRisk, toolSummary, toolTitle, type SessionState } from '../../../electron/main/services/agents/transcript'
 import type { ChatMessage, ToolCallPart } from '../../../src/shared/types/ai'
 import type { AgentSession } from '../../../src/shared/types/agents'
@@ -26,7 +29,7 @@ describe('detectAgents', () => {
     )
     expect(list).toEqual([
       { kind: 'claude-code', name: 'Claude Code', installed: true, version: '2.1.287', signedIn: true, account: 'Max plan', ready: true, hint: undefined },
-      { kind: 'codex', name: 'Codex', installed: true, version: '0.98.0', account: 'Your own sign-in', ready: true, hint: undefined },
+      { kind: 'codex', name: 'Codex', installed: true, version: '0.98.0', signedIn: false, account: 'Your own sign-in', ready: true, hint: undefined },
       { kind: 'gemini', name: 'Gemini CLI', installed: false, ready: false, hint: 'Not installed (gemini)' }
     ])
   })
@@ -45,6 +48,18 @@ describe('detectAgents', () => {
     expect((await detectAgents(probe({}))).every((a) => !a.installed)).toBe(true)
     // a configured binary is probed (quoted) instead of `claude`
     expect((await detectAgents(probe({ "'/opt/my claude' --version": '3.0.0' }), '/opt/my claude'))[0]).toMatchObject({ installed: true, version: '3.0.0' })
+  })
+
+  it('Codex and Gemini: signed in as far as they tell', async () => {
+    const home = await tempDir()
+    const answers = { 'codex --version': '1.0.0', 'gemini --version': '0.5.0', 'npx --version': '10.0.0' }
+    const [, codex, gemini] = await detectAgents(probe({ ...answers, 'codex login status': 'Logged in using ChatGPT' }), 'claude', home, {})
+    expect([codex.signedIn, gemini.signedIn]).toEqual([true, false])
+    expect((await detectAgents(probe(answers), 'claude', home, { GEMINI_API_KEY: 'k' }))[2].signedIn).toBe(true)
+    expect((await detectAgents(probe(answers), 'claude', home, { GOOGLE_API_KEY: 'k' }))[2].signedIn).toBe(true)
+    await mkdir(join(home, '.gemini'))
+    await writeFile(join(home, '.gemini', 'oauth_creds.json'), '{}')
+    expect((await detectAgents(probe(answers), 'claude', home, {}))[2].signedIn).toBe(true)
   })
 
   it('the default probe runs through a login shell', async () => {
@@ -71,7 +86,8 @@ describe('Claude Code launch', () => {
       mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: 'Bearer tok' } } }
     })
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(SYSTEM_HINT)
-    expect(args.slice(args.indexOf('--allowedTools') + 1, -2)).toEqual(MEMORY_READ_TOOLS)
+    // reading memory and the browser's shared tabs runs unasked; everything else asks in Mindeck
+    expect(args.slice(args.indexOf('--allowedTools') + 1, -2)).toEqual([...MEMORY_READ_TOOLS, ...MCP_BROWSER_READ_TOOLS])
     expect(args.slice(-2)).toEqual(['--', '--looks like a flag'])
   })
 
@@ -192,6 +208,12 @@ describe('hook events → chat, status and plan', () => {
   })
 
   it('tool titles, risks and one-line summaries', () => {
+    // Mindeck's browser: reading shared tabs runs, acting asks; titled as the browser
+    expect(toolRisk('mcp__mindeck__browser_snapshot')).toBe('read')
+    expect(toolRisk('mcp__mindeck__browser_console')).toBe('read')
+    expect(toolRisk('mcp__mindeck__browser_click')).toBe('write')
+    expect(toolTitle('mcp__mindeck__browser_click')).toBe('Mindeck browser · click')
+    expect(toolTitle('mcp__mindeck__memory_read')).toBe('Mindeck memory · memory read')
     expect(['Read', 'Edit', 'Bash', 'mcp__mindeck__memory_search', 'mcp__mindeck__memory_append', 'mcp__github__create_pr', 'Whatever'].map(toolRisk)).toEqual([
       'read',
       'write',

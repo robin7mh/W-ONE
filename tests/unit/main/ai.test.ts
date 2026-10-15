@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import { chmod, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
@@ -8,6 +8,7 @@ import { AnthropicProvider, fromApiContent, toApiMessage } from '../../../electr
 import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
 import { AiService } from '../../../electron/main/services/ai/AiService'
 import { ToolRegistry } from '../../../electron/main/services/ai/tools/registry'
+import { browserTools } from '../../../electron/main/services/ai/tools/browser'
 import { builtinTools, formatContext, runShell, truncate, type ToolDeps } from '../../../electron/main/services/ai/tools/builtin'
 import { confine } from '../../../electron/main/lib/confine'
 import { PermissionService } from '../../../electron/main/services/ai/PermissionService'
@@ -627,7 +628,7 @@ describe('ToolRegistry', () => {
 
 describe('agents', () => {
   it('are data with allowlists that exist; unknown ids fall back to the assistant', () => {
-    const tools = new Set(builtinTools(toolDeps()).map((t) => t.name))
+    const tools = new Set([...builtinTools(toolDeps()), ...browserTools({} as never)].map((t) => t.name))
     for (const a of AGENTS) for (const name of a.tools) expect(tools.has(name)).toBe(true)
     expect(agentById('coding').name).toBe('Coding')
     expect(agentById('nope').id).toBe('assistant')
@@ -676,7 +677,7 @@ describe('PermissionService', () => {
     const a = perms.ask(input(), new AbortController().signal)
     expect(perms.list()).toHaveLength(1)
     expect(requests).toHaveLength(1)
-    await perms.respond(a.id, 'once', 'dev1')
+    await perms.respond(a.id, 'once', { deviceId: 'dev1', shells: true })
     expect(await a.decision).toBe('once')
     expect(resolved).toEqual([{ id: a.id, decision: 'once' }])
     expect(events.map((e) => e.type)).toEqual(['permission.requested', 'permission.granted'])
@@ -704,6 +705,8 @@ describe('PermissionService', () => {
 
     await perms.revoke('assistant', 'memory_create_note')
     expect(await perms.grants()).toEqual([])
+    // what the user allowed which agent to do is theirs alone
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
   it('denies on timeout and on abort (also when already aborted)', async () => {
@@ -766,6 +769,7 @@ describe('ConversationStore', () => {
     await fresh.delete('../x')
     expect((await fresh.list()).map((c) => c.id)).toEqual(['b'])
     expect((await readdir(join(dir, 'conversations'))).sort()).toEqual(['b.json', 'junk.json', 'notes.txt'])
+    expect((await stat(join(dir, 'conversations', 'b.json'))).mode & 0o777).toBe(0o600)
   })
 })
 
@@ -878,7 +882,7 @@ describe('RunStore', () => {
 // --- context engine ---------------------------------------------------------------
 
 describe('ContextBuilder', () => {
-  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
+  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const }, dailyNotes: { folder: 'Daily', template: '' } })
   const builder = (over: Partial<ConstructorParameters<typeof ContextBuilder>[0]> = {}) =>
     new ContextBuilder({
       user: async () => ({ name: 'Ada' }),

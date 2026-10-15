@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir, tick } from './helpers'
 import { AgentSessionService, type AgentSessionDeps } from '../../../electron/main/services/agents/AgentSessionService'
 import { GitService } from '../../../electron/main/services/git/GitService'
 import type { ApprovalDecision } from '../../../src/shared/types/ai'
+import { CLAUDE_MODELS, CLAUDE_MODES } from '../../../src/shared/types/claude'
 
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 
@@ -118,8 +119,8 @@ describe('AgentSessionService: sessions', () => {
   it('types messages into the agent (pastes multi-line), interrupts, stops and resumes', async () => {
     vi.useFakeTimers()
     const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
-    t.svc.send(s.id, 'hello')
-    t.svc.send(s.id, 'two\nlines')
+    await t.svc.send(s.id, 'hello')
+    await t.svc.send(s.id, 'two\nlines')
     vi.advanceTimersByTime(60)
     expect(t.terminal.write.mock.calls).toEqual([
       ['pty-1', 'hello'],
@@ -130,13 +131,13 @@ describe('AgentSessionService: sessions', () => {
     t.svc.interrupt(s.id)
     expect(t.terminal.write).toHaveBeenLastCalledWith('pty-1', '\x1b')
 
-    t.svc.send(s.id, 'late')
+    await t.svc.send(s.id, 'late')
     t.svc.stop(s.id) // exits before the Enter is due
     vi.advanceTimersByTime(60)
     expect(t.terminal.write).toHaveBeenLastCalledWith('pty-1', 'late')
     expect(t.svc.get(s.id)).toMatchObject({ status: 'ended', terminalId: undefined })
     expect(t.deps.server.unregister).toHaveBeenCalledWith(s.id)
-    expect(() => t.svc.send(s.id, 'x')).toThrow(expect.objectContaining({ code: 'not-running' }))
+    await expect(t.svc.send(s.id, 'x')).rejects.toMatchObject({ code: 'not-running' })
     t.svc.stop(s.id) // not running: nothing to stop
 
     const resumed = await t.svc.resume(s.id)
@@ -199,6 +200,41 @@ describe('AgentSessionService: sessions', () => {
     const noTranscript = track(new AgentSessionService(t.deps))
     await noTranscript.init()
     expect(noTranscript.get(s.id)).toMatchObject({ status: 'ended', terminalId: undefined, messages: [] })
+  })
+
+  it('a damaged transcript never stops the start: the session loads with a notice, the file is set aside', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'hi' })
+    const other = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'hi' })
+    await t.hook(other.id, { hook_event_name: 'UserPromptSubmit', prompt: 'there' })
+    await t.svc.dispose()
+    await writeFile(join(t.deps.dir, `${s.id}.json`), '[{"id":"m1","role":"us') // torn by a full disk
+    await writeFile(join(t.deps.dir, `${other.id}.json`), '{"not":"a list"}')
+    // and a list entry nobody can use
+    const list = JSON.parse(await readFile(join(t.deps.dir, 'sessions.json'), 'utf8'))
+    list.sessions.push({ nonsense: true }, null)
+    await writeFile(join(t.deps.dir, 'sessions.json'), JSON.stringify(list))
+
+    const again = track(new AgentSessionService(t.deps))
+    await again.init()
+    expect(again.list()).toHaveLength(2)
+    const [notice] = again.get(s.id).messages
+    expect(notice).toMatchObject({ role: 'assistant', status: 'error', errorCode: 'transcript-damaged', parts: [] })
+    expect(notice.error).toMatch(new RegExp(`set aside as ${s.id}\\.corrupt-.*\\.json`))
+    const files = await readdir(t.deps.dir)
+    expect(files.some((f) => f.startsWith(`${s.id}.corrupt-`))).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is damaged'))
+    // valid JSON of the wrong shape: a notice as well (nothing worth keeping to set aside)
+    expect(again.get(other.id).messages).toEqual([expect.objectContaining({ errorCode: 'transcript-damaged', error: 'The earlier messages of this session could not be read.' })])
+  })
+
+  it('keeps transcripts and the session list private (0600)', async () => {
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'hi' })
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'hi' })
+    await t.svc.dispose()
+    expect((await stat(join(t.deps.dir, `${s.id}.json`))).mode & 0o777).toBe(0o600)
+    expect((await stat(join(t.deps.dir, 'sessions.json'))).mode & 0o777).toBe(0o600)
   })
 
   it('named after the agent; renamed by the user (notification and journal follow); the repo page from origin', async () => {
@@ -545,5 +581,111 @@ describe('AgentSessionService: changes and own working folders', () => {
     sh(t.projectPath, 'worktree', 'remove', '--force', s.worktree!)
     await t.svc.remove(s.id) // git refuses, the session goes anyway
     expect(t.svc.list()).toEqual([])
+  })
+})
+
+describe('AgentSessionService: the composer with Claude Code', () => {
+  const png = (bytes = 4) => ({ name: 'shot.png', mimeType: 'image/png' as const, data: Buffer.alloc(bytes, 7).toString('base64') })
+
+  it('starts with a model and permission mode; refuses unknown ones; offers models, modes, commands and images', async () => {
+    const t = await setup()
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', model: 'sonnet', mode: 'acceptEdits' })
+    expect(s).toMatchObject({ model: 'sonnet', mode: 'acceptEdits', images: true, models: CLAUDE_MODELS, modes: CLAUDE_MODES })
+    expect(s.commands!.map((c) => c.name)).toContain('compact')
+    expect(t.terminal.spawned[0].command.args).toEqual(expect.arrayContaining(['--model', 'sonnet', '--permission-mode', 'acceptEdits']))
+    await expect(t.svc.create({ kind: 'claude-code', projectId: 'p1', model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-input' })
+    await expect(t.svc.create({ kind: 'claude-code', projectId: 'p1', mode: 'bypassPermissions' })).rejects.toMatchObject({ code: 'bad-input' })
+  })
+
+  it('sessions from earlier runs get the options too (only Claude Code\'s are known up front)', async () => {
+    const t = await setup()
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    const stored = { ...t.svc.get(s.id), messages: undefined, models: undefined, commands: undefined }
+    const codex = { ...stored, id: 'c1', kind: 'codex' }
+    await t.svc.dispose()
+    await writeFile(join(t.deps.dir, 'sessions.json'), JSON.stringify({ version: 1, sessions: [stored, codex].map((session) => ({ session, baseline: null, projectPath: t.projectPath })) }))
+    const again = track(new AgentSessionService(t.deps))
+    await again.init()
+    expect(again.get(s.id)).toMatchObject({ models: CLAUDE_MODELS, images: true })
+    expect(again.get('c1').models).toBeUndefined()
+  })
+
+  it('types @ mentions and saved images into the prompt; refuses empty or oversized messages; cleans up with the session', async () => {
+    const t = await setup()
+    const images = await tempDir()
+    const vault = await tempDir()
+    Object.assign(t.deps, { tempDir: images, vaultRoot: async () => vault })
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    await t.svc.send(s.id, 'Look at this', { refs: [{ kind: 'file', path: 'app.ts' }, { kind: 'note', path: 'Plan.md' }], images: [png()] })
+    await tick(80)
+    const [saved] = await readdir(join(images, s.id))
+    expect(t.terminal.write.mock.calls).toEqual([
+      ['pty-1', `\x1b[200~Look at this\n\n@app.ts @${join(vault, 'Plan.md')} @${join(images, s.id, saved)}\x1b[201~`],
+      ['pty-1', '\r']
+    ])
+    expect(await readFile(join(images, s.id, saved))).toEqual(Buffer.alloc(4, 7))
+    await t.svc.send(s.id, '', { refs: [{ kind: 'tab', path: 'https://example.com', label: 'Docs' }] })
+    expect(t.terminal.write).toHaveBeenLastCalledWith('pty-1', 'Browser tab: Docs <https://example.com/>')
+
+    await expect(t.svc.send(s.id, '  ')).rejects.toMatchObject({ code: 'bad-input' })
+    await expect(t.svc.send(s.id, 'x', { images: [png(5 * 1024 * 1024 + 1)] })).rejects.toMatchObject({ code: 'too-large' })
+    await expect(t.svc.send(s.id, 'x', { refs: [{ kind: 'file', path: '../../etc/passwd' }] })).rejects.toMatchObject({ code: 'outside-project' })
+    await t.svc.remove(s.id)
+    expect(existsSync(join(images, s.id))).toBe(false)
+  })
+
+  it('without a vault, notes can\'t be referenced', async () => {
+    const t = await setup()
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    await expect(t.svc.send(s.id, 'x', { refs: [{ kind: 'note', path: 'a.md' }] })).rejects.toMatchObject({ code: 'no-vault' })
+    await t.svc.remove(s.id) // its (never made) image folder in the system's temp folder: nothing to remove
+  })
+
+  it('switches the model with /model while it runs; the permission mode applies from the next start', async () => {
+    const t = await setup()
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    vi.useFakeTimers()
+    expect(await t.svc.configure(s.id, { model: 'opus' })).toMatchObject({ model: 'opus' })
+    vi.advanceTimersByTime(60)
+    expect(t.terminal.write.mock.calls).toEqual([
+      ['pty-1', '/model opus'],
+      ['pty-1', '\r']
+    ])
+    expect(await t.svc.configure(s.id, { model: 'opus', mode: 'plan' })).toMatchObject({ model: 'opus', mode: 'plan' })
+    expect(t.terminal.write).toHaveBeenCalledTimes(2) // the same model: nothing typed; the mode: nothing to type
+    await expect(t.svc.configure(s.id, { model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad-input' })
+    await expect(t.svc.configure(s.id, { mode: 'bypassPermissions' })).rejects.toMatchObject({ code: 'bad-input' })
+    vi.useRealTimers()
+
+    t.svc.stop(s.id)
+    await t.svc.configure(s.id, { model: 'haiku' }) // not running: for the next start
+    expect(t.terminal.write).toHaveBeenCalledTimes(2)
+    await t.svc.resume(s.id)
+    expect(t.terminal.spawned[1].command.args).toEqual(expect.arrayContaining(['--resume', s.id, '--model', 'haiku', '--permission-mode', 'plan']))
+  })
+
+  it('pushes to the phone: approvals with the tool (never its input), finished turns, questions, failed starts', async () => {
+    const t = await setup()
+    const push = vi.fn()
+    t.deps.push = push
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: 'Fix login' })
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
+    const allow = t.hook(s.id, { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_use_id: 'b1', tool_input: { command: 'cat ~/.ssh/id_rsa' } })
+    await tick()
+    expect(push).toHaveBeenLastCalledWith({ kind: 'approval', title: 'Claude Code · Fix login', body: 'Run command · Waiting for your approval · Demo App', sessionId: s.id })
+    t.asks[0].settle('once')
+    await allow
+    await t.hook(s.id, { hook_event_name: 'Stop', last_assistant_message: 'done' })
+    expect(push).toHaveBeenLastCalledWith({ kind: 'agent_done', title: 'Claude Code · Fix login', body: 'Done — your turn · Demo App', sessionId: s.id })
+    await t.hook(s.id, { hook_event_name: 'Notification', notification_type: 'agent_needs_input' })
+    expect(push).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'approval', body: 'Waiting for your answer · Demo App' }))
+
+    const failing = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    t.terminal.spawned.at(-1)!.onExit!(127)
+    expect(push).toHaveBeenLastCalledWith({ kind: 'agent_error', title: 'Claude Code', body: 'Stopped with an error · Demo App', sessionId: failing.id })
+    push.mockClear()
+    t.terminal.fail = true
+    await expect(t.svc.resume(failing.id)).rejects.toThrow('spawn failed')
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ kind: 'agent_error' }))
   })
 })

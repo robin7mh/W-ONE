@@ -208,6 +208,12 @@ describe('LspClient', () => {
     proc.stdout!.on('data', (d: Buffer) => (out += d.toString()))
     await new Promise((r) => proc.on('exit', r))
     expect(out).toBe('hi')
+    // Windows: directly, no PowerShell in between.
+    const direct = spawnServer(process.execPath, ['-e', 'process.stdout.write("direct")'], await tempDir(), 'win32')
+    let got = ''
+    direct.stdout!.on('data', (d: Buffer) => (got += d.toString()))
+    await new Promise((r) => direct.on('exit', r))
+    expect(got).toBe('direct')
   }, 20_000)
 })
 

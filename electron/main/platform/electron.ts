@@ -1,5 +1,8 @@
-import { app, BrowserWindow, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { homedir } from 'node:os'
 import type { Cipher } from '../services/ai/SecretStore'
+import { fileClipboard } from './fileClipboard'
+import { desktopTrash } from './trash'
 import type { Platform } from './types'
 
 /** Desktop host: native dialogs, the OS file manager, its link handlers and the OS trash. */
@@ -14,6 +17,9 @@ export const electronPlatform: Platform = {
     const err = await shell.openPath(path)
     if (err) throw Object.assign(new Error(err), { code: 'open-failed' })
   },
+  revealPath(path) {
+    shell.showItemInFolder(path)
+  },
   async openExternal(url) {
     await shell.openExternal(url)
   },
@@ -21,6 +27,8 @@ export const electronPlatform: Platform = {
   async trashItem(path) {
     await shell.trashItem(path)
   },
+  restorableTrash: desktopTrash(process.platform, process.env, homedir()),
+  fileClipboard: fileClipboard(clipboard, (data) => new ClipboardItem(data), process.platform),
   openRemoteWindow({ title, url, token, deviceId }) {
     const win = new BrowserWindow({
       width: 1440,
@@ -47,6 +55,19 @@ export const electronPlatform: Platform = {
     })().catch(() => {})
     return { closed, close: () => !win.isDestroyed() && win.close() }
   }
+}
+
+/**
+ * Whether stored secrets are really protected by the OS keychain. On Linux
+ * without a keyring (no Secret Service, no KWallet) Electron falls back to a
+ * fixed built-in key (`basic_text`) — as good as plain text — or offers no
+ * encryption at all. Settings warns about that instead of keeping quiet.
+ */
+export function secretsProtected(platform: NodeJS.Platform = process.platform): boolean {
+  if (!safeStorage.isEncryptionAvailable()) return false
+  if (platform !== 'linux') return true
+  const backend = safeStorage.getSelectedStorageBackend()
+  return backend !== 'basic_text' && backend !== 'unknown'
 }
 
 /** OS-keychain encryption for stored secrets, when the OS offers it. */

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { useOverlay } from '@/lib/overlay'
 
 export interface SelectOption {
   value: string
@@ -50,6 +51,7 @@ export function Select({ value, options, onChange, label, placeholder, icon: Ico
   const selected = options.findIndex((o) => o.value === value)
   const current = options[selected]
   const open = !!place
+  useOverlay(open)
 
   const show = (index = Math.max(0, selected)) => {
     const r = trigger.current!.getBoundingClientRect()

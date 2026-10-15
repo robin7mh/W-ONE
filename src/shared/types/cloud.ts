@@ -6,9 +6,11 @@
 export type LicensePlan = 'trial' | 'lifetime'
 
 /**
- * - `active`           licensed: trial time left, or lifetime
- * - `paused`           an active trial lease ran out while nobody used Mindeck —
- *                      renewed on the next heartbeat, so it stays usable
+ * - `active`           licensed: trial time left, or lifetime (also offline, with
+ *                      the lifetime license's offline certificate)
+ * - `paused`           an active lease ran out while nobody used Mindeck —
+ *                      renewed on the next heartbeat, so it stays usable. A
+ *                      trial's only for 2 h once renewing it failed (cloud 5xx).
  * - `signed_out`       no Mindeck account on this core
  * - `checking`         signed in, waiting for the cloud's first answer
  * - `email_unverified` the trial starts once the email address is confirmed
@@ -47,7 +49,7 @@ export interface CloudStatus {
   state: LicenseState
   account: CloudAccount | null
   license: CloudLicense | null
-  /** End of the current entitlement (trial lease or lifetime offline window), ISO time. */
+  /** End of the current entitlement (trial lease, lifetime offline window or certificate), ISO time. */
   validUntil: string | null
   /** The last call to the cloud went through. */
   online: boolean
@@ -57,7 +59,23 @@ export interface CloudStatus {
   error: string | null
 }
 
-/** Channels that work without a license: everything the sign-in screen needs, and app updates. */
+/** Channels that work without a license: everything the sign-in screen needs, app updates and the desktop app's diagnostics. */
 export function isLicenseFree(channel: string): boolean {
-  return channel.startsWith('cloud:') || channel.startsWith('update:') || channel === 'app:info'
+  return channel.startsWith('cloud:') || channel.startsWith('update:') || channel.startsWith('desktop:') || channel === 'app:info'
+}
+
+/** What a push to the user's phone says (Mindeck Cloud delivers it): never file contents or secrets. */
+export interface PushNotice {
+  kind: 'approval' | 'agent_done' | 'agent_error'
+  /** ≤ 120 characters. */
+  title: string
+  /** ≤ 240 characters. */
+  body: string
+  sessionId?: string
+}
+
+/** Pushes to the phone while Mindeck is in the background (only with a Mindeck account). */
+export interface PushSettings {
+  enabled: boolean
+  signedIn: boolean
 }

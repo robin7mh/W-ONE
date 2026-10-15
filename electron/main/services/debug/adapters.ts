@@ -5,11 +5,17 @@ import { basename, dirname, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
 import { shellArgs } from '../../lib/shellArgs'
+import { spawnProgram } from '../../lib/executables'
 import { pythonFor } from '../tools/catalog'
 import type { DapLaunch, DapTransport } from './Dap'
 
-/** Start a program like the user's terminal would (their PATH), with extra environment. */
-export function spawnInShell(command: string, args: string[], cwd: string, env: Record<string, string> = {}): ChildProcess {
+/**
+ * Start a program like the user's terminal would (their PATH), with extra
+ * environment. Windows: directly, without PowerShell (batch launchers like
+ * the Kotlin adapter's through cmd.exe).
+ */
+export function spawnInShell(command: string, args: string[], cwd: string, env: Record<string, string> = {}, platform: NodeJS.Platform = process.platform): ChildProcess {
+  if (platform === 'win32') return spawnProgram(command, args, { cwd, env: { ...shellEnv(), ...env }, stdio: ['pipe', 'pipe', 'pipe'] }, platform)
   const { file } = shellCommand()
   const line = [command, ...args].map(shellQuote).join(' ')
   return spawn(file, shellArgs(line), {

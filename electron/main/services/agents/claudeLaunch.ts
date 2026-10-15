@@ -2,13 +2,27 @@
 // user's own account, with everything Mindeck needs passed per session on the
 // command line — the user's ~/.claude settings are never touched.
 
+import type { AgentCommand } from '@shared/types/agents'
+
+/** Built-in commands that answer in the chat (not only in the terminal) and keep the session. */
+export const CLAUDE_COMMANDS: AgentCommand[] = [
+  { name: 'compact', description: 'Summarize the conversation to free up context', hint: 'what to keep' },
+  { name: 'init', description: 'Write a CLAUDE.md that describes this project' },
+  { name: 'review', description: 'Review a pull request', hint: 'PR number' },
+  { name: 'security-review', description: 'Review the pending changes for security issues' },
+  { name: 'model', description: 'Switch the model', hint: 'opus, sonnet, haiku' }
+]
+
 /** Read-only memory tools run without asking; writing to the vault still asks. */
 export const MEMORY_READ_TOOLS = ['mcp__mindeck__memory_search', 'mcp__mindeck__memory_read', 'mcp__mindeck__memory_list', 'mcp__mindeck__project_context']
+/** Reading the browser runs unasked too: agents only ever see tabs shared with them. */
+export const MCP_BROWSER_READ_TOOLS = ['mcp__mindeck__browser_tabs', 'mcp__mindeck__browser_snapshot', 'mcp__mindeck__browser_read', 'mcp__mindeck__browser_screenshot', 'mcp__mindeck__browser_console']
 
 export const SYSTEM_HINT =
   "You are running inside Mindeck, the user's workspace. Mindeck's memory (MCP server \"mindeck\") holds project knowledge, decisions " +
   'and journals of earlier agent sessions: search it (mcp__mindeck__memory_search) before larger changes, and record lasting ' +
-  'decisions with mcp__mindeck__memory_create_note or mcp__mindeck__memory_append.'
+  'decisions with mcp__mindeck__memory_create_note or mcp__mindeck__memory_append. Mindeck also has a browser (mcp__mindeck__browser_*): ' +
+  "it shows the user's local dev pages and tabs they share — after UI changes, check the page with browser_snapshot and browser_console."
 
 /**
  * For the two events HTTP hooks don't cover (SessionStart, Notification):
@@ -44,12 +58,18 @@ export interface LaunchInput {
   resume?: boolean
   /** First message (new sessions only). */
   prompt?: string
+  /** A model alias from CLAUDE_MODELS (`default` = none given). */
+  model?: string
+  /** A permission mode from CLAUDE_MODES (`default` = none given). */
+  mode?: string
 }
 
 export function claudeArgs(input: LaunchInput): string[] {
   const mcp = { mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: `Bearer ${input.token}` } } } }
   const args = [
     ...(input.resume ? ['--resume', input.sessionId] : ['--session-id', input.sessionId, '--name', input.title]),
+    ...(input.model && input.model !== 'default' ? ['--model', input.model] : []),
+    ...(input.mode && input.mode !== 'default' ? ['--permission-mode', input.mode] : []),
     '--settings',
     JSON.stringify(hookSettings(input.hookUrl, input.token)),
     '--mcp-config',
@@ -57,7 +77,8 @@ export function claudeArgs(input: LaunchInput): string[] {
     '--append-system-prompt',
     SYSTEM_HINT,
     '--allowedTools',
-    ...MEMORY_READ_TOOLS
+    ...MEMORY_READ_TOOLS,
+    ...MCP_BROWSER_READ_TOOLS
   ]
   // `--allowedTools` takes several values: the prompt must not be read as one more.
   if (input.prompt && !input.resume) args.push('--', input.prompt)

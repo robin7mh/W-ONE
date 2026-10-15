@@ -3,81 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle } from './bridge'
 import type { TerminalInfo } from '@shared/types/terminal'
 
-// --- xterm.js fakes (jsdom has no canvas/layout) -------------------------------
-type Listener<T> = (v: T) => void
-const x = vi.hoisted(() => ({
-  terms: [] as FakeTerminal[],
-  fits: [] as { fit: ReturnType<typeof vi.fn> }[],
-  links: [] as ((e: unknown, uri: string) => void)[],
-  fitThrows: false
-}))
-interface FakeTerminal {
-  options: Record<string, unknown>
-  written: string[]
-  focus: ReturnType<typeof vi.fn>
-  disposed: boolean
-  type: (d: string) => void
-  resize: (cols: number, rows: number) => void
-}
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options: Record<string, unknown>
-    written: string[] = []
-    focus = vi.fn()
-    disposed = false
-    private dataCb: Listener<string> = () => {}
-    private resizeCb: Listener<{ cols: number; rows: number }> = () => {}
-    constructor(opts: Record<string, unknown>) {
-      this.options = { ...opts }
-      x.terms.push(this as unknown as FakeTerminal)
-    }
-    loadAddon() {}
-    open() {}
-    write(d: string) {
-      this.written.push(d)
-    }
-    onData(cb: Listener<string>) {
-      this.dataCb = cb
-      return { dispose: vi.fn() }
-    }
-    onResize(cb: Listener<{ cols: number; rows: number }>) {
-      this.resizeCb = cb
-      return { dispose: vi.fn() }
-    }
-    type(d: string) {
-      this.dataCb(d)
-    }
-    resize(cols: number, rows: number) {
-      this.resizeCb({ cols, rows })
-    }
-    dispose() {
-      this.disposed = true
-    }
-  }
-}))
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit = vi.fn(() => {
-      if (x.fitThrows) throw new Error('not ready')
-    })
-    constructor() {
-      x.fits.push(this)
-    }
-  }
-}))
-vi.mock('@xterm/addon-web-links', () => ({
-  WebLinksAddon: class {
-    constructor(cb: (e: unknown, uri: string) => void) {
-      x.links.push(cb)
-    }
-  }
-}))
+// --- xterm.js and its addons as fakes (jsdom has no canvas/WebGL/layout) -----
+vi.mock('@xterm/xterm', async () => (await import('./xtermFake')).xtermModule)
+vi.mock('@xterm/addon-fit', async () => (await import('./xtermFake')).fitModule)
+vi.mock('@xterm/addon-web-links', async () => (await import('./xtermFake')).webLinksModule)
+vi.mock('@xterm/addon-search', async () => (await import('./xtermFake')).searchModule)
+vi.mock('@xterm/addon-serialize', async () => (await import('./xtermFake')).serializeModule)
+vi.mock('@xterm/addon-unicode11', async () => (await import('./xtermFake')).unicodeModule)
+vi.mock('@xterm/addon-webgl', async () => (await import('./xtermFake')).webglModule)
 
+import { xt as x } from './xtermFake'
 import { TerminalView } from '@/features/terminal/components/TerminalView'
 import { XtermPane } from '@/features/terminal/components/XtermPane'
 import { useTerminals } from '@/features/terminal/store'
+import { useTerminalSettings } from '@/features/terminal/settings'
+import { serializers } from '@/features/terminal/store'
+import { plainText } from '@/features/terminal/useXterm'
+import { useEditor } from '@/features/editor/store'
+import { DEFAULT_TERMINAL_SETTINGS } from '@shared/types/terminal'
+import { resetProjectCache } from '@/features/terminal/links'
+import { useBrowser } from '@/features/browser/store'
+import { state } from './browserFixtures'
 
 const initial = useTerminals.getState()
+const initialSettings = useTerminalSettings.getState()
 let n = 0
 const info = (extra: Partial<TerminalInfo> = {}): TerminalInfo => {
   n += 1
@@ -95,10 +44,8 @@ const pending = () => new Promise<never>(() => {})
 
 beforeEach(() => {
   useTerminals.setState(initial, true)
-  x.terms.length = 0
-  x.fits.length = 0
-  x.links.length = 0
-  x.fitThrows = false
+  useTerminalSettings.setState(initialSettings, true)
+  x.reset()
   n = 0
 })
 
@@ -113,6 +60,21 @@ const sized = (w: number, h: number) => {
 }
 
 describe('TerminalView', () => {
+  it('offers the dev servers its shell started: one click shows them in the browser', async () => {
+    const created = info({ title: 'shop', cwdLabel: '~/shop' })
+    installBridge({ 'terminal:list': () => [created], 'terminal:attach': pending })
+    const initialBrowser = useBrowser.getState()
+    const show = vi.fn(async () => {})
+    const server = (terminalId: string, port: number) => ({ terminalId, url: `http://localhost:${port}/`, label: `localhost:${port}`, detectedAt: '' })
+    useBrowser.setState({ show, state: state([], { devServers: [server(created.id, 5173), server('other', 3000)] }) })
+    render(<TerminalView />)
+    await act(settle)
+    expect(screen.queryByTitle('Open localhost:3000')).toBeNull() // another shell's
+    fireEvent.click(screen.getByTitle('Open localhost:5173'))
+    expect(show).toHaveBeenCalledWith('http://localhost:5173/')
+    useBrowser.setState(initialBrowser, true)
+  })
+
   it('opens one shell on first mount, shows its header and the layout picker', async () => {
     const created = info({ title: 'demo', cwdLabel: '~/demo' })
     installBridge({ 'terminal:list': () => [], 'terminal:create': () => created, 'terminal:attach': pending })
@@ -211,6 +173,32 @@ describe('TerminalView', () => {
     fireEvent.click(plus)
     fireEvent.click(plus) // toggles closed
     expect(plus).toHaveAttribute('aria-expanded', 'false')
+  })
+})
+
+describe('TerminalView: profiles', () => {
+  it('"New terminal with profile": the shells found and the user’s own, the default marked', async () => {
+    const bridge = installBridge({
+      'terminal:list': () => [info()],
+      'terminal:attach': pending,
+      'projects:list': () => [],
+      'terminal:shells': () => [{ id: 'zsh', name: 'zsh', file: '/bin/zsh', args: ['-l'] }],
+      'terminal:settings': () => ({
+        ...DEFAULT_TERMINAL_SETTINGS,
+        defaultProfile: 'custom-a',
+        profiles: [{ id: 'custom-a', name: 'Server', command: 'ssh', args: [], env: {} }]
+      }),
+      'terminal:create': () => info()
+    })
+    render(<TerminalView />)
+    await act(settle)
+    fireEvent.click(screen.getByLabelText('New terminal'))
+    await act(settle)
+    expect(screen.getByText('New terminal with profile')).toBeInTheDocument()
+    expect(screen.getByText('Server').parentElement).toHaveTextContent('Serverdefault')
+    fireEvent.click(screen.getByText('zsh'))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('terminal:create', { projectId: undefined, profileId: 'zsh' })
   })
 })
 
@@ -345,5 +333,260 @@ describe('XtermPane', () => {
     fireEvent.click(screen.getByLabelText('Close demo'))
     await act(settle)
     expect(bridge.invoke).toHaveBeenCalledWith('terminal:kill', { id: tab.id })
+  })
+})
+
+/** A clipboard the page can use (jsdom has none). */
+function clipboard(text = '') {
+  const board = { writeText: vi.fn(async () => {}), readText: vi.fn(async () => text) }
+  Object.defineProperty(navigator, 'clipboard', { value: board, configurable: true })
+  return board
+}
+
+describe('useXterm extras', () => {
+  it('Unicode 11 widths, WebGL with a DOM fallback, settings applied live', async () => {
+    installBridge({ 'terminal:attach': pending })
+    useTerminalSettings.setState({ settings: { ...DEFAULT_TERMINAL_SETTINGS, fontSize: 15, cursorStyle: 'block' } })
+    const { unmount } = render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
+    const term = x.terms[0]
+    expect(term.unicode.activeVersion).toBe('11')
+    expect(term.options).toMatchObject({ allowProposedApi: true, fontSize: 15, cursorStyle: 'block', scrollback: 5000 })
+    expect(x.webgls).toHaveLength(1)
+
+    // the GPU takes the context back: the DOM renderer draws; switching it on again loads a new one
+    x.webgls[0].loseContext()
+    expect(x.webgls[0].disposed).toBe(true)
+    act(() => useTerminalSettings.setState({ settings: { ...DEFAULT_TERMINAL_SETTINGS, fontSize: 18 } }))
+    expect(term.options.fontSize).toBe(18)
+    expect(x.webgls).toHaveLength(2)
+    act(() => useTerminalSettings.setState({ settings: { ...DEFAULT_TERMINAL_SETTINGS, gpu: false } }))
+    expect(x.webgls[1].disposed).toBe(true)
+    act(() => useTerminalSettings.setState({ settings: { ...DEFAULT_TERMINAL_SETTINGS, gpu: false } })) // off stays off
+    act(() => useTerminalSettings.setState({ shells: [] })) // other state: nothing to apply
+    unmount()
+
+    // no WebGL2 at all
+    x.webglThrows = true
+    useTerminalSettings.setState({ settings: DEFAULT_TERMINAL_SETTINGS })
+    render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
+    expect(x.webgls).toHaveLength(2)
+  })
+
+  it('copy on select, the Terminal’s own keys, clipboard actions', async () => {
+    const board = clipboard('pasted')
+    installBridge({ 'terminal:attach': pending })
+    render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
+    const term = x.terms[0]
+    term.select('abc')
+    expect(board.writeText).not.toHaveBeenCalled() // off by default
+    act(() => useTerminalSettings.setState({ settings: { ...DEFAULT_TERMINAL_SETTINGS, copyOnSelect: true } }))
+    term.select('abc')
+    expect(board.writeText).toHaveBeenCalledWith('abc')
+    term.select('')
+    expect(board.writeText).toHaveBeenCalledTimes(1)
+
+    expect(term.key({ key: 'a', ctrlKey: true }).handled).toBe(false) // the shell's
+    const k = term.key({ key: 'K', ctrlKey: true, shiftKey: true })
+    expect([k.handled, k.e.preventDefault]).toEqual([true, expect.any(Function)])
+    expect(term.clear).toHaveBeenCalled()
+    term.key({ key: 'ArrowUp', ctrlKey: true, shiftKey: true })
+    expect(term.scrollToTop).toHaveBeenCalled() // no commands yet
+    term.key({ key: 'ArrowDown', ctrlKey: true, shiftKey: true })
+    expect(term.scrollToBottom).toHaveBeenCalled()
+    act(() => void term.key({ key: 'f', ctrlKey: true, shiftKey: true }))
+    expect(screen.getByRole('search')).toBeInTheDocument()
+  })
+
+  it('agents’ terminals: find goes to the program, no file links, nothing saved', async () => {
+    installBridge({ 'terminal:attach': pending })
+    const { SessionTerminalProbe } = await import('./terminalProbe')
+    render(<SessionTerminalProbe id="a1" />)
+    const term = x.terms[0]
+    expect(term.key({ key: 'f', ctrlKey: true, shiftKey: true }).handled).toBe(false)
+    expect(term.linkProviders).toHaveLength(0)
+    expect(serializers.has('a1')).toBe(false)
+  })
+
+  it('restored output shows greyed above; the tab’s output is kept for the next start', async () => {
+    const bridge = installBridge({ 'terminal:attach': () => ({ buffer: 'new$ ', end: 5, info: info() }) })
+    const tab = { ...info(), restored: { scrollback: 'old 1\nold 2', savedAt: '2026-10-15T08:00:00.000Z' } }
+    const { unmount } = render(<XtermPane tab={tab} label="~" active={false} framed={false} />)
+    await act(settle)
+    const term = x.terms[0]
+    expect(term.written[0]).toMatch(/^\x1b\[0;90mold 1\r\nold 2\x1b\[0m\r\n\x1b\[90m── Restored · .+ ──\x1b\[0m\r\n$/)
+    expect(term.written[1]).toBe('new$ ')
+    x.serialized = '\x1b[32mgreen\x1b[0m\x1b[3Cgap\x1b]0;title\x07\x1b(B  \r\n\r\n'
+    expect(serializers.get(tab.id)!()).toBe('green   gap')
+    act(() => bridge.emit('terminal:data', { id: tab.id, data: 'more', end: 9 }))
+    expect(term.written.at(-1)).toBe('more')
+    unmount()
+    expect(serializers.has(tab.id)).toBe(false)
+  })
+
+  it('plain text drops colors, moves and titles', () => {
+    expect(plainText('a\x1b[Cb\x1b[1;2Hc\x1b]2;t\x1b\\d')).toBe('a bcd')
+  })
+
+  it('file references open in the editor on their line', async () => {
+    resetProjectCache()
+    installBridge({
+      'terminal:attach': pending,
+      'projects:list': () => [{ id: 'p1', name: 'P', path: '/code/p1', addedAt: '', lastSeenAt: '' }],
+      'files:stat': () => [{ mtimeMs: 1, size: 1 }],
+      'files:list': () => [],
+      'files:read': () => ({ path: 'src/a.ts', content: '', mtimeMs: 1, size: 0 })
+    })
+    const navigate = vi.fn()
+    const tab = info({ cwd: '/code/p1', cwdLabel: '/code/p1' })
+    render(<XtermPane tab={tab} label="~" active={false} framed={false} onNavigate={navigate} />)
+    const term = x.terms[0]
+    term.lines = [{ text: 'src/a.ts:7' }]
+    const links = await new Promise<{ activate: () => void }[]>((r) => term.linkProviders[0].provideLinks(1, r as never))
+    links[0].activate()
+    await act(settle)
+    expect(navigate).toHaveBeenCalledWith('editor')
+    expect(useEditor.getState()).toMatchObject({ projectId: 'p1', reveal: { line: 7 } })
+
+    // without a way to switch modules it still opens there
+    render(<XtermPane tab={info({ cwd: '/code/p1' })} label="~" active={false} framed={false} />)
+    x.terms[1].lines = [{ text: 'src/a.ts:2' }]
+    const more = await new Promise<{ activate: () => void }[]>((r) => x.terms[1].linkProviders[0].provideLinks(1, r as never))
+    more[0].activate()
+    await act(settle)
+    expect(useEditor.getState().reveal).toMatchObject({ line: 2 })
+  })
+})
+
+describe('XtermPane: find and the context menu', () => {
+  it('finds with options, steps through matches, counts them and closes on Escape', async () => {
+    installBridge({ 'terminal:attach': pending })
+    render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
+    const term = x.terms[0]
+    act(() => void term.key({ key: 'f', ctrlKey: true, shiftKey: true }))
+    const search = x.searches[0]
+    const field = screen.getByLabelText('Find')
+    expect(field).toHaveFocus()
+    fireEvent.change(field, { target: { value: 'err' } })
+    expect(search.findNext).toHaveBeenLastCalledWith('err', expect.objectContaining({ caseSensitive: false, regex: false, decorations: expect.any(Object) }))
+    act(() => search.results(1, 4))
+    expect(screen.getByText('2 of 4')).toBeInTheDocument()
+    act(() => search.results(-1, 1000))
+    expect(screen.getByText('1000+')).toBeInTheDocument()
+    act(() => search.results(-1, 0))
+    expect(screen.getByText('No results')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Match case'))
+    expect(screen.getByLabelText('Match case')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByLabelText('Regular expression'))
+    expect(search.findNext).toHaveBeenLastCalledWith('err', expect.objectContaining({ caseSensitive: true, regex: true }))
+    fireEvent.keyDown(field, { key: 'Enter', shiftKey: true })
+    expect(search.findPrevious).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(field, { key: 'Enter' })
+    fireEvent.click(screen.getByLabelText('Next match'))
+    fireEvent.click(screen.getByLabelText('Previous match'))
+    expect(search.findPrevious).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(field, { key: 'a' }) // typing goes on
+
+    fireEvent.change(field, { target: { value: '' } })
+    expect(search.clearDecorations).toHaveBeenCalled()
+    expect(screen.getByLabelText('Next match')).toBeDisabled()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.queryByRole('search')).toBeNull()
+    expect(term.focus).toHaveBeenCalled()
+
+    // reopened from the menu; the close button closes too
+    fireEvent.contextMenu(document.querySelector('[data-terminal]')!)
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Find/ }))
+    fireEvent.mouseDown(screen.getByRole('search')) // clicks in the bar stay there
+    fireEvent.click(screen.getByLabelText('Close'))
+    expect(screen.queryByRole('search')).toBeNull()
+  })
+
+  it('copy, paste, select all, clear and split; with integration the commands too', async () => {
+    const board = clipboard('from clipboard')
+    const fresh = info()
+    const bridge = installBridge({ 'terminal:attach': pending, 'terminal:create': () => fresh })
+    const tab = info({ integration: true })
+    useTerminals.setState({ tabs: [tab], activeId: tab.id, layout: 'single' })
+    const { rerender } = render(<XtermPane tab={tab} label="~" active framed={false} />)
+    const term = x.terms[0]
+    const pane = document.querySelector('[data-terminal]')!
+    const menu = () => {
+      fireEvent.contextMenu(pane, { clientX: 5, clientY: 5 })
+      return (name: RegExp) => screen.getByRole('menuitem', { name })
+    }
+
+    expect(menu()(/^Copy$/)).toBeDisabled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    term.selection = 'sel'
+    fireEvent.click(menu()(/^Copy$/))
+    expect(board.writeText).toHaveBeenCalledWith('sel')
+    fireEvent.click(menu()(/^Paste$/))
+    await act(settle)
+    expect(term.paste).toHaveBeenCalledWith('from clipboard')
+    fireEvent.click(menu()(/Select all/))
+    expect(term.selectAll).toHaveBeenCalled()
+    fireEvent.click(menu()(/^Clear/))
+    expect(term.clear).toHaveBeenCalled()
+
+    // the last command's output (shell integration)
+    expect(menu()(/Copy output/)).toBeDisabled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    term.lines = [{ text: '$ echo hi' }, { text: 'hi' }, { text: '$ ' }]
+    for (const [y, seq] of [[0, 'A'], [1, 'C'], [2, 'D;0']] as const) {
+      term.cursor = { x: 0, y }
+      term.osc(133, seq)
+    }
+    fireEvent.click(menu()(/Copy output/))
+    expect(board.writeText).toHaveBeenLastCalledWith('hi')
+    term.buffer.active.baseY = 2
+    term.buffer.active.viewportY = 2
+    fireEvent.click(menu()(/Previous command/))
+    expect(term.scrollToLine).toHaveBeenCalledWith(0)
+    fireEvent.click(menu()(/Next command/))
+    expect(term.scrollToBottom).toHaveBeenCalled()
+
+    fireEvent.click(menu()(/^Split$/))
+    await act(settle)
+    expect(bridge.invoke).toHaveBeenCalledWith('terminal:create', { projectId: undefined, cwd: tab.cwd, profileId: undefined })
+    expect(useTerminals.getState().layout).toBe('cols')
+
+    // without integration: no command items; an exited shell can't be split; an empty clipboard pastes nothing
+    rerender(<XtermPane tab={{ ...tab, integration: undefined, exitCode: 0 }} label="~" active framed={false} />)
+    const pick = menu()
+    expect(screen.queryByRole('menuitem', { name: /Copy output/ })).toBeNull()
+    expect(pick(/^Split$/)).toBeDisabled()
+    board.readText.mockResolvedValueOnce('')
+    fireEvent.click(pick(/^Paste$/))
+    await act(settle)
+    expect(term.paste).toHaveBeenCalledTimes(1)
+    term.selection = ''
+    const copy = menu()(/^Copy$/)
+    expect(copy).toBeDisabled()
+  })
+
+  it('the view’s actions do nothing once it is gone; copy needs a selection', async () => {
+    clipboard()
+    installBridge({ 'terminal:attach': pending })
+    const probe = await import('./terminalProbe')
+    const { unmount } = render(<probe.ApiProbe id="z" />)
+    const api = probe.lastApi!
+    x.terms[0].selection = ''
+    api.copy()
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+    expect(api.find('', {})).toBe(false)
+    unmount()
+    expect(api.find('x', {})).toBe(false)
+    expect(api.lastOutput()).toBeUndefined()
+    expect(api.hasSelection()).toBe(false)
+    api.onFindResults(() => {}).dispose()
+    api.clearFind()
+    api.previousCommand()
+    api.nextCommand()
+    api.copy()
+    api.clear()
+    api.selectAll()
+    api.focus()
+    await api.paste()
   })
 })

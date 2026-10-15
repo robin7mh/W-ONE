@@ -10,7 +10,7 @@ import { useBoot } from '@/hooks/useBoot'
 import { NAV_ITEMS } from '@/data/navigation'
 import { BOOT_LINES } from '@/data/bootLines'
 import { errorMessage, ipc, IpcError, onEvent } from '@shared/ipc/client'
-import { IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/contract'
+import { CHANNEL_ACCESS, DESKTOP_EVENTS, IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/contract'
 import { DEFAULT_GRAPH_STYLE, GRAPH_COLORS } from '@shared/types/memory'
 import { EVENT_CATALOG } from '@shared/types/events'
 import { renderMarkdown } from '@/features/memory/markdown'
@@ -189,7 +189,7 @@ describe('hooks', () => {
 
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
-    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
+    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'browser', 'files', 'projects', 'memory', 'agents', 'system', 'settings'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
@@ -202,6 +202,7 @@ describe('data & shared constants', () => {
       'memory:changed',
       'terminal:data',
       'terminal:exit',
+      'terminal:info',
       'ai:delta',
       'ai:inlineDelta',
       'ai:message',
@@ -221,8 +222,19 @@ describe('data & shared constants', () => {
       'sftp:progress',
       'remote:changed',
       'tests:changed',
-      'notebook:event'
+      'search:progress',
+      'notebook:event',
+      'browser:state',
+      'browser:find',
+      'browser:command',
+      'browser:reveal',
+      'browser:bookmarks',
+      'browser:import',
+      'finder:progress'
     ])
+    // the browser's pages are private: none of its events reach remote clients, all its channels are desktop-only
+    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress'])
+    for (const channel of IPC_CHANNELS.filter((c) => c.startsWith('browser:') || c.startsWith('finder:'))) expect(CHANNEL_ACCESS[channel]).toBe('desktop')
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
     expect(EVENT_CATALOG['app.started']).toBe('activity')
@@ -235,11 +247,12 @@ describe('data & shared constants', () => {
       import('@shared/types/project'),
       import('@shared/types/settings'),
       import('@shared/types/system'),
-      import('@shared/types/terminal'),
       import('@/types')
     ])) {
       expect(Object.keys(mod)).toEqual([])
     }
+    // the Terminal's types come with its defaults and bounds
+    expect(Object.keys(await import('@shared/types/terminal')).sort()).toEqual(['DEFAULT_TERMINAL_SETTINGS', 'TERMINAL_CURSORS', 'TERMINAL_LIMITS'])
   })
 })
 
@@ -290,6 +303,16 @@ describe('markdown', () => {
     expect(html).not.toContain('#123</span>')
     expect(html).not.toContain('#sharp</span>')
     expect(html).not.toMatch(/<script|onerror/)
+  })
+
+  it('shows pictures only from the vault: embeds and sources move to data-embed, data: stays', () => {
+    const html = renderMarkdown('![[bild.png]] ![[w.jpg|300]] ![[Note]] ![alt](attachments/a%20b.png) ![remote](https://x.dev/p.png) ![inline](data:image/png;base64,AA)', {})
+    expect(html).toContain('<img class="embed" data-embed="bild.png" alt="bild.png">')
+    expect(html).toContain('<img class="embed" data-embed="w.jpg" alt="w.jpg" width="300">')
+    expect(html).toContain('data-target="Note">Note</a>')
+    expect(html).toContain('<img alt="alt" data-embed="attachments/a%20b.png">')
+    expect(html).toContain('<img alt="remote" data-embed="https://x.dev/p.png">')
+    expect(html).toContain('<img src="data:image/png;base64,AA" alt="inline">')
   })
 
   it('escapes HTML inside link labels and tags', () => {

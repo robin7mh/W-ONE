@@ -73,9 +73,6 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 14
-      - name: Database logs
-        if: failure()
-        run: docker compose logs db
 
   docker:
     name: Docker image (Mindeck core) builds

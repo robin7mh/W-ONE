@@ -3,6 +3,7 @@ import {
   DEFAULT_SERVER_CONFIG,
   type CoreMode,
   type Device,
+  type DeviceRole,
   type PairingCode,
   type ServerConfig,
   type ServerStatus
@@ -54,6 +55,11 @@ export class ServerController {
 
   remoteTerminal(): boolean {
     return this.config.remoteTerminal
+  }
+
+  /** The folders shared with paired devices. */
+  remoteRoots(): string[] {
+    return [...this.config.remoteRoots]
   }
 
   status(): ServerStatus {
@@ -111,13 +117,16 @@ export class ServerController {
     return this.status()
   }
 
-  async createPairingCode(): Promise<PairingCode> {
-    const { code, expiresAt } = await this.opts.auth.createPairingCode()
-    return { code, expiresAt, urls: this.urls() }
+  async createPairingCode(role?: DeviceRole): Promise<PairingCode> {
+    return { ...(await this.opts.auth.createPairingCode(role)), urls: this.urls() }
   }
 
   devices(): Promise<Device[]> {
     return this.opts.auth.devices()
+  }
+
+  setDeviceRole(id: string, role: DeviceRole): Promise<Device[]> {
+    return this.opts.auth.setRole(id, role)
   }
 
   async revoke(id: string): Promise<void> {

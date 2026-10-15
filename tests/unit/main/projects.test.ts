@@ -35,14 +35,22 @@ const electron = vi.hoisted(() => ({
   openPath: vi.fn(async () => ''),
   openExternal: vi.fn(async () => {}),
   appForProtocol: vi.fn((_url: string) => ''),
-  encryption: true
+  reveal: vi.fn(),
+  encryption: true,
+  backend: 'gnome_libsecret',
+  clipboardWrites: [] as unknown[]
 }))
 vi.mock('electron', () => ({
   app: { getApplicationNameForProtocol: electron.appForProtocol },
+  clipboard: { write: async (items: unknown[]) => void electron.clipboardWrites.push(...items), read: async () => [] },
+  ClipboardItem: class {
+    constructor(public data: Record<string, string>) {}
+  },
   dialog: { showOpenDialog: electron.showOpenDialog },
-  shell: { openPath: electron.openPath, openExternal: electron.openExternal },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.reveal },
   safeStorage: {
     isEncryptionAvailable: () => electron.encryption,
+    getSelectedStorageBackend: () => electron.backend,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
     decryptString: (b: Buffer) => b.toString().replace(/^enc:/, '')
   }
@@ -52,7 +60,7 @@ import { detectGit } from '../../../electron/main/services/projects/gitDetect'
 import { detectStack } from '../../../electron/main/services/projects/stackDetect'
 import { ProjectService } from '../../../electron/main/services/projects/ProjectService'
 import { ProjectRegistry } from '../../../electron/main/services/projects/registry'
-import { electronCipher, electronPlatform } from '../../../electron/main/platform/electron'
+import { electronCipher, electronPlatform, secretsProtected } from '../../../electron/main/platform/electron'
 import { headlessPlatform } from '../../../electron/main/platform/headless'
 import { openInVsCode } from '../../../electron/main/lib/openInVsCode'
 
@@ -214,6 +222,30 @@ describe('ProjectService', () => {
     electron.encryption = true
   })
 
+  it('knows when the keychain really protects secrets — not on Linux without a keyring', () => {
+    expect(secretsProtected('darwin')).toBe(true)
+    expect(secretsProtected('linux')).toBe(true) // libsecret
+    for (const backend of ['basic_text', 'unknown']) {
+      electron.backend = backend
+      expect(secretsProtected('linux')).toBe(false)
+    }
+    expect(secretsProtected('win32')).toBe(true)
+    electron.backend = 'gnome_libsecret'
+    electron.encryption = false
+    expect(secretsProtected('win32')).toBe(false)
+    electron.encryption = true
+    expect(typeof secretsProtected()).toBe('boolean')
+  })
+
+  it('shows files in the OS file manager on the desktop', async () => {
+    electronPlatform.revealPath!('/Users/me/report.pdf')
+    // Files on the system clipboard go as the OS's ClipboardItem.
+    await electronPlatform.fileClipboard!.write(['/Users/me/a.txt'], false)
+    expect((electron.clipboardWrites[0] as { data: Record<string, string> }).data['text/plain']).toBe('/Users/me/a.txt')
+    expect(electronPlatform.restorableTrash === undefined).toBe(process.platform !== 'linux')
+    expect(electron.reveal).toHaveBeenCalledWith('/Users/me/report.pdf')
+  })
+
   it('refuses the picker and opening files on a headless host', async () => {
     const data = await tempDir()
     const s = new ProjectService(new ProjectRegistry(data), headlessPlatform)
@@ -259,6 +291,19 @@ describe('ProjectService', () => {
     await s.remove(p.id)
     expect(s.getProjectPath(p.id)).toBeUndefined()
     await expect(s.refresh('nope')).rejects.toThrow('Unknown project: nope')
+  })
+
+  it('marks projects a paired device added — until the desktop adds them too', async () => {
+    const s = await setup()
+    proc.setResponder(() => new Error('no git'))
+    const dir = await tempDir('remote-')
+    const p = await s.add(dir, true)
+    expect(p.addedRemotely).toBe(true)
+    expect((await s.add(dir, true)).addedRemotely).toBe(true)
+    const desktop = await s.add(dir)
+    expect(desktop.id).toBe(p.id)
+    expect(desktop.addedRemotely).toBeUndefined()
+    expect((await s.add(await tempDir())).addedRemotely).toBeUndefined()
   })
 
   it('rejects files and missing paths', async () => {
