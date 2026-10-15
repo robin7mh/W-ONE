@@ -201,7 +201,7 @@ describe('TabStrip', () => {
     fireEvent.dragOver(tabs[1], { dataTransfer: { types: ['Files'] } }) // not a tab: ignored
     fireEvent.drop(tabs[4], { dataTransfer }) // onto itself: nothing
     await settle()
-    expect(sent('browser:move')).toEqual([{ id: 'g', index: 1 }])
+    expect(sent('browser:move')).toEqual([{ id: 'g', index: 1, groupId: null }])
 
     // new tabs: the + button, or a double-click on the empty strip
     const newTab = vi.fn(async () => {})
@@ -429,7 +429,7 @@ describe('Viewport', () => {
   })
 
   it('stands in a picture of the page while a menu or dialog covers it', async () => {
-    const { sent } = bridge({ 'browser:freeze': () => 'data:image/jpeg;base64,shot' })
+    const { sent } = bridge({ 'browser:freeze': () => ({ a: 'data:image/jpeg;base64,shot' }) })
     useBrowser.setState({ state: state([tab('a', 'https://a.dev/')]) })
     render(<Viewport active />)
     act(() => useOverlays.setState({ count: 1 }))
@@ -445,7 +445,7 @@ describe('Viewport', () => {
     installBridge({ 'browser:freeze': () => new Promise((r) => (deliver = r)) })
     act(() => useOverlays.setState({ count: 1 }))
     act(() => useOverlays.setState({ count: 0 }))
-    deliver('data:late')
+    deliver({ a: 'data:late' })
     await settle()
     expect(document.querySelector('img')).toBeNull()
     // failures of the core are no reason to break the UI

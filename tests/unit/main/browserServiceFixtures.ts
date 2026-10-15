@@ -18,7 +18,7 @@ export function fakeHost() {
     go: vi.fn(),
     show: vi.fn(),
     setBounds: vi.fn(),
-    freeze: vi.fn(async () => 'data:image/jpeg;base64,x'),
+    freeze: vi.fn(async (): Promise<Record<string, string> | null> => ({ t: 'data:image/jpeg;base64,x' })),
     unfreeze: vi.fn(),
     find: vi.fn(),
     stopFind: vi.fn(),
