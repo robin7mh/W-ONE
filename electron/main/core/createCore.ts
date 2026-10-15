@@ -247,7 +247,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const conversations = new ConversationStore(paths.dataDir)
   const remoteScope = new RemoteScope({
     access: remoteAccess,
-    sessionProject: (id) => agents.list().find((s) => s.id === id)?.projectId,
+    sessionProject: (id) => agents.projectOf(id),
     conversationProject: (id) => conversations.projectOf(id),
     pending: () => permissions.list()
   })

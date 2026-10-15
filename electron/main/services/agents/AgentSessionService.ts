@@ -212,6 +212,11 @@ export class AgentSessionService {
     return [...this.live.values()].map((l) => l.session).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
+  /** The project a session works in (undefined: no such session). */
+  projectOf(id: string): string | undefined {
+    return this.live.get(id)?.session.projectId
+  }
+
   get(id: string): AgentSessionDetail {
     const l = this.require(id)
     return { ...l.session, messages: l.messages }
