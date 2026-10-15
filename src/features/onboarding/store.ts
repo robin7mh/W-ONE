@@ -74,8 +74,8 @@ export const useOnboarding = create<OnboardingState>((set, get) => {
     },
     firstStart: async () => {
       if (get().known) return
-      // An answer that fails counts as nothing there.
-      const count = (list: Promise<unknown[]>) => list.then((l) => l.length, () => 0)
+      // An answer that fails, or isn't a list, counts as nothing there.
+      const count = (list: Promise<unknown[]>) => list.then((l) => (Array.isArray(l) ? l.length : 0), () => 0)
       const used = (await Promise.all([count(ipc('projects:list')), count(ipc('agents:list')), count(ipc('ai:conversations'))])).some((n) => n > 0)
       if (get().known) return // decided meanwhile (Settings → Setup)
       if (used) return get().finish()

@@ -90,7 +90,7 @@ describe('a real first start', () => {
   const fresh = () => useOnboarding.setState({ open: false, done: false, step: 'welcome', known: false })
 
   it('opens when this core has no projects, agent sessions or chats', async () => {
-    installBridge({ 'projects:list': () => [], 'agents:list': () => [], 'ai:conversations': () => fail('no assistant') })
+    installBridge({ 'projects:list': () => [], 'agents:list': () => undefined, 'ai:conversations': () => fail('no assistant') })
     fresh()
     await useOnboarding.getState().firstStart()
     expect(useOnboarding.getState()).toMatchObject({ open: true, known: true, done: false })
