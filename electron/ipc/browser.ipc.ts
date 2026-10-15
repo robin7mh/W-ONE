@@ -17,7 +17,7 @@ export function registerBrowserIpc(router: Router, browser: BrowserService): voi
   router.register('browser:find', ({ id, text, forward, next }) => browser.find(id, text, forward, next))
   router.register('browser:findStop', ({ id }) => browser.findStop(id))
   router.register('browser:tool', ({ id, tool }) => browser.tool(id, tool))
-  router.register('browser:view', ({ bounds }) => browser.setView(bounds))
+  router.register('browser:view', ({ bounds, focused }) => browser.setView(bounds, focused))
   router.register('browser:freeze', () => browser.freeze())
   router.register('browser:unfreeze', () => browser.unfreeze())
   router.register('browser:suggest', ({ text }) => browser.suggest(text))

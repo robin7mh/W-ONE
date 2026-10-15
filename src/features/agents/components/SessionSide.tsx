@@ -111,7 +111,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
   ]
 
   return (
-    <aside className="hidden w-72 shrink-0 flex-col border-l border-hud/50 xl:flex">
+    <aside className="hidden w-72 shrink-0 flex-col border-l border-hud/50 pane-xl:flex">
       <div role="tablist" className="flex h-10 shrink-0 items-center gap-1 border-b border-hud/50 px-2">
         {tabs.map(([id, label, count]) => (
           <button

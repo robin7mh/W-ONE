@@ -194,7 +194,7 @@ export function AccountView() {
     : []
   return (
     <Panel title={t.account.title} corners flush className="min-h-0 flex-1" bodyClassName="min-h-0 overflow-y-auto">
-      <div className="grid gap-3 p-3 lg:grid-cols-2">
+      <div className="grid gap-3 p-3 pane-lg:grid-cols-2">
         <Card icon={UserRound} title={t.account.accountCard}>
           {cloud ? <AccountCard status={cloud} /> : <p className="font-mono text-[11px] text-text-muted">{t.account.linking}</p>}
         </Card>

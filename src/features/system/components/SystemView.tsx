@@ -46,14 +46,14 @@ export function SystemView() {
       }
       bodyClassName="min-h-0 overflow-y-auto"
     >
-      <div className="grid items-start gap-3 lg:grid-cols-[auto_minmax(0,1fr)]">
-        <div className="flex items-center justify-around gap-4 rounded-md border border-hud/50 bg-surface/40 px-4 py-4 lg:flex-col lg:justify-start">
+      <div className="grid items-start gap-3 pane-lg:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="flex items-center justify-around gap-4 rounded-md border border-hud/50 bg-surface/40 px-4 py-4 pane-lg:flex-col pane-lg:justify-start">
           <RadialGauge value={m.cpu.value} size={110} accent="var(--accent-cyan)" label="CPU" />
           <RadialGauge value={m.ram.value} size={110} accent="var(--accent-blue)" label="RAM" />
           <RadialGauge value={m.disk.value} size={110} accent="var(--accent-purple)" label={t.system.disk} />
         </div>
 
-        <div className="grid min-w-0 content-start gap-3 md:grid-cols-2">
+        <div className="grid min-w-0 content-start gap-3 pane-md:grid-cols-2">
           <Tile icon={Cpu} label="CPU" value={pct(m.cpu.value)} sub={s ? t.system.cores(s.cpu.cores.length) : undefined}>
             <Sparkline data={m.cpu.history} accent="var(--accent-cyan)" />
             {s && s.cpu.cores.length > 0 && (

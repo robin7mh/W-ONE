@@ -111,13 +111,15 @@ describe('BrowserService · tabs and the session', () => {
     expect(host.create).not.toHaveBeenCalled() // restored tabs load when first shown
 
     b.setView({ x: 1, y: 2, width: 300, height: 200 })
-    expect(host.setBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 300, height: 200 })
+    expect(host.setBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 300, height: 200 }, true)
     expect(host.create).toHaveBeenCalledWith('b', 'https://b.dev/', { agent: false, zoom: 1, muted: false })
     expect(host.show).toHaveBeenLastCalledWith('b')
     b.setView({ x: 1, y: 2, width: 300, height: 200 }) // already loaded: no second view
     expect(host.create).toHaveBeenCalledTimes(1)
     b.setView(null)
-    expect(host.setBounds).toHaveBeenLastCalledWith(null)
+    expect(host.setBounds).toHaveBeenLastCalledWith(null, true)
+    b.setView({ x: 1, y: 2, width: 300, height: 200 }, false) // its pane lost the focus: the UI keeps its keys
+    expect(host.setBounds).toHaveBeenLastCalledWith({ x: 1, y: 2, width: 300, height: 200 }, false)
 
     // a request and a waiting agent die with the window
     const answer = vi.fn()
@@ -552,6 +554,8 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     const a = b.open({ url: 'https://a.dev/' })
     const c = b.open({ url: 'https://c.dev/' })
     const active = () => b.state().activeId
+    events.focused('x') // a click into a page: the UI moves its focus to the browser's pane
+    expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'focused' } })
     events.shortcut('newTab')
     expect(b.state().tabs.at(-1)!.url).toBe('')
     expect(host.focusUi).toHaveBeenCalled()
@@ -589,7 +593,7 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     events.shortcut('hardReload')
     await tick()
     const commands = published.filter((p) => p.channel === 'browser:command').map((p) => (p.payload as { command: string }).command)
-    expect(commands).toEqual(['focusOmnibox', 'focusOmnibox', 'find'])
+    expect(commands).toEqual(['focused', 'focusOmnibox', 'focusOmnibox', 'find'])
   })
 
   it('answers the page: search for a selection, send to an agent, find results, console', async () => {

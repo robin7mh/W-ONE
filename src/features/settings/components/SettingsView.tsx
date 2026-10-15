@@ -76,7 +76,7 @@ function RemoteCard() {
   })()
 
   return (
-    <Card icon={Wifi} title={t.settings.remoteCard} className="lg:row-span-2">
+    <Card icon={Wifi} title={t.settings.remoteCard} className="pane-lg:row-span-2">
       <div className="flex items-center gap-2">
         <StatusDot tone={s.server?.running ? 'ok' : 'muted'} pulse={false} />
         <span className="font-sans text-[13px] text-text-primary">{s.server?.running ? t.settings.serverRunning : t.settings.serverOff}</span>
@@ -309,7 +309,7 @@ export function SettingsView() {
           </button>
         </div>
       )}
-      <div className="grid gap-3 p-3 lg:grid-cols-2">
+      <div className="grid gap-3 p-3 pane-lg:grid-cols-2">
         <AppearanceCard />
         <Card icon={Languages} title={t.account.languageCard}>
           <LanguageSwitch />
