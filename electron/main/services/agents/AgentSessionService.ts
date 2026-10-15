@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ApprovalDecision, ChatMessage, PermissionRequest, ToolCallPart } from '@shared/types/ai'
 import { ClientSideConnection, PROTOCOL_VERSION, type RequestPermissionRequest, type RequestPermissionResponse } from '@agentclientprotocol/sdk'
@@ -21,6 +21,7 @@ import type { GitBaseline, GitService } from '../git/GitService'
 import type { LocalAgentServer } from './LocalAgentServer'
 import type { McpSessionContext } from './mcp'
 import { confine } from '../../lib/confine'
+import { readJson, readJsonFile } from '../../lib/jsonFile'
 import { claudeArgs, claudeEnv } from './claudeLaunch'
 import { detectAgents, loginShellProbe, type Probe } from './detect'
 import { applyHook, toolRisk, toolSummary, toolTitle, type Applied, type HookEvent } from './transcript'
@@ -130,16 +131,12 @@ export class AgentSessionService {
   /** Sessions from earlier runs: their processes are gone — they can be resumed. */
   async init(): Promise<void> {
     await mkdir(this.deps.dir, { recursive: true })
-    const raw = await readFile(join(this.deps.dir, 'sessions.json'), 'utf8').catch(() => '')
-    let records: Record_[] = []
-    try {
-      records = raw ? (JSON.parse(raw) as { sessions: Record_[] }).sessions : []
-    } catch {
-      /* unreadable list: start empty, the transcripts stay on disk */
-    }
+    // An unreadable list starts empty (it is set aside; the transcripts stay on disk).
+    const list = await readJson<{ sessions?: Record_[] }>(join(this.deps.dir, 'sessions.json'))
+    const records = (Array.isArray(list?.sessions) ? list.sessions : []).filter((r) => typeof r?.session?.id === 'string')
     const repos = new Map<string, Promise<string | undefined>>()
     for (const r of records) {
-      const messages = JSON.parse(await readFile(this.file(r.session.id), 'utf8').catch(() => '[]')) as ChatMessage[]
+      const messages = await this.transcript(r.session.id)
       const wasRunning = r.session.status !== 'ended' && r.session.status !== 'error'
       if (!repos.has(r.projectPath)) repos.set(r.projectPath, this.deps.git.webUrl(r.projectPath))
       const session: AgentSession = {
@@ -653,8 +650,9 @@ export class AgentSessionService {
   /** Atomic writes, one after another (hooks can come in bursts). */
   private persist(l?: Live): Promise<void> {
     this.writes = this.writes.then(async () => {
+      // Prompts, file contents and tool output: for the user's eyes only.
       const atomic = async (file: string, data: string) => {
-        await writeFile(`${file}.tmp`, data)
+        await writeFile(`${file}.tmp`, data, { mode: 0o600 })
         await rename(`${file}.tmp`, file)
       }
       try {
@@ -697,6 +695,29 @@ export class AgentSessionService {
 
   private file(id: string): string {
     return join(this.deps.dir, `${id}.json`)
+  }
+
+  /**
+   * A session's messages from an earlier run. A damaged transcript never stops
+   * the start: it is set aside (`<id>.corrupt-<time>.json`) and the session
+   * loads with a notice in place of its history.
+   */
+  private async transcript(id: string): Promise<ChatMessage[]> {
+    const read = await readJsonFile<ChatMessage[]>(this.file(id))
+    if (read.status === 'missing') return []
+    if (read.status === 'ok' && Array.isArray(read.value)) return read.value
+    const backup = read.status === 'damaged' && read.backup ? ` It was set aside as ${basename(read.backup)}.` : ''
+    return [
+      {
+        id: randomUUID(),
+        role: 'assistant',
+        parts: [],
+        createdAt: new Date().toISOString(),
+        status: 'error',
+        errorCode: 'transcript-damaged',
+        error: `The earlier messages of this session could not be read.${backup}`
+      }
+    ]
   }
 
   private require(id: string): Live {

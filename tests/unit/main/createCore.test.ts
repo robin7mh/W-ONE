@@ -392,6 +392,21 @@ describe('standalone server entry', () => {
     expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Mindeck pairing'))
   })
 
+  it('needs a license when Mindeck Cloud is built in — never because of NODE_ENV at run time', async () => {
+    const open = (await run([], { MINDECK_PORT: '0', NODE_ENV: 'production' }))!
+    cores.push(open)
+    expect(open.cloud.status().enforced).toBe(false)
+    Object.assign(globalThis, { __MINDECK_CLOUD_URL__: 'http://127.0.0.1:9', __MINDECK_CLOUD_KEY__: 'KEY' })
+    try {
+      const release = (await run([], { MINDECK_PORT: '0', NODE_ENV: 'development', MINDECK_LICENSE: 'off' }))!
+      cores.push(release)
+      expect(release.cloud.status()).toMatchObject({ enforced: true, allowed: false })
+    } finally {
+      delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_URL__
+      delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_KEY__
+    }
+  })
+
   it('fails loudly when the port is taken', async () => {
     const first = (await run([], { MINDECK_PORT: '0' }))!
     cores.push(first)

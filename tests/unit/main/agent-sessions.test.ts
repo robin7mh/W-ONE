@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir, tick } from './helpers'
@@ -199,6 +199,41 @@ describe('AgentSessionService: sessions', () => {
     const noTranscript = track(new AgentSessionService(t.deps))
     await noTranscript.init()
     expect(noTranscript.get(s.id)).toMatchObject({ status: 'ended', terminalId: undefined, messages: [] })
+  })
+
+  it('a damaged transcript never stops the start: the session loads with a notice, the file is set aside', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'hi' })
+    const other = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'hi' })
+    await t.hook(other.id, { hook_event_name: 'UserPromptSubmit', prompt: 'there' })
+    await t.svc.dispose()
+    await writeFile(join(t.deps.dir, `${s.id}.json`), '[{"id":"m1","role":"us') // torn by a full disk
+    await writeFile(join(t.deps.dir, `${other.id}.json`), '{"not":"a list"}')
+    // and a list entry nobody can use
+    const list = JSON.parse(await readFile(join(t.deps.dir, 'sessions.json'), 'utf8'))
+    list.sessions.push({ nonsense: true }, null)
+    await writeFile(join(t.deps.dir, 'sessions.json'), JSON.stringify(list))
+
+    const again = track(new AgentSessionService(t.deps))
+    await again.init()
+    expect(again.list()).toHaveLength(2)
+    const [notice] = again.get(s.id).messages
+    expect(notice).toMatchObject({ role: 'assistant', status: 'error', errorCode: 'transcript-damaged', parts: [] })
+    expect(notice.error).toMatch(new RegExp(`set aside as ${s.id}\\.corrupt-.*\\.json`))
+    const files = await readdir(t.deps.dir)
+    expect(files.some((f) => f.startsWith(`${s.id}.corrupt-`))).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is damaged'))
+    // valid JSON of the wrong shape: a notice as well (nothing worth keeping to set aside)
+    expect(again.get(other.id).messages).toEqual([expect.objectContaining({ errorCode: 'transcript-damaged', error: 'The earlier messages of this session could not be read.' })])
+  })
+
+  it('keeps transcripts and the session list private (0600)', async () => {
+    const s = await t.svc.create({ kind: 'claude-code', projectId: 'p1', prompt: 'hi' })
+    await t.hook(s.id, { hook_event_name: 'UserPromptSubmit', prompt: 'hi' })
+    await t.svc.dispose()
+    expect((await stat(join(t.deps.dir, `${s.id}.json`))).mode & 0o777).toBe(0o600)
+    expect((await stat(join(t.deps.dir, 'sessions.json'))).mode & 0o777).toBe(0o600)
   })
 
   it('named after the agent; renamed by the user (notification and journal follow); the repo page from origin', async () => {

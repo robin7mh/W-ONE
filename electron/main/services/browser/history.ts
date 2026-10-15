@@ -165,7 +165,7 @@ export class BrowserHistory {
     }
     void this.enqueue(async () => {
       await mkdir(dirname(this.file), { recursive: true })
-      await appendFile(this.file, `${JSON.stringify(line)}\n`, 'utf8')
+      await appendFile(this.file, `${JSON.stringify(line)}\n`, { encoding: 'utf8', mode: 0o600 })
     })
   }
 
@@ -178,7 +178,7 @@ export class BrowserHistory {
     this.extra = 0
     const text = keep.map((e) => JSON.stringify({ u: e.url, t: e.title, v: e.visits, l: e.last } satisfies Line)).join('\n')
     // Only a visit compacts, so there is always at least that page to write.
-    return this.enqueue(() => writeAtomic(this.file, `${text}\n`))
+    return this.enqueue(() => writeAtomic(this.file, `${text}\n`, 0o600))
   }
 
   private enqueue(task: () => Promise<unknown>): Promise<void> {

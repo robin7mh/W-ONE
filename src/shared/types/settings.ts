@@ -6,6 +6,7 @@ import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
 import type { EditorSettings } from './migrate'
 import type { BrowserSettings } from './browser'
+import type { CloseBehavior } from './desktop'
 
 export interface AppSettings {
   /**
@@ -23,6 +24,8 @@ export interface AppSettings {
   editor?: EditorSettings
   /** The Mindeck browser: search engine, where links from Mindeck open. */
   browser?: Partial<BrowserSettings>
+  /** Desktop (Windows/Linux): closing the window while agents or terminals run. Unset = ask. */
+  closeBehavior?: CloseBehavior
   /** Settings Sync: the account copy's version this core last saved or loaded. */
   sync?: { version: number; syncedAt: string }
 }

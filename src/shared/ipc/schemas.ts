@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -334,6 +335,18 @@ export const REQUEST_SCHEMAS: Schemas = {
   'update:status': none,
   'update:check': none,
   'update:install': none,
+
+  'desktop:status': none,
+  'desktop:configure': z.object({ closeBehavior: z.enum(CLOSE_BEHAVIORS) }),
+  'desktop:openLogs': none,
+  'desktop:diagnostics': none,
+  'desktop:reportError': z.object({
+    kind: z.enum(['module', 'app', 'error', 'rejection']),
+    module: text(64).optional(),
+    message: text(2000),
+    stack: text(16_000).optional(),
+    componentStack: text(16_000).optional()
+  }),
 
   'browser:state': none,
   'browser:open': z

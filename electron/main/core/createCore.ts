@@ -131,7 +131,8 @@ export interface Core {
  */
 export async function createCore(opts: CoreOptions): Promise<Core> {
   const { paths, platform } = opts
-  await mkdir(paths.dataDir, { recursive: true })
+  // Only the user may look into Mindeck's data (transcripts, grants, tokens).
+  await mkdir(paths.dataDir, { recursive: true, mode: 0o700 })
 
   const settings = new SettingsService(paths.settingsFile)
   await settings.init()
