@@ -27,6 +27,7 @@ import { EditorCard } from './EditorCard'
 import { AiCard } from './AiCard'
 import { BrowserCard } from './BrowserCard'
 import { DesktopCard } from './DesktopCard'
+import { TerminalCard } from './TerminalCard'
 import { Toggle } from './Toggle'
 import { OnboardingCard } from '@/features/onboarding/components/OnboardingCard'
 
@@ -429,6 +430,7 @@ export function SettingsView() {
         <AgentsCard />
         <BrowserCard />
         <EditorCard />
+        <TerminalCard />
         <MigrateCard />
         <LanguagesCard />
         <AiCard />

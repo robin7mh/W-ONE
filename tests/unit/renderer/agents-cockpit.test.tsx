@@ -8,43 +8,15 @@ import type { MindeckEvent } from '@shared/types/events'
 
 // --- xterm (the session's terminal) and Monaco (diffs): jsdom runs neither ----------
 const x = vi.hoisted(() => ({
-  terms: [] as { written: string[]; focus: ReturnType<typeof vi.fn>; disposed: boolean }[],
-  fitThrows: false,
   diff: { created: 0, models: [] as { value: string; path: string; disposed: boolean }[], disposed: 0 }
 }))
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options: Record<string, unknown> = {}
-    written: string[] = []
-    focus = vi.fn()
-    disposed = false
-    constructor() {
-      x.terms.push(this)
-    }
-    loadAddon() {}
-    open() {}
-    write(d: string) {
-      this.written.push(d)
-    }
-    onData() {
-      return { dispose: vi.fn() }
-    }
-    onResize() {
-      return { dispose: vi.fn() }
-    }
-    dispose() {
-      this.disposed = true
-    }
-  }
-}))
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit = vi.fn(() => {
-      if (x.fitThrows) throw new Error('not measurable')
-    })
-  }
-}))
-vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
+vi.mock('@xterm/xterm', async () => (await import('./xtermFake')).xtermModule)
+vi.mock('@xterm/addon-fit', async () => (await import('./xtermFake')).fitModule)
+vi.mock('@xterm/addon-web-links', async () => (await import('./xtermFake')).webLinksModule)
+vi.mock('@xterm/addon-search', async () => (await import('./xtermFake')).searchModule)
+vi.mock('@xterm/addon-serialize', async () => (await import('./xtermFake')).serializeModule)
+vi.mock('@xterm/addon-unicode11', async () => (await import('./xtermFake')).unicodeModule)
+vi.mock('@xterm/addon-webgl', async () => (await import('./xtermFake')).webglModule)
 vi.mock('@/features/editor/monaco/setup', () => ({
   THEME: 'mindeck',
   applyMonacoTheme: vi.fn(),
@@ -64,6 +36,7 @@ vi.mock('@/features/editor/monaco/setup', () => ({
   }
 }))
 
+import { xt } from './xtermFake'
 import { useAgents, useActiveSession } from '@/features/agents/sessions'
 import { useAssistant } from '@/features/agents/store'
 import { describeEvent } from '@/features/agents/format'
@@ -80,8 +53,8 @@ beforeEach(() => {
   useAgents.setState(initialAgents, true)
   useAssistant.setState(initialAssistant, true)
   useProjects.setState({ projects: [project('p1', 'Demo'), project('p2', 'Site')], selectedId: undefined, load: vi.fn(async () => {}) })
-  x.terms.length = 0
-  x.fitThrows = false
+  xt.terms.length = 0
+  xt.fitThrows = false
   x.diff = { created: 0, models: [], disposed: 0 }
 })
 
@@ -410,19 +383,19 @@ describe('SessionPane', () => {
     await act(() => vi.advanceTimersByTimeAsync(1000))
     rerender(<SessionPane session={session({ status: 'idle', branch: 'mindeck/abc' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(5000))
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
     // The next start takes long: the agent asks something in its terminal, which opens.
     rerender(<SessionPane session={session({ status: 'starting', branch: 'mindeck/abc', terminalId: 'pty2' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(2900))
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
     await act(() => vi.advanceTimersByTimeAsync(100))
     vi.useRealTimers()
     await act(settle)
-    expect(x.terms).toHaveLength(1)
-    expect(x.terms[0].written).toContain('trust?')
+    expect(xt.terms).toHaveLength(1)
+    expect(xt.terms[0].written).toContain('trust?')
     expect(screen.getByLabelText('Hide terminal')).toBeInTheDocument()
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
-    expect(x.terms[0].focus).toHaveBeenCalled() // ready to answer the prompt
+    expect(xt.terms[0].focus).toHaveBeenCalled() // ready to answer the prompt
     fireEvent.click(screen.getByLabelText('End session'))
     expect(stop).toHaveBeenCalledWith('s1')
   })
@@ -441,7 +414,7 @@ describe('SessionPane', () => {
     ]
     const { rerender } = pane(session({ status: 'approval' }), messages)
     expect(screen.getByText('· Needs your approval')).toBeInTheDocument()
-    expect(x.terms).toHaveLength(0) // terminal only on request
+    expect(xt.terms).toHaveLength(0) // terminal only on request
     fireEvent.click(screen.getByLabelText('Interrupt'))
     fireEvent.click(screen.getByLabelText('Stop')) // the composer's stop does the same
     expect(interrupt).toHaveBeenCalledTimes(2)
@@ -450,9 +423,9 @@ describe('SessionPane', () => {
 
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
-    expect(x.terms).toHaveLength(1)
+    expect(xt.terms).toHaveLength(1)
     fireEvent.click(screen.getByLabelText('Hide terminal'))
-    expect(x.terms[0].disposed).toBe(true)
+    expect(xt.terms[0].disposed).toBe(true)
 
     rerender(<SessionPane session={session({ status: 'idle' })} messages={messages} />)
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'next step' } })
@@ -477,13 +450,13 @@ describe('SessionPane', () => {
 
   it('waiting: the terminal opens (even when it can\'t be measured yet); its end is noted', async () => {
     const bridge = installBridge({ 'terminal:attach': () => ({ buffer: '', end: 0 }) })
-    x.fitThrows = true
+    xt.fitThrows = true
     pane(session({ status: 'waiting' }))
     await act(settle)
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
-    expect(x.terms[0].focus).toHaveBeenCalled()
+    expect(xt.terms[0].focus).toHaveBeenCalled()
     act(() => bridge.emit('terminal:exit', { id: 'pty1', exitCode: 0 }))
-    expect(x.terms[0].written.join('')).toContain('[the agent ended]')
+    expect(xt.terms[0].written.join('')).toContain('[the agent ended]')
   })
 
   it('ended: resume; errors from the session and the store (dismissible); empty state', async () => {
@@ -628,7 +601,7 @@ describe('SessionPane for ACP agents', () => {
     expect(screen.getByText('Codex · Demo')).toBeInTheDocument()
     expect(screen.getByText(/Runs with your own Codex sign-in/)).toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message Codex…')
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
   })
 })
 
@@ -641,17 +614,17 @@ describe('SessionPane: a shell for agents without a terminal', () => {
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
     expect(openShell).toHaveBeenCalledWith('s1')
-    expect(x.terms).toHaveLength(1)
-    expect(x.terms[0].written).toContain('$ ')
+    expect(xt.terms).toHaveLength(1)
+    expect(xt.terms[0].written).toContain('$ ')
     act(() => bridge.emit('terminal:exit', { id: 'sh1', exitCode: 0 }))
-    expect(x.terms[0].written.join('')).toContain('[the shell ended]')
+    expect(xt.terms[0].written.join('')).toContain('[the shell ended]')
     fireEvent.click(screen.getByLabelText('Hide terminal'))
-    expect(x.terms[0].disposed).toBe(true)
+    expect(xt.terms[0].disposed).toBe(true)
 
     openShell.mockResolvedValueOnce(undefined as never)
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
-    expect(x.terms).toHaveLength(1)
+    expect(xt.terms).toHaveLength(1)
     expect(screen.getByLabelText('Show terminal')).toBeInTheDocument()
   })
 })

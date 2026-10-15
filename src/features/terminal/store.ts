@@ -1,17 +1,20 @@
 import { create } from 'zustand'
-import { errorMessage, ipc } from '@shared/ipc/client'
-import type { TerminalInfo } from '@shared/types/terminal'
+import { errorMessage, ipc, isDesktop, onEvent } from '@shared/ipc/client'
+import type { TerminalInfo, TerminalSnapshot } from '@shared/types/terminal'
+import { useTerminalSettings } from './settings'
 
 export interface TerminalTab extends TerminalInfo {
   /** Exit code once the shell has ended (the tab stays until closed/restarted). */
   exitCode?: number
+  /** After a restart: the output this tab showed last time, shown greyed above the new shell. */
+  restored?: { scrollback: string; savedAt: string }
 }
 
 /**
  * How many terminals fill one screen: single = one · cols = two side by side ·
  * rows = two stacked · grid = 2×2. Further terminals continue below (scroll).
  */
-export type TerminalLayout = 'single' | 'cols' | 'rows' | 'grid'
+export type TerminalLayout = TerminalSnapshot['layout']
 
 /** Columns of each layout, and how many rows fill one screen. */
 export const LAYOUT_GRID: Record<TerminalLayout, { cols: number; rows: number }> = {
@@ -29,15 +32,22 @@ interface TerminalState {
   error?: string
   initialized: boolean
 
-  /** Re-attach to sessions that survived a renderer reload, else open one (in Home, unless `openHome` is false). */
+  /**
+   * Re-attach to sessions that survived a renderer reload; else bring back the
+   * tabs of the last run (Settings → Terminal → restore); else open one (in
+   * Home, unless `openHome` is false).
+   */
   init: (openHome?: boolean) => Promise<void>
-  open: (projectId?: string) => Promise<void>
+  /** A new shell: in Home or a project, with a profile (default: the one set in Settings). */
+  open: (projectId?: string, profileId?: string) => Promise<void>
   /** From elsewhere in the app (e.g. a project): a shell in that folder, without the extra Home shell of a first visit. */
   openProject: (projectId: string) => Promise<void>
   /** From Files: a shell in any folder (absolute path), likewise without the extra Home shell. */
   openFolder: (cwd: string) => Promise<void>
   /** A new shell in Home that runs `command` (the onboarding's installs and sign-ins); its tab, unless it failed. */
   run: (command: string) => Promise<TerminalTab | undefined>
+  /** A second shell next to this one: same folder, same profile (single layout → side by side). */
+  split: (id: string) => Promise<void>
   close: (id: string) => Promise<void>
   /** Replace an exited tab with a fresh shell in the same place. */
   restart: (id: string) => Promise<void>
@@ -64,6 +74,91 @@ export function tabLabels(tabs: TerminalTab[]): Map<string, string> {
   )
 }
 
+/** Each mounted view's recent output as plain text (useXterm registers it), for the saved tabs. */
+export const serializers = new Map<string, () => string>()
+
+/** Output kept per saved tab (chars). */
+export const SAVED_SCROLLBACK = 256 * 1024
+/** Changes are saved this long after the first one (output keeps coming — no debounce). */
+export const SAVE_MS = 3000
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let saving = false
+
+/** The tabs as they are now, for the next start. */
+export function snapshot(): TerminalSnapshot {
+  const { tabs, activeId, layout } = useTerminals.getState()
+  return {
+    layout,
+    active: Math.max(0, tabs.findIndex((t) => t.id === activeId)),
+    tabs: tabs.map((t) => ({
+      title: t.title,
+      cwd: t.cwd,
+      ...(t.projectId ? { projectId: t.projectId } : {}),
+      ...(t.profileId ? { profileId: t.profileId } : {}),
+      scrollback: (serializers.get(t.id)?.() ?? '').slice(-SAVED_SCROLLBACK)
+    })),
+    savedAt: new Date().toISOString()
+  }
+}
+
+/** Save the tabs now (window closing), unless restoring is off. */
+export async function saveNow(): Promise<void> {
+  clearTimeout(saveTimer)
+  saveTimer = undefined
+  if (!saving || !useTerminalSettings.getState().settings.restore) return
+  await ipc('terminal:persist', snapshot()).catch(() => {})
+}
+
+/** Something changed (tabs, layout, output): save a little later. */
+export function scheduleSave(): void {
+  if (saving && !saveTimer) saveTimer = setTimeout(() => void saveNow(), SAVE_MS)
+}
+
+/** From init on (desktop only): every change is saved; so is the last state when the window closes. */
+function startSaving(): void {
+  if (saving || !isDesktop()) return
+  saving = true
+  useTerminals.subscribe(scheduleSave)
+  window.addEventListener('beforeunload', () => void saveNow())
+}
+
+/** Folder changes the shells report (OSC 7) — the tab follows; listened to from init on. */
+let offInfo: (() => void) | undefined
+function followInfo(): void {
+  offInfo?.()
+  offInfo = onEvent('terminal:info', (info) =>
+    useTerminals.setState((s) => ({
+      tabs: s.tabs.map((t) => (t.id === info.id ? { ...t, cwd: info.cwd, cwdLabel: info.cwdLabel, title: info.title } : t))
+    }))
+  )
+}
+
+/** Brings back the last run's tabs: same folders, profiles and layout, their output greyed above. */
+async function restore(): Promise<boolean> {
+  const saved = isDesktop() ? await ipc('terminal:restore').catch(() => null) : null
+  if (!saved?.tabs.length) return false
+  const tabs: TerminalTab[] = []
+  for (const t of saved.tabs) {
+    // The folder, project or profile may be gone by now: then a shell in Home.
+    const info = await ipc('terminal:create', { cwd: t.cwd, projectId: t.projectId, profileId: t.profileId })
+      .catch(() => ipc('terminal:create', {}))
+      .catch(() => undefined)
+    if (info) tabs.push({ ...info, ...(t.scrollback.trim() ? { restored: { scrollback: t.scrollback, savedAt: saved.savedAt } } : {}) })
+  }
+  if (!tabs.length) return false
+  useTerminals.setState({ tabs, layout: saved.layout, activeId: (tabs[saved.active] ?? tabs[0]).id })
+  return true
+}
+
+/** Puts a new shell's tab in place (after `after`, else at the end) and focuses it. */
+function add(info: TerminalInfo, after?: string) {
+  useTerminals.setState((s) => {
+    const at = after ? s.tabs.findIndex((t) => t.id === after) + 1 : 0
+    const tabs = at > 0 ? [...s.tabs.slice(0, at), info, ...s.tabs.slice(at)] : [...s.tabs, info]
+    return { tabs, activeId: info.id, error: undefined }
+  })
+}
 
 export const useTerminals = create<TerminalState>((set, get) => ({
   tabs: [],
@@ -73,19 +168,21 @@ export const useTerminals = create<TerminalState>((set, get) => ({
   init: async (openHome = true) => {
     if (get().initialized) return
     set({ initialized: true })
+    followInfo()
+    await useTerminalSettings.getState().load()
     try {
       const existing = await ipc('terminal:list')
       if (existing.length) set({ tabs: existing, activeId: existing[0].id })
-      else if (openHome) await get().open()
+      else if (!(await restore()) && openHome) await get().open()
     } catch (err) {
       set({ error: errorMessage(err) })
     }
+    startSaving()
   },
 
-  open: async (projectId) => {
+  open: async (projectId, profileId) => {
     try {
-      const info = await ipc('terminal:create', { projectId })
-      set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
+      add(await ipc('terminal:create', { projectId, ...(profileId ? { profileId } : {}) }))
     } catch (err) {
       set({ error: errorMessage(err) })
     }
@@ -99,8 +196,18 @@ export const useTerminals = create<TerminalState>((set, get) => ({
   openFolder: async (cwd) => {
     await get().init(false)
     try {
-      const info = await ipc('terminal:create', { cwd })
-      set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
+      add(await ipc('terminal:create', { cwd }))
+    } catch (err) {
+      set({ error: errorMessage(err) })
+    }
+  },
+
+  split: async (id) => {
+    const tab = get().tabs.find((t) => t.id === id)
+    if (!tab) return
+    try {
+      add(await ipc('terminal:create', { projectId: tab.projectId, cwd: tab.cwd, profileId: tab.profileId }), id)
+      if (get().layout === 'single') set({ layout: 'cols' })
     } catch (err) {
       set({ error: errorMessage(err) })
     }
@@ -135,8 +242,8 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab) return
     try {
-      // Same place again: the project, or the folder it was opened in.
-      const info = await ipc('terminal:create', tab.projectId ? { projectId: tab.projectId } : { cwd: tab.cwd })
+      // Same place again: the folder it was last in (its project's, if any), the same profile.
+      const info = await ipc('terminal:create', { projectId: tab.projectId, cwd: tab.cwd, profileId: tab.profileId })
       set((s) => ({
         tabs: s.tabs.map((t) => (t.id === id ? info : t)),
         activeId: s.activeId === id ? info.id : s.activeId,

@@ -155,7 +155,7 @@ export function AppShell() {
             {kept.terminal && !shellsOff && (
               <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
                 <ModuleBoundary id="terminal" name={t.nav.terminal}>
-                  <TerminalView />
+                  <TerminalView onNavigate={setActive} />
                 </ModuleBoundary>
               </div>
             )}
