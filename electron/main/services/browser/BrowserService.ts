@@ -179,7 +179,7 @@ function savedDownload(raw: unknown): BrowserDownload | null {
 }
 
 /** Commands the UI answers with a field to type into. */
-const FOCUSING = new Set<BrowserCommand>(['focusOmnibox', 'find', 'tabSearch', 'bookmark', 'import'])
+const FOCUSING = new Set<BrowserCommand>(['focusOmnibox', 'find', 'tabSearch', 'bookmark', 'import', 'palette'])
 
 /** A tab with this address has a web view (not the new-tab page, not one of Mindeck's own pages). */
 function hasView(url: string): boolean {
@@ -1252,6 +1252,7 @@ export class BrowserService {
       case 'bookmark':
       case 'tabSearch':
       case 'bookmarksBar':
+      case 'palette':
         return this.command(action)
       case 'history':
       case 'bookmarkManager':

@@ -35,6 +35,8 @@ import { ZenBar } from '@/features/workspace/components/ZenBar'
 import { useWorkspace } from '@/features/workspace/store'
 import { visiblePanes, focusedPane } from '@/features/workspace/layout'
 import { relayout } from '@/lib/relayout'
+import { PaletteHost } from '@/features/palette/components/PaletteHost'
+import { usePalette } from '@/features/palette/store'
 
 /** Browser without remote shells: explain instead of failing. */
 function RemoteShellsOff() {
@@ -95,7 +97,8 @@ export function AppShell() {
       },
       settings: () => show('settings'),
       // A click into a page focuses the browser's pane.
-      focused: () => show('browser')
+      focused: () => show('browser'),
+      palette: () => usePalette.getState().toggle('commands')
     })
     return () => {
       offAssistant()
@@ -201,6 +204,9 @@ export function AppShell() {
           </ModuleBoundary>
         </motion.div>
       )}
+
+      {/* The command palette (⌘K) and the shortcut overview (⌘/), over everything. */}
+      <PaletteHost />
 
       {/* Approvals float above every module (the open chat shows its own inline; the
           browser's page would cover them, so it shows them above the page). */}

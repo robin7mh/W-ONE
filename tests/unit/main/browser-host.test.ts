@@ -1000,6 +1000,7 @@ describe('the browser keys', () => {
       [k('y', cmd), 'history'],
       [k('h', cmd), null],
       [k('A', { meta: true, shift: true }), 'tabSearch'],
+      [k('P', { meta: true, shift: true }), 'palette'],
       [k('B', { meta: true, shift: true }), 'bookmarksBar'],
       [k('o', { meta: true, shift: true }), null],
       [k('b', { meta: true, alt: true }), 'bookmarkManager'],
@@ -1033,5 +1034,6 @@ describe('the browser keys', () => {
     expect(match(k('O', { control: true, shift: true }), false)).toBe('bookmarkManager')
     expect(match(k('b', { control: true, alt: true }), false)).toBeNull()
     expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
+    expect(match(k('P', { control: true, shift: true }), false)).toBe('palette')
   })
 })

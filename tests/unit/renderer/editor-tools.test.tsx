@@ -24,6 +24,14 @@ import { QuickOpen } from '@/features/editor/components/QuickOpen'
 import { DebugConsole, DebugPanel } from '@/features/editor/components/DebugPanel'
 import { EditorView } from '@/features/editor/components/EditorView'
 import { useProjects } from '@/features/projects/store'
+import { usePalette } from '@/features/palette/store'
+import { allCommands } from '@/features/palette/registry'
+import { CommandPalette } from '@/features/palette/components/CommandPalette'
+
+/** The global palette, as the app shows it (PaletteHost) — here without its keys and built-in commands. */
+function Palette() {
+  return usePalette((s) => s.view) === 'commands' ? <CommandPalette /> : null
+}
 
 const initialEditor = useEditor.getState()
 const initialScm = useScm.getState()
@@ -64,22 +72,21 @@ beforeEach(() => {
 })
 
 describe('command palette: commands', () => {
-  const onNavigate = vi.fn()
   const labels = (items: PickItem[]) => items.map((i) => i.label)
 
-  it('files, views and modules always; git by the repo’s state; writing ones only when editable', () => {
-    const plain = labels(buildCommands(en, { onNavigate, readOnly: false }))
+  it('files and views always (the modules are the palette’s own); git by the repo’s state; writing ones only when editable', () => {
+    const plain = labels(buildCommands(en, { readOnly: false }))
     expect(plain).toContain('File: New File')
     expect(plain).toContain('Go: Go to line')
-    expect(plain).toContain('Open: Terminal')
+    expect(plain.some((l) => l.startsWith('Open:'))).toBe(false)
     expect(plain.some((l) => l.startsWith('Git:'))).toBe(false) // status unknown
 
     useScm.setState({ status: { repo: false, ahead: 0, behind: 0, merging: false, files: [] } })
-    expect(labels(buildCommands(en, { onNavigate, readOnly: false })).filter((l) => l.startsWith('Git'))).toEqual(['Git: Initialize repository'])
-    expect(labels(buildCommands(en, { onNavigate, readOnly: true })).filter((l) => l.startsWith('Git'))).toEqual([])
+    expect(labels(buildCommands(en, { readOnly: false })).filter((l) => l.startsWith('Git'))).toEqual(['Git: Initialize repository'])
+    expect(labels(buildCommands(en, { readOnly: true })).filter((l) => l.startsWith('Git'))).toEqual([])
 
     useScm.setState({ status: { repo: true, branch: 'main', ahead: 0, behind: 0, merging: false, files: [] } })
-    expect(labels(buildCommands(en, { onNavigate, readOnly: false })).filter((l) => l.startsWith('Git'))).toEqual([
+    expect(labels(buildCommands(en, { readOnly: false })).filter((l) => l.startsWith('Git'))).toEqual([
       'Git: Commit',
       'Git: Pull',
       'Git: Push',
@@ -93,12 +100,12 @@ describe('command palette: commands', () => {
       'Git: Toggle File Blame',
       'Git: Toggle Inline Blame'
     ])
-    const readOnly = labels(buildCommands(en, { onNavigate, readOnly: true }))
+    const readOnly = labels(buildCommands(en, { readOnly: true }))
     expect(readOnly).not.toContain('File: Save')
     expect(readOnly).not.toContain('GitHub: Create pull request')
     expect(readOnly).toContain('View: Git Graph')
     expect(readOnly).toContain('View: Pull requests')
-    expect(labels(buildCommands(en, { onNavigate, readOnly: false, extra: [{ id: 'x', label: 'Debug: X', run: () => {} }] }))).toContain('Debug: X')
+    expect(labels(buildCommands(en, { readOnly: false, extra: [{ id: 'x', label: 'Debug: X', run: () => {} }] }))).toContain('Debug: X')
   })
 
   it('Monaco’s actions: ours under their names (only when supported), the rest as they come, its palette hidden', () => {
@@ -113,7 +120,7 @@ describe('command palette: commands', () => {
       ],
       run: (id) => void ran.push(id)
     })
-    const items = buildCommands(en, { onNavigate, readOnly: false })
+    const items = buildCommands(en, { readOnly: false })
     const editor = items.filter((i) => i.label.startsWith('Editor:'))
     expect(editor.map((i) => `${i.label}${i.keys ? ` [${i.keys}]` : ''}`)).toEqual(['Editor: Format Document [⇧⌥F]', 'Editor: Transform to Uppercase'])
     editor.forEach((i) => void i.run())
@@ -135,7 +142,7 @@ describe('command palette: commands', () => {
     const sync = vi.spyOn(useScm.getState(), 'sync').mockResolvedValue()
     const checkout = vi.spyOn(useScm.getState(), 'checkout').mockResolvedValue()
     const createBranch = vi.spyOn(useScm.getState(), 'createBranch').mockResolvedValue()
-    const items = buildCommands(en, { onNavigate, readOnly: false })
+    const items = buildCommands(en, { readOnly: false })
     const run = (id: string) => act(() => void items.find((i) => i.id === id)!.run())
 
     run('file.new')
@@ -158,8 +165,6 @@ describe('command palette: commands', () => {
     expect(useScm.getState().quickQuery).toBe(':')
     run('view.search')
     expect(useScm.getState().pane).toBe('search')
-    run('module.terminal')
-    expect(onNavigate).toHaveBeenCalledWith('terminal')
 
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => (cb(0), 0))
     render(<textarea aria-label="Message (⌘Enter to commit)" />)
@@ -188,32 +193,33 @@ describe('command palette: commands', () => {
 
     const init = vi.spyOn(useScm.getState(), 'init').mockResolvedValue()
     useScm.setState({ status: { repo: false, ahead: 0, behind: 0, merging: false, files: [] } })
-    act(() => void buildCommands(en, { onNavigate, readOnly: false }).find((i) => i.id === 'git.init')!.run())
+    act(() => void buildCommands(en, { readOnly: false }).find((i) => i.id === 'git.init')!.run())
     expect(init).toHaveBeenCalled()
   })
 })
 
 describe('quick open modes', () => {
-  const open = (query: string, commands: PickItem[] = []) => {
+  const open = (query: string) => {
     useScm.setState({ quickOpen: true, quickQuery: query })
-    return render(<QuickOpen commands={commands} />)
+    return render(<QuickOpen />)
   }
   const input = () => screen.getByRole('dialog').querySelector('input')!
 
-  it('“>” lists commands (fuzzy), shows their keys, runs the chosen one', () => {
-    const run = vi.fn()
-    open('>', [
-      { id: 'a', label: 'File: Save', keys: '⌘S', run },
-      { id: 'b', label: 'Git: Pull', run: vi.fn() }
-    ])
-    expect(screen.getByRole('dialog', { name: 'Type a command' })).toBeInTheDocument()
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['File: Save⌘S', 'Git: Pull'])
-    fireEvent.change(input(), { target: { value: '>zzz' } })
-    expect(screen.getByText('No matching commands')).toBeInTheDocument()
-    fireEvent.change(input(), { target: { value: '>save' } })
-    fireEvent.keyDown(input(), { key: 'Enter' })
-    expect(run).toHaveBeenCalled()
+  it('“>” hands over to the command palette, with what follows', () => {
+    usePalette.setState({ view: undefined })
+    open('')
+    fireEvent.change(input(), { target: { value: '> save' } })
     expect(useScm.getState().quickOpen).toBe(false)
+    expect(usePalette.getState()).toMatchObject({ view: 'commands', query: 'save' })
+    usePalette.setState({ view: undefined })
+  })
+
+  it('a pick list takes “>” as text', () => {
+    useScm.getState().openPick({ placeholder: 'Name of the new branch', items: [], onText: vi.fn() })
+    render(<QuickOpen />)
+    fireEvent.change(input(), { target: { value: '>x' } })
+    expect(useScm.getState().quickOpen).toBe(true)
+    expect(usePalette.getState().view).toBeUndefined()
   })
 
   it('“:” goes to a line of the file on screen', () => {
@@ -230,9 +236,10 @@ describe('quick open modes', () => {
 
   it('a pick list: choose an item, or type free text when the pick takes it', () => {
     const chosen = vi.fn()
-    useScm.getState().openPick({ placeholder: 'Select a branch', items: [{ id: 'main', label: 'main', detail: 'current', run: chosen }] })
-    const { unmount } = render(<QuickOpen commands={[]} />)
+    useScm.getState().openPick({ placeholder: 'Select a branch', items: [{ id: 'main', label: 'main', detail: 'current', keys: '⌘1', run: chosen }] })
+    const { unmount } = render(<QuickOpen />)
     expect(screen.getByRole('dialog', { name: 'Select a branch' })).toBeInTheDocument()
+    expect(screen.getByRole('option')).toHaveTextContent('maincurrent⌘1') // an item's key, right-aligned
     fireEvent.change(input(), { target: { value: 'nope' } })
     expect(screen.getByText('Nothing matches')).toBeInTheDocument()
     fireEvent.keyDown(input(), { key: 'Enter' }) // nothing to choose, no free text
@@ -243,7 +250,7 @@ describe('quick open modes', () => {
 
     const onText = vi.fn()
     useScm.getState().openPick({ placeholder: 'Name of the new branch', items: [], onText })
-    render(<QuickOpen commands={[]} />)
+    render(<QuickOpen />)
     expect(screen.queryByRole('option')).toBeNull()
     fireEvent.keyDown(input(), { key: 'Enter' }) // empty: nothing
     expect(onText).not.toHaveBeenCalled()
@@ -767,7 +774,12 @@ describe('EditorView: palette, problems, debugging', () => {
     })
   const show = () => {
     useProjects.setState({ projects: [{ id: 'p', name: 'Demo', path: '/x/p', addedAt: '', lastSeenAt: '' }] })
-    return render(<EditorView active onNavigate={vi.fn()} />)
+    return render(
+      <>
+        <EditorView active onNavigate={vi.fn()} />
+        <Palette />
+      </>
+    )
   }
   const key = (k: string, mods: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(window, { key: k, ...mods })
 
@@ -776,12 +788,18 @@ describe('EditorView: palette, problems, debugging', () => {
     show()
     await act(settle)
     const saveAll = vi.spyOn(useEditor.getState(), 'saveAll').mockResolvedValue()
+    // The editor's commands are in the palette while it is mounted.
+    expect(allCommands(en).find((c) => c.id === 'file.save')).toMatchObject({ group: 'Editor', keys: '⌘S' })
     key('P', { metaKey: true, shiftKey: true })
-    expect(screen.getByRole('dialog', { name: 'Type a command' })).toBeInTheDocument()
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toContain('Debug: Start DebuggingF5')
-    fireEvent.keyDown(screen.getByRole('dialog').querySelector('input')!, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Command palette' }), { target: { value: 'start debugging' } })
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toContain('Debug: Start DebuggingEditorF5')
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Command palette' }), { key: 'Escape' })
     key('F1')
-    expect(screen.getByRole('dialog', { name: 'Type a command' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Command palette' }), { key: 'Escape' })
+    key('p', { metaKey: true })
+    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '' })
     fireEvent.keyDown(screen.getByRole('dialog').querySelector('input')!, { key: 'Escape' })
     key('g', { ctrlKey: true })
     expect(screen.getByRole('dialog', { name: 'Go to line' })).toBeInTheDocument()
@@ -799,7 +817,7 @@ describe('EditorView: palette, problems, debugging', () => {
     }
     const runCommand = (label: string) => {
       key('p', { metaKey: true, shiftKey: true })
-      fireEvent.change(screen.getByRole('dialog').querySelector('input')!, { target: { value: `>${label}` } })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Command palette' }), { target: { value: label } })
       fireEvent.click(screen.getAllByRole('option')[0])
     }
     for (const label of ['Debug: Start Debugging', 'Debug: Stop', 'Debug: Restart', 'Debug: Continue', 'Debug: Step Over', 'Debug: Step Into', 'Debug: Step Out', 'Debug: Debug Console']) runCommand(label)
@@ -924,8 +942,8 @@ describe('EditorView: palette, problems, debugging', () => {
     expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '' })
     act(() => useScm.getState().setQuickOpen(false))
     key('π', { metaKey: true, altKey: true, code: 'KeyP' } as KeyboardEventInit)
-    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '>' })
-    act(() => useScm.getState().setQuickOpen(false))
+    expect(usePalette.getState().view).toBe('commands')
+    act(() => usePalette.getState().close())
     key('u', { ctrlKey: true, altKey: true, code: 'KeyU' } as KeyboardEventInit)
     expect(push).toHaveBeenCalled()
     key('e', { metaKey: true, code: 'KeyE' } as KeyboardEventInit) // Monaco's to handle
@@ -954,12 +972,6 @@ describe('EditorView: palette, problems, debugging', () => {
     expect(footer.queryByText(/no language server/)).toBeNull() // TypeScript has no install button
     act(() => useLanguages.getState().report('p:a.ts', { language: undefined, available: false }))
     expect(footer.queryByText(/no language server/)).toBeNull()
-
-    // The palette's way to Settings → moving over.
-    fireEvent.keyDown(window, { key: 'p', metaKey: true, shiftKey: true })
-    fireEvent.change(screen.getByRole('dialog').querySelector('input')!, { target: { value: '>Move over' } })
-    fireEvent.click(screen.getAllByRole('option')[0])
-    expect(onNavigate).toHaveBeenLastCalledWith('settings')
   })
 
   it('problems of language servers name their tool and rule', async () => {
@@ -1017,7 +1029,7 @@ describe('EditorView: palette, problems, debugging', () => {
     const toggle = vi.spyOn(live, 'toggleSass').mockResolvedValue()
     const run = (label: string) => {
       fireEvent.keyDown(window, { key: 'p', metaKey: true, shiftKey: true })
-      fireEvent.change(screen.getByRole('dialog').querySelector('input')!, { target: { value: `>${label}` } })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Command palette' }), { target: { value: label } })
       fireEvent.click(screen.getAllByRole('option')[0])
     }
     run('Live Server: Go Live')

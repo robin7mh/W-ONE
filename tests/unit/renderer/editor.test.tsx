@@ -224,6 +224,7 @@ import { monacoTheme } from '@/features/editor/monaco/theme'
 import CodeEditor from '@/features/editor/components/CodeEditor'
 import { editorActions } from '@/features/editor/actions'
 import { useScm } from '@/features/editor/scm'
+import { usePalette } from '@/features/palette/store'
 import { useEditorPrefs } from '@/features/editor/prefs'
 
 const initial = useEditor.getState()
@@ -701,7 +702,8 @@ describe('CodeEditor (Monaco view)', () => {
     const [f1, ctrlG] = editor().commands
     expect([f1.keys, ctrlG.keys]).toEqual([59, 256 | 37])
     act(() => f1.run())
-    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '>' })
+    expect(usePalette.getState().view).toBe('commands')
+    act(() => usePalette.getState().close())
     act(() => ctrlG.run())
     expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: ':' })
 

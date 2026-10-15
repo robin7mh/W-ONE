@@ -223,3 +223,4 @@ export type BrowserCommand =
   | 'bookmark'
   | 'bookmarksBar'
   | 'import'
+  | 'palette'

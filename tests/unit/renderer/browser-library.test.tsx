@@ -109,6 +109,7 @@ describe('browser store · library', () => {
     expect(useBrowser.getState().tabSearchOpen).toBe(true)
     b.b.emit('browser:command', { command: 'import' })
     expect(useBrowser.getState().importOpen).toBe(true)
+    b.b.emit('browser:command', { command: 'palette' }) // no one to open a palette here: nothing
     b.b.emit('browser:command', { command: 'bookmarksBar' })
     await settle()
     expect(b.sent('browser:configure')).toEqual([{ bookmarksBar: true }])
@@ -127,6 +128,12 @@ describe('browser store · library', () => {
     useBrowser.getState().setImport(false)
     expect(useBrowser.getState()).toMatchObject({ editing: undefined, tabSearchOpen: false, importOpen: false })
     off()
+    // ⇧⌘P on a page: the app's command palette.
+    const palette = vi.fn()
+    const offPalette = useBrowser.getState().connect({ reveal: vi.fn(), sendToAgent: vi.fn(), settings: vi.fn(), palette })
+    b.b.emit('browser:command', { command: 'palette' })
+    expect(palette).toHaveBeenCalledTimes(1)
+    offPalette()
   })
 
   it('bookmarks only web pages, and keeps quiet when saving fails', async () => {

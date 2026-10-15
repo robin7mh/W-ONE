@@ -17,6 +17,7 @@ import { addInlineEdit, setupInlineAi } from '../monaco/inlineAi'
 import { attachVim } from '../monaco/vim'
 import { tidyBlankLines } from '../text'
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
+import { usePalette } from '@/features/palette/store'
 
 /** An editor action's id without the instance prefix Monaco gives actions added to one editor. */
 export const actionId = (id: string) => id.replace(/^vs\.editor\.ICodeEditor:\d+:/, '')
@@ -217,8 +218,8 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     }
     const subs = [editor.onDidChangeCursorPosition(report), editor.onDidChangeModel(report)]
 
-    // Mindeck's palette replaces Monaco's own (F1), and ⌃G goes through it, too.
-    editor.addCommand(monaco.KeyCode.F1, () => useScm.getState().setQuickOpen(true, '>'))
+    // Mindeck's palette replaces Monaco's own (F1), and ⌃G goes through quick open, too.
+    editor.addCommand(monaco.KeyCode.F1, () => usePalette.getState().show())
     editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
     setupLsp()
     setupUserPrefs()

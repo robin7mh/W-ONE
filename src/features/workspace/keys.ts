@@ -1,3 +1,4 @@
+import { formatBinding, shortcutLabel, type ShortcutId } from '@/lib/shortcuts'
 import type { Direction } from './layout'
 
 /** What a workspace shortcut does. */
@@ -51,28 +52,21 @@ export function matchWorkspaceKey(e: KeyLike, mac: boolean): WorkspaceAction | n
   return !e.altKey && !e.shiftKey && e.key === '\\' ? { type: 'split' } : null
 }
 
-const MAC_LABELS: Record<Exclude<WorkspaceAction['type'], 'focus' | 'workspace'>, string> = {
-  split: '⌘\\',
-  close: '⇧⌘W',
-  maximize: '⇧⌘↵',
-  zen: '⌥⌘Z',
-  fullscreen: '⌃⌘F'
-}
-const OTHER_LABELS: typeof MAC_LABELS = {
-  split: 'Ctrl+\\',
-  close: 'Ctrl+Shift+W',
-  maximize: 'Ctrl+Shift+Enter',
-  zen: 'Ctrl+Alt+Z',
-  fullscreen: 'F11'
-}
+const IDS = {
+  split: 'workspace.split',
+  close: 'workspace.close',
+  maximize: 'workspace.maximize',
+  zen: 'workspace.zen',
+  fullscreen: 'workspace.fullscreen'
+} as const satisfies Record<Exclude<WorkspaceAction['type'], 'focus' | 'workspace'>, ShortcutId>
 
-/** The key of an action, for tooltips and the palette. */
-export function keyLabel(type: keyof typeof MAC_LABELS, mac: boolean = macKeys()): string {
-  return (mac ? MAC_LABELS : OTHER_LABELS)[type]
+/** The key of an action, for tooltips and the palette (lib/shortcuts.ts lists them all). */
+export function keyLabel(type: keyof typeof IDS, mac: boolean = macKeys()): string {
+  return shortcutLabel(IDS[type], mac)!
 }
 
 /** The key that switches to saved workspace `index` (0-based; the first nine have one). */
 export function workspaceKey(index: number, mac: boolean = macKeys()): string | undefined {
   if (index > 8) return undefined
-  return mac ? `⌥⌘${index + 1}` : `Ctrl+Alt+${index + 1}`
+  return formatBinding(`mod+alt+${index + 1}`, mac)
 }

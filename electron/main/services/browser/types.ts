@@ -43,6 +43,7 @@ export type ShortcutAction =
   | 'tabSearch'
   | 'history'
   | 'bookmarkManager'
+  | 'palette'
 
 export interface ConsoleEntry {
   level: 'debug' | 'info' | 'warning' | 'error'
