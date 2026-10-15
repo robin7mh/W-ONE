@@ -23,6 +23,8 @@ export interface AppSettings {
   editor?: EditorSettings
   /** The Mindeck browser: search engine, where links from Mindeck open. */
   browser?: Partial<BrowserSettings>
+  /** The agent cockpit: push notifications to the phone (Mindeck Cloud; on by default while signed in). */
+  agents?: { pushToPhone?: boolean }
   /** Settings Sync: the account copy's version this core last saved or loaded. */
   sync?: { version: number; syncedAt: string }
 }

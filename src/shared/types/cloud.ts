@@ -61,3 +61,19 @@ export interface CloudStatus {
 export function isLicenseFree(channel: string): boolean {
   return channel.startsWith('cloud:') || channel.startsWith('update:') || channel === 'app:info'
 }
+
+/** What a push to the user's phone says (Mindeck Cloud delivers it): never file contents or secrets. */
+export interface PushNotice {
+  kind: 'approval' | 'agent_done' | 'agent_error'
+  /** ≤ 120 characters. */
+  title: string
+  /** ≤ 240 characters. */
+  body: string
+  sessionId?: string
+}
+
+/** Pushes to the phone while Mindeck is in the background (only with a Mindeck account). */
+export interface PushSettings {
+  enabled: boolean
+  signedIn: boolean
+}
