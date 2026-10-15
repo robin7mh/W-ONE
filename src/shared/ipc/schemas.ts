@@ -561,6 +561,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'finder:move': z.object({ paths: paths, dest: path }),
   'finder:copy': z.object({ paths: paths, dest: path }),
   'finder:untrash': z.object({ items: z.array(z.object({ path, restore: path })).min(1).max(1000) }),
+  'finder:privacySettings': none,
   'finder:conflicts': z.object({ paths: paths, dest: path }),
   'finder:transfer': z.object({
     id,

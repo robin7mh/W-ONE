@@ -38,7 +38,8 @@ const electron = vi.hoisted(() => ({
   reveal: vi.fn(),
   encryption: true,
   backend: 'gnome_libsecret',
-  clipboardWrites: [] as unknown[]
+  clipboardWrites: [] as unknown[],
+  trashItem: vi.fn(async (_path: string) => {})
 }))
 vi.mock('electron', () => ({
   app: { getApplicationNameForProtocol: electron.appForProtocol },
@@ -47,7 +48,7 @@ vi.mock('electron', () => ({
     constructor(public data: Record<string, string>) {}
   },
   dialog: { showOpenDialog: electron.showOpenDialog },
-  shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.reveal },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.reveal, trashItem: electron.trashItem },
   safeStorage: {
     isEncryptionAvailable: () => electron.encryption,
     getSelectedStorageBackend: () => electron.backend,
@@ -242,7 +243,10 @@ describe('ProjectService', () => {
     // Files on the system clipboard go as the OS's ClipboardItem.
     await electronPlatform.fileClipboard!.write(['/Users/me/a.txt'], false)
     expect((electron.clipboardWrites[0] as { data: Record<string, string> }).data['text/plain']).toBe('/Users/me/a.txt')
-    expect(electronPlatform.restorableTrash === undefined).toBe(process.platform !== 'linux')
+    // Every desktop has a trash Mindeck can take things back out of; the plain one is the OS's own.
+    expect(electronPlatform.restorableTrash).toBeDefined()
+    await electronPlatform.trashItem('/Users/me/old.txt', '/Users/me')
+    expect(electron.trashItem).toHaveBeenCalledWith('/Users/me/old.txt')
     expect(electron.reveal).toHaveBeenCalledWith('/Users/me/report.pdf')
   })
 

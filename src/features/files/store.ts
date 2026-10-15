@@ -11,14 +11,15 @@ import type {
   FolderSize,
   TrashedItem
 } from '@shared/types/finder'
-import { entryKind } from './kinds'
+import { baseName, entryKind } from './kinds'
 
 export type SortKey = 'name' | 'modified' | 'size' | 'kind'
 export type ViewMode = 'list' | 'grid' | 'columns'
 
 export type Notice =
   | { key: 'copied' }
-  | { key: 'trashed'; count: number }
+  /** `noUndo`: how many of them ⌘Z cannot bring back (a mixed selection). */
+  | { key: 'trashed'; count: number; noUndo?: number }
   | { key: 'clipboard'; count: number; cut: boolean }
   | { key: 'undone' }
   | { key: 'stopped' }
@@ -112,6 +113,8 @@ interface FilesState extends Prefs {
   listing?: FinderListing
   loading: boolean
   error?: string
+  /** The error's code (`trash-gone`, `full-disk-access`, …) — some are explained in the UI. */
+  errorCode?: string
   /** A short message for the status line. */
   notice?: Notice
   back: string[]
@@ -190,6 +193,8 @@ interface FilesState extends Prefs {
   loadPreview(path: string): Promise<void>
   setNotice(notice?: Notice): void
   clearError(): void
+  /** macOS: System Settings at Full Disk Access (taking things out of the Trash needs it). */
+  privacySettings(): Promise<void>
 }
 
 /** The entries on screen: search hits or the folder, sorted. */
@@ -218,7 +223,7 @@ export const useFiles = create<FilesState>((set, get) => {
     const { view, sort, hidden, showPreview, favorites, listing } = get()
     savePrefs({ view, sort, hidden, showPreview, favorites, ...(listing ? { path: listing.path } : {}) })
   }
-  const fail = (err: unknown) => set({ error: errorMessage(err), loading: false, searching: false })
+  const fail = (err: unknown) => set({ error: errorMessage(err), errorCode: (err as { code?: string }).code, loading: false, searching: false })
   let searchSeq = 0
   let listSeq = 0
   let detailSeq = 0
@@ -517,9 +522,11 @@ export const useFiles = create<FilesState>((set, get) => {
       if (!paths.length) return
       try {
         const items: TrashedItem[] = await ipc('finder:trash', { paths })
-        // Undo only where the system lets Mindeck put things back.
-        if (items.length && items.every((i) => i.restore)) remember({ untrash: items as { path: string; restore: string }[] })
-        set({ notice: { key: 'trashed', count: paths.length } })
+        // Undo only for what the system lets Mindeck put back.
+        const back = items.filter((i): i is { path: string; restore: string } => !!i.restore)
+        if (back.length) remember({ untrash: back })
+        const noUndo = back.length ? items.length - back.length : 0
+        set({ notice: { key: 'trashed', count: paths.length, ...(noUndo ? { noUndo } : {}) } })
         await refresh()
         set({ selected: [], preview: undefined, info: undefined, size: undefined })
       } catch (err) {
@@ -571,9 +578,12 @@ export const useFiles = create<FilesState>((set, get) => {
       try {
         if (step.trash?.length) await ipc('finder:trash', { paths: step.trash })
         if (step.moves?.length) await ipc('finder:restore', { moves: step.moves })
-        if (step.untrash?.length) await ipc('finder:untrash', { items: step.untrash })
-        set({ notice: { key: 'undone' } })
-        await refresh([...(step.moves ?? []).map((m) => m.to), ...(step.untrash ?? []).map((u) => u.path)].filter((p) => dirOf(p) === get().listing?.path))
+        const back = step.untrash?.length ? await ipc('finder:untrash', { items: step.untrash }) : { items: [], gone: [] }
+        // Something came back (or nothing was asked of the trash): undone.
+        if (back.items.length || !back.gone.length) set({ notice: { key: 'undone' } })
+        await refresh([...(step.moves ?? []).map((m) => m.to), ...back.items.map((u) => u.to)].filter((p) => dirOf(p) === get().listing?.path))
+        // Emptied from the trash since: said after the refresh (which clears errors), naming what is lost.
+        if (back.gone.length) set({ error: back.gone.map(baseName).join(', '), errorCode: 'trash-gone' })
       } catch (err) {
         fail(err)
       }
@@ -679,6 +689,10 @@ export const useFiles = create<FilesState>((set, get) => {
     },
 
     setNotice: (notice) => set({ notice }),
-    clearError: () => set({ error: undefined })
+    clearError: () => set({ error: undefined }),
+
+    privacySettings: async () => {
+      await ipc('finder:privacySettings').catch(fail)
+    }
   }
 })

@@ -402,6 +402,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       alsoWritable: [paths.homeDir],
       openPath: platform.openPath,
       revealPath: platform.revealPath,
+      openExternal: platform.openExternal,
       trash: (path) => platform.trashItem(path, dirname(path)),
       restorableTrash: platform.restorableTrash,
       clipboard: platform.fileClipboard,
