@@ -767,6 +767,7 @@ describe('app lifecycle', () => {
       await vi.advanceTimersByTimeAsync(4999)
       expect(h.quit).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
+      await vi.runOnlyPendingTimersAsync() // the quit's own next task
       expect(h.quit).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
