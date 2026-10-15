@@ -410,7 +410,7 @@ describe('the shortcut overview', () => {
     fireEvent.change(search, { target: { value: 'reopen' } })
     expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Reopen closed tab⇧⌘T'])
     fireEvent.change(search, { target: { value: '⌘\\' } })
-    expect(within(dialog).getAllByRole('listitem')).toHaveLength(2) // the workspace's split and the editor's
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(3) // the workspace's split, the editor's, and its ⌘K ⌘\\ down
     fireEvent.change(search, { target: { value: 'files paste' } })
     expect(within(dialog).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Paste⌘V'])
     fireEvent.change(search, { target: { value: 'qqq' } })

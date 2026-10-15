@@ -44,6 +44,8 @@ describe('the shortcut list', () => {
     expect(formatBinding('mod++', true)).toBe('⌘+')
     expect(formatBinding('f11', false)).toBe('F11')
     expect(formatBinding('?', false)).toBe('?')
+    expect(formatBinding('mod+k mod+\\', true)).toBe('⌘K ⌘\\')
+    expect(formatBinding('mod+k mod+\\', false)).toBe('Ctrl+K Ctrl+\\')
   })
 
   it('labels a shortcut by all of its keys on this platform — none where it has none', () => {
@@ -62,6 +64,9 @@ describe('the shortcut list', () => {
     expect(chords('mod+1-3', false)).toEqual(['ctrl+1', 'ctrl+2', 'ctrl+3'])
     expect(chords('ctrl+mod+shift+f', true)).toEqual(['ctrl+shift+meta+f'])
     expect(chords('f5', true)).toEqual(['f5'])
+    // A sequence is one entry: ⌘K ⌘\\ doesn't take ⌘K from the inline AI.
+    expect(chords('mod+k mod+\\', true)).toEqual(['meta+k meta+\\'])
+    expect(chords('mod+k mod+\\', false)).toEqual(['ctrl+k ctrl+\\'])
   })
 
   it('has no two shortcuts on the same key where both would be meant — on a Mac or elsewhere', () => {
@@ -109,6 +114,7 @@ describe('the shortcut list', () => {
     expect(matchesBinding('?', e({ key: '?', shiftKey: true }), false)).toBe(true)
     expect(matchesBinding('shift+f5', e({ key: 'F5' }), false)).toBe(false)
     expect(matchesBinding('shift+f5', e({ key: 'F5', shiftKey: true }), false)).toBe(true)
+    expect(matchesBinding('mod+k mod+\\', e({ key: 'k', code: 'KeyK', metaKey: true }), true)).toBe(false) // a sequence: its module follows it
   })
 })
 

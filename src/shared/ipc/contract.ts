@@ -37,7 +37,8 @@ import type {
   LspLocation,
   LspRange,
   LspRename,
-  LspSignature
+  LspSignature,
+  LspSymbol
 } from '@shared/types/lsp'
 import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
 import type { LanguageStatus, RuntimeInfo, ToolProgress } from '@shared/types/languages'
@@ -279,6 +280,8 @@ export interface IpcChannels {
   'lsp:rename': { request: LspAt & { newName: string }; response: LspRename }
   'lsp:signature': { request: LspAt; response: LspSignature | null }
   'lsp:codeFixes': { request: { projectId: string; path: string; range: LspRange; errorCodes: number[] }; response: LspCodeFix[] }
+  /** A file's symbols from its language server (the outline, breadcrumbs); TypeScript's come from Monaco itself. */
+  'lsp:symbols': { request: { projectId: string; path: string }; response: LspSymbol[] }
 
   /** Run & Debug: a program under Node's inspector or its language's debug adapter (one session at a time); `build` runs first. */
   'debug:start': {
@@ -712,6 +715,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'lsp:rename': 'terminal',
   'lsp:signature': 'terminal',
   'lsp:codeFixes': 'terminal',
+  'lsp:symbols': 'terminal',
   // Debugging runs the project's code.
   'debug:start': 'terminal',
   'debug:stop': 'terminal',

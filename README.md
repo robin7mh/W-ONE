@@ -208,7 +208,9 @@ Jede App bekommt ihr eigenes Dockerfile, CI und CD laufen pro Workspace.
 
 - **Core**: Begrüßung, HUD-Uhr und Kacheln für Projekte, Gedächtnis und System.
 - **Editor**: Monaco (der Editor-Kern von VS Code) auf deinen Projektdateien, mit Dateibaum, Tabs
-  und ⌘S. Er folgt Änderungen, die anderswo gemacht werden.
+  und ⌘S, beliebig vielen Editor-Gruppen (⌘\\, ⌘K ⌘\\, Tabs an einen Rand ziehen, ⌘1…⌘9 — das
+  Layout merkt sich jedes Projekt), Breadcrumbs und Gliederung. Er folgt Änderungen, die anderswo
+  gemacht werden.
 - **Terminal**: echte Login-Shells (node-pty) in Tabs oder geteilt.
 - **Projects**: Git- und Stack-Erkennung plus Strukturkontext.
 - **Memory**: der Obsidian-Vault mit Editor und Graph.
@@ -473,8 +475,9 @@ Each app gets its own Dockerfile, and CI and CD run per workspace.
 ### Modules
 
 - **Core**: greeting, HUD clock, and tiles for projects, brain and system.
-- **Editor**: Monaco (VS Code's editor core) on your project files, with file tree, tabs and ⌘S.
-  It follows changes made elsewhere.
+- **Editor**: Monaco (VS Code's editor core) on your project files, with file tree, tabs and ⌘S,
+  as many editor groups as you like (⌘\\, ⌘K ⌘\\, drag a tab to an edge, ⌘1…⌘9 — each project
+  remembers its layout), breadcrumbs and an outline. It follows changes made elsewhere.
 - **Terminal**: real login shells (node-pty) in tabs or splits.
 - **Projects**: git and stack detection plus structural context.
 - **Memory**: the Obsidian vault with editor and graph.

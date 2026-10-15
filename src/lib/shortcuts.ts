@@ -16,7 +16,8 @@ export const CONTEXTS: ShortcutContext[] = ['global', 'editor', 'terminal', 'bro
  * `mod` is ⌘ on macOS and Ctrl elsewhere, `ctrl` the Control key on both,
  * `alt` ⌥ / Alt. The key is a character (`k`, `/`, `\`, `?`), a range of
  * digits (`1-9`), `arrows` (all four) or a name (`enter`, `up`, `f11`,
- * `space`, `backspace`, `tab`, `insert`).
+ * `space`, `backspace`, `tab`, `insert`). Two of them with a space between
+ * are a sequence (`mod+k mod+\\`: ⌘K, then ⌘\).
  */
 export type Binding = string
 
@@ -56,6 +57,10 @@ const SHORTCUT_LIST = [
   { id: 'editor.saveAll', context: 'editor', keys: ['mod+alt+s'] },
   { id: 'editor.closeTab', context: 'editor', keys: ['mod+w'] },
   { id: 'editor.split', context: 'editor', keys: ['mod+\\'] },
+  // Starts with the inline AI's ⌘K: its prompt takes ⌘\ as the first key and splits instead (monaco/inlineAi.ts).
+  { id: 'editor.splitDown', context: 'editor', keys: ['mod+k mod+\\'] },
+  // The workspace's are ⌘⌥1…9; the browser's ⌘1…9 only work in the browser.
+  { id: 'editor.focusGroup', context: 'editor', keys: ['mod+1-9'] },
   { id: 'editor.search', context: 'editor', keys: ['mod+shift+f'] },
   { id: 'editor.replace', context: 'editor', keys: ['mod+shift+h'] },
   { id: 'editor.scm', context: 'editor', keys: ['mod+shift+g'] },
@@ -174,6 +179,7 @@ function keyName(key: string, mac: boolean): string {
 
 /** A binding as this platform writes it: `⇧⌘P` on a Mac, `Ctrl+Shift+P` elsewhere. */
 export function formatBinding(binding: Binding, mac: boolean): string {
+  if (binding.includes(' ')) return binding.split(' ').map((stroke) => formatBinding(stroke, mac)).join(' ')
   const { mods, key } = parse(binding)
   const name = keyName(key, mac)
   if (mac) {
@@ -202,6 +208,8 @@ export function shortcutLabel(id: ShortcutId, mac: boolean): string | undefined 
 
 /** Each key press a binding stands for, as `ctrl+alt+shift+meta+key` (ranges and `arrows` spread out). */
 export function chords(binding: Binding, mac: boolean): string[] {
+  // A sequence is one entry: it only meets the very same sequence (its first key may be another shortcut's).
+  if (binding.includes(' ')) return [binding.split(' ').map((stroke) => chords(stroke, mac)[0]).join(' ')]
   const { mods, key } = parse(binding)
   const ctrl = mods.has('ctrl') || (!mac && mods.has('mod'))
   const meta = mac && mods.has('mod')
@@ -248,6 +256,8 @@ const isLetterOrDigit = (key: string) => /^[a-z0-9]$/.test(key)
 
 /** Whether a key press is this binding (letters and digits by their place on a Mac, where ⌥ changes the character). */
 export function matchesBinding(binding: Binding, e: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>, mac: boolean): boolean {
+  // A sequence is more than one key press: its module follows it.
+  if (binding.includes(' ')) return false
   const { mods, key } = parse(binding)
   const ctrl = mods.has('ctrl') || (!mac && mods.has('mod'))
   const meta = mac && mods.has('mod')
