@@ -212,17 +212,15 @@ describe('useAgents store', () => {
     expect(ag().view).toBe('assistant')
   })
 
-  it('rename, a shell for the session, VS Code', async () => {
+  it('rename, a shell for the session', async () => {
     installBridge({
       'agents:rename': ({ title }: { title: string }) => session({ title }),
-      'agents:shell': () => ({ terminalId: 'sh1' }),
-      'agents:openInEditor': () => undefined
+      'agents:shell': () => ({ terminalId: 'sh1' })
     })
     useAgents.setState({ sessions: [session()] })
     await ag().rename('s1', 'Auth fix')
     expect(ag().sessions[0].title).toBe('Auth fix')
     expect(await ag().openShell('s1')).toBe('sh1')
-    await ag().openInEditor('s1')
     expect(ag().error).toBeUndefined()
 
     installBridge({ 'agents:shell': () => fail('folder gone') })
@@ -475,7 +473,6 @@ describe('SessionPane', () => {
     expect(screen.getByLabelText('Message')).toBeDisabled()
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Resume the session to continue')
     expect(screen.getByLabelText('Show terminal')).toHaveAttribute('title', "A shell in the session's folder") // the agent's own is gone
-    expect(screen.queryByText('VS Code')).toBeNull() // no desktop bridge
     fireEvent.click(screen.getByLabelText('Resume'))
     expect(resume).toHaveBeenCalledWith('s1')
   })
@@ -504,15 +501,11 @@ describe('SessionPane', () => {
     expect(rename).toHaveBeenCalledTimes(1)
   })
 
-  it('the repo page (GitHub, GitLab, any host) and the folder in VS Code', () => {
+  it('the repo page (GitHub, GitLab, any host); no VS Code', () => {
     installBridge()
-    const openInEditor = vi.fn(async () => {})
-    useAgents.setState({ openInEditor })
     const { rerender } = pane(session({ repoUrl: 'https://github.com/me/demo', worktree: '/wt', cwd: '/wt' }))
     expect(screen.getByText('GitHub').closest('a')).toHaveAttribute('href', 'https://github.com/me/demo')
-    fireEvent.click(screen.getByText('VS Code'))
-    expect(openInEditor).toHaveBeenCalledWith('s1')
-    expect(screen.getByText('VS Code').closest('button')).toHaveAttribute('title', 'Open /wt in VS Code')
+    expect(screen.queryByText('VS Code')).toBeNull() // Mindeck is the editor
 
     rerender(<SessionPane session={session({ repoUrl: 'https://gitlab.example.com/g/demo' })} messages={[]} />)
     expect(screen.getByText('GitLab')).toBeInTheDocument()

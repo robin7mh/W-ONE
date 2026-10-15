@@ -71,9 +71,9 @@ function createTray(l: LifecycleLabels, actions: { show(): void; quit(): void })
   return tray
 }
 
-/** The work closing the window would end: live agent sessions and the user's terminals. */
+/** The work closing the window would end: live agent sessions, and terminals running a program (a shell at its prompt loses nothing). */
 function running() {
-  return { agents: core?.agents.list().filter((s) => s.live).length ?? 0, terminals: core?.terminal.list().length ?? 0 }
+  return { agents: core?.agents.list().filter((s) => s.live).length ?? 0, terminals: core?.terminal.list().filter((t) => t.running).length ?? 0 }
 }
 
 /** Closing the window, quitting, a crashed window — and the agents and terminals that keep running. */
@@ -349,6 +349,10 @@ app.whenReady().then(async () => {
 
 // ⌘Q, the tray, the app menu, an update: confirm while agents or terminals run.
 app.on('before-quit', (event) => lifecycle.onBeforeQuit(event))
+
+// Ctrl+C where Mindeck was started (npm run dev), `kill`, that terminal closing: quit
+// without asking — no one is at the window to answer, and Mindeck must not linger.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => lifecycle.quitNow())
 
 // A helper process (GPU, network, a utility) ended unexpectedly — for the log.
 app.on('child-process-gone', (_event, details) => {

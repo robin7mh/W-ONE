@@ -100,10 +100,13 @@ const h = vi.hoisted(() => ({
   host: { dispose: vi.fn() },
   createHost: vi.fn(),
   running: { agents: 0, terminals: 0 },
+  /** Signal handlers main.ts installs (kept off the test process). */
+  signals: new Map<string, () => void>(),
   settings: {} as Record<string, unknown>,
   core: {
     system: { setPaused: vi.fn() },
-    terminal: { killAll: vi.fn(), list: () => Array.from({ length: h.running.terminals }, (_, i) => ({ id: `t${i}` })) },
+    // A shell waiting at its prompt is always there; it never counts as running.
+    terminal: { killAll: vi.fn(), list: () => [{ id: 'idle' }, ...Array.from({ length: h.running.terminals }, (_, i) => ({ id: `t${i}`, running: 'node' }))] },
     agents: { list: () => Array.from({ length: h.running.agents + 1 }, (_, i) => ({ id: `a${i}`, live: i < h.running.agents })) },
     settings: { get: () => h.settings, update: vi.fn(async (patch: Record<string, unknown>) => (h.settings = { ...h.settings, ...patch })) },
     cloud: { status: () => ({ state: 'active' }) },
@@ -254,6 +257,12 @@ async function boot(opts: { platform?: NodeJS.Platform; devUrl?: string; ready?:
   Object.defineProperty(process, 'platform', { value: opts.platform ?? 'darwin' })
   if (opts.devUrl) process.env.ELECTRON_RENDERER_URL = opts.devUrl
   else delete process.env.ELECTRON_RENDERER_URL
+  const on = process.on.bind(process)
+  vi.spyOn(process, 'on').mockImplementation(((event: string, fn: () => void) => {
+    if (event.startsWith('SIG')) h.signals.set(event, fn)
+    else on(event, fn)
+    return process
+  }) as typeof process.on)
   vi.resetModules()
   await import('../../../electron/main')
   if (opts.ready !== false) {
@@ -267,6 +276,7 @@ beforeEach(() => {
   FakeWindow.all = []
   h.appHandlers.clear()
   h.ipcOn.clear()
+  h.signals.clear()
   h.ipcHandle.clear()
   h.dark = true
   h.coreOpts = undefined
@@ -654,6 +664,24 @@ describe('stability', () => {
     FakeWindow.all.at(-1)!.emit('close', { preventDefault: vi.fn() })
     expect(h.trays.at(-1)!.image).toEqual({ path: expect.stringMatching(/resources[\\/]tray\.png$/), size: 16 })
     delete (process as { resourcesPath?: string }).resourcesPath
+  })
+
+  it('shells at their prompt do not hold the window or a quit; Ctrl+C where Mindeck was started quits without asking', async () => {
+    const win = await boot()
+    const close = { preventDefault: vi.fn() }
+    win.emit('close', close) // only an idle shell: the window just closes
+    expect(close.preventDefault).not.toHaveBeenCalled()
+    expect(h.asked).toHaveLength(0)
+
+    await boot()
+    expect([...h.signals.keys()]).toEqual(['SIGINT', 'SIGTERM', 'SIGHUP'])
+    h.running = { agents: 1, terminals: 2 }
+    h.signals.get('SIGINT')!()
+    expect(h.quit).toHaveBeenCalled()
+    const quit = { preventDefault: vi.fn() }
+    h.appHandlers.get('before-quit')!(quit) // the quit it started goes through
+    expect(quit.preventDefault).not.toHaveBeenCalled()
+    expect(h.asked).toHaveLength(0)
   })
 
   it('the editor keeping its window open cancels a quit', async () => {

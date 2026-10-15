@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import { useEffect, useRef, type MouseEvent } from 'react'
 import { Plus, X } from 'lucide-react'
 import type { BrowserTab, BrowserTabGroup } from '@shared/types/browser'
 import { cn } from '@/lib/cn'
@@ -61,6 +61,11 @@ export function TabStrip() {
   const run = useBrowser((s) => s.run)
   const drag = useTabDrag()
   const beside = splitOf(state, state.activeId)?.tabs.find((id) => id !== state.activeId)
+  // The shown tab stays in sight: a new one at the end scrolls the strip to it.
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    list.current!.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [state.activeId])
 
   const renderTab = (tab: BrowserTab, group?: BrowserTabGroup) => {
     const active = tab.id === state.activeId
@@ -120,7 +125,7 @@ export function TabStrip() {
       onDoubleClick={(e) => e.target === e.currentTarget && void useBrowser.getState().newTab()}
       {...drag.target('end', (id) => dropAtEnd(useBrowser.getState().state, id))}
     >
-      <div role="tablist" aria-label={t.browser.title} className="flex min-w-0 items-end gap-1 overflow-x-auto">
+      <div ref={list} role="tablist" aria-label={t.browser.title} className="flex min-w-0 items-end gap-1 overflow-x-auto">
         {state.tabs.filter((tab) => tab.pinned).map((tab) => renderTab(tab))}
         {tabItems(state).map((item) =>
           item.kind === 'tab' ? (

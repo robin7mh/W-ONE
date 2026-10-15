@@ -28,7 +28,9 @@ export const de: Dict = {
     system: 'System',
     settings: 'Einstellungen',
     account: 'Profil',
-    notSignedIn: 'Nicht angemeldet'
+    notSignedIn: 'Nicht angemeldet',
+    collapse: 'Module einklappen',
+    expand: 'Module ausklappen'
   },
 
   account: {
@@ -619,7 +621,6 @@ agents: {
     sessionName: 'Name der Sitzung',
     rename: 'Umbenennen',
     openUrl: (url) => `${url} öffnen`,
-    openInVsCode: (path) => `${path} in VS Code öffnen`,
     hideTerminal: 'Terminal ausblenden',
     showTerminal: 'Terminal einblenden',
     agentTerminal: (name) => `Terminal von ${name}`,
@@ -1295,7 +1296,6 @@ agents: {
     title: 'Editor',
     openFromExplorer: 'Öffne eine Datei aus dem Explorer',
     shortcuts: (key) => `${key}P Datei öffnen · ⇧${key}P alle Befehle · ${key}S speichern`,
-    openInVsCode: 'In VS Code öffnen',
     binary: 'Binärdatei',
     tooLarge: 'Größer als 5 MB',
     textOnly: 'Mindeck bearbeitet nur Textdateien bis 5 MB.',
@@ -1626,7 +1626,7 @@ agents: {
     noPreview: 'Keine Vorschau für diese Datei',
     textTruncated: 'Zeigt den Anfang der Datei',
     folderInfo: (n) => (n === 1 ? 'Ordner · 1 Objekt' : `Ordner · ${n} Objekte`),
-    selectHint: 'Wähle eine Datei für die Vorschau',
+    closePreview: 'Vorschau schließen',
     noAccess: 'Mindeck darf diesen Ordner nicht lesen. Erlaube es unter Systemeinstellungen → Datenschutz & Sicherheit → Dateien und Ordner.',
     actions: 'Dateiaktionen',
     dropToMove: 'Hier ablegen zum Verschieben (⌥ kopiert)',

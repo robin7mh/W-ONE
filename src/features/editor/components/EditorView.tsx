@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, Database, FlaskConical, Radio, Paintbrush, Server, ExternalLink, Files, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, ListTree, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
-import { ipc, isDesktop } from '@shared/ipc/client'
+import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, Database, FlaskConical, Radio, Paintbrush, Server, Files, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, ListTree, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
 import { Select } from '@/components/ui/Select'
@@ -14,7 +14,7 @@ import { useOutline } from '../outline'
 import { FileTree } from './FileTree'
 import { DiffHeader, ScmPanel } from './ScmPanel'
 import { SearchPanel } from './SearchPanel'
-import { Banner, Centered, EditorGroup, primary, quiet, Starting } from './EditorGroup'
+import { Banner, Centered, EditorGroup, primary, Starting } from './EditorGroup'
 import { EditorGrid } from './EditorGrid'
 import { OutlinePanel } from './OutlinePanel'
 import { useSearch } from '../search'
@@ -414,15 +414,6 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     return () => window.removeEventListener('beforeunload', guard)
   }, [])
 
-  const openExternal = desktop
-    ? () => {
-        const call = focused
-          ? ipc('projects:openFile', { id: focused.projectId, file: focused.path, line: cursor?.line })
-          : ipc('projects:openInEditor', { id: projectId! })
-        void call.catch(() => {})
-      }
-    : undefined
-
   if (!projects.length) {
     return (
       <Panel title={t.editor.title} corners className="min-h-0 flex-1" bodyClassName="relative">
@@ -465,13 +456,6 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       flush
       className="min-h-0 flex-1"
       bodyClassName="flex"
-      headerRight={
-        openExternal && (
-          <button type="button" onClick={openExternal} className={quiet} title={t.editor.openInVsCode}>
-            <ExternalLink size={13} /> VS Code
-          </button>
-        )
-      }
     >
       <ActivityBar />
 
@@ -556,7 +540,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         )}
         <EditorGrid
           renderGroup={(id, index) => (
-            <EditorGroup id={id} index={index} projectNames={names} readOnly={readOnly} overlay={id === overlayGroup ? overlay : undefined} onExternal={openExternal} onCursor={onCursor} />
+            <EditorGroup id={id} index={index} projectNames={names} readOnly={readOnly} overlay={id === overlayGroup ? overlay : undefined} onCursor={onCursor} />
           )}
         />
 

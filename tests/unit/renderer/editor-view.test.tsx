@@ -207,13 +207,12 @@ describe('EditorView', () => {
     expect(e().projectId).toBe('q')
   })
 
-  it('placeholders: welcome, loading, binary / too large (with VS Code), errors with retry', async () => {
+  it('placeholders: welcome, loading, binary / too large (no VS Code), errors with retry', async () => {
     const bridge = installBridge({
       'projects:list': () => [project('p')],
       'files:list': () => [],
       'files:stat': () => [],
-      'files:read': () => fail('EACCES'),
-      'projects:openFile': () => fail('no code')
+      'files:read': () => fail('EACCES')
     })
     useProjects.setState({ projects: [project('p')] })
     render(view())
@@ -226,9 +225,7 @@ describe('EditorView', () => {
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     act(() => useEditor.setState(seed([tab('a.png', { content: undefined, unsupported: 'binary' })])))
     expect(screen.getByText('Binary file')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Open in VS Code'))
-    await act(settle) // its failure is swallowed
-    expect(bridge.invoke).toHaveBeenCalledWith('projects:openFile', { id: 'p', file: 'a.png', line: 4 })
+    expect(screen.queryByText(/VS Code/)).toBeNull()
     act(() => useEditor.setState(seed([tab('big.log', { content: undefined, unsupported: 'too-large' })])))
     expect(screen.getByText('Larger than 5 MB')).toBeInTheDocument()
     act(() => useEditor.setState(seed([tab('bad.ts', { content: undefined, error: 'EACCES' })])))
@@ -238,15 +235,14 @@ describe('EditorView', () => {
     expect(bridge.invoke).toHaveBeenCalledWith('files:read', { projectId: 'p', path: 'bad.ts' })
   })
 
-  it('on macOS the hints use ⌘; VS Code opens the project when no file is open', async () => {
+  it('on macOS the hints use ⌘; no VS Code button in the header', async () => {
     flags.mac = true
-    const bridge = installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
+    installBridge({ 'projects:list': () => [project('p')], 'files:list': () => [], 'files:stat': () => [] })
     useProjects.setState({ projects: [project('p')] })
     render(view())
     await act(settle)
     expect(screen.getByText(/⌘S save/)).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Open in VS Code'))
-    expect(bridge.invoke).toHaveBeenCalledWith('projects:openInEditor', { id: 'p' })
+    expect(screen.queryByText('VS Code')).toBeNull()
   })
 
   it('banners: save before closing, conflicts, deleted files, save errors; status bar states', async () => {

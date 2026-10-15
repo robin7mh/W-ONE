@@ -27,7 +27,7 @@ import { XtermPane } from '@/features/terminal/components/XtermPane'
 import { useTerminals } from '@/features/terminal/store'
 import { useTerminalSettings } from '@/features/terminal/settings'
 import { serializers } from '@/features/terminal/store'
-import { plainText } from '@/features/terminal/useXterm'
+import { FIT_SETTLE_MS, plainText } from '@/features/terminal/useXterm'
 import { useEditor } from '@/features/editor/store'
 import { DEFAULT_TERMINAL_SETTINGS } from '@shared/types/terminal'
 import { resetProjectCache } from '@/features/terminal/links'
@@ -309,6 +309,36 @@ describe('XtermPane', () => {
 
     unmount()
     expect(term.disposed).toBe(true)
+    restore()
+  })
+
+  it('a size that keeps changing (a divider dragged) is taken once it holds still — the first real size at once', () => {
+    const observers = (globalThis as unknown as { FakeResizeObserver: { instances: { trigger(): void }[] } }).FakeResizeObserver.instances
+    const before = observers.length
+    let restore = sized(0, 0) // hidden: nothing to fit
+    installBridge({ 'terminal:attach': pending })
+    const { unmount } = render(<XtermPane tab={info()} label="~" active={false} framed={false} />)
+    const resize = () => act(() => observers.slice(before).forEach((o) => o.trigger()))
+    const fit = x.fits[0].fit
+    expect(fit).not.toHaveBeenCalled()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    restore()
+    restore = sized(800, 400)
+    resize() // shown: fitted at once
+    expect(fit).toHaveBeenCalledTimes(1)
+    resize()
+    resize()
+    act(() => vi.advanceTimersByTime(FIT_SETTLE_MS - 1))
+    expect(fit).toHaveBeenCalledTimes(1) // still moving: the shell is left alone
+    x.fitThrows = true
+    act(() => vi.advanceTimersByTime(1)) // settled (a renderer not ready yet is no error)
+    expect(fit).toHaveBeenCalledTimes(2)
+    x.fitThrows = false
+    resize()
+    unmount() // a pending fit dies with the view
+    act(() => vi.advanceTimersByTime(FIT_SETTLE_MS))
+    expect(fit).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
     restore()
   })
 

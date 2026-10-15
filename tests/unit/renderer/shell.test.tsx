@@ -73,7 +73,7 @@ describe('shell pieces', () => {
   it('SideNavigation marks the active item and selects', () => {
     const onSelect = vi.fn()
     render(<SideNavigation active="terminal" onSelect={onSelect} />)
-    expect(screen.getAllByRole('button')).toHaveLength(NAV_ITEMS.length + 1) // + profile
+    expect(screen.getAllByRole('button')).toHaveLength(NAV_ITEMS.length + 2) // + fold, profile
     expect(screen.getByTitle('Terminal').className).toContain('text-text-primary')
     expect(screen.getByTitle('Core').className).toContain('text-text-muted')
     fireEvent.click(screen.getByTitle('Memory'))
@@ -90,6 +90,47 @@ describe('shell pieces', () => {
     expect(onSelect).toHaveBeenCalledWith('account')
     rerender(<SideNavigation active="account" onSelect={onSelect} />)
     expect(screen.getByLabelText('Profile').className).toContain('border-cyan/40')
+  })
+
+  it('SideNavigation folds to icons and back, remembers it, and the panes measure their place again', async () => {
+    const { onRelayout } = await import('@/lib/relayout')
+    const moved = vi.fn()
+    const off = onRelayout(moved)
+    const first = render(<SideNavigation active="core" open={['core', 'browser']} onSelect={vi.fn()} />)
+    expect(moved).not.toHaveBeenCalled() // the first look moves nothing
+    expect(screen.getByText('Modules')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse the modules' }))
+    expect(moved).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('mindeck.nav.collapsed')).toBe('1')
+    expect(screen.queryByText('Modules')).toBeNull()
+    expect(screen.queryByText('Memory')).toBeNull() // icons only, the name in the tooltip
+    expect(screen.getByTitle('Memory')).toBeInTheDocument()
+    expect(screen.queryByText('Not signed in')).toBeNull()
+    expect(screen.getByTestId('open-browser')).toHaveClass('absolute') // the dot sits on the icon
+    first.unmount()
+
+    // remembered on the next start; unfolds again
+    render(<SideNavigation active="core" onSelect={vi.fn()} />)
+    const unfold = screen.getByRole('button', { name: 'Expand the modules' })
+    expect(unfold).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(unfold)
+    expect(screen.getByText('Memory')).toBeInTheDocument()
+    expect(localStorage.getItem('mindeck.nav.collapsed')).toBe('0')
+    off()
+  })
+
+  it('SideNavigation without storage: unfolded, and folding still works', () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    render(<SideNavigation active="core" onSelect={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse the modules' }))
+    expect(screen.getByRole('button', { name: 'Expand the modules' })).toBeInTheDocument()
+    get.mockRestore()
+    set.mockRestore()
   })
 
   it('WindowControls drive the bridge and follow the maximized state', async () => {
@@ -253,6 +294,8 @@ describe('BottomDashboard', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(btn)
     expect(btn).toHaveAttribute('aria-expanded', 'true')
+    // over the workspace, not in its flow: the panes keep their size
+    expect(screen.getByRole('dialog', { name: 'Command Deck' })).toHaveClass('absolute', 'bottom-full')
     expect(screen.getByText('No agent is running')).toBeInTheDocument()
     expect(screen.getByText('No agent activity yet')).toBeInTheDocument()
     expect(localStorage.getItem('mindeck.commandDeck.open')).toBe('1')

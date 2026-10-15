@@ -129,7 +129,7 @@ export function MemoryView() {
               <BrainCircuit size={14} className="shrink-0 text-cyan" />
               <span className="min-w-0 flex-1" title={m.status.root}>
                 <span className="block truncate font-sans text-[12.5px] font-semibold text-text-primary">
-                  {m.status.name} <span className="font-normal text-text-muted">· {t.memory.notes(m.status.noteCount)}</span>
+                  {m.status.name}
                 </span>
                 <span className="block truncate font-mono text-[10px] text-text-muted">
                   {m.status.root.replace(/^\/Users\/[^/]+|^[A-Z]:\\Users\\[^\\]+/i, '~')}

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, type DragEvent, type ReactNode } from 'react'
-import { AlertTriangle, BookOpen, Code2, ExternalLink, FileWarning, RefreshCw } from 'lucide-react'
+import { AlertTriangle, BookOpen, Code2, FileWarning, RefreshCw } from 'lucide-react'
 import { isMac } from '@/lib/platform'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
@@ -50,7 +50,7 @@ export const Starting = () => {
 }
 
 /** What the editor area shows when the active tab has no text to edit. */
-function Placeholder({ tab, onExternal }: { tab?: EditorTab; onExternal?: () => void }) {
+function Placeholder({ tab }: { tab?: EditorTab }) {
   const t = useT()
   const key = isMac ? '⌘' : 'Ctrl+'
   if (!tab) {
@@ -61,16 +61,10 @@ function Placeholder({ tab, onExternal }: { tab?: EditorTab; onExternal?: () => 
     )
   }
   if (tab.loading) return <Centered icon={<RefreshCw size={22} className="animate-spin text-text-muted" />} title={t.common.loading} />
-  const vsCode = onExternal && (
-    <button type="button" onClick={onExternal} className={quiet}>
-      <ExternalLink size={13} /> {t.editor.openInVsCode}
-    </button>
-  )
   if (tab.unsupported) {
     return (
       <Centered icon={<FileWarning size={28} className="text-text-muted" />} title={tab.unsupported === 'binary' ? t.editor.binary : t.editor.tooLarge}>
         <p className="font-sans text-[13px] text-text-secondary">{t.editor.textOnly}</p>
-        {vsCode}
       </Centered>
     )
   }
@@ -136,7 +130,6 @@ interface GroupProps {
   readOnly: boolean
   /** A view that takes the group's place for now (a diff, the git graph, a pull request, a collection). */
   overlay?: ReactNode
-  onExternal?: () => void
   onCursor: (group: string, info: CursorInfo) => void
 }
 
@@ -145,7 +138,7 @@ interface GroupProps {
  * editor. Tabs dropped on the editor join the group — on an edge, they open
  * a new group on that side.
  */
-export function EditorGroup({ id, index, projectNames, readOnly, overlay, onExternal, onCursor }: GroupProps) {
+export function EditorGroup({ id, index, projectNames, readOnly, overlay, onCursor }: GroupProps) {
   const t = useT()
   const activeId = useEditor((s) => s.groups.find((g) => g.id === id)?.activeId)
   const tab = useEditor((s) => s.tabs.find((x) => x.id === activeId))
@@ -225,7 +218,7 @@ export function EditorGroup({ id, index, projectNames, readOnly, overlay, onExte
           {hasText && isNotebook(tab) && <NotebookLayer key={tab.id} tab={tab} readOnly={readOnly} />}
           {!hasText && (
             <div className="absolute inset-0 bg-panel/80">
-              <Placeholder tab={tab} onExternal={onExternal} />
+              <Placeholder tab={tab} />
             </div>
           )}
           {zone && <div aria-hidden data-zone={zone} className={cn('pointer-events-none absolute z-30 rounded-sm border border-cyan/50 bg-cyan/[0.08]', ZONES[zone])} />}

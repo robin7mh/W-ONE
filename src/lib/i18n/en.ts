@@ -32,7 +32,9 @@ export const en = {
     system: 'System',
     settings: 'Settings',
     account: 'Profile',
-    notSignedIn: 'Not signed in'
+    notSignedIn: 'Not signed in',
+    collapse: 'Collapse the modules',
+    expand: 'Expand the modules'
   },
 
   account: {
@@ -630,7 +632,6 @@ agents: {
     sessionName: 'Session name',
     rename: 'Rename',
     openUrl: (url: string) => `Open ${url}`,
-    openInVsCode: (path: string) => `Open ${path} in VS Code`,
     hideTerminal: 'Hide terminal',
     showTerminal: 'Show terminal',
     agentTerminal: (name: string) => `${name}'s terminal`,
@@ -1311,7 +1312,6 @@ agents: {
     title: 'Editor',
     openFromExplorer: 'Open a file from the explorer',
     shortcuts: (key: string) => `${key}P go to file · ⇧${key}P all commands · ${key}S save`,
-    openInVsCode: 'Open in VS Code',
     binary: 'Binary file',
     tooLarge: 'Larger than 5 MB',
     textOnly: 'Mindeck only edits text files up to 5 MB.',
@@ -1642,7 +1642,7 @@ agents: {
     noPreview: 'No preview for this file',
     textTruncated: 'Showing the beginning of the file',
     folderInfo: (n: number) => (n === 1 ? 'Folder · 1 item' : `Folder · ${n} items`),
-    selectHint: 'Select a file to preview it',
+    closePreview: 'Close the preview',
     noAccess: 'Mindeck may not read this folder. Allow it in System Settings → Privacy & Security → Files and Folders.',
     actions: 'File actions',
     dropToMove: 'Drop to move here (⌥ copies)',
