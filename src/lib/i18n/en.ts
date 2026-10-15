@@ -1099,7 +1099,7 @@ agents: {
     takeOver: 'Take over',
     installed: 'Installed',
     checkUpdates: 'Check for updates',
-    updated: (names: string[]) => (names.length ? `Updated: ${names.join(', ')}` : 'All extensions are up to date'),
+    updated: (names: string) => (names ? `Updated: ${names}` : 'All extensions are up to date'),
     toggle: (name: string) => `${name} on or off`,
     details: 'Details',
     remove: (name: string) => `Remove ${name}`,

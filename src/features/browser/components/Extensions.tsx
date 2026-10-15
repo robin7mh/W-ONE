@@ -187,7 +187,7 @@ export function ExtensionsPanel() {
     setBusy(true)
     const result = await run('browser:extensions:checkUpdates')
     setBusy(false)
-    if (result) setReport(x.updated(result.updated))
+    if (result) setReport(x.updated(result.updated.join(', ')))
   }
 
   return (

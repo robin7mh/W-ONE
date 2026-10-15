@@ -1085,7 +1085,7 @@ agents: {
     takeOver: 'Übernehmen',
     installed: 'Installiert',
     checkUpdates: 'Nach Updates suchen',
-    updated: (names) => (names.length ? `Aktualisiert: ${names.join(', ')}` : 'Alle Erweiterungen sind aktuell'),
+    updated: (names) => (names ? `Aktualisiert: ${names}` : 'Alle Erweiterungen sind aktuell'),
     toggle: (name) => `${name} an oder aus`,
     details: 'Details',
     remove: (name) => `${name} entfernen`,
