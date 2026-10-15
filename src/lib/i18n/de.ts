@@ -58,6 +58,30 @@ export const de: Dict = {
     chip: (version) => `Update ${version} · neu starten`
   },
 
+  stability: {
+    moduleTitle: 'Dieses Modul ist abgestürzt',
+    moduleIntro: (name) => `In ${name} ist etwas schiefgegangen. Der Rest von Mindeck läuft weiter – Agenten und Terminals eingeschlossen. Lade das Modul neu, um es noch einmal zu versuchen.`,
+    appTitle: 'Das Mindeck-Fenster ist abgestürzt',
+    appIntro: 'In der Oberfläche ist etwas schiefgegangen. Agenten und Terminals laufen im Hintergrund weiter – lade das Fenster neu, um zu ihnen zurückzukehren.',
+    reloadModule: 'Modul neu laden',
+    reloadApp: 'Mindeck neu laden',
+    copyDetails: 'Fehlerdetails kopieren',
+    copied: 'Kopiert',
+    details: 'Fehlerdetails',
+    reported: 'Der Fehler wurde ins Log geschrieben.',
+    card: 'Desktop-App',
+    keyringTitle: 'Geheimnisse werden unverschlüsselt gespeichert',
+    keyringBody: 'Es ist kein Schlüsselbund (Secret Service oder KWallet) verfügbar, deshalb liegen API-Schlüssel und deine Konto-Sitzung im Klartext – geschützt nur durch die Dateirechte von ~/Mindeck/data/secrets.json. Installiere und entsperre einen Schlüsselbund (z. B. GNOME Keyring), starte Mindeck neu und melde dich erneut an.',
+    closeLabel: 'Wenn das Fenster geschlossen wird, während Agenten oder Terminals laufen',
+    closeAsk: 'Jedes Mal fragen',
+    closeBackground: 'Im Hintergrund weiterlaufen',
+    closeQuit: 'Mindeck beenden',
+    closeMac: 'Unter macOS läuft Mindeck nach dem Schließen des Fensters mit allem darin im Hintergrund weiter – das Dock-Symbol holt es zurück. Beenden mit ⌘Q.',
+    logsHint: 'Logs und lokale Absturzberichte (es wird nichts verschickt). Die Diagnose enthält Version, System und die letzten Fehler – keine Schlüssel, Tokens oder Dateiinhalte.',
+    openLogs: 'Logs-Ordner öffnen',
+    copyDiagnostics: 'Diagnose kopieren'
+  },
+
   cloud: {
     frame: 'Konto',
     checking: 'Lizenz wird geprüft …',
@@ -269,7 +293,8 @@ agents: {
       'license-required': 'Die KI braucht eine aktive Testversion oder Lizenz.',
       'ai-unavailable': 'Die KI ist gerade nicht verfügbar — bitte versuch es später noch einmal.',
       'rate-limited': 'Die KI ist gerade ausgelastet — bitte versuch es gleich noch einmal.',
-      session_expired: 'Bitte melde dich erneut mit deinem Mindeck-Konto an.'
+      session_expired: 'Bitte melde dich erneut mit deinem Mindeck-Konto an.',
+      'transcript-damaged': 'Die früheren Nachrichten dieser Sitzung konnten nicht gelesen werden – die Datei wurde im Agenten-Datenordner beiseitegelegt. Die Sitzung selbst kann weiterlaufen.'
     },
     messageTo: (name) => `Nachricht an ${name} …`,
     theAssistant: 'den Assistenten',

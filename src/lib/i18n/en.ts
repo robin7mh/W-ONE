@@ -60,6 +60,31 @@ export const en = {
     chip: (version: string) => `Update ${version} · restart`
   },
 
+  // A module that crashed, and the desktop app's own settings (logs, closing the window, the keychain).
+  stability: {
+    moduleTitle: 'This module crashed',
+    moduleIntro: (name: string) => `Something went wrong in ${name}. The rest of Mindeck keeps running — agents and terminals included. Reload the module to try again.`,
+    appTitle: 'Mindeck’s window crashed',
+    appIntro: 'Something went wrong in the interface. Agents and terminals keep running in the background — reload the window to get back to them.',
+    reloadModule: 'Reload module',
+    reloadApp: 'Reload Mindeck',
+    copyDetails: 'Copy error details',
+    copied: 'Copied',
+    details: 'Error details',
+    reported: 'The error was written to the log.',
+    card: 'Desktop app',
+    keyringTitle: 'Secrets are stored without encryption',
+    keyringBody: 'No keyring (Secret Service or KWallet) is available, so API keys and your account session are kept in plain text — protected only by the file permissions of ~/Mindeck/data/secrets.json. Install and unlock a keyring (e.g. GNOME Keyring), then restart Mindeck and sign in again.',
+    closeLabel: 'When the window closes while agents or terminals run',
+    closeAsk: 'Ask every time',
+    closeBackground: 'Keep running in the background',
+    closeQuit: 'Quit Mindeck',
+    closeMac: 'On macOS, closing the window keeps Mindeck running in the background with everything in it — the Dock icon brings it back. Quit with ⌘Q.',
+    logsHint: 'Logs and local crash reports (nothing is sent anywhere). Diagnostics are version, system and the latest errors — no keys, tokens or file contents.',
+    openLogs: 'Open logs folder',
+    copyDiagnostics: 'Copy diagnostics'
+  },
+
   cloud: {
     frame: 'Account',
     checking: 'Checking your license…',
@@ -273,7 +298,8 @@ agents: {
       'license-required': 'The AI needs an active trial or license.',
       'ai-unavailable': 'The AI is not available right now — please try again later.',
       'rate-limited': 'The AI is busy — please try again in a moment.',
-      session_expired: 'Please sign in to your Mindeck account again.'
+      session_expired: 'Please sign in to your Mindeck account again.',
+      'transcript-damaged': 'The earlier messages of this session could not be read — the file was set aside in the agents data folder. The session itself can go on.'
     },
     messageTo: (name: string) => `Message ${name}…`,
     theAssistant: 'the assistant',

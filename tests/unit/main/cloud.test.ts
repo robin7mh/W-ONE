@@ -270,6 +270,7 @@ describe('router license gate', () => {
     expect(await router.dispatch('cloud:status', undefined, { transport: 'remote' })).toMatchObject({ ok: true })
     expect(await router.dispatch('app:info', undefined, { transport: 'ipc' })).toMatchObject({ ok: true })
     expect(isLicenseFree('update:install')).toBe(true) // a locked app can still be updated
+    expect(isLicenseFree('desktop:diagnostics')).toBe(true) // … and say what went wrong
     licensed = true
     expect(await router.dispatch('projects:list', undefined, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
   })

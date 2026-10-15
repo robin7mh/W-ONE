@@ -21,6 +21,7 @@ import { MigrateCard } from './MigrateCard'
 import { EditorCard } from './EditorCard'
 import { AiCard } from './AiCard'
 import { BrowserCard } from './BrowserCard'
+import { DesktopCard } from './DesktopCard'
 import { Toggle } from './Toggle'
 
 const input =
@@ -324,6 +325,7 @@ export function SettingsView() {
         <RemoteCard />
         <PermissionsCard />
         <VaultCard />
+        <DesktopCard />
         <AboutCard />
       </div>
     </Panel>
