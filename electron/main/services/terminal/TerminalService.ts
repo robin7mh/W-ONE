@@ -216,11 +216,14 @@ export class TerminalService {
     return integrate(command, dir, { ...shellEnv(), ...env })
   }
 
-  /** Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off). */
+  /**
+   * Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off).
+   * Scrollback holds whatever the shells printed (tokens, keys): for the user's eyes only (0600).
+   */
   async persist(snapshot: TerminalSnapshot): Promise<void> {
     const file = join(this.opts.dir, 'terminals.json')
     if (!this.settings().restore) return rm(file, { force: true })
-    await writeAtomic(file, JSON.stringify(snapshot))
+    await writeAtomic(file, JSON.stringify(snapshot), 0o600)
   }
 
   /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */

@@ -374,7 +374,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
   const search = new SearchService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'search:progress') })
-  registerSearchIpc(router, search)
+  registerSearchIpc(router, search, remoteAccess)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)

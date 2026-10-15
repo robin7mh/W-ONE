@@ -15,12 +15,14 @@ import { Cancelled, type Job } from './transfer'
  * to extract. Archives are untrusted: every entry must land inside the
  * target folder (no `..`, no absolute paths — "Zip Slip"), links are never
  * created, and a ZIP that needs more space than the disk has is refused
- * before anything is written. Results appear atomically: work happens in a
+ * before anything is written (a tar as soon as its files add up to more). Results appear atomically: work happens in a
  * hidden folder next to the archive, renamed into place at the end.
  */
 
 const S_IFMT = 0o170000
 const S_IFLNK = 0o120000
+/** A pax or GNU long-name record is read into memory: real ones are a few hundred bytes. */
+export const MAX_TAR_META = 1024 * 1024
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
@@ -208,6 +210,9 @@ function paxPath(data: Buffer): string | undefined {
 
 async function untar(archive: string, gzip: boolean, root: string, job: Job): Promise<void> {
   job.total = (await lstat(archive)).size
+  // A .tar.gz does not say how big it unpacks: its files may not add up to more than the disk has free.
+  const disk = await statfs(root)
+  let room = disk.bavail * disk.bsize
   const source = createReadStream(archive)
   // Progress is the archive read so far (a .gz does not say how big it unpacks).
   const progress = counted(job, archive)
@@ -228,6 +233,7 @@ async function untar(archive: string, gzip: boolean, root: string, job: Job): Pr
       return { left: h.size, pad, write: (c: Buffer) => void parts.push(c), end: async () => use(Buffer.concat(parts)) }
     }
     const skip = { left: h.size, pad, write: () => {}, end: async () => {} }
+    if ((h.type === 'x' || h.type === 'L') && h.size > MAX_TAR_META) throw coded('bad-archive', 'The archive has an oversized header')
     if (h.type === 'x') return collect((data) => (nextName = paxPath(data) ?? nextName))
     if (h.type === 'L') return collect((data) => (nextName = data.toString('utf8').replace(/\0+$/, '')))
     const name = nextName ?? h.name
@@ -239,6 +245,7 @@ async function untar(archive: string, gzip: boolean, root: string, job: Job): Pr
     // Regular files only: links, devices, global headers … are skipped.
     if (h.type !== '0' && h.type !== '7') return skip
     const target = safeTarget(root, name)
+    if ((room -= h.size) < 0) throw coded('no-space', 'Not enough free space to extract this archive')
     await mkdir(dirname(target), { recursive: true })
     handle = await open(target, 'wx', (h.mode & 0o777) | 0o600)
     const file = handle

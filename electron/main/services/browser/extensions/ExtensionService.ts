@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { cp, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { extname, isAbsolute, join, relative } from 'node:path'
 import type {
   BrowserExtension,
   ChromiumProfile,
@@ -179,7 +179,7 @@ export class ExtensionService {
       this.unload(x)
       this.items = this.items.filter((i) => i !== x)
       // A folder the user loaded stays where it is; copies Mindeck made go.
-      if (x.source !== 'folder') await rm(x.path, { recursive: true, force: true })
+      if (this.owned(x)) await rm(x.path, { recursive: true, force: true })
       await this.save()
     })
   }
@@ -232,6 +232,16 @@ export class ExtensionService {
 
   private root(): string {
     return join(this.deps.dir, 'extensions')
+  }
+
+  /**
+   * A copy Mindeck made (store, profile) — deleted with the extension. Only
+   * ever inside its own folder: extensions.json may have been edited to
+   * point anywhere, and an unpacked folder is the user's own.
+   */
+  private owned(x: Saved): boolean {
+    const rel = relative(this.root(), x.path)
+    return x.source !== 'folder' && !!rel && !rel.startsWith('..') && !isAbsolute(rel)
   }
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -343,7 +353,7 @@ export class ExtensionService {
     const old = this.items.find((x) => x.id === id)
     if (old && old.path !== folder) {
       if (old.loaded) this.host.unloadExtension(old.loaded)
-      if (old.source !== 'folder') await rm(old.path, { recursive: true, force: true })
+      if (this.owned(old)) await rm(old.path, { recursive: true, force: true })
     }
     const x: Installed = {
       id,

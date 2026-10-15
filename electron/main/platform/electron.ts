@@ -5,6 +5,18 @@ import { fileClipboard } from './fileClipboard'
 import { desktopTrash } from './trash'
 import type { Platform } from './types'
 
+/**
+ * The remote core's web UI gets a profile of its own: the Mindeck UI's
+ * session serves `mindeck-file://` (any local file), which a page from
+ * another machine must never reach.
+ */
+export const REMOTE_PARTITION = 'persist:mindeck-remote'
+
+/** Links the OS may open for a page: web addresses and mail — never `file:`, `smb:` or another app's scheme. */
+export function safeExternal(url: string): boolean {
+  return /^(https?:\/\/|mailto:)/i.test(url)
+}
+
 /** The OS trash (Finder's, the Recycle Bin, the desktop's). */
 async function osTrash(path: string): Promise<void> {
   await shell.trashItem(path)
@@ -41,13 +53,20 @@ export const electronPlatform: Platform = {
       title,
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#04060b' : '#eef2f7',
       autoHideMenuBar: true,
-      // The remote core's own web UI: no bridge into this machine.
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+      // The remote core's own web UI: no bridge into this machine, nor its files.
+      webPreferences: { partition: REMOTE_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
     })
     win.on('page-title-updated', (e) => e.preventDefault())
+    // Another machine's page: it opens web links in the system browser — no other scheme, and the window stays on its core.
+    const origin = new URL(url).origin
     win.webContents.setWindowOpenHandler(({ url: link }) => {
-      void shell.openExternal(link)
+      if (safeExternal(link)) void shell.openExternal(link)
       return { action: 'deny' }
+    })
+    win.webContents.on('will-navigate', (event, link) => {
+      if (link.startsWith(`${origin}/`)) return
+      event.preventDefault()
+      if (safeExternal(link)) void shell.openExternal(link)
     })
     const closed = new Promise<void>((resolve) => win.on('closed', () => resolve()))
     // Signed in as this desktop's paired device before the UI first loads.

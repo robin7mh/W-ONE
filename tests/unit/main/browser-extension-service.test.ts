@@ -252,6 +252,21 @@ describe('extensions · managing', () => {
     expect(await service.checkUpdates()).toEqual({ checked: 0, updated: [], failed: [] })
   })
 
+  it('deletes only copies in its own folder — not what an edited extensions.json points at', async () => {
+    const elsewhere = await tempDir()
+    await writeFile(join(elsewhere, 'manifest.json'), manifest())
+    const id = 'a'.repeat(32)
+    const { service, host, dir } = await setup({ saved: { extensions: [{ id, source: 'store', path: elsewhere, enabled: true }] } })
+    await service.attach(host)
+    await service.remove(id)
+    expect(await exists(join(elsewhere, 'manifest.json'))).toBe(true)
+    // Its own folder itself is no extension's copy either.
+    const internals = service as unknown as { owned(x: { source: string; path: string }): boolean }
+    expect(internals.owned({ source: 'store', path: join(dir, 'extensions') })).toBe(false)
+    expect(internals.owned({ source: 'store', path: join(dir, 'extensions', id) })).toBe(true)
+    expect(internals.owned({ source: 'folder', path: join(dir, 'extensions', id) })).toBe(false)
+  })
+
   it('remembers the installed ones across starts — and keeps one whose folder went missing listed', async () => {
     const folder = await tempDir()
     await writeFile(join(folder, 'manifest.json'), manifest({ action: { default_icon: 'big.png' } }))

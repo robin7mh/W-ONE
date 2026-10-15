@@ -353,13 +353,18 @@ describe('HttpServer — events socket', () => {
     hub.publish('terminal:exit', { id: 't2', exitCode: 0 })
     hub.publish('permission:request', { id: 'r1', allowAlways: true } as never)
     hub.publish('browser:reveal', { tabId: 't' }) // the desktop window's own
+    // Search results (file contents) reach only the device that searched — the desktop's none.
+    hub.publish('search:progress', { id: 's', files: [], done: true })
+    hub.publish('search:progress', { id: 's', files: [], done: true, device: 'another-device' })
+    hub.publish('search:progress', { id: 'mine', files: [], done: true, device: device.id })
     await tick(30)
     expect(messages).toEqual([
       { channel: 'hello', payload: { deviceId: device.id, role: 'member' } },
       { channel: 'memory:changed', payload: { paths: ['a.md'] } },
       { channel: 'terminal:exit', payload: { id: 't2', exitCode: 0 } },
       // "Always allow" is the desktop's to give.
-      { channel: 'permission:request', payload: { id: 'r1', allowAlways: false } }
+      { channel: 'permission:request', payload: { id: 'r1', allowAlways: false } },
+      { channel: 'search:progress', payload: { id: 'mine', files: [], done: true, device: device.id } }
     ])
     // App builds from before still pass the token in the query (deprecated).
     const legacy = await openSocket(`${wsBase}/api/events?token=${token}`)

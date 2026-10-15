@@ -9,6 +9,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { DESKTOP_EVENTS, TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
 import { EVENTS_PROTOCOL, TOKEN_PROTOCOL_PREFIX } from '@shared/ipc/transport'
 import type { PermissionRequest } from '@shared/types/ai'
+import type { SearchProgress } from '@shared/types/search'
 import type { CoreMode } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
@@ -389,8 +390,11 @@ export class HttpServer {
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
     // "Always allow" is only ever given at the desktop: devices are not offered it.
     const shown = channel === 'permission:request' ? { ...(payload as PermissionRequest), allowAlways: false } : payload
+    // Search results are file contents: only the device that searched gets them (the desktop's go to none).
+    const only = channel === 'search:progress' ? ((payload as SearchProgress).device ?? null) : undefined
     const message = JSON.stringify({ channel, payload: shown })
     for (const client of this.clients) {
+      if (only !== undefined && client.deviceId !== only) continue
       if (client.ws.readyState === client.ws.OPEN) client.ws.send(message)
     }
   }

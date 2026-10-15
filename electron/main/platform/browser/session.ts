@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { app, desktopCapturer, systemPreferences, type DownloadItem, type Session, type WebContents } from 'electron'
 import type { BrowserDownload, BrowserPermissionKind } from '@shared/types/browser'
@@ -70,8 +71,25 @@ export function freeDownloadPath(dir: string, filename: string): string {
   return path
 }
 
-/** macOS: mark a download as coming from the internet, so Gatekeeper checks it before it runs. */
-export function quarantine(path: string, run: typeof execFile = execFile): void {
+/**
+ * Marks a download as coming from the internet (Electron leaves that to the app): on macOS
+ * Gatekeeper checks it before it runs, on Windows the Mark of the Web makes SmartScreen and
+ * Office's Protected View do so.
+ */
+export function quarantine(path: string, url: string, run: typeof execFile = execFile, write = (file: string, data: string) => writeFile(file, data)): void {
+  if (process.platform === 'win32') {
+    // Like Chrome: the address only when it is a web one, never its user name or password.
+    let host = 'about:internet'
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') host = `${u.origin}${u.pathname}${u.search}`
+    } catch {
+      // not an address: the internet zone, without one
+    }
+    // A disk without streams (FAT, exFAT) can't take the mark: nothing to do then.
+    void write(`${path}:Zone.Identifier`, `[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=${host}\r\n`).catch(() => {})
+    return
+  }
   if (process.platform !== 'darwin') return
   run('xattr', ['-p', 'com.apple.quarantine', path], (missing) => {
     if (!missing) return // Chromium marked it already
@@ -207,6 +225,6 @@ function track(item: DownloadItem, current: () => SessionTarget | null, inMemory
   item.once('done', (_event, state) => {
     const done = { ...base, ...where(), state, received: item.getReceivedBytes(), total: item.getTotalBytes() }
     current()?.events.downloadUpdated(done)
-    if (state === 'completed') quarantine(done.path)
+    if (state === 'completed') quarantine(done.path, base.url)
   })
 }
