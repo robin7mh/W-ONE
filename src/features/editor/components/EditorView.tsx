@@ -44,6 +44,8 @@ import { useLintStatus } from '../lintStatus'
 import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
+import { usePaneFocused } from '@/features/workspace/pane'
+import { workspaceCommands } from '@/features/workspace/commands'
 
 // Monaco is a few MB — it loads the first time the Editor module opens.
 const CodeEditor = lazy(() => import('./CodeEditor'))
@@ -317,6 +319,8 @@ function NotebookLayer({ tab, readOnly }: { tab: EditorTab; readOnly: boolean })
  */
 export function EditorView({ active, onNavigate }: { active: boolean; onNavigate: (id: ModuleId) => void }) {
   const t = useT()
+  // Next to other modules, the editor's keys work while its pane has the focus.
+  const paneFocused = usePaneFocused()
   const projects = useProjects((s) => s.projects)
   const [projectsLoaded, setProjectsLoaded] = useState(projects.length > 0)
   const { projectId, tabs, activeId, closing, splitId, focusRight } = useEditor()
@@ -354,7 +358,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     buildCommands(t, {
       onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `Mindeck: ${t.migrate.title}`, run: () => onNavigate('settings') }]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `Mindeck: ${t.migrate.title}`, run: () => onNavigate('settings') }, ...workspaceCommands(t)]
     })
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
@@ -387,7 +391,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     void useEditor.getState().selectProject((projects.find((p) => p.id === selected) ?? projects[0]).id)
   }, [projects])
 
-  // While visible: follow the disk, and ⌘S / Ctrl+S saves.
+  // While visible: follow the disk, and ⌘S / Ctrl+S saves (while focused).
   useEffect(() => {
     if (!active) return
     // Disk and git both follow edits made elsewhere (agents, terminals, other editors).
@@ -428,13 +432,13 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     check()
     const timer = window.setInterval(check, DISK_POLL_MS)
     window.addEventListener('focus', check)
-    window.addEventListener('keydown', onKey)
+    if (paneFocused) window.addEventListener('keydown', onKey)
     return () => {
       window.clearInterval(timer)
       window.removeEventListener('focus', check)
       window.removeEventListener('keydown', onKey)
     }
-  }, [active])
+  }, [active, paneFocused])
 
   // The debugger follows the core's session events while the editor is mounted.
   useEffect(() => useDebug.getState().connect(), [])

@@ -155,7 +155,10 @@ function fakeWindow() {
     destroyed: false,
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     webContents: new FakeContents(),
-    isDestroyed: () => win.destroyed
+    isDestroyed: () => win.destroyed,
+    fullScreen: false,
+    isFullScreen: () => win.fullScreen,
+    setFullScreen: vi.fn((v: boolean) => (win.fullScreen = v))
   }
   return win
 }
@@ -174,6 +177,7 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     found: vi.fn(),
     console: vi.fn(),
     shortcut: vi.fn(),
+    focused: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
@@ -497,6 +501,26 @@ describe('the browser host · what pages report', () => {
     expect(ev.shortcut).toHaveBeenLastCalledWith('reload')
     win.webContents.emit('before-input-event', typing, key('x'))
     expect(typing.preventDefault).not.toHaveBeenCalled()
+
+    // Next to another module: the browser's keys only while its pane has the focus
+    const elsewhere = { preventDefault: vi.fn() }
+    host.setBounds({ x: 0, y: 0, width: 1, height: 1 }, false)
+    win.webContents.emit('before-input-event', elsewhere, key('F5'))
+    expect(elsewhere.preventDefault).not.toHaveBeenCalled()
+    c.emit('before-input-event', elsewhere, key('F5')) // the page itself has the keyboard: its keys
+    expect(elsewhere.preventDefault).toHaveBeenCalled()
+
+    c.emit('focus') // a click into the page
+    expect(ev.focused).toHaveBeenCalledWith('a')
+
+    // full screen from a page, exactly once (the menu does not see the key)
+    const full = { preventDefault: vi.fn() }
+    c.emit('before-input-event', full, process.platform === 'darwin' ? key('f', { meta: true, control: true }) : key('F11'))
+    expect(full.preventDefault).toHaveBeenCalled()
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(true)
+    c.emit('before-input-event', full, process.platform === 'darwin' ? key('f', { meta: true, control: true }) : key('F11'))
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(false)
+    expect(ev.shortcut).not.toHaveBeenCalledWith('find', 'a')
   })
 
   it('builds the page context menu and does what each entry says', () => {
@@ -842,10 +866,26 @@ describe('the browser profile (session)', () => {
 
 describe('the browser keys', () => {
   let match: typeof import('../../../electron/main/platform/browser/shortcuts').matchShortcut
+  let fullScreen: typeof import('../../../electron/main/platform/browser/shortcuts').isFullScreenKey
   beforeAll(async () => {
-    ;({ matchShortcut: match } = await import('../../../electron/main/platform/browser/shortcuts'))
+    ;({ matchShortcut: match, isFullScreenKey: fullScreen } = await import('../../../electron/main/platform/browser/shortcuts'))
   })
   const k = (keyName: string, mods: Partial<Record<'meta' | 'control' | 'alt' | 'shift', boolean>> = {}, type = 'keyDown') => ({ ...key(keyName, mods), type })
+
+  it('full screen is ⌃⌘F on macOS and F11 elsewhere', () => {
+    expect(fullScreen(k('f', { meta: true, control: true }), true)).toBe(true)
+    expect(fullScreen(k('F', { meta: true, control: true }), true)).toBe(true)
+    expect(fullScreen(k('f', { meta: true }), true)).toBe(false) // find
+    expect(fullScreen(k('f', { control: true }), true)).toBe(false)
+    expect(fullScreen(k('F11'), true)).toBe(false)
+    expect(fullScreen(k('F11'), false)).toBe(true)
+    expect(fullScreen(k('F11', { control: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { meta: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { shift: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { alt: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', {}, 'keyUp'), false)).toBe(false)
+    expect(fullScreen(k('F10'), false)).toBe(false)
+  })
 
   it('are Chrome’s keys with ⌘ on macOS', () => {
     const cmd = { meta: true }

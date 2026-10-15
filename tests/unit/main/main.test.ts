@@ -34,6 +34,7 @@ class FakeWindow {
   loadFile = vi.fn(async (_file: string) => {})
   isMaximized = () => this.maximized
   isFullScreen = () => this.fullScreen
+  setFullScreen = vi.fn((v: boolean) => (this.fullScreen = v))
   isVisible = () => this.visible
   isMinimized = () => this.minimized
   isFocused = () => this.focused
@@ -480,6 +481,7 @@ describe('window wiring', () => {
     h.ipcOn.get('window:minimize')!()
     h.ipcOn.get('window:toggle-maximize')!()
     h.ipcOn.get('window:close')!()
+    h.ipcOn.get('window:toggle-fullscreen')!()
     expect(h.ipcHandle.get('window:is-maximized')!()).toBe(false)
     expect(h.ipcHandle.get('window:is-fullscreen')!()).toBe(false)
 
@@ -493,8 +495,20 @@ describe('window wiring', () => {
     h.ipcOn.get('window:toggle-maximize')!()
     expect(win.unmaximize).toHaveBeenCalled()
     expect(h.ipcHandle.get('window:is-maximized')!()).toBe(true)
-    win.fullScreen = true
+    h.ipcOn.get('window:toggle-fullscreen')!()
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(true)
     expect(h.ipcHandle.get('window:is-fullscreen')!()).toBe(true)
+    h.ipcOn.get('window:toggle-fullscreen')!()
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(false)
+    // ⌃⌘F on macOS: full screen before the page and the menu see the key
+    const keys = win.contentsHandlers.get('before-input-event')!
+    const typed = { preventDefault: vi.fn() }
+    keys(typed, { type: 'keyDown', key: 'f', meta: true, control: false, alt: false, shift: false })
+    expect(typed.preventDefault).not.toHaveBeenCalled()
+    keys(typed, { type: 'keyDown', key: 'f', meta: true, control: true, alt: false, shift: false })
+    expect(typed.preventDefault).toHaveBeenCalled()
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(true)
+    win.fullScreen = true
     h.ipcOn.get('window:close')!()
     expect(win.minimize).toHaveBeenCalled()
     expect(win.close).toHaveBeenCalled()

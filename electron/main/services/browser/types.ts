@@ -75,7 +75,8 @@ export interface BrowserHost {
   /** The view on screen (undefined: none — the new-tab page or an error page shows instead). */
   show(tabId: string | undefined): void
   /** Where views sit; null hides them all (the module is not on screen). */
-  setBounds(bounds: ViewBounds | null): void
+  /** `focused`: the browser's pane has the focus, so its keys work from the UI too. */
+  setBounds(bounds: ViewBounds | null, focused?: boolean): void
   /** A picture of the visible view (data URL), which hides until `unfreeze`; null when none is visible. */
   freeze(): Promise<string | null>
   unfreeze(): void
@@ -111,6 +112,8 @@ export interface BrowserHostEvents {
   found(result: BrowserFind): void
   console(tabId: string, entry: ConsoleEntry): void
   shortcut(action: ShortcutAction, tabId?: string): void
+  /** A page took the keyboard focus (the user clicked into it). */
+  focused(tabId: string): void
   /** The page's context menu wants something only the core knows. */
   command(tabId: string, command: 'sendToAgent' | 'search', arg?: string): void
   permission(ask: PermissionAsk, respond: (allow: boolean) => void): void

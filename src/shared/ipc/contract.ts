@@ -448,7 +448,7 @@ export interface IpcChannels {
   /** Native tab / page menu, DevTools, print, or hand the page to the system browser. */
   'browser:tool': { request: { id: string; tool: BrowserTool }; response: void }
   /** Where the web view sits in the window; null hides it (the module is not on screen). */
-  'browser:view': { request: { bounds: ViewBounds | null }; response: void }
+  'browser:view': { request: { bounds: ViewBounds | null; focused?: boolean }; response: void }
   /** A picture of the visible page while a menu or dialog covers it (the view itself hides); null if none. */
   'browser:freeze': { request: void; response: string | null }
   'browser:unfreeze': { request: void; response: void }

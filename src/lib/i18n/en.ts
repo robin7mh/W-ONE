@@ -290,6 +290,38 @@ export const en = {
     shellsOffAfter: '.'
   },
 
+  workspace: {
+    title: 'Workspace',
+    menu: 'Layout and workspaces',
+    layout: 'Layout',
+    presets: { single: 'One pane', columns: 'Side by side', rows: 'Stacked', main: 'One large, two small', grid: '2 × 2' },
+    saved: 'Saved workspaces',
+    noneSaved: 'No saved workspaces yet',
+    name: 'Workspace name',
+    namePlaceholder: 'Name, e.g. Coding',
+    saveAs: 'Save layout',
+    save: 'Save',
+    open: (name: string) => `Switch to ${name}`,
+    update: (name: string) => `Save the current layout as ${name}`,
+    rename: (name: string) => `Rename ${name}`,
+    remove: (name: string) => `Delete ${name}`,
+    seedCoding: 'Coding',
+    seedReview: 'Review',
+    modules: 'Modules',
+    switchModule: (name: string) => `${name} – show another module here`,
+    inOtherPane: 'moves here',
+    split: 'Split pane',
+    closePane: 'Close pane',
+    maximize: 'Maximize pane',
+    restore: 'Restore panes',
+    zen: 'Zen mode',
+    exitZen: 'Leave zen mode',
+    fullScreen: 'Full screen',
+    dividerColumns: 'Resize the columns',
+    dividerRows: 'Resize the rows',
+    dividerHint: 'Drag to resize · double-click for equal sizes'
+  },
+
   dashboard: {
     panel: 'Command Center',
     morning: 'Good morning',

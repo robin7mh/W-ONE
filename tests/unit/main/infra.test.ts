@@ -578,7 +578,8 @@ describe('preload bridge', () => {
     api.minimize()
     api.toggleMaximize()
     api.close()
-    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close'])
+    api.toggleFullScreen()
+    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close', 'window:toggle-fullscreen'])
 
     await api.isMaximized()
     await api.isFullScreen()

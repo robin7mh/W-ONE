@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { TerminalSquare } from 'lucide-react'
 import { GlowBackground } from './GlowBackground'
@@ -30,6 +30,11 @@ import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
 import { ModuleBoundary } from '@/components/shell/ErrorBoundary'
 import { useBoot } from '@/hooks/useBoot'
 import type { ModuleId } from '@/types'
+import { Workspace } from '@/features/workspace/components/Workspace'
+import { ZenBar } from '@/features/workspace/components/ZenBar'
+import { useWorkspace } from '@/features/workspace/store'
+import { visiblePanes, focusedPane } from '@/features/workspace/layout'
+import { relayout } from '@/lib/relayout'
 
 /** Browser without remote shells: explain instead of failing. */
 function RemoteShellsOff() {
@@ -55,10 +60,15 @@ const panelIn = (delay: number) => ({
   transition: { duration: 0.45, delay, ease: [0.22, 1, 0.36, 1] as const }
 })
 
+/** Modules that stay mounted once shown: running shells, open files and their undo history, the browser's tabs. */
+const KEEP: ModuleId[] = ['terminal', 'editor', 'browser']
+
+/** Bring a module up: its pane gets the focus, or the focused pane shows it. */
+const show = (id: ModuleId) => useWorkspace.getState().show(id)
+
 export function AppShell() {
   const t = useT()
   const { booted, skip } = useBoot(BOOT_TOTAL_MS)
-  const [active, setActive] = useState<ModuleId>('core')
   // Session uptime counts from boot. Only the top bar's indicator ticks — a
   // per-second state here would re-render every module, editor included.
   const [bootedAt, setBootedAt] = useState<number>()
@@ -66,12 +76,11 @@ export function AppShell() {
     if (booted) setBootedAt(Date.now())
   }, [booted])
 
-  // Terminal, Editor and Browser mount on first visit and then stay mounted (hidden), so
-  // running shells, open files and their undo history, and the address bar survive switching modules.
-  const [kept, setKept] = useState<{ terminal?: boolean; editor?: boolean; browser?: boolean }>({})
-  useEffect(() => {
-    if (active === 'terminal' || active === 'editor' || active === 'browser') setKept((k) => (k[active] ? k : { ...k, [active]: true }))
-  }, [active])
+  const zen = useWorkspace((s) => s.zen)
+  // The module in the focused pane (the side navigation marks it), and every module on screen.
+  const focused = useWorkspace((s) => focusedPane(s.layout).module)
+  const onScreen = useWorkspace((s) => visiblePanes(s.layout).map((p) => p.module).join(' '))
+  const visible = (id: ModuleId) => onScreen.split(' ').includes(id)
 
   // Agents' push events (approvals, sessions, activity) matter in every module —
   // and so does the browser: links from anywhere open in it.
@@ -79,12 +88,14 @@ export function AppShell() {
     const offAssistant = useAssistant.getState().connect()
     const offAgents = useAgents.getState().connect()
     const offBrowser = useBrowser.getState().connect({
-      reveal: () => setActive('browser'),
+      reveal: () => show('browser'),
       sendToAgent: (tab) => {
-        setActive('agents')
+        show('agents')
         useAgents.getState().openDialog(getT().browser.agentPrompt(tab.title || tab.url, tab.url))
       },
-      settings: () => setActive('settings')
+      settings: () => show('settings'),
+      // A click into a page focuses the browser's pane.
+      focused: () => show('browser')
     })
     return () => {
       offAssistant()
@@ -100,34 +111,56 @@ export function AppShell() {
   const shellsOff = !isDesktop() && info?.remoteTerminal === false
 
   const openConversation = (id: string) => {
-    setActive('agents')
+    show('agents')
     useAgents.getState().showAssistant()
     void useAssistant.getState().open(id)
   }
   const openSession = (id: string) => {
-    setActive('agents')
+    show('agents')
     void useAgents.getState().open(id)
   }
-  const openNote = (path: string) => {
-    setActive('memory')
-    void useMemory.getState().open(path)
-  }
 
-  const renderMain = () => {
-    if (active === 'projects') return <ProjectsView onNavigate={setActive} />
-    if (active === 'memory') return <MemoryView />
-    if (active === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => setActive('settings')} />
-    if (active === 'system') return <SystemView />
-    if (active === 'settings') return <SettingsView />
-    if (active === 'account') return <AccountView />
-    if (active === 'files') return <FilesView onNavigate={setActive} />
-    if (active === 'browser') return null
-    if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
-    if (active === 'editor') return null
-    return <Dashboard onNavigate={setActive} />
+  // One module, drawn in its pane. `visible`: its pane is on screen (kept modules stay mounted while hidden).
+  const moduleView = (id: ModuleId, visible: boolean) => {
+    const openNote = (path: string) => {
+      show('memory')
+      void useMemory.getState().open(path)
+    }
+    if (id === 'projects') return <ProjectsView onNavigate={show} />
+    if (id === 'memory') return <MemoryView />
+    if (id === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => show('settings')} />
+    if (id === 'system') return <SystemView />
+    if (id === 'settings') return <SettingsView />
+    if (id === 'account') return <AccountView />
+    if (id === 'files') return <FilesView onNavigate={show} />
+    if (id === 'terminal') return shellsOff ? <RemoteShellsOff /> : <TerminalView onNavigate={show} />
+    if (id === 'editor') return <EditorView active={visible} onNavigate={show} />
+    // The page is a native view over the UI: not while the boot screen is up.
+    if (id === 'browser') return <BrowserView active={visible && booted} />
+    // The monitor rail belongs to the Core dashboard, when its pane is wide enough.
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 gap-2.5">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Dashboard onNavigate={show} />
+        </div>
+        <div className="hidden w-72 shrink-0 pane-lg:flex pane-2xl:w-80">
+          <ModuleBoundary id="monitor" name={t.monitor.title}>
+            <SystemMonitorPanel />
+          </ModuleBoundary>
+        </div>
+      </div>
+    )
   }
-  // The monitor rail belongs to the Core dashboard; every other module uses the full width.
-  const showRail = active === 'core'
+  // Each pane's module in its own error boundary: one that crashes shows a panel there, the other panes keep running.
+  const renderModule = useCallback(
+    (id: ModuleId, visible: boolean) => (
+      <ModuleBoundary id={id} name={t.nav[id]}>
+        {moduleView(id, visible)}
+      </ModuleBoundary>
+    ),
+    // What moduleView reads beyond module-level functions.
+    [shellsOff, booted, t]
+  )
 
   return (
     <div className="relative flex h-screen min-h-[560px] w-screen flex-col overflow-hidden">
@@ -135,70 +168,43 @@ export function AppShell() {
 
       <AnimatePresence>{!booted && <BootSequence onSkip={skip} />}</AnimatePresence>
 
-      {/* Top bar */}
-      <motion.div {...panelIn(0.05)}>
-        <TopStatusBar since={bootedAt} showClock={active !== 'core'} />
-      </motion.div>
-
-      {/* Body: nav · main · monitor */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <motion.div {...panelIn(0.12)} className="flex">
-          <SideNavigation active={active} onSelect={setActive} />
+      {/* Top bar (zen mode: a slim strip) */}
+      {zen ? (
+        <ZenBar />
+      ) : (
+        <motion.div {...panelIn(0.05)}>
+          <TopStatusBar since={bootedAt} showClock={!visible('core')} />
         </motion.div>
+      )}
 
-        <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
-          <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
-            {/* Each module in its own error boundary: one that crashes shows a panel, the rest keeps running. */}
-            <ModuleBoundary key={active} id={active} name={t.nav[active]}>
-              {renderMain()}
-            </ModuleBoundary>
-            {kept.terminal && !shellsOff && (
-              <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <ModuleBoundary id="terminal" name={t.nav.terminal}>
-                  <TerminalView onNavigate={setActive} />
-                </ModuleBoundary>
-              </div>
-            )}
-            {kept.editor && (
-              <div className={active === 'editor' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <ModuleBoundary id="editor" name={t.nav.editor}>
-                  <EditorView active={active === 'editor'} onNavigate={setActive} />
-                </ModuleBoundary>
-              </div>
-            )}
-            {kept.browser && (
-              <div className={active === 'browser' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <ModuleBoundary id="browser" name={t.nav.browser}>
-                  <BrowserView active={active === 'browser'} />
-                </ModuleBoundary>
-              </div>
-            )}
+      {/* Body: nav · workspace */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {!zen && (
+          <motion.div {...panelIn(0.12)} className="flex">
+            <SideNavigation active={focused} open={onScreen.split(' ') as ModuleId[]} onSelect={show} />
           </motion.div>
+        )}
 
-          {/* Monitor rail — Core only, hidden on small widths */}
-          {showRail && (
-            <motion.div
-              {...panelIn(0.24)}
-              className="hidden w-72 shrink-0 lg:flex 2xl:w-80"
-            >
-              <ModuleBoundary id="monitor" name={t.monitor.title}>
-                <SystemMonitorPanel />
-              </ModuleBoundary>
-            </motion.div>
-          )}
+        <main className={zen ? 'flex min-w-0 flex-1 overflow-hidden p-1.5' : 'flex min-w-0 flex-1 overflow-hidden p-2.5'}>
+          {/* Once it has slid in, native views (the browser's page) measure their place again. */}
+          <motion.div {...panelIn(0.18)} onAnimationComplete={relayout} className="flex min-w-0 flex-1 flex-col">
+            <Workspace render={renderModule} keep={KEEP} />
+          </motion.div>
         </main>
       </div>
 
       {/* Bottom command deck (collapsible) */}
-      <motion.div {...panelIn(0.3)}>
-        <ModuleBoundary id="deck" name={t.deck.title}>
-          <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
-        </ModuleBoundary>
-      </motion.div>
+      {!zen && (
+        <motion.div {...panelIn(0.3)}>
+          <ModuleBoundary id="deck" name={t.deck.title}>
+            <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
+          </ModuleBoundary>
+        </motion.div>
+      )}
 
       {/* Approvals float above every module (the open chat shows its own inline; the
           browser's page would cover them, so it shows them above the page). */}
-      {booted && !(active === 'browser' && isDesktop()) && <ApprovalToasts hideConversation={active === 'agents' ? activeConversation : undefined} />}
+      {booted && !(visible('browser') && isDesktop()) && <ApprovalToasts hideConversation={visible('agents') ? activeConversation : undefined} />}
     </div>
   )
 }

@@ -287,6 +287,38 @@ export const de: Dict = {
     shellsOffAfter: '.'
   },
 
+  workspace: {
+    title: 'Arbeitsbereich',
+    menu: 'Layout und Arbeitsbereiche',
+    layout: 'Layout',
+    presets: { single: 'Ein Bereich', columns: 'Nebeneinander', rows: 'Übereinander', main: 'Einer groß, zwei klein', grid: '2 × 2' },
+    saved: 'Gespeicherte Arbeitsbereiche',
+    noneSaved: 'Noch keine gespeicherten Arbeitsbereiche',
+    name: 'Name des Arbeitsbereichs',
+    namePlaceholder: 'Name, z. B. Coding',
+    saveAs: 'Layout speichern',
+    save: 'Speichern',
+    open: (name) => `Zu ${name} wechseln`,
+    update: (name) => `Aktuelles Layout als ${name} speichern`,
+    rename: (name) => `${name} umbenennen`,
+    remove: (name) => `${name} löschen`,
+    seedCoding: 'Coding',
+    seedReview: 'Review',
+    modules: 'Module',
+    switchModule: (name) => `${name} – anderes Modul hier zeigen`,
+    inOtherPane: 'wechselt hierher',
+    split: 'Bereich teilen',
+    closePane: 'Bereich schließen',
+    maximize: 'Bereich maximieren',
+    restore: 'Bereiche wiederherstellen',
+    zen: 'Zen-Modus',
+    exitZen: 'Zen-Modus beenden',
+    fullScreen: 'Vollbild',
+    dividerColumns: 'Spaltenbreite ändern',
+    dividerRows: 'Zeilenhöhe ändern',
+    dividerHint: 'Ziehen ändert die Größe · Doppelklick teilt gleichmäßig'
+  },
+
   dashboard: {
     panel: 'Command Center',
     morning: 'Guten Morgen',

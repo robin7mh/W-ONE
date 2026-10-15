@@ -13,6 +13,7 @@ import { autoUpdater } from 'electron-updater'
 import { cloudConfig } from './main/services/cloud/config'
 import { manualUpdateFile, UpdateService } from './main/services/update/UpdateService'
 import { createBrowserHost } from './main/platform/browser/host'
+import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
@@ -158,6 +159,14 @@ function createWindow(): void {
   win.on('maximize', emitMaxState)
   win.on('unmaximize', emitMaxState)
 
+  // ⌃⌘F / F11: full screen, before the page and the menu see the key (the pages' own views do the same).
+  const mac = process.platform === 'darwin'
+  win.webContents.on('before-input-event', (event, input) => {
+    if (!isFullScreenKey(input, mac)) return
+    event.preventDefault()
+    win.setFullScreen(!win.isFullScreen())
+  })
+
   // macOS hides the traffic lights in fullscreen; the top bar drops their gap.
   const emitFullScreen = () => win.webContents.send('window:fullscreen-changed', win.isFullScreen())
   win.on('enter-full-screen', emitFullScreen)
@@ -220,6 +229,7 @@ ipcMain.on('window:toggle-maximize', () => {
   mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.on('window:toggle-fullscreen', () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()))
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
 

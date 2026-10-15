@@ -31,6 +31,8 @@ describe('browser store', () => {
     expect(handlers.sendToAgent).toHaveBeenCalledWith(next.tabs[1])
     bridge.emit('browser:reveal', { tabId: 'b' })
     expect(handlers.reveal).toHaveBeenCalled()
+    bridge.emit('browser:command', { command: 'focused' }) // nobody asked to hear about page focus
+    expect(handlers.sendToAgent).toHaveBeenCalledTimes(1)
 
     // no tab: nothing to send
     bridge.emit('browser:state', state([]))
@@ -46,13 +48,19 @@ describe('browser store', () => {
   it('a second connection replaces the first, whose disconnect then leaves the new handlers alone', async () => {
     const bridge = installBridge({ 'browser:state': () => state([]), 'browser:open': () => tab('x', 'https://x.dev/') })
     const first = { reveal: vi.fn(), sendToAgent: vi.fn(), settings: vi.fn() }
-    const second = { reveal: vi.fn(), sendToAgent: vi.fn(), settings: vi.fn() }
+    const second = { reveal: vi.fn(), sendToAgent: vi.fn(), settings: vi.fn(), focused: vi.fn() }
     const offFirst = useBrowser.getState().connect(first)
-    useBrowser.getState().connect(second)
+    const offSecond = useBrowser.getState().connect(second)
     offFirst()
     await useBrowser.getState().show('https://x.dev/')
     expect(second.reveal).toHaveBeenCalled()
-    void bridge
+    bridge.emit('browser:command', { command: 'focused' }) // a click into the page
+    expect(second.focused).toHaveBeenCalledTimes(1)
+    useBrowser.getState().connect(first)
+    offSecond() // the first's listeners stay, without handlers
+    offFirst()
+    bridge.emit('browser:command', { command: 'focused' })
+    expect(second.focused).toHaveBeenCalledTimes(1)
   })
 
   it('does nothing without the desktop bridge, and shows failures instead of throwing', async () => {

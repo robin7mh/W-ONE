@@ -475,7 +475,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
   'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff']) }),
-  'browser:view': z.object({ bounds: viewBounds.nullable() }),
+  'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
   'browser:suggest': z.object({ text: text(2000) }),

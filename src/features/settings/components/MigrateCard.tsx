@@ -90,13 +90,13 @@ export function MigrateCard() {
   }, [desktop])
 
   return (
-    <Card icon={ArrowRightLeft} title={m.title} className="lg:col-span-2">
+    <Card icon={ArrowRightLeft} title={m.title} className="pane-lg:col-span-2">
       <p className="mb-2 font-sans text-[12px] text-text-secondary">{m.intro}</p>
       {!desktop && <p className="font-sans text-[12px] text-text-muted">{m.desktopOnly}</p>}
       {error && <p className="font-sans text-[12px] text-danger">{error}</p>}
       {desktop && !sources && !error && <Loader2 size={14} aria-label={t.common.loading} className="animate-spin text-text-muted" />}
       {sources && !sources.length && <p className="font-sans text-[12px] text-text-muted">{m.none}</p>}
-      <ul className="grid gap-2 lg:grid-cols-2">
+      <ul className="grid gap-2 pane-lg:grid-cols-2">
         {sources?.map((s) => (
           <Source key={s.app} source={s} />
         ))}
