@@ -740,19 +740,36 @@ describe('the browser profile (session)', () => {
 
     const run = vi.fn()
     Object.defineProperty(process, 'platform', { value: 'linux' })
-    s.quarantine('/d/a.zip', run as never)
+    s.quarantine('/d/a.zip', 'https://a.dev/a.zip', run as never)
     expect(run).not.toHaveBeenCalled()
+    // Windows: the Mark of the Web (SmartScreen, Protected View) — the web address without credentials, else the internet zone.
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    const write = vi.fn(async () => {})
+    s.quarantine('C:\\D\\a.exe', 'https://user:pw@a.dev/dl/a.exe?v=1#x', run as never, write)
+    s.quarantine('C:\\D\\b.exe', 'blob:https://a.dev/1234', run as never, write)
+    s.quarantine('C:\\D\\c.exe', 'not a url', run as never, write)
+    expect(write.mock.calls).toEqual([
+      ['C:\\D\\a.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://a.dev/dl/a.exe?v=1\r\n'],
+      ['C:\\D\\b.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n'],
+      ['C:\\D\\c.exe:Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n']
+    ])
+    expect(run).not.toHaveBeenCalled()
+    // A disk without streams refuses: nothing breaks.
+    s.quarantine('C:\\D\\d.exe', 'https://a.dev/', run as never, async () => Promise.reject(new Error('EINVAL')))
+    // The real file system (here: a file whose name ends in the stream's).
+    s.quarantine(`${dir}/e.exe`, 'https://a.dev/e.exe')
+    await vi.waitFor(async () => expect((await import('node:fs')).existsSync(`${dir}/e.exe:Zone.Identifier`)).toBe(true))
     Object.defineProperty(process, 'platform', { value: 'darwin' })
-    s.quarantine('/d/a.zip', run as never)
+    s.quarantine('/d/a.zip', 'https://a.dev/a.zip', run as never)
     expect(run).toHaveBeenLastCalledWith('xattr', ['-p', 'com.apple.quarantine', '/d/a.zip'], expect.any(Function))
     ;(run.mock.calls[0][2] as (err: Error | null) => void)(new Error('no such xattr'))
     expect(run).toHaveBeenLastCalledWith('xattr', ['-w', 'com.apple.quarantine', expect.stringMatching(/^0081;[0-9a-f]+;Mindeck;[0-9A-F-]{36}$/), '/d/a.zip'], expect.any(Function))
     ;(run.mock.calls[1][2] as () => void)()
     run.mockClear()
-    s.quarantine('/d/b.zip', run as never)
+    s.quarantine('/d/b.zip', 'https://a.dev/b.zip', run as never)
     ;(run.mock.calls[0][2] as (err: Error | null) => void)(null) // Chromium marked it already
     expect(run).toHaveBeenCalledTimes(1)
-    s.quarantine('/d/c.zip') // the real execFile (mocked here)
+    s.quarantine('/d/c.zip', 'https://a.dev/c.zip') // the real execFile (mocked here)
     expect(h.exec).toHaveBeenCalledWith('xattr', ['-p', 'com.apple.quarantine', '/d/c.zip'], expect.any(Function))
   })
 
