@@ -47,6 +47,7 @@ class FakeContents {
     goForward: vi.fn(),
     getAllEntries: () => this.entries,
     getActiveIndex: () => this.activeIndex,
+    getEntryAtIndex: (index: number) => this.entries[index] as { url: string; title: string } | undefined,
     restore: vi.fn(() => FakeContents.restoreWith(this))
   }
   getURL = () => this.url
@@ -456,6 +457,12 @@ describe('the browser host · what pages report', () => {
     expect(ev.navigated).toHaveBeenCalledTimes(3)
     c.emit('page-title-updated', {}, 'Other')
     expect(ev.title).toHaveBeenCalledWith('a', 'Other')
+    expect(ev.title).toHaveBeenCalledTimes(1) // a new entry has no title of its own yet
+    // a page that comes back (restored, reloaded) with the title it had: Chromium reports none — its entry has it
+    c.entries = [{ url: 'https://a.dev/next', title: 'Next' }]
+    c.activeIndex = 0
+    c.emit('did-navigate', {}, 'https://a.dev/next')
+    expect(ev.title).toHaveBeenLastCalledWith('a', 'Next')
     c.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://x.dev/', true)
     c.emit('did-fail-load', {}, -3, 'ABORTED', 'https://x.dev/', true)
     c.emit('did-fail-load', {}, -105, 'NAME_NOT_RESOLVED', 'https://ads.dev/', false)

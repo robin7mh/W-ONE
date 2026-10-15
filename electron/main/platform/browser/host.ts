@@ -369,6 +369,9 @@ export class ElectronBrowserHost implements BrowserHost {
       const zoom = this.zooms.get(tabId)
       if (zoom) c.setZoomFactor(zoom)
       ev.navigated(tabId, this.nav(c, url))
+      // A page that comes back with its old title (a restored tab, a reload) reports none: its entry knows it.
+      const title = c.navigationHistory.getEntryAtIndex(c.navigationHistory.getActiveIndex())?.title
+      if (title) ev.title(tabId, title)
     })
     c.on('did-navigate-in-page', (_e, url, isMainFrame) => {
       if (isMainFrame) ev.navigated(tabId, { ...this.nav(c, url), inPage: true })
