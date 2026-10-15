@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CornerDownLeft } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { usePalette } from '@/features/palette/store'
 import { useEditor } from '../store'
 import { useScm, type PickItem } from '../scm'
 
@@ -34,10 +35,11 @@ function rank<T>(items: T[], query: string, key: (item: T) => string, limit = 60
 }
 
 /**
- * VS Code's quick open: a file by name (⌘P), a command after `>` (⇧⌘P / F1),
- * a line after `:` (⌃G) — or a list another command asked to choose from.
+ * VS Code's quick open: a file by name (⌘P), a line after `:` (⌃G) — or a
+ * list another command asked to choose from. A `>` hands over to Mindeck's
+ * command palette (⇧⌘P / F1), as in VS Code.
  */
-export function QuickOpen({ commands }: { commands: PickItem[] }) {
+export function QuickOpen() {
   const t = useT()
   const files = useScm((s) => s.files)
   const pick = useScm((s) => s.pick)
@@ -46,13 +48,12 @@ export function QuickOpen({ commands }: { commands: PickItem[] }) {
   const list = useRef<HTMLUListElement>(null)
   const close = () => useScm.getState().setQuickOpen(false)
 
-  const mode = pick ? 'pick' : query.startsWith('>') ? 'commands' : query.startsWith(':') ? 'line' : 'files'
+  const mode = pick ? 'pick' : query.startsWith(':') ? 'line' : 'files'
   const line = Number.parseInt(query.slice(1), 10)
   const activeTab = useEditor((s) => s.activeId)
 
   const hits: PickItem[] = useMemo(() => {
     if (mode === 'pick') return rank(pick!.items, query, (i) => i.label)
-    if (mode === 'commands') return rank(commands, query.slice(1), (c) => c.label, 200)
     if (mode === 'line') {
       return activeTab && line > 0 ? [{ id: 'line', label: t.palette.lineHint(line), run: () => useEditor.setState({ reveal: { id: activeTab, line } }) }] : []
     }
@@ -68,7 +69,7 @@ export function QuickOpen({ commands }: { commands: PickItem[] }) {
         }
       }
     })
-  }, [mode, query, files, pick, commands, activeTab])
+  }, [mode, query, files, pick, activeTab])
 
   useEffect(() => {
     list.current?.children[active]?.scrollIntoView({ block: 'nearest' })
@@ -86,9 +87,8 @@ export function QuickOpen({ commands }: { commands: PickItem[] }) {
     }
   }
 
-  const label = pick?.placeholder ?? (mode === 'commands' ? t.palette.placeholder : mode === 'line' ? t.palette.goToLine : t.scm.quickOpen)
-  const empty =
-    mode === 'line' ? (activeTab ? t.palette.lineEmpty : t.palette.noEditor) : mode === 'commands' ? t.palette.noCommands : mode === 'pick' ? (pick!.onText ? null : t.palette.noMatches) : t.scm.noFiles
+  const label = pick?.placeholder ?? (mode === 'line' ? t.palette.goToLine : t.scm.quickOpen)
+  const empty = mode === 'line' ? (activeTab ? t.palette.lineEmpty : t.palette.noEditor) : mode === 'pick' ? (pick!.onText ? null : t.palette.noMatches) : t.scm.noFiles
 
   return (
     <div role="dialog" aria-label={label} className="fixed inset-0 z-[60] flex justify-center bg-void/40 pt-[12vh]" onMouseDown={close}>
@@ -99,7 +99,13 @@ export function QuickOpen({ commands }: { commands: PickItem[] }) {
           placeholder={label}
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value)
+            const value = e.target.value
+            // "> …": the commands — the palette takes over with what follows.
+            if (!pick && value.startsWith('>')) {
+              close()
+              return usePalette.getState().show(value.slice(1).trimStart())
+            }
+            setQuery(value)
             setActive(0)
           }}
           onKeyDown={(e) => {

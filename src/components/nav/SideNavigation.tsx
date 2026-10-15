@@ -1,10 +1,72 @@
-import { UserRound } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { Columns2, PanelBottom, SquareArrowOutUpRight, UserRound } from 'lucide-react'
 import { NAV_ITEMS } from '@/data/navigation'
 import type { ModuleId } from '@/types'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { useOverlay } from '@/lib/overlay'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { useCloud } from '@/features/cloud/store'
+import { macKeys } from '@/features/workspace/keys'
+import { dropSides } from '@/features/workspace/layout'
+import { useWorkspace } from '@/features/workspace/store'
+import { endModuleDrag, startModuleDrag } from '@/features/workspace/drag'
+
+/** Opens a module next to the focused pane: ⌘-click (Ctrl-click elsewhere), or the menu. */
+const openBeside = (id: ModuleId) => useWorkspace.getState().openBeside(id)
+
+/** A module's menu (right-click): here, or in a new pane. */
+function ModuleMenu({ id, at, onSelect, onClose }: { id: ModuleId; at: { x: number; y: number }; onSelect: (id: ModuleId) => void; onClose: () => void }) {
+  const t = useT()
+  const ref = useRef<HTMLDivElement>(null)
+  useOverlay(true)
+  // In a new pane on the right where the layout has room there, else wherever it goes (openBeside).
+  const right = useWorkspace((s) => dropSides(s.layout, s.layout.focus).includes('right'))
+
+  useEffect(() => {
+    ref.current!.querySelector<HTMLElement>('[role="menuitem"]')!.focus()
+    const onDown = (e: MouseEvent) => !ref.current!.contains(e.target as Node) && onClose()
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const run = (fn: () => void) => () => {
+    onClose()
+    fn()
+  }
+  const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-sans text-[12.5px] text-text-secondary outline-none transition-colors hover:bg-elevated hover:text-text-primary focus:bg-elevated focus:text-text-primary'
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={t.nav[id]}
+      style={{ left: at.x, top: at.y }}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+        e.preventDefault()
+        const items = [...ref.current!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+        const at = items.indexOf(document.activeElement as HTMLElement)
+        items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus()
+      }}
+      className="fixed z-[70] min-w-[230px] rounded-lg border border-hud/70 bg-panel/95 p-1 shadow-xl shadow-black/40 backdrop-blur-md"
+    >
+      <button type="button" role="menuitem" onClick={run(() => onSelect(id))} className={item}>
+        <SquareArrowOutUpRight size={13} className="shrink-0" />
+        <span className="flex-1">{t.workspace.openHere}</span>
+      </button>
+      <button type="button" role="menuitem" onClick={run(() => openBeside(id))} className={item}>
+        {right ? <Columns2 size={13} className="shrink-0" /> : <PanelBottom size={13} className="shrink-0" />}
+        <span className="flex-1">{right ? t.workspace.openRight : t.workspace.openNewPane}</span>
+        <span className="font-mono text-[10px] text-text-muted">{t.workspace.modClick(macKeys() ? '⌘' : 'Ctrl')}</span>
+      </button>
+    </div>
+  )
+}
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
@@ -25,6 +87,19 @@ export function SideNavigation({
   const t = useT()
   const profileActive = active === 'account'
   const account = useCloud((s) => s.status?.account)
+  const [menu, setMenu] = useState<{ id: ModuleId; x: number; y: number }>()
+  const closeMenu = useCallback(() => setMenu(undefined), [])
+  const click = (id: ModuleId) => (e: ReactMouseEvent) => {
+    // ⌘-click (Ctrl-click on Windows and Linux): next to what is on screen, as a link opens in a new tab.
+    if (macKeys() ? e.metaKey : e.ctrlKey) openBeside(id)
+    else onSelect(id)
+  }
+  const contextMenu = (id: ModuleId) => (e: ReactMouseEvent) => {
+    e.preventDefault()
+    // From the keyboard (the menu key) there is no pointer: below the item.
+    const box = e.currentTarget.getBoundingClientRect()
+    setMenu({ id, x: e.clientX || box.right, y: e.clientY || box.top })
+  }
   return (
     <nav className="flex h-full w-14 shrink-0 flex-col items-stretch gap-1 border-r border-hud/70 bg-surface/40 px-2 py-3 backdrop-blur-sm xl:w-52">
       <TechLabel className="mb-2 hidden px-2 text-text-muted xl:block">{t.nav.modules}</TechLabel>
@@ -37,7 +112,11 @@ export function SideNavigation({
           <button
             key={item.id}
             type="button"
-            onClick={() => onSelect(item.id)}
+            onClick={click(item.id)}
+            onContextMenu={contextMenu(item.id)}
+            draggable
+            onDragStart={(e) => startModuleDrag(e, item.id)}
+            onDragEnd={endModuleDrag}
             title={label}
             className={cn(
               'group relative flex items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
@@ -74,6 +153,8 @@ export function SideNavigation({
           </button>
         )
       })}
+
+      {menu && <ModuleMenu id={menu.id} at={menu} onSelect={onSelect} onClose={closeMenu} />}
 
       {/* Profile: the Mindeck account, licence and language */}
       <button

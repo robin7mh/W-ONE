@@ -194,7 +194,7 @@ describe('ACP models, modes, commands, grants', () => {
 })
 
 describe('Claude Code: model, permission mode, commands', () => {
-  const base = { sessionId: 's', title: 'T', hookUrl: 'h', mcpUrl: 'm', token: 't' }
+  const base = { sessionId: 's', title: 'T', settingsFile: 'settings.json', mcpFile: 'mcp.json' }
   it('passes a chosen model and permission mode — none for the defaults', () => {
     const args = claudeArgs({ ...base, model: 'opus', mode: 'plan', prompt: 'go' })
     expect(args.slice(4, 8)).toEqual(['--model', 'opus', '--permission-mode', 'plan'])

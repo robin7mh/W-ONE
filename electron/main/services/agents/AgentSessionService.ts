@@ -34,9 +34,10 @@ import type { GitBaseline, GitService } from '../git/GitService'
 import type { LocalAgentServer } from './LocalAgentServer'
 import type { McpSessionContext } from './mcp'
 import { confine } from '../../lib/confine'
+import { writeAtomic } from '../../lib/writeAtomic'
 import { readJson, readJsonFile } from '../../lib/jsonFile'
 import { CLAUDE_MODELS, CLAUDE_MODES } from '@shared/types/claude'
-import { CLAUDE_COMMANDS, claudeArgs, claudeEnv } from './claudeLaunch'
+import { CLAUDE_COMMANDS, claudeArgs, claudeEnv, hookSettings, mcpConfig } from './claudeLaunch'
 import { detectAgents, loginShellProbe, type Probe } from './detect'
 import { applyHook, toolRisk, toolSummary, toolTitle, type Applied, type HookEvent } from './transcript'
 import { journalBody, journalTitle } from './journal'
@@ -179,6 +180,8 @@ export class AgentSessionService {
   /** Sessions from earlier runs: their processes are gone — they can be resumed. */
   async init(): Promise<void> {
     await mkdir(this.deps.dir, { recursive: true })
+    // Launch files of an earlier run hold tokens that died with it.
+    await rm(join(this.deps.dir, 'launch'), { recursive: true, force: true })
     // An unreadable list starts empty (it is set aside; the transcripts stay on disk).
     const list = await readJson<{ sessions?: Record_[] }>(join(this.deps.dir, 'sessions.json'))
     const records = (Array.isArray(list?.sessions) ? list.sessions : []).filter((r) => typeof r?.session?.id === 'string')
@@ -207,6 +210,11 @@ export class AgentSessionService {
 
   list(): AgentSession[] {
     return [...this.live.values()].map((l) => l.session).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /** The project a session works in (undefined: no such session). */
+  projectOf(id: string): string | undefined {
+    return this.live.get(id)?.session.projectId
   }
 
   get(id: string): AgentSessionDetail {
@@ -395,6 +403,7 @@ export class AgentSessionService {
     clearTimeout(l.journalTimer)
     if (l.session.worktree && l.session.branch) await this.deps.git.removeWorktree(l.projectPath, l.session.worktree, l.session.branch).catch(() => {})
     await rm(this.imageDir(id), { recursive: true, force: true })
+    await rm(this.launchDir(id), { recursive: true, force: true })
     this.live.delete(id)
     // In the write queue: a save still in flight must not bring the file back.
     this.writes = this.writes.then(() => rm(this.file(id), { force: true }))
@@ -506,6 +515,7 @@ export class AgentSessionService {
     const token = this.deps.server.register(session.id)
     const hookUrl = this.deps.server.url('hooks', session.id)
     try {
+      const files = await this.launchFiles(session.id, run, hookUrl, token)
       const info = await this.deps.terminal.spawnProgram({
         title: session.title,
         cwd: session.cwd,
@@ -514,9 +524,7 @@ export class AgentSessionService {
           args: claudeArgs({
             sessionId: session.id,
             title: session.title,
-            hookUrl,
-            mcpUrl: this.deps.server.url('mcp', session.id),
-            token,
+            ...files,
             resume: opts.resume,
             prompt: opts.prompt,
             model: session.model,
@@ -527,7 +535,11 @@ export class AgentSessionService {
         projectId: session.projectId,
         cols: 120,
         rows: 36,
-        onExit: (code) => l.run === run && this.exited(session.id, code)
+        onExit: (code) => {
+          // The token in them is dead now: so are this run's files.
+          void rm(this.launchDir(session.id, run), { recursive: true, force: true }).catch(() => {})
+          if (l.run === run) this.exited(session.id, code)
+        }
       })
       this.update(l, { terminalId: info.id, live: true, status: 'starting', error: undefined })
     } catch (err) {
@@ -536,6 +548,26 @@ export class AgentSessionService {
       this.pushError(l)
       throw err
     }
+  }
+
+  /**
+   * Claude Code's hooks and memory server for this run, as files only the
+   * user can read (0600 in a 0700 folder): they carry the session's token,
+   * which must not show on the command line.
+   */
+  private async launchFiles(id: string, run: number, hookUrl: string, token: string): Promise<{ settingsFile: string; mcpFile: string }> {
+    const dir = this.launchDir(id, run)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    const settingsFile = join(dir, 'settings.json')
+    const mcpFile = join(dir, 'mcp.json')
+    await writeAtomic(settingsFile, JSON.stringify(hookSettings(hookUrl, token)), 0o600)
+    await writeAtomic(mcpFile, JSON.stringify(mcpConfig(this.deps.server.url('mcp', id), token)), 0o600)
+    return { settingsFile, mcpFile }
+  }
+
+  /** A session's launch files — one folder per run, so a quick restart never loses its files to the last run's cleanup. */
+  private launchDir(id: string, run?: number): string {
+    return join(this.deps.dir, 'launch', id, ...(run === undefined ? [] : [String(run)]))
   }
 
   private exited(id: string, code: number): void {

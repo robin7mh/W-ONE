@@ -1,11 +1,12 @@
 import type { Dict } from '@/lib/i18n/en'
-import type { ModuleId } from '@/types'
 import { useEditor } from './store'
 import { useScm, type PickItem } from './scm'
 import { useGitHub } from './github'
 import { editorActions } from './actions'
 import { useBlame } from './blame'
 import { useEditorPrefs } from './prefs'
+import { formatBinding, shortcutLabel } from '@/lib/shortcuts'
+import { macKeys } from '@/features/workspace/keys'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
 const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string][] = [
@@ -26,10 +27,7 @@ const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string]
 /** Monaco actions the palette leaves out: its own palette, and duplicates of ours. */
 const HIDDEN = new Set(['editor.action.quickCommand', 'editor.action.gotoLine', 'editor.action.formatDocument', ...CURATED.map(([id]) => id)])
 
-const MODULES: Exclude<ModuleId, 'editor' | 'account'>[] = ['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings']
-
 export interface CommandContext {
-  onNavigate: (id: ModuleId) => void
   readOnly: boolean
   /** Extra commands from other parts of the editor (the debugger). */
   extra?: PickItem[]
@@ -41,11 +39,11 @@ function focusLater(label: string): void {
 }
 
 /**
- * Everything the command palette (⇧⌘P / F1) offers: files, views, git, the
- * other modules, and Monaco's own editor actions. Writing commands are left
- * out where the core is read-only.
+ * What the editor adds to the command palette (⇧⌘P / F1 — features/palette):
+ * files, views, git, and Monaco's own editor actions. Writing commands are
+ * left out where the core is read-only.
  */
-export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: CommandContext): PickItem[] {
+export function buildCommands(t: Dict, { readOnly, extra = [] }: CommandContext): PickItem[] {
   const p = t.palette
   const editor = () => useEditor.getState()
   const scm = () => useScm.getState()
@@ -56,12 +54,13 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
 
   const pane = (id: 'files' | 'outline' | 'search' | 'scm' | 'graph' | 'prs', label: string, keys?: string): PickItem => ({ id: `view.${id}`, label: `${p.view}: ${label}`, keys, run: () => scm().setPane(id) })
   const prefs = () => useEditorPrefs.getState()
+  const mac = macKeys()
   // Editor groups: ⌘1…⌘9 focus one (one past the last splits it).
   const groups = editor().groups.length
   const focusGroups: PickItem[] = Array.from({ length: Math.min(groups + 1, 9) }, (_, i) => ({
     id: `view.focusGroup${i + 1}`,
     label: `${p.view}: ${p.focusGroup(i + 1)}`,
-    keys: `⌘${i + 1}`,
+    keys: formatBinding(`mod+${i + 1}`, mac),
     run: () => editor().focusGroupAt(i)
   }))
 
@@ -146,8 +145,8 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
     { id: 'file.close', label: `${p.file}: ${p.closeEditor}`, run: () => editor().focusedId() && editor().requestClose(editor().focusedId()!) },
     { id: 'go.file', label: `${p.go}: ${t.scm.quickOpen}`, keys: '⌘P', run: () => scm().setQuickOpen(true) },
     { id: 'go.line', label: `${p.go}: ${p.goToLine}`, keys: '⌃G', run: () => scm().setQuickOpen(true, ':') },
-    { id: 'view.split', label: `${p.view}: ${p.split}`, keys: '⌘\\', run: () => editor().split('right') },
-    { id: 'view.splitDown', label: `${p.view}: ${p.splitDown}`, keys: '⌘K ⌘\\', run: () => editor().split('down') },
+    { id: 'view.split', label: `${p.view}: ${p.split}`, keys: shortcutLabel('editor.split', mac), run: () => editor().split('right') },
+    { id: 'view.splitDown', label: `${p.view}: ${p.splitDown}`, keys: shortcutLabel('editor.splitDown', mac), run: () => editor().split('down') },
     ...(groups > 1 ? [{ id: 'view.closeGroup', label: `${p.view}: ${p.closeGroup}`, run: () => editor().closeGroup() }] : []),
     ...focusGroups,
     { id: 'view.minimap', label: `${p.view}: ${p.toggleMinimap}`, run: () => prefs().update({ minimap: prefs().settings.minimap === false }) },
@@ -158,7 +157,6 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
     pane('scm', t.scm.panes.scm, '⇧⌘G'),
     ...git,
     ...extra,
-    ...editorItems,
-    ...MODULES.map((id) => ({ id: `module.${id}`, label: `${p.module}: ${t.nav[id]}`, run: () => onNavigate(id) }))
+    ...editorItems
   ]
 }

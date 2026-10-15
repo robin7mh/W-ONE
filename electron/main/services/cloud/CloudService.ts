@@ -55,6 +55,8 @@ export interface CloudServiceOptions {
 
 interface Persisted {
   installId: string
+  /** The id Mindeck Cloud gave this install (the `dev` of its verified leases) — what offline certificates are bound to. */
+  deviceId?: string
   account: CloudAccount | null
   license: CloudLicense | null
   entitlement: string | null
@@ -179,6 +181,8 @@ export class CloudService {
     }
     this.key = this.publicKey()
     this.claims = this.data.entitlement && this.key ? verifyEntitlement(this.data.entitlement, this.key) : null
+    // Saved before the device was remembered: the last lease names it (a lifetime license offline still starts).
+    this.data.deviceId ??= this.claims?.dev
     const cert = this.data.account ? await this.opts.secrets.get(OFFLINE_SECRET) : undefined
     this.offline = cert ? this.verifyOffline(cert) : null
     // A follower only ever hears from the desktop (cloud:adopt).
@@ -360,6 +364,7 @@ export class CloudService {
           if (!claims) throw coded('bad-entitlement', 'Mindeck Cloud sent an entitlement this core cannot verify')
           this.claims = claims
           this.data.entitlement = res.entitlement.token
+          if (claims.dev) this.data.deviceId = claims.dev
         }
         await this.keepOffline(res)
         await this.save()
@@ -436,10 +441,16 @@ export class CloudService {
     await this.opts.secrets.set(OFFLINE_SECRET, null)
   }
 
-  /** The certificate's claims if it is genuine and perpetual — else null. */
+  /**
+   * The certificate's claims if it is genuine, perpetual and this device's —
+   * else null. A certificate names the device it was issued to (`dev`: the id
+   * Mindeck Cloud gave this install, or its install id): one copied from
+   * another installation doesn't hold here. One without `dev` holds anywhere.
+   */
   private verifyOffline(token: string): EntitlementClaims | null {
     const claims = this.key ? verifyEntitlement(token, this.key) : null
-    return claims && holdsOffline(claims, this.now()) ? claims : null
+    if (!claims || !holdsOffline(claims, this.now())) return null
+    return !claims.dev || claims.dev === this.data.installId || claims.dev === this.data.deviceId ? claims : null
   }
 
   private note(err: unknown): void {

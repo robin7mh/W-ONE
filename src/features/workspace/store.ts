@@ -22,6 +22,10 @@ interface WorkspaceState {
   focus(paneId: string): void
   moveFocus(dir: L.Direction): void
   split(): void
+  /** Open a module in a new pane beside pane `paneId` (a drop on its edge). */
+  dropBeside(paneId: string, side: L.Side, module: ModuleId): void
+  /** Open a module next to the focused pane ("Open in a new pane"). */
+  openBeside(module: ModuleId): void
   close(paneId?: string): void
   setPreset(preset: L.Preset): void
   resize(key: keyof L.Sizes, value: number): void
@@ -109,6 +113,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     focus: (paneId) => edit((l) => L.focus(l, paneId)),
     moveFocus: (dir) => edit((l) => L.moveFocus(l, dir)),
     split: () => edit(L.split),
+    dropBeside: (paneId, side, module) => edit((l) => L.dropBeside(l, paneId, side, module)),
+    openBeside: (module) => edit((l) => L.openBeside(l, module)),
     close: (paneId) => edit((l) => L.close(l, paneId)),
     setPreset: (preset) => edit((l) => L.setPreset(l, preset)),
     resize: (key, value) => edit((l) => L.resize(l, key, value)),

@@ -13,6 +13,8 @@ import { isDesktop } from '@shared/ipc/client'
 import { useSession } from '@/features/session/store'
 import { useT } from '@/lib/i18n'
 import { WorkspaceMenu } from '@/features/workspace/components/WorkspaceMenu'
+import { SplitButton } from '@/features/workspace/components/SplitButton'
+import { PaletteButton } from '@/features/palette/components/PaletteButton'
 
 /** Session uptime since `since` (epoch ms); ticks on its own so only this re-renders. */
 function Uptime({ since }: { since?: number }) {
@@ -75,6 +77,8 @@ export function TopStatusBar({ since, showClock = true }: { since?: number; show
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-2 lg:ml-0">
         <UpdateChip />
+        <PaletteButton />
+        <SplitButton />
         <WorkspaceMenu />
         <div className="hidden items-center gap-2 xl:flex">
           <StatusIndicator

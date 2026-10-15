@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, Check, FolderPlus, Languages, Lightbulb, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Columns2, FolderPlus, Languages, Lightbulb, X } from 'lucide-react'
 import { isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
@@ -10,6 +10,7 @@ import { useOverlay } from '@/lib/overlay'
 import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
 import { MigrateCard } from '@/features/settings/components/MigrateCard'
 import { useProjects } from '@/features/projects/store'
+import { SplitDemo } from '@/features/workspace/components/SplitDemo'
 import { primaryButton, quietButton } from '@/features/cloud/components/CloudForms'
 import { useOnboarding, type StepId } from '../store'
 import { browserImportStep } from '../slots'
@@ -80,7 +81,7 @@ function ImportStep() {
   )
 }
 
-/** Done: three things worth knowing. */
+/** Done: a few things worth knowing — the split screen first, shown as it happens. */
 function DoneStep() {
   const o = useT().onboarding
   return (
@@ -90,6 +91,16 @@ function DoneStep() {
         <p className="mt-1 font-sans text-[13px] text-text-secondary">{o.doneIntro}</p>
       </div>
       <ul className="space-y-2">
+        <li className="rounded-md border border-cyan/40 bg-cyan/[0.04] p-2.5">
+          <div className="flex gap-2.5">
+            <Columns2 size={14} className="mt-0.5 shrink-0 text-cyan" />
+            <span>
+              <span className="block font-sans text-[13px] font-medium text-text-primary">{o.splitTip.title}</span>
+              <span className="block font-sans text-[12px] text-text-secondary">{o.splitTip.body}</span>
+            </span>
+          </div>
+          <SplitDemo className="mt-2.5" />
+        </li>
         {o.tips.map((tip) => (
           <li key={tip.title} className="flex gap-2.5 rounded-md border border-hud/50 p-2.5">
             <Lightbulb size={14} className="mt-0.5 shrink-0 text-cyan" />

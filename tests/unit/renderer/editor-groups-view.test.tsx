@@ -143,16 +143,14 @@ describe('editor groups: the view', () => {
     expect(e().groups).toHaveLength(3)
   })
 
-  it('keys: ⌘\\ splits right, ⌘K ⌘\\ down, ⌘1…⌘9 focus a group', async () => {
+  it('keys: ⌘\\ splits right, ⌘1…⌘9 focus a group (⌘K ⌘\\ goes through the AI prompt: inline-ai.test.ts)', async () => {
     routes()
     useEditor.setState({ projectId: 'p', tabs: [tab('a.ts')], ...oneGroup(['p:a.ts']) })
     show()
     await act(settle)
     fireEvent.keyDown(window, { key: '\\', metaKey: true })
     expect(groups()).toEqual(['g1:a.ts', 'g2:a.ts'])
-    fireEvent.keyDown(window, { key: 'k', metaKey: true })
-    fireEvent.keyDown(window, { key: 'Meta', metaKey: true }) // ⌘ again in between
-    fireEvent.keyDown(window, { key: '\\', metaKey: true })
+    act(() => e().split('down'))
     expect(e().grid).toEqual(row([leaf('g1'), { orientation: 'column', children: [leaf('g2'), leaf('g3')], sizes: [0.5, 0.5] }]))
     fireEvent.keyDown(window, { key: '1', ctrlKey: true }) // by the key, when the place isn't told
     expect(e().activeGroup).toBe('g1')
@@ -163,9 +161,8 @@ describe('editor groups: the view', () => {
     fireEvent.keyDown(window, { key: '9', code: 'Digit9', metaKey: true }) // no such group
     fireEvent.keyDown(window, { key: '!', code: 'Digit1', metaKey: true, shiftKey: true }) // ⇧ isn't it
     expect(e().activeGroup).toBe('g2')
-    fireEvent.keyDown(window, { key: 'k', metaKey: true })
-    fireEvent.keyDown(window, { key: 'x' }) // the chord is over
-    fireEvent.keyDown(window, { key: '\\', metaKey: true }) // a plain ⌘\ again
+    fireEvent.keyDown(window, { key: 'x' }) // no modifier: not the editor's
+    fireEvent.keyDown(window, { key: '\\', metaKey: true })
     expect(e().groups).toHaveLength(4)
     expect(e().grid).toMatchObject({ children: [leaf('g1'), { orientation: 'column', children: [{ orientation: 'row' }, leaf('g3')] }] })
   })
@@ -371,11 +368,11 @@ describe('editor groups: the view', () => {
     const update = vi.fn(async (patch: object) => useEditorPrefs.setState((s) => ({ settings: { ...s.settings, ...patch } })))
     useEditorPrefs.setState({ settings: {}, update })
     useEditor.setState({ tabs: [tab('a.ts')], ...oneGroup(['p:a.ts']) })
-    const commands = () => buildCommands(en, { onNavigate: vi.fn(), readOnly: false })
+    const commands = () => buildCommands(en, { readOnly: false })
     const run = (id: string) => act(() => void commands().find((c) => c.id === id)!.run())
-    expect(commands().find((c) => c.id === 'view.split')).toMatchObject({ label: 'View: Split Editor Right', keys: '⌘\\' })
+    expect(commands().find((c) => c.id === 'view.split')).toMatchObject({ label: 'View: Split Editor Right', keys: 'Ctrl+\\' })
     expect(commands().find((c) => c.id === 'view.closeGroup')).toBeUndefined()
-    expect(commands().filter((c) => c.id.startsWith('view.focusGroup')).map((c) => c.keys)).toEqual(['⌘1', '⌘2'])
+    expect(commands().filter((c) => c.id.startsWith('view.focusGroup')).map((c) => c.keys)).toEqual(['Ctrl+1', 'Ctrl+2'])
     run('view.split')
     run('view.splitDown')
     expect(e().groups).toHaveLength(3)

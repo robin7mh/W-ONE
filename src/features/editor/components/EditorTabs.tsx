@@ -5,6 +5,7 @@ import { isMac } from '@/lib/platform'
 import { useEditor, type EditorTab } from '../store'
 import { useT } from '@/lib/i18n'
 import { fileIcon } from './FileTree'
+import { shortcutLabel } from '@/lib/shortcuts'
 
 /** What a dragged tab carries: its file and the group it leaves. */
 export const TAB_MIME = 'application/x-mindeck-editor-tab'
@@ -73,12 +74,11 @@ function TabMenu({ menu, group, onClose }: { menu: Menu; group: string; onClose:
     editor().focusGroup(group)
     editor().split(side, menu.id)
   }
-  const mod = isMac ? '⌘' : 'Ctrl+'
   const items: { label: string; icon: LucideIcon; hint?: string; action: () => void; hidden?: boolean }[] = [
     { label: t.editor.close, icon: X, action: () => editor().requestClose(menu.id, group) },
     { label: t.editor.closeOthers, icon: XCircle, action: () => editor().closeOthers(menu.id, group) },
-    { label: t.editor.splitRight, icon: Columns2, hint: `${mod}\\`, action: split('right') },
-    { label: t.editor.splitDown, icon: Rows2, hint: `${mod}K ${mod}\\`, action: split('down') },
+    { label: t.editor.splitRight, icon: Columns2, hint: shortcutLabel('editor.split', isMac), action: split('right') },
+    { label: t.editor.splitDown, icon: Rows2, hint: shortcutLabel('editor.splitDown', isMac), action: split('down') },
     { label: t.editor.closeGroup, icon: X, action: () => editor().closeGroup(group), hidden: !several },
     { label: t.explorer.copyPath, icon: Copy, action: () => void navigator.clipboard?.writeText(path!), hidden: !path }
   ]
@@ -221,7 +221,7 @@ export function EditorTabs({ group, projectNames }: { group: string; projectName
         <button
           type="button"
           aria-label={tr.editor.splitRight}
-          title={`${tr.editor.splitRight} (${isMac ? '⌘' : 'Ctrl+'}\\)`}
+          title={`${tr.editor.splitRight} (${shortcutLabel('editor.split', isMac)})`}
           onClick={() => {
             useEditor.getState().focusGroup(group)
             useEditor.getState().split('right')

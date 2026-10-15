@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Database, FlaskConical, Radio, Paintbrush, Server, ExternalLink, Files, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, ListTree, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, Bug, CircleX, Code2, Database, FlaskConical, Radio, Paintbrush, Server, ExternalLink, Files, FolderGit2, GitBranch, GitGraph as GraphIcon, GitPullRequest, ListTree, Lock, RefreshCcw, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import { Panel } from '@/components/ui/Panel'
 import { cn } from '@/lib/cn'
@@ -46,7 +46,9 @@ import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
 import { usePaneFocused } from '@/features/workspace/pane'
-import { workspaceCommands } from '@/features/workspace/commands'
+import { usePalette } from '@/features/palette/store'
+import { allCommands, registerCommands } from '@/features/palette/registry'
+import { showModule } from '@/features/palette/reveal'
 
 // Monaco is a few MB — it loads the first time the Editor module opens.
 const DiffView = lazy(() => import('./DiffView'))
@@ -177,7 +179,7 @@ function runUserBinding(e: KeyboardEvent, commands: () => PickItem[]): boolean {
     const id = WORKBENCH_COMMANDS[b.command]
     const strokes = id ? parseKeybinding(b.key) : null
     if (!strokes || strokes.length !== 1 || !matchesStroke(strokes[0], e)) continue
-    if (id === 'palette') useScm.getState().setQuickOpen(true, '>')
+    if (id === 'palette') usePalette.getState().show()
     else void commands().find((c) => c.id === id)?.run()
     return true
   }
@@ -211,8 +213,6 @@ function toggleBreakpointAtCursor(): void {
 
 /** How often open files are compared with the disk while the editor is visible. */
 const DISK_POLL_MS = 3000
-
-const MODIFIERS = ['Meta', 'Control', 'Shift', 'Alt']
 
 /** ⌘1…⌘9 (Ctrl elsewhere) — the editor group to focus (0-based), or undefined. */
 function groupKey(e: KeyboardEvent): number | undefined {
@@ -276,10 +276,25 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const commands = useRef<() => PickItem[]>()
   commands.current = () =>
     buildCommands(t, {
-      onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `Mindeck: ${t.migrate.title}`, run: () => onNavigate('settings') }, ...workspaceCommands(t)]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : [])]
     })
+  // The palette lists the editor's commands while the editor is there; running one brings the editor up.
+  useEffect(
+    () =>
+      registerCommands('editor', (dict) =>
+        commands.current!().map((c) => ({
+          ...c,
+          group: dict.nav.editor,
+          icon: Code2,
+          run: () => {
+            showModule('editor')
+            return c.run()
+          }
+        }))
+      ),
+    []
+  )
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
   const errors = problems.filter((p) => p.severity === 'error').length
@@ -322,18 +337,12 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       void useEditor.getState().checkDisk()
       void useScm.getState().refresh()
     }
-    /** ⌘K was pressed: the next key may finish a chord (⌘K ⌘\). */
-    let chord = false
     const onKey = (e: KeyboardEvent) => {
-      // ⌘ pressed again between the two keys of a chord doesn't end it.
-      if (MODIFIERS.includes(e.key)) return
       const scm = useScm.getState()
-      const chorded = chord
-      chord = false
-      if (runUserBinding(e, () => commands.current!())) return e.preventDefault()
+      if (runUserBinding(e, () => allCommands(t))) return e.preventDefault()
       if (debugKey(e)) return e.preventDefault()
       if (e.key === 'F1') {
-        scm.setQuickOpen(true, '>')
+        usePalette.getState().show()
         return e.preventDefault()
       }
       if (e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'g') {
@@ -343,12 +352,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
       const group = groupKey(e)
-      if (key === 'k' && !e.shiftKey && !e.altKey) chord = true
-      else if (key === '\\' && chorded) useEditor.getState().split('down')
-      else if (group !== undefined) useEditor.getState().focusGroupAt(group)
+      if (group !== undefined) useEditor.getState().focusGroupAt(group)
       else if (key === 's' && e.altKey) void useEditor.getState().saveAll()
       else if (key === 's') void useEditor.getState().save()
-      else if (key === 'p') scm.setQuickOpen(true, e.shiftKey ? '>' : '')
+      else if (key === 'p' && e.shiftKey) usePalette.getState().show()
+      else if (key === 'p') scm.setQuickOpen(true)
       else if (key === 'f' && e.shiftKey) scm.setPane('search')
       else if (key === 'h' && e.shiftKey) {
         scm.setPane('search')
@@ -655,7 +663,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         </footer>
       </section>
       {quickOpen && (
-        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} commands={commands.current()} />
+        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} />
       )}
     </Panel>
   )

@@ -148,6 +148,15 @@ describe('ipc router', () => {
     expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
   })
 
+  it('a remote call’s answer is shaped for the device (lists trimmed); the desktop’s never', async () => {
+    const shape = vi.fn(async (_channel: string, data: unknown) => (data as { id: string }[]).filter((s) => s.id !== 'private'))
+    const router = new Router({ remoteTerminal: () => false, shape })
+    router.register('agents:list', () => [{ id: 'private' }, { id: 'shared' }] as never)
+    expect(await router.dispatch('agents:list', undefined, ipcCtx)).toEqual({ ok: true, data: [{ id: 'private' }, { id: 'shared' }] })
+    expect(await router.dispatch('agents:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'shared' }] })
+    expect(shape).toHaveBeenCalledTimes(1)
+  })
+
   it('paired devices list only the projects they may use, and add projects as remote ones', async () => {
     const router = new Router({ remoteTerminal: () => false })
     const service = { list: () => [{ id: 'a' }, { id: 'b' }], add: vi.fn(async (path: string) => ({ path })) }

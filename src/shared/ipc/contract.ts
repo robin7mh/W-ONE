@@ -1040,5 +1040,5 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
 /** Push events remote clients only receive when remote shells are enabled. */
 export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'terminal:info', 'debug:session', 'debug:output', 'notebook:event']
 
-/** Push events that never leave the desktop window (the browser's tabs are private pages). */
-export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress']
+/** Push events that never leave the desktop window (the browser's tabs are private pages; Remote-SSH windows are the desktop's own). */
+export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress', 'remote:changed']

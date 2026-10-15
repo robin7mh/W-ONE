@@ -639,6 +639,11 @@ describe('AppShell with panes', () => {
     act(() => handlers.workspaceKey!(paneKey('ArrowLeft')))
     expect(useWorkspace.getState().layout.focus).toBe('p1')
     act(() => handlers.focused!())
+    const { usePalette } = await import('@/features/palette/store')
+    act(() => handlers.palette!()) // ⇧⌘P while the page has the keyboard: the palette, over everything
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument()
+    act(() => handlers.palette!()) // …and the same key closes it
+    expect(usePalette.getState().view).toBeUndefined()
     fireEvent.click(screen.getByTitle('Core')) // the side navigation fills the focused pane
     expect(useWorkspace.getState().layout.panes.map((p) => p.module)).toEqual(['agents', 'core'])
     expect(screen.getByText('DASHBOARD')).toBeInTheDocument()
