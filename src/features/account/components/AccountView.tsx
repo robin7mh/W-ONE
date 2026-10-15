@@ -156,6 +156,8 @@ function UpdateRow() {
           ? t.update.downloading(status.progress ?? 0)
           : status.state === 'ready'
             ? t.update.ready(status.version ?? '')
+            : status.state === 'available'
+              ? t.update.available(status.version ?? '')
             : status.state === 'error'
               ? t.update.error
               : t.update.idle
@@ -168,6 +170,10 @@ function UpdateRow() {
         <button type="button" onClick={() => void update.install()} className={cn(primaryButton, 'ml-auto !py-1.5')}>
           {t.update.install}
         </button>
+      ) : status.state === 'available' && status.downloadUrl ? (
+        <a href={status.downloadUrl} target="_blank" rel="noreferrer" className={cn(primaryButton, 'ml-auto !py-1.5')}>
+          {t.update.download}
+        </a>
       ) : (
         status.state !== 'disabled' &&
         status.state !== 'downloading' && (

@@ -55,7 +55,10 @@ export const de: Dict = {
     error: 'Update fehlgeschlagen',
     check: 'Nach Updates suchen',
     install: 'Neu starten & aktualisieren',
-    chip: (version) => `Update ${version} · neu starten`
+    chip: (version) => `Update ${version} · neu starten`,
+    available: (version) => `Version ${version} ist da — zum Aktualisieren herunterladen`,
+    download: 'Herunterladen',
+    chipAvailable: (version) => `Neue Version ${version} verfügbar · herunterladen`
   },
 
   cloud: {

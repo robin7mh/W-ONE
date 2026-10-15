@@ -57,7 +57,10 @@ export const en = {
     error: 'Update failed',
     check: 'Check for updates',
     install: 'Restart & update',
-    chip: (version: string) => `Update ${version} · restart`
+    chip: (version: string) => `Update ${version} · restart`,
+    available: (version: string) => `Version ${version} is out — download it to update`,
+    download: 'Download',
+    chipAvailable: (version: string) => `New version ${version} · download`
   },
 
   cloud: {
