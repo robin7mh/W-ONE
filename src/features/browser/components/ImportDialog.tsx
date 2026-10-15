@@ -136,7 +136,7 @@ export function ImportPanel({ onClose, onBusy }: { onClose(): void; onBusy?(busy
       <div className="flex items-center justify-end gap-2">
         {running && (
           <span className="mr-auto flex items-center gap-1.5 font-sans text-[12px] text-text-secondary">
-            <Loader2 size={13} className="animate-spin text-cyan" /> {t.library.importing(t.library.kinds[step ?? kinds[0]])}
+            <Loader2 size={13} className="animate-spin text-cyan" /> {t.library.importing[step ?? kinds[0]]}
           </span>
         )}
         {result ? (

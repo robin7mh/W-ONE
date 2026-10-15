@@ -1264,7 +1264,7 @@ agents: {
     importNote:
       'Passwörter und Cookies bleiben im anderen Browser – Chrome-basierte Browser verschlüsseln sie nur für sich. Für Passwörter installierst du die Erweiterung deines Passwort-Managers (1Password, Bitwarden …); Websites fragen dich einmal neu nach der Anmeldung.',
     importStart: 'Importieren',
-    importing: (what) => `${what} wird importiert …`,
+    importing: { bookmarks: 'Lesezeichen werden importiert …', history: 'Verlauf wird importiert …', settings: 'Suchmaschine wird übernommen …' },
     importDone: (bookmarks, pages) => `Fertig: ${bookmarks} neue Lesezeichen, ${pages} Seiten Verlauf.`,
     importEngine: (name) => `Ab jetzt wird mit ${name} gesucht.`,
     importFailed: (what) => `${what}: konnte nicht gelesen werden. Schließe den anderen Browser und versuch es noch einmal.`,

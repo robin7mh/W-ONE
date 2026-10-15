@@ -1283,7 +1283,7 @@ agents: {
     importNote:
       'Passwords and cookies stay in the other browser — Chrome-based browsers encrypt them for themselves. For passwords, add your password manager’s extension (1Password, Bitwarden …); sites ask you to sign in once.',
     importStart: 'Import',
-    importing: (what: string) => `Importing ${what.toLowerCase()}…`,
+    importing: { bookmarks: 'Importing bookmarks…', history: 'Importing history…', settings: 'Taking the search engine over…' },
     importDone: (bookmarks: number, pages: number) => `Done: ${bookmarks} new bookmarks, ${pages} pages of history.`,
     importEngine: (name: string) => `Searching with ${name} from now on.`,
     importFailed: (what: string) => `${what}: could not be read. Close the other browser and try again.`,
