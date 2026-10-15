@@ -183,6 +183,8 @@ describe('createCore', () => {
     expect(await c.router.dispatch('notebook:start', { projectId, path: '../a.ipynb', kernel: 'python3' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     // The test explorer finds the project's tests (none here) and runs them with Mindeck's debugger at hand.
     expect(await c.router.dispatch('tests:discover', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    // Project search finds the project's folder.
+    expect(await c.router.dispatch('search:start', { id: 's1', projectId, query: { pattern: 'zzz-none' } }, { transport: 'ipc' })).toMatchObject({ ok: true })
     expect(await c.router.dispatch('tests:state', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: { projectId, running: false, results: {}, output: '' } })
     expect(await c.router.dispatch('tests:debug', { projectId, id: 'none', breakpoints: [] }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })

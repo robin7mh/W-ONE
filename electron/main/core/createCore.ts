@@ -42,7 +42,7 @@ import { registerAgentsIpc } from '../../ipc/agents.ipc'
 import { registerBrowserIpc } from '../../ipc/browser.ipc'
 import { registerFinderIpc } from '../../ipc/finder.ipc'
 import { BrowserService } from '../services/browser/BrowserService'
-import { FinderService, macSpotlight } from '../services/finder/FinderService'
+import { FinderService, spotlightFor } from '../services/finder/FinderService'
 import { BROWSER_TOOLS, browserTools } from '../services/ai/tools/browser'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
@@ -401,7 +401,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       trash: (path) => platform.trashItem(path, dirname(path)),
       restorableTrash: platform.restorableTrash,
       clipboard: platform.fileClipboard,
-      spotlight: process.platform === 'darwin' ? macSpotlight : undefined,
+      spotlight: spotlightFor(process.platform),
       progress: hub.publish.bind(hub, 'finder:progress')
     })
   )

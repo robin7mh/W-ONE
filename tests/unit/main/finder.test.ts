@@ -21,7 +21,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 const exec = vi.hoisted(() => ({ fn: vi.fn() }))
 vi.mock('node:child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('node:child_process')>()), execFile: (...a: unknown[]) => exec.fn(...a) }))
 
-import { checkName, FinderService, freeName, macSpotlight } from '../../../electron/main/services/finder/FinderService'
+import { checkName, FinderService, freeName, macSpotlight, spotlightFor } from '../../../electron/main/services/finder/FinderService'
 
 const realPlatform = process.platform
 afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
@@ -300,6 +300,8 @@ describe('FinderService · per platform', () => {
 
   it('asks Spotlight through mdfind with structured arguments', async () => {
     exec.fn.mockImplementationOnce((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(null, '/a/x.md\n/a/y.md\n'))
+    expect(spotlightFor('darwin')).toBe(macSpotlight)
+    expect(spotlightFor('linux')).toBeUndefined()
     expect(await macSpotlight('/a', 'x')).toEqual(['/a/x.md', '/a/y.md'])
     expect(exec.fn).toHaveBeenLastCalledWith('mdfind', ['-onlyin', '/a', '-name', 'x'], expect.objectContaining({ timeout: 5000 }), expect.any(Function))
     exec.fn.mockImplementationOnce((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error | null, out: string) => void) => cb(new Error('mds off'), ''))

@@ -14,6 +14,19 @@ test('boots into the Command Center without any database; the activity log is a 
   await expect.poll(() => (existsSync(log) ? readFileSync(log, 'utf8') : '')).toContain('"app.started"')
 })
 
+test('a first start opens the setup over the window; skipping it leaves the Command Center', async ({ app }) => {
+  const page = await app.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+  const setup = page.getByRole('dialog', { name: 'Set up Mindeck' })
+  await expect(setup).toBeVisible()
+  await setup.getByRole('button', { name: 'Skip setup' }).click()
+  await expect(setup).toBeHidden()
+  const boot = page.getByText('click to skip')
+  if (await boot.isVisible()) await boot.click()
+  await expect(page.getByText('Command Center').first()).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('mindeck.onboarding'))).toContain('"done":true')
+})
+
 test('navigates every module', async ({ page }) => {
   const nav = (name: string) => page.getByRole('button', { name, exact: true }).or(page.getByTitle(name, { exact: true }))
   await nav('Editor').click()
@@ -77,7 +90,7 @@ test('memory: creates the starter vault, writes a note to disk and links it', as
   const title = page.getByPlaceholder('Note title…')
   await title.fill('E2E Note')
   await title.press('Enter')
-  const editor = page.locator('textarea')
+  const editor = page.locator('.cm-content')
   await expect(editor).toBeVisible()
   await editor.fill('Written by Playwright, see [[Willkommen]]')
   await page.keyboard.press('Control+s')

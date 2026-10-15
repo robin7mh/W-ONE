@@ -84,6 +84,11 @@ export function macSpotlight(dir: string, query: string): Promise<string[]> {
   })
 }
 
+/** Spotlight where the system has it (macOS); elsewhere the walk. */
+export function spotlightFor(platform: NodeJS.Platform): typeof macSpotlight | undefined {
+  return platform === 'darwin' ? macSpotlight : undefined
+}
+
 /** Default places drives show up in. */
 function defaultVolumeDirs(home: string): string[] {
   if (process.platform === 'darwin') return ['/Volumes']
