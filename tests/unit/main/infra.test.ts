@@ -461,7 +461,11 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['agents:list', undefined, 'list', []],
         ['agents:get', { id: 'i' }, 'get', ['i']],
         ['agents:create', { kind: 'claude-code', projectId: 'p', isolated: true }, 'create', [{ kind: 'claude-code', projectId: 'p', isolated: true }]],
-        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi']],
+        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi', {}]],
+        ['agents:send', { id: 'i', text: '', refs: [{ kind: 'file', path: 'a.ts' }] }, 'send', ['i', '', { refs: [{ kind: 'file', path: 'a.ts' }] }]],
+        ['agents:configure', { id: 'i', model: 'opus' }, 'configure', ['i', { model: 'opus' }]],
+        ['agents:pushSettings', undefined, 'settings', []],
+        ['agents:setPushSettings', { enabled: false }, 'configure', [false]],
         ['agents:interrupt', { id: 'i' }, 'interrupt', ['i']],
         ['agents:stop', { id: 'i' }, 'stop', ['i']],
         ['agents:resume', { id: 'i' }, 'resume', ['i']],
@@ -476,7 +480,8 @@ describe('ipc handler modules bind every channel to its service', () => {
   ] as const)('%s', async (_name, register, cases) => {
     const service = spyService()
     const router = new Router()
-    ;(register as (r: Router, s: unknown) => void)(router, service)
+    // Registrations with a second service (the agents' pushes) get the same spy.
+    ;(register as (r: Router, s: unknown, s2: unknown) => void)(router, service, service)
     for (const [channel, req, method, args] of cases) {
       expect(await router.dispatch(channel, req, { transport: 'ipc' })).toEqual({ ok: true, data: { method, args } })
     }
@@ -501,7 +506,8 @@ describe('paths', () => {
         eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
         runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
         agentsDir: join(home, 'Mindeck', 'data', 'agents'),
-        worktreesDir: join(home, 'Mindeck', 'worktrees')
+        worktreesDir: join(home, 'Mindeck', 'worktrees'),
+        logsDir: join(home, 'Mindeck', 'logs')
       })
       // Data from before the rename: used where it is.
       await mkdir(join(home, 'W-ONE'))

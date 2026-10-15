@@ -13,8 +13,9 @@
 //                            `:` (`;` on Windows); default /projects (the Docker mount)
 //   MINDECK_WEB_ROOT         built web UI to serve (default: next to this file)
 //   MINDECK_DB_URL           Postgres (default matches docker-compose.yml)
-//   NODE_ENV=production   requires a Mindeck license (the Docker image); otherwise
-//                         only with MINDECK_LICENSE=required. Dev: MINDECK_CLOUD_URL.
+//   A build with Mindeck Cloud baked in (MINDECK_CLOUD_URL/KEY at build time, the
+//   Docker image) requires a Mindeck license; otherwise only with
+//   MINDECK_LICENSE=required. Dev: MINDECK_CLOUD_URL at run time.
 //   MINDECK_LICENSE=follower started by the desktop app (Remote-SSH, Dev Container):
 //                         the desktop hands its entitlement over (cloud:adopt)
 //   MINDECK_EXIT_WITH_STDIN=1  stop when stdin closes (the desktop's ssh / docker exec ended)
@@ -25,7 +26,7 @@ import { mindeckPaths } from '../electron/main/lib/paths'
 import { headlessPlatform } from '../electron/main/platform/headless'
 import { createCore, type Core } from '../electron/main/core/createCore'
 import { AuthService } from '../electron/main/services/auth/AuthService'
-import { cloudConfig } from '../electron/main/services/cloud/config'
+import { cloudConfig, isReleaseBuild } from '../electron/main/services/cloud/config'
 
 declare const __MINDECK_VERSION__: string
 
@@ -73,7 +74,8 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
     platform: headlessPlatform,
     serverConfig: serverConfigFromEnv(env),
     webRoot: env.MINDECK_WEB_ROOT || join(__dirname, '../web'),
-    cloud: cloudConfig(env.NODE_ENV === 'production', env)
+    // A release is a build decision, never an environment variable.
+    cloud: cloudConfig(isReleaseBuild(), env)
   })
   await core.server.start()
   const status = core.server.status()

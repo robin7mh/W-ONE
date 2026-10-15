@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentAvailability, AgentSession } from '@shared/types/agents'
+import { CLAUDE_MODELS, CLAUDE_MODES } from '@shared/types/claude'
 import type { ChatMessage, PermissionRequest } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
 
@@ -193,6 +194,11 @@ describe('useAgents store', () => {
     expect(ag().sessions[0].status).toBe('working')
 
     expect(await ag().send('hello')).toBe(true)
+    expect(await ag().send('see', { refs: [{ kind: 'file', path: 'a.ts' }] })).toBe(true)
+    expect(calls.filter(([ch]) => ch === 'agents:send').map(([, p]) => p)).toEqual([
+      { id: 's9', text: 'hello' },
+      { id: 's9', text: 'see', refs: [{ kind: 'file', path: 'a.ts' }] }
+    ])
     await ag().interrupt()
     await ag().stop()
     await ag().resume('other')
@@ -212,6 +218,7 @@ describe('useAgents store', () => {
       'agents:create',
       'agents:get',
       'agents:send',
+      'agents:send',
       'agents:interrupt',
       'agents:stop',
       'agents:resume',
@@ -221,7 +228,7 @@ describe('useAgents store', () => {
       'agents:accept',
       'agents:discard'
     ])
-    expect(calls[5][1]).toEqual({ id: 'other' })
+    expect(calls[6][1]).toEqual({ id: 'other' })
 
     useAgents.setState({ sessions: [session({ id: 'keep' }), ...ag().sessions] })
     await ag().remove('keep') // not the active one
@@ -313,12 +320,16 @@ describe('NewChatDialog', () => {
     fireEvent.click(screen.getByLabelText('Own working folder'))
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
-    expect(create).toHaveBeenCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: 'Fix the login' })
+    expect(create).toHaveBeenCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: 'Fix the login', model: 'default', mode: 'default' })
 
+    // Claude Code starts with a model and a permission mode of the user's choice.
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Default model')
+    choose('Model', 'Opus')
+    choose('Mode', /^Plan first/)
     fireEvent.change(screen.getByLabelText('First message'), { target: { value: '   ' } })
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
-    expect(create).toHaveBeenLastCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: undefined })
+    expect(create).toHaveBeenLastCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: undefined, model: 'opus', mode: 'plan' })
   })
 
   it('Mindeck Assistant: chosen when no agent is ready; sends the first message into a new assistant chat', async () => {
@@ -447,7 +458,7 @@ describe('SessionPane', () => {
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'next step' } })
     fireEvent.keyDown(screen.getByLabelText('Message'), { key: 'Enter' })
     await act(settle)
-    expect(send).toHaveBeenCalledWith('next step')
+    expect(send).toHaveBeenCalledWith('next step', { refs: [], images: [] })
     expect(screen.queryByLabelText('Interrupt')).toBeNull()
     void bridge
   })
@@ -536,6 +547,75 @@ describe('SessionPane', () => {
     expect(screen.getByText('git.example.org')).toBeInTheDocument()
     rerender(<SessionPane session={session()} messages={[]} />)
     expect(screen.queryByText('git.example.org')).toBeNull()
+  })
+})
+
+describe('the composer in the cockpit', () => {
+  it('switches model and mode through the core; a failure shows; a removed session leaves no draft', async () => {
+    installBridge({
+      'agents:configure': (p: { id: string; model?: string }) => (p.model === 'bad' ? fail('Unknown model: bad') : session({ id: p.id, model: p.model })),
+      'agents:remove': () => undefined
+    })
+    useAgents.setState({ sessions: [session()], activeId: 's1' })
+    await ag().configure({ model: 'opus' })
+    expect(ag().sessions[0].model).toBe('opus')
+    await ag().configure({ model: 'bad' })
+    expect(ag().error).toBe('Unknown model: bad')
+    localStorage.setItem('mindeck.agents.draft.s1', JSON.stringify({ text: 'half', refs: [] }))
+    await ag().remove('s1')
+    expect(localStorage.getItem('mindeck.agents.draft.s1')).toBeNull()
+  })
+
+  it('Claude Code: models and permission modes in the composer; the mode applies from the next start while it runs', () => {
+    const configure = vi.fn(async () => {})
+    useAgents.setState({ configure })
+    const claudeSession = session({ models: CLAUDE_MODELS, modes: CLAUDE_MODES, model: 'sonnet', mode: 'default', images: true, commands: [] })
+    const { rerender } = render(<SessionPane session={claudeSession} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Sonnet')
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveTextContent('Ask before edits')
+    expect(screen.getByLabelText('Attach an image')).toBeInTheDocument()
+    choose('Model', 'Default model')
+    expect(configure).toHaveBeenLastCalledWith({ model: 'default' })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Mode' }))
+    expect(screen.getByRole('option', { name: /Plan first/ })).toHaveTextContent('Takes effect when the session starts again')
+    fireEvent.click(screen.getByRole('option', { name: /Plan first/ }))
+    expect(configure).toHaveBeenLastCalledWith({ mode: 'plan' })
+    rerender(<SessionPane session={{ ...claudeSession, live: false, model: undefined, mode: undefined }} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Default model')
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveTextContent('Default mode')
+  })
+
+  it('ACP agents: the names they give; no pickers when they offer none', () => {
+    const acp = session({ kind: 'codex', terminalId: undefined, models: [{ id: 'gpt-5', name: 'GPT-5', description: 'Smart' }], modes: [{ id: 'auto', name: 'Auto', description: 'Runs on its own' }], model: 'gpt-5', mode: 'auto' })
+    const { rerender } = render(<SessionPane session={acp} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('GPT-5')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Mode' }))
+    expect(screen.getByRole('option', { name: /Auto/ })).toHaveTextContent('Runs on its own')
+    rerender(<SessionPane session={{ ...acp, models: [], modes: undefined }} messages={[]} />)
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Mode' })).toBeNull()
+  })
+
+  it('the chat shows what a message carried', () => {
+    render(
+      <SessionPane
+        session={session()}
+        messages={[{ ...msg('u', 'user', ''), attachments: [{ kind: 'file', label: 'src/a.ts' }, { kind: 'image', label: 'shot.png' }] }]}
+      />
+    )
+    expect(screen.getByRole('list', { name: 'Attached' })).toHaveTextContent('src/a.tsshot.png')
+  })
+
+  it('a new Codex chat starts without Claude\'s options', async () => {
+    const create = vi.fn(async () => true)
+    useAgents.setState({ availability: [claude(), { ...codex, ready: true }], create })
+    useProjects.setState({ selectedId: 'p1' })
+    render(<NewChatDialog onOpenSettings={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    fireEvent.click(screen.getByText('Start'))
+    await act(settle)
+    expect(create).toHaveBeenCalledWith({ kind: 'codex', projectId: 'p1', isolated: false, prompt: undefined })
   })
 })
 

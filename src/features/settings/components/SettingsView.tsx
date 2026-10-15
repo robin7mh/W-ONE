@@ -4,6 +4,7 @@ import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
 import { ALL_PROJECTS, type PermissionGrant } from '@shared/types/ai'
 import { DEVICE_ROLES, type DeviceRole } from '@shared/types/server'
+import type { PushSettings } from '@shared/types/cloud'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { Select } from '@/components/ui/Select'
@@ -17,6 +18,7 @@ import { useSession } from '@/features/session/store'
 import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
+import { useComposerPrefs } from '@/features/agents/composerPrefs'
 import { canManage, myDeviceId, useSettings } from '../store'
 import { AppearanceCard } from './AppearanceCard'
 import { LanguagesCard } from './LanguagesCard'
@@ -24,12 +26,42 @@ import { MigrateCard } from './MigrateCard'
 import { EditorCard } from './EditorCard'
 import { AiCard } from './AiCard'
 import { BrowserCard } from './BrowserCard'
+import { DesktopCard } from './DesktopCard'
 import { Toggle } from './Toggle'
 
 const input =
   'rounded-md border border-hud/70 bg-surface/70 px-2.5 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-cyan/60'
 const button =
   'flex items-center justify-center gap-1.5 rounded-md border border-hud/60 px-2.5 py-1.5 font-sans text-[12px] text-text-secondary transition-colors hover:border-cyan/50 hover:text-cyan disabled:opacity-40'
+
+/** How the composer sends a message, and whether agents reach the phone (Mindeck Cloud). */
+function AgentPrefs() {
+  const t = useT()
+  const sendKey = useComposerPrefs((s) => s.sendKey)
+  const [push, setPush] = useState<PushSettings>()
+  useEffect(() => {
+    void ipc('agents:pushSettings').then(setPush, () => {})
+  }, [])
+  return (
+    <div className="mt-3 border-t border-hud/50 pt-2">
+      <Toggle
+        label={t.settings.modEnterSends}
+        hint={t.settings.modEnterSendsHint}
+        checked={sendKey === 'mod-enter'}
+        onChange={(v) => useComposerPrefs.getState().setSendKey(v ? 'mod-enter' : 'enter')}
+      />
+      {push && (
+        <Toggle
+          label={t.settings.pushToPhone}
+          hint={push.signedIn ? t.settings.pushToPhoneHint : t.settings.pushNeedsAccount}
+          checked={push.enabled && push.signedIn}
+          disabled={!push.signedIn}
+          onChange={(enabled) => void ipc('agents:setPushSettings', { enabled }).then(setPush, () => {})}
+        />
+      )}
+    </div>
+  )
+}
 
 /** The coding agents found on this machine — they run on the user's own accounts. */
 function AgentsCard() {
@@ -60,6 +92,7 @@ function AgentsCard() {
       <button type="button" className={cn(button, 'mt-3')} disabled={detecting} onClick={() => void useAgents.getState().detect()}>
         <RefreshCw size={12} className={cn(detecting && 'animate-spin')} /> {t.settings.checkAgain}
       </button>
+      <AgentPrefs />
     </Card>
   )
 }
@@ -401,6 +434,7 @@ export function SettingsView() {
         <RemoteCard />
         <PermissionsCard />
         <VaultCard />
+        <DesktopCard />
         <AboutCard />
       </div>
     </Panel>

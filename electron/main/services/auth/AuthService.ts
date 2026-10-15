@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Device, DeviceRole, PairResult } from '@shared/types/server'
+import { readJson } from '../../lib/jsonFile'
 
 interface DeviceRecord extends Device {
   tokenHash: string
@@ -135,12 +136,8 @@ export class AuthService {
 
   private async load(fresh = false): Promise<Store> {
     if (this.store && !fresh) return this.store
-    let parsed: Partial<Store> = {}
-    try {
-      parsed = JSON.parse(await readFile(this.file, 'utf8'))
-    } catch {
-      /* missing or corrupt → empty */
-    }
+    // Missing or damaged → empty (a damaged file is set aside, see readJson).
+    const parsed: Partial<Store> = (await readJson<Partial<Store> | null>(this.file)) ?? {}
     const store: Store = {
       devices: Array.isArray(parsed.devices) ? parsed.devices : [],
       codes: Array.isArray(parsed.codes) ? parsed.codes : []

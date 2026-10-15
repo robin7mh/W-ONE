@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import { chmod, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
@@ -705,6 +705,8 @@ describe('PermissionService', () => {
 
     await perms.revoke('assistant', 'memory_create_note')
     expect(await perms.grants()).toEqual([])
+    // what the user allowed which agent to do is theirs alone
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
   it('denies on timeout and on abort (also when already aborted)', async () => {
@@ -767,6 +769,7 @@ describe('ConversationStore', () => {
     await fresh.delete('../x')
     expect((await fresh.list()).map((c) => c.id)).toEqual(['b'])
     expect((await readdir(join(dir, 'conversations'))).sort()).toEqual(['b.json', 'junk.json', 'notes.txt'])
+    expect((await stat(join(dir, 'conversations', 'b.json'))).mode & 0o777).toBe(0o600)
   })
 })
 

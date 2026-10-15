@@ -8,6 +8,8 @@ import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
 import { DEVICE_ROLES } from '@shared/types/server'
+import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
+import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -31,6 +33,20 @@ const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) 
 /** One file or folder name — no separators, not `.` or `..` (the service checks again). */
 const fileName = z.string().trim().min(1).max(255)
 const paths = z.array(path).min(1).max(1000)
+
+/** A model or mode id an agent offers. */
+const optionId = z.string().min(1).max(200)
+/** `@` references and images of a message to an agent (the service checks paths and sizes again). */
+const composerRef = z.object({ kind: z.enum(['file', 'folder', 'note', 'tab']), path, label: text(500).optional() })
+const composerImage = z.object({
+  name: z.string().min(1).max(255),
+  mimeType: z.enum(IMAGE_TYPES),
+  data: z
+    .string()
+    .min(1)
+    .max(Math.ceil(MAX_IMAGE_BYTES / 3) * 4)
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+})
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -303,9 +319,19 @@ export const REQUEST_SCHEMAS: Schemas = {
     projectId: id,
     title: text(200).optional(),
     isolated: z.boolean().optional(),
-    prompt: text(100_000).optional()
+    prompt: text(100_000).optional(),
+    model: optionId.optional(),
+    mode: optionId.optional()
   }),
-  'agents:send': z.object({ id, text: z.string().min(1).max(100_000) }),
+  'agents:send': z.object({
+    id,
+    text: text(100_000),
+    refs: z.array(composerRef).max(MAX_REFS).optional(),
+    images: z.array(composerImage).max(MAX_IMAGES).optional()
+  }),
+  'agents:configure': z.object({ id, model: optionId.optional(), mode: optionId.optional() }),
+  'agents:pushSettings': none,
+  'agents:setPushSettings': z.object({ enabled: z.boolean() }),
   'agents:interrupt': z.object({ id }),
   'agents:stop': z.object({ id }),
   'agents:resume': z.object({ id }),
@@ -340,6 +366,18 @@ export const REQUEST_SCHEMAS: Schemas = {
   'update:status': none,
   'update:check': none,
   'update:install': none,
+
+  'desktop:status': none,
+  'desktop:configure': z.object({ closeBehavior: z.enum(CLOSE_BEHAVIORS) }),
+  'desktop:openLogs': none,
+  'desktop:diagnostics': none,
+  'desktop:reportError': z.object({
+    kind: z.enum(['module', 'app', 'error', 'rejection']),
+    module: text(64).optional(),
+    message: text(2000),
+    stack: text(16_000).optional(),
+    componentStack: text(16_000).optional()
+  }),
 
   'browser:state': none,
   'browser:open': z

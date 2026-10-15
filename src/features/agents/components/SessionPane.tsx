@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Code2, FolderGit2, GitBranch, Play, Power, Square, TerminalSquare, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Code2, Cpu, FolderGit2, GitBranch, Play, Power, SlidersHorizontal, Square, TerminalSquare, X } from 'lucide-react'
 import type { ChatMessage } from '@shared/types/ai'
-import type { AgentSession, SessionStatus } from '@shared/types/agents'
+import type { AgentSession, SessionOption, SessionStatus } from '@shared/types/agents'
 import { isDesktop } from '@shared/ipc/client'
+import { Select } from '@/components/ui/Select'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { repoLink } from '@/lib/repo'
@@ -46,6 +47,45 @@ function SessionTerminal({ id, ended }: { id: string; ended: string }) {
     <div className="min-h-0 flex-1 px-3 py-2">
       <div ref={host} className="h-full w-full" />
     </div>
+  )
+}
+
+/**
+ * The session's model and mode, as the agent offers them. Claude Code's
+ * model aliases and permission modes read in the UI language; its mode
+ * changes from its next start (it is a start option).
+ */
+function SessionControls({ session }: { session: AgentSession }) {
+  const t = useT()
+  const configure = useAgents((s) => s.configure)
+  const claude = session.kind === 'claude-code'
+  const modelLabel = (o: SessionOption) => (claude && o.id === 'default' ? t.agents.defaultModel : o.name)
+  const modeLabel = (o: SessionOption) => (claude ? t.agents.claudeModes[o.id] : o.name)
+  return (
+    <>
+      {!!session.models?.length && (
+        <Select
+          variant="quiet"
+          icon={Cpu}
+          label={t.agents.model}
+          value={session.model ?? ''}
+          placeholder={t.agents.defaultModel}
+          options={session.models.map((o) => ({ value: o.id, label: modelLabel(o), hint: o.description }))}
+          onChange={(model) => void configure({ model })}
+        />
+      )}
+      {!!session.modes?.length && (
+        <Select
+          variant="quiet"
+          icon={SlidersHorizontal}
+          label={t.agents.mode}
+          value={session.mode ?? ''}
+          placeholder={t.agents.defaultMode}
+          options={session.modes.map((o) => ({ value: o.id, label: modeLabel(o), hint: claude && session.live ? t.agents.fromNextStart : o.description }))}
+          onChange={(mode) => void configure({ mode })}
+        />
+      )}
+    </>
   )
 }
 
@@ -224,10 +264,13 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
       )}
 
       <Composer
+        key={session.id}
         running={running && busy}
         sending={false}
         disabled={!running}
         placeholder={running ? t.agents.messageTo(name) : t.agents.resumeToContinue}
+        agent={{ sessionId: session.id, projectId: session.projectId, commands: session.commands ?? [], images: !!session.images }}
+        toolbar={<SessionControls session={session} />}
         onSend={send}
         onStop={() => void interrupt()}
       />

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { ALL_PROJECTS, type ApprovalDecision, type PermissionGrant, type PermissionRequest } from '@shared/types/ai'
 import type { EventBus } from '../events/EventBus'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 
 const APPROVAL_TIMEOUT_MS = 10 * 60_000
@@ -157,21 +157,14 @@ export class PermissionService {
   }
 
   private loadGrants(): Promise<PermissionGrant[]> {
-    this.grantList ??= readFile(this.deps.file, 'utf8').then(
-      async (text) => {
-        let parsed: { version?: number; grants?: unknown } = {}
-        try {
-          parsed = JSON.parse(text) ?? {}
-        } catch {
-          /* corrupt → empty */
-        }
-        const grants = migrate(parsed)
-        // Store the migrated list right away (best effort — it is migrated again on the next start otherwise).
-        if (parsed.version !== GRANTS_VERSION && grants.length) await this.write(grants).catch(() => {})
-        return grants
-      },
-      () => []
-    )
+    this.grantList ??= (async () => {
+      // Missing or damaged → empty (a damaged file is set aside, see readJson).
+      const parsed = (await readJson<{ version?: number; grants?: unknown } | null>(this.deps.file)) ?? {}
+      const grants = migrate(parsed)
+      // Store the migrated list right away (best effort — it is migrated again on the next start otherwise).
+      if (parsed.version !== GRANTS_VERSION && grants.length) await this.write(grants).catch(() => {})
+      return grants
+    })()
     return this.grantList
   }
 

@@ -46,9 +46,11 @@ import type {
   AgentMessageUpdate,
   AgentSession,
   AgentSessionDetail,
+  AgentInput,
   CreateSessionRequest,
   FileChange,
   SessionBranch,
+  SessionConfigure,
   FileDiff
 } from '@shared/types/agents'
 import type {
@@ -81,7 +83,7 @@ import type {
   ToolInfo
 } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
-import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
+import type { CloudAccount, CloudStatus, PushSettings } from '@shared/types/cloud'
 import type {
   BrowserCommand,
   BrowserFind,
@@ -95,6 +97,7 @@ import type {
   ViewBounds
 } from '@shared/types/browser'
 import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
+import type { CloseBehavior, DesktopStatus, RendererError } from '@shared/types/desktop'
 
 /** A position in a project file, for the lsp:* queries. */
 export interface LspAt {
@@ -339,7 +342,10 @@ export interface IpcChannels {
   'agents:list': { request: void; response: AgentSession[] }
   'agents:get': { request: { id: string }; response: AgentSessionDetail }
   'agents:create': { request: CreateSessionRequest; response: AgentSession }
-  'agents:send': { request: { id: string; text: string }; response: void }
+  'agents:send': { request: AgentInput & { id: string }; response: void }
+  'agents:configure': { request: SessionConfigure & { id: string }; response: AgentSession }
+  'agents:pushSettings': { request: void; response: PushSettings }
+  'agents:setPushSettings': { request: { enabled: boolean }; response: PushSettings }
   'agents:interrupt': { request: { id: string }; response: void }
   'agents:stop': { request: { id: string }; response: void }
   'agents:resume': { request: { id: string }; response: AgentSession }
@@ -374,6 +380,15 @@ export interface IpcChannels {
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
   'update:install': { request: void; response: void }
+
+  /** The desktop app: logs, diagnostics, what closing the window does, the keychain. */
+  'desktop:status': { request: void; response: DesktopStatus }
+  'desktop:configure': { request: { closeBehavior: CloseBehavior }; response: DesktopStatus }
+  'desktop:openLogs': { request: void; response: void }
+  /** Version, OS and the latest errors as text for a bug report — no secrets or tokens. */
+  'desktop:diagnostics': { request: void; response: string }
+  /** The renderer reports an error it caught (an error boundary, an uncaught error) for the log. */
+  'desktop:reportError': { request: RendererError; response: void }
 
   /** The Mindeck browser: tabs are web views in the desktop window (architecture §12.9). */
   'browser:state': { request: void; response: BrowserState }
@@ -641,6 +656,9 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:get': 'any',
   'agents:create': 'terminal',
   'agents:send': 'terminal',
+  'agents:configure': 'terminal',
+  'agents:pushSettings': 'any',
+  'agents:setPushSettings': 'any',
   'agents:interrupt': 'terminal',
   'agents:stop': 'terminal',
   'agents:resume': 'terminal',
@@ -670,6 +688,12 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'update:status': 'desktop',
   'update:check': 'desktop',
   'update:install': 'desktop',
+  // The desktop app around the core: its own window, logs and keychain.
+  'desktop:status': 'desktop',
+  'desktop:configure': 'desktop',
+  'desktop:openLogs': 'desktop',
+  'desktop:diagnostics': 'desktop',
+  'desktop:reportError': 'desktop',
   // The browser lives in the desktop window — and its tabs are the user's private pages.
   'browser:state': 'desktop',
   'browser:open': 'desktop',
