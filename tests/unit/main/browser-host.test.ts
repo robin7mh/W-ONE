@@ -198,6 +198,7 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     console: vi.fn(),
     shortcut: vi.fn(),
     focused: vi.fn(),
+    workspaceKey: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
@@ -578,6 +579,18 @@ describe('the browser host · what pages report', () => {
     expect(ev.shortcut).not.toHaveBeenCalledWith('find', 'a')
   })
 
+  it('hands the workspace’s keys from a page to the Mindeck UI (a page would swallow them)', () => {
+    const { win, ev, open } = setup()
+    const c = open('a').webContents
+    const mac = process.platform === 'darwin'
+    const pane = { preventDefault: vi.fn() }
+    c.emit('before-input-event', pane, { ...key('ArrowLeft', { meta: mac, control: !mac, alt: true }), code: 'ArrowLeft' })
+    expect(pane.preventDefault).toHaveBeenCalled()
+    expect(win.webContents.focus).toHaveBeenCalled()
+    expect(ev.workspaceKey).toHaveBeenCalledWith({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: mac, ctrlKey: !mac, altKey: true, shiftKey: false })
+    expect(ev.shortcut).not.toHaveBeenCalled() // not the browser's previous tab any more
+  })
+
   it('builds the page context menu and does what each entry says', () => {
     const { ev, open } = setup()
     const c = open('a').webContents
@@ -693,6 +706,8 @@ describe('the browser profile (session)', () => {
       setPermissionCheckHandler: (fn: (...a: unknown[]) => boolean) => (p.check = fn),
       setDisplayMediaRequestHandler: (fn: (...a: unknown[]) => void, opts: unknown) => ((p.display = fn), (p.displayOpts = opts)),
       on: (_event: string, fn: (...a: unknown[]) => void) => (p.download = fn),
+      persistent: true,
+      isPersistent: () => p.persistent,
       setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn),
       headers: undefined as undefined | ((details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void),
       headerFilter: undefined as unknown,
@@ -921,6 +936,13 @@ describe('the browser profile (session)', () => {
     h.exec.mockClear()
     cancelled.handlers.done({}, 'cancelled')
     expect(h.exec).not.toHaveBeenCalled()
+    expect(started).not.toHaveProperty('private')
+    // a private tab's profile (in memory): its downloads say so — they are never written down
+    const priv = profile()
+    priv.persistent = false
+    s.configureBrowserSession(priv as never, () => current)
+    priv.download!({}, item(), {})
+    expect(ev.download.mock.calls.at(-1)![0]).toMatchObject({ filename: 'report.pdf', private: true })
     // the window went away mid-download: nothing to tell
     current = null
     const orphan = item()
@@ -991,8 +1013,9 @@ describe('the browser keys', () => {
       [k('[', { meta: true, shift: true }), 'prevTab'],
       [k('i', { meta: true, shift: true }), null],
       [k('q', { meta: true, shift: true }), null],
-      [k('ArrowRight', { meta: true, alt: true }), 'nextTab'],
-      [k('ArrowLeft', { meta: true, alt: true }), 'prevTab'],
+      // ⌘⌥←/→ move between the workspace's panes
+      [k('ArrowRight', { meta: true, alt: true }), null],
+      [k('ArrowLeft', { meta: true, alt: true }), null],
       [k('i', { meta: true, alt: true }), 'devtools'],
       [k('ˆ', { meta: true, alt: true }), 'devtools'],
       [k('x', { meta: true, alt: true }), null],
@@ -1026,12 +1049,65 @@ describe('the browser keys', () => {
     expect(match(k('ArrowLeft', { alt: true }), false)).toBe('back')
     expect(match(k('ArrowRight', { alt: true }), false)).toBe('forward')
     expect(match(k('ArrowUp', { alt: true }), false)).toBeNull()
-    expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBe('prevTab')
+    expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBeNull() // the workspace's pane focus
     expect(match(k('ArrowLeft', { alt: true, meta: true }), false)).toBeNull()
     expect(match(k('h', ctrl), false)).toBe('history')
     expect(match(k('y', ctrl), false)).toBeNull()
     expect(match(k('O', { control: true, shift: true }), false)).toBe('bookmarkManager')
     expect(match(k('b', { control: true, alt: true }), false)).toBeNull()
     expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
+  })
+})
+
+describe('the workspace keys a page hands on', () => {
+  let wsKey: typeof import('../../../electron/main/platform/browser/shortcuts').workspaceKey
+  let match: typeof import('../../../electron/main/platform/browser/shortcuts').matchShortcut
+  beforeAll(async () => {
+    ;({ workspaceKey: wsKey, matchShortcut: match } = await import('../../../electron/main/platform/browser/shortcuts'))
+  })
+  type Mods = Partial<Record<'meta' | 'control' | 'alt' | 'shift', boolean>>
+  const k = (keyName: string, mods: Mods = {}, code?: string, type = 'keyDown') => ({ ...key(keyName, mods), type, ...(code ? { code } : {}) })
+
+  it('are ⌘ with ⌥ arrows and digits, ⌥Z, ⇧W, ⇧↵ and \\ on macOS — by the key’s place where ⌥ changes it', () => {
+    const yes = [
+      k('ArrowUp', { meta: true, alt: true }),
+      k('¡', { meta: true, alt: true }, 'Digit1'),
+      k('Ω', { meta: true, alt: true }, 'KeyZ'),
+      k('W', { meta: true, shift: true }, 'KeyW'),
+      k('Enter', { meta: true, shift: true }),
+      k('\\', { meta: true })
+    ]
+    for (const input of yes) {
+      expect(wsKey(input, true), JSON.stringify(input)).toMatchObject({ key: input.key, metaKey: true })
+      // never a browser key as well
+      expect(match(input, true), JSON.stringify(input)).toBeNull()
+    }
+    const no = [
+      k('ArrowUp', { meta: true, alt: true }, undefined, 'keyUp'),
+      k('ArrowUp', { meta: true, control: true, alt: true }),
+      k('ArrowUp', { control: true, alt: true }),
+      k('¡', { meta: true, alt: true }),
+      k('0', { meta: true, alt: true }, 'Digit0'),
+      k('z', { meta: true, alt: true }),
+      k('x', { meta: true, alt: true }, 'KeyX'),
+      k('w', { meta: true, shift: true }),
+      k('q', { meta: true, shift: true }, 'KeyQ'),
+      k('Enter', { meta: true, shift: true, alt: true }),
+      k('\\', { meta: true, shift: true, alt: true }),
+      k('t', { meta: true })
+    ]
+    for (const input of no) expect(wsKey(input, true), JSON.stringify(input)).toBeNull()
+  })
+
+  it('are Ctrl combinations by the key itself on Windows and Linux', () => {
+    expect(wsKey(k('ArrowRight', { control: true, alt: true }), false)).toEqual({ key: 'ArrowRight', code: '', metaKey: false, ctrlKey: true, altKey: true, shiftKey: false })
+    expect(wsKey(k('3', { control: true, alt: true }, 'Digit3'), false)).toMatchObject({ key: '3', code: 'Digit3' })
+    expect(wsKey(k('Z', { control: true, alt: true }), false)).toMatchObject({ key: 'Z' })
+    expect(wsKey(k('w', { control: true, shift: true }), false)).toMatchObject({ key: 'w', shiftKey: true })
+    expect(wsKey(k('\\', { control: true }), false)).toMatchObject({ key: '\\' })
+    // AltGr (Ctrl+Alt) types characters: those are text
+    expect(wsKey(k('@', { control: true, alt: true }, 'KeyQ'), false)).toBeNull()
+    expect(wsKey(k('\\', { meta: true }), false)).toBeNull()
+    expect(wsKey(k('\\', { control: true, meta: true }), false)).toBeNull()
   })
 })

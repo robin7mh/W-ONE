@@ -27,7 +27,8 @@ export function macKeys(): boolean {
  * maximizes it, ⌘⌥Z toggles zen mode, ⌘⌥1…9 switch saved workspaces.
  * They avoid the browser's keys (shortcuts.ts) and the editor's; where one
  * overlaps a key of the module in focus, the module keeps it (see
- * `Workspace`). Full screen (⌃⌘F, F11) is the main process's in the app
+ * `Workspace`). A web page with the keyboard hands them on (the main
+ * process's `workspaceKey` in shortcuts.ts). Full screen (⌃⌘F, F11) is the main process's in the app
  * (shortcuts.ts) and the browser's own on the web — `fullscreen` here only
  * runs from the menu and the palette.
  */

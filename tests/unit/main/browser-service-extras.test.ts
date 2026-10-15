@@ -89,15 +89,23 @@ describe('BrowserService · private tabs and the agents’ container', () => {
     events.permission({ tabId: priv.id, origin: 'https://secret.dev', kind: 'notifications' }, answer)
     b.permission(b.state().permissions[0].id, true, true)
     expect(answer).toHaveBeenCalledWith(true)
+    // its downloads are listed, never written down
+    const dl = (id: string, extra = {}) => ({ id, filename: `${id}.pdf`, path: `/dl/${id}.pdf`, url: `https://x.dev/${id}`, state: 'completed' as const, received: 1, total: 1, startedAt: '', ...extra })
+    events.download(dl('secret', { private: true }), { cancel: vi.fn() })
+    events.download(dl('mine'), { cancel: vi.fn() })
+    expect(b.state().downloads.map((d) => d.id)).toEqual(['mine', 'secret'])
     await b.dispose()
     const saved = JSON.parse(await readFile(join(dir, 'session.json'), 'utf8'))
     expect(saved.tabs.map((t: { id: string }) => t.id)).not.toContain(priv.id)
+    expect(saved.downloads.map((d: { id: string }) => d.id)).toEqual(['mine'])
     await expect(readFile(join(dir, 'sites.json'), 'utf8')).rejects.toThrow()
 
     b.close(child.id)
     expect(host.clearPrivate).not.toHaveBeenCalled() // one is still open
+    expect(b.state().downloads).toHaveLength(2)
     b.close(priv.id)
     expect(host.clearPrivate).toHaveBeenCalledTimes(1)
+    expect(b.state().downloads.map((d) => d.id)).toEqual(['mine']) // the last private tab took its downloads along
     expect(b.state().closed).toBe(0)
     // ⌘⇧N and the page menu open one too
     events.shortcut('newPrivateTab')
@@ -122,6 +130,18 @@ describe('BrowserService · private tabs and the agents’ container', () => {
     expect(JSON.parse(await readFile(join(dir, 'session.json'), 'utf8')).tabs.at(-1).profile).toBe('agents')
     const restored = await setup({ session: { tabs: [{ id: 'a', url: 'https://x.dev/', profile: 'agents' }, { id: 'p', url: 'https://y.dev/', profile: 'private' }] } })
     expect(restored.b.state().tabs.map((t) => t.profile)).toEqual(['agents', undefined])
+    // an agent's tab closed before the restart reopens in the container too
+    const closed = await setup({
+      session: {
+        tabs: [],
+        closed: [
+          { url: 'https://mine.dev/', title: '', index: 0, pinned: false, profile: 'private' },
+          { url: 'https://agent.dev/', title: '', index: 0, pinned: false, profile: 'agents' }
+        ]
+      }
+    })
+    expect(closed.b.reopen()).not.toHaveProperty('profile') // only the agents' container is kept
+    expect(closed.b.reopen()).toMatchObject({ url: 'https://agent.dev/', profile: 'agents' })
 
     await b.configure({ agentsUseLogins: true })
     const own = b.agentOpen('https://github.com/', 'Codex')
@@ -267,8 +287,10 @@ describe('BrowserService · logins, media, downloads, extensions', () => {
     expect(gone).toHaveBeenCalledWith(null)
     const late = vi.fn()
     events.login(undefined, { url: 'https://x/', host: 'x:443', realm: '', isProxy: false }, late)
+    const stopLists = vi.spyOn(b.adblock, 'stop')
     b.detach()
     expect(late).toHaveBeenCalledWith(null)
+    expect(stopLists).toHaveBeenCalled() // no window, no filter-list downloads
     expect(b.state().auth).toEqual([])
     await tick()
     expect(published.length).toBeGreaterThan(0)

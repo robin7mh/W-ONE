@@ -116,6 +116,15 @@ class Collector {
   }
 }
 
+/**
+ * A path as ripgrep prints it, as the client knows it: relative, `/`-separated.
+ * On Windows ripgrep prints `.\src\a.ts` — results would never match the open
+ * buffers they must skip, and opened files would get a second tab.
+ */
+export function rgPath(printed: string, windows = process.platform === 'win32'): string {
+  return (windows ? printed.replace(/\\/g, '/') : printed).replace(/^\.\//, '')
+}
+
 /** A ripgrep line's text without its line break. */
 const stripEol = (text: string) => text.replace(/\r?\n$/, '')
 
@@ -178,7 +187,7 @@ function runRipgrep(rg: string, root: string, q: TextSearchQuery, out: Collector
       if (msg.type === 'begin') {
         // Paths that aren't UTF-8 come as bytes: those files are left out.
         const path = msg.data.path?.text
-        file = path === undefined ? undefined : { path: path.replace(/^\.\//, ''), matches: [] }
+        file = path === undefined ? undefined : { path: rgPath(path), matches: [] }
       } else if (msg.type === 'match' && file && msg.data.lines?.text !== undefined) {
         file.matches.push(...rgMatches(msg.data))
       } else if (msg.type === 'end' && file) {

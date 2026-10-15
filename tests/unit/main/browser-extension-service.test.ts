@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir } from './helpers'
@@ -275,8 +275,11 @@ describe('extensions · managing', () => {
     expect(service.list()[0]).not.toHaveProperty('icon') // too big to carry around
     await service.attach(host)
     expect(host.loadExtension).toHaveBeenCalledTimes(1)
-    // a broken extensions.json starts empty
-    expect((await setup({ saved: '{' })).service.list()).toEqual([])
+    // a broken extensions.json starts empty — set aside, so the next save doesn't overwrite what may be rescued
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const broken = await setup({ saved: '{' })
+    expect(broken.service.list()).toEqual([])
+    expect((await readdir(broken.dir)).some((name) => name.startsWith('extensions.corrupt-'))).toBe(true)
     expect((await setup({ saved: { extensions: 'x' } })).service.list()).toEqual([])
   })
 

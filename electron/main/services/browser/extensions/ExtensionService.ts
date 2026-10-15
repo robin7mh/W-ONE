@@ -9,6 +9,7 @@ import type {
   ExtensionUpdateReport
 } from '@shared/types/browserExtensions'
 import type { ViewBounds } from '@shared/types/browser'
+import { readJson } from '../../../lib/jsonFile'
 import { writeAtomic } from '../../../lib/writeAtomic'
 import { parseCrx } from './crx'
 import { readManifest, type ManifestInfo } from './manifest'
@@ -96,12 +97,8 @@ export class ExtensionService {
   constructor(private readonly deps: ExtensionDeps) {}
 
   async init(): Promise<void> {
-    let saved: { extensions?: Saved[]; lastCheck?: number } | undefined
-    try {
-      saved = JSON.parse(await readFile(this.file(), 'utf8')) as typeof saved
-    } catch {
-      saved = undefined
-    }
+    // A damaged file is set aside (readJson), not overwritten with an empty list by the next save.
+    const saved = await readJson<{ extensions?: Saved[]; lastCheck?: number } | null>(this.file())
     this.lastCheck = typeof saved?.lastCheck === 'number' ? saved.lastCheck : 0
     for (const s of Array.isArray(saved?.extensions) ? saved.extensions : []) {
       if (typeof s?.id !== 'string' || typeof s.path !== 'string' || !['store', 'folder', 'profile'].includes(s.source)) continue
