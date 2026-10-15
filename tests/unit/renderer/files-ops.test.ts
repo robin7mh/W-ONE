@@ -39,7 +39,8 @@ function disk(folders: Record<string, FinderEntry[]>, routes: Record<string, (p:
     'finder:clipboardRead': () => [],
     'finder:trash': ({ paths }: { paths: string[] }) => paths.map((path) => ({ path, restore: `/trash/${path.split('/').pop()}` })),
     'finder:restore': () => undefined,
-    'finder:untrash': () => undefined,
+    'finder:untrash': ({ items }: { items: { path: string }[] }) => ({ items: items.map((i) => ({ path: i.path, to: i.path })), gone: [] }),
+    'finder:privacySettings': () => undefined,
     ...routes
   })
   const invoke = bridge.invoke.getMockImplementation()!
@@ -267,7 +268,39 @@ describe('files store: clipboard, conflicts, undo', () => {
     await s().undoLast()
     expect(s().selected).toEqual(['/d/a.txt', '/d/b.txt'])
 
-    // The OS trash (macOS, Windows): no undo offered. Nothing moved: nothing to undo.
+    // A mixed selection: undo for what can come back, and the status line says what cannot.
+    disk({ '/d': [entry('/d/a.txt'), entry('/d/b.txt')] }, { 'finder:trash': () => [{ path: '/d/a.txt', restore: '/trash/a.txt' }, { path: '/d/b.txt' }] })
+    await s().trash(['/d/a.txt', '/d/b.txt'])
+    expect(s().notice).toEqual({ key: 'trashed', count: 2, noUndo: 1 })
+    expect(s().undo.at(-1)).toEqual({ untrash: [{ path: '/d/a.txt', restore: '/trash/a.txt' }] })
+    // Back under another name (its own was taken since) — that one is picked; what left the trash is named.
+    disk(
+      { '/d': [entry('/d/a 2.txt')] },
+      { 'finder:untrash': () => ({ items: [{ path: '/d/a.txt', to: '/d/a 2.txt' }], gone: ['/d/c.txt'] }) }
+    )
+    await s().undoLast()
+    expect(s().selected).toEqual(['/d/a 2.txt'])
+    expect(s().notice).toEqual({ key: 'undone' })
+    expect(s()).toMatchObject({ error: 'c.txt', errorCode: 'trash-gone' })
+    // Nothing came back at all: no "Undone".
+    s().setNotice(undefined)
+    useFiles.setState({ undo: [{ untrash: [{ path: '/d/x.txt', restore: '/trash/x.txt' }, { path: '/d/y.txt', restore: '/trash/y.txt' }] }] })
+    disk({ '/d': [] }, { 'finder:untrash': () => ({ items: [], gone: ['/d/x.txt', '/d/y.txt'] }) })
+    await s().undoLast()
+    expect(s().notice).toBeUndefined()
+    expect(s()).toMatchObject({ error: 'x.txt, y.txt', errorCode: 'trash-gone' })
+    // macOS wants Full Disk Access: the error keeps its code (the view explains it and links System Settings).
+    useFiles.setState({ undo: [{ untrash: [{ path: '/d/x.txt', restore: '/Users/me/.Trash/x.txt' }] }] })
+    const fda = disk({ '/d': [] }, { 'finder:untrash': () => Promise.reject(Object.assign(new Error('Full Disk Access'), { code: 'full-disk-access' })) })
+    await s().undoLast()
+    expect(s()).toMatchObject({ error: 'Full Disk Access', errorCode: 'full-disk-access' })
+    await s().privacySettings()
+    expect(fda.sent('finder:privacySettings')).toEqual([undefined])
+    disk({ '/d': [] }, { 'finder:privacySettings': () => Promise.reject(Object.assign(new Error('desktop only'), { code: 'desktop-only' })) })
+    await s().privacySettings()
+    expect(s()).toMatchObject({ error: 'desktop only', errorCode: 'desktop-only' })
+
+    // The OS trash without a way back: no undo offered. Nothing moved: nothing to undo.
     disk({ '/d': [entry('/d/a.txt')] }, { 'finder:trash': () => [{ path: '/d/a.txt' }], 'finder:transfer': () => ({ items: [], replaced: [], skipped: ['/d/a.txt'] }) })
     await s().trash(['/d/a.txt'])
     await s().move(['/d/a.txt'], '/e')
