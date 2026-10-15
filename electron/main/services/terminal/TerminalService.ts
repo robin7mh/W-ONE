@@ -1,6 +1,6 @@
 import { spawn, type IPty } from 'node-pty'
 import { existsSync } from 'node:fs'
-import { readFile, rm, stat } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -16,6 +16,7 @@ import {
   type TerminalShell,
   type TerminalSnapshot
 } from '@shared/types/terminal'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { integrate, scanCwd, shellKind, writeScripts, type ShellLaunch } from './integration'
 import { detectShells } from './shells'
@@ -225,12 +226,9 @@ export class TerminalService {
   /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */
   async restore(): Promise<TerminalSnapshot | null> {
     if (!this.settings().restore) return null
-    try {
-      const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(JSON.parse(await readFile(join(this.opts.dir, 'terminals.json'), 'utf8')))
-      return parsed.success ? parsed.data : null
-    } catch {
-      return null
-    }
+    // A damaged file is set aside (readJson) rather than overwritten by the next save.
+    const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(await readJson(join(this.opts.dir, 'terminals.json')))
+    return parsed.success ? parsed.data : null
   }
 
   /**

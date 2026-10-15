@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, basename } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -445,6 +445,11 @@ describe('TerminalService saves the tabs for the next start', () => {
 
     await writeFile(join(dataDir, 'terminals.json'), '{"layout":"nope"}')
     expect(await svc.restore()).toBeNull()
+    // damaged: set aside for rescue, not overwritten by the next save
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await writeFile(join(dataDir, 'terminals.json'), '{"layout":')
+    expect(await svc.restore()).toBeNull()
+    expect((await readdir(dataDir)).some((name) => name.startsWith('terminals.corrupt-'))).toBe(true)
 
     await svc.persist(snapshot)
     svc = service({ terminal: { restore: false } })
