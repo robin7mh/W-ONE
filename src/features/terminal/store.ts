@@ -151,6 +151,46 @@ async function restore(): Promise<boolean> {
   return true
 }
 
+const VIEW_KEY = 'mindeck.terminal.view'
+
+/**
+ * This window's view of the shells (their order, the layout, the active one),
+ * kept for the session: after a renderer crash the window reloads, the shells
+ * are still running in the core, and the view comes back as it was.
+ */
+function rememberView(s: TerminalState): void {
+  try {
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify({ layout: s.layout, order: s.tabs.map((t) => t.id), activeId: s.activeId }))
+  } catch {
+    /* storage unavailable: a reload shows the shells in one pane */
+  }
+}
+
+let remembering = false
+function followView(): void {
+  if (remembering) return
+  remembering = true
+  useTerminals.subscribe(rememberView)
+}
+
+function lastView(): { layout?: unknown; order?: unknown; activeId?: unknown } | null {
+  try {
+    return JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? 'null') as { layout?: unknown; order?: unknown; activeId?: unknown } | null
+  } catch {
+    return null // unreadable: the shells as listed
+  }
+}
+
+/** Running shells re-attached in the order, layout and focus this window last showed (new ones at the end). */
+function reattach(existing: TerminalInfo[], view: ReturnType<typeof lastView>): Pick<TerminalState, 'tabs' | 'layout' | 'activeId'> {
+  const order: unknown[] = Array.isArray(view?.order) ? view.order : []
+  const rank = (t: TerminalInfo) => (order.includes(t.id) ? order.indexOf(t.id) : order.length)
+  const tabs = [...existing].sort((a, b) => rank(a) - rank(b))
+  const layout = typeof view?.layout === 'string' && view.layout in LAYOUT_GRID ? (view.layout as TerminalLayout) : 'single'
+  const activeId = tabs.find((t) => t.id === view?.activeId)?.id ?? tabs[0].id
+  return { tabs, layout, activeId }
+}
+
 /** Puts a new shell's tab in place (after `after`, else at the end) and focuses it. */
 function add(info: TerminalInfo, after?: string) {
   useTerminals.setState((s) => {
@@ -174,18 +214,21 @@ export const useTerminals = create<TerminalState>((set, get) => ({
 
   init: async (openHome = true) => {
     if (get().initialized) return initializing
+    // Read before anything changes the store (and so the remembered view).
+    const view = lastView()
     set({ initialized: true })
     initializing = (async () => {
       followInfo()
       await useTerminalSettings.getState().load()
       try {
         const existing = await ipc('terminal:list')
-        if (existing.length) set({ tabs: existing, activeId: existing[0].id })
+        if (existing.length) set(reattach(existing, view))
         else if (!(await restore()) && openHome) await get().open()
       } catch (err) {
         set({ error: errorMessage(err) })
       }
       startSaving()
+      followView()
     })()
     return initializing
   },

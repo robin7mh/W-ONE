@@ -54,7 +54,19 @@ const EN = {
   pictureInPicture: 'Picture in Picture',
   blocked: (n: number) => (n === 1 ? '1 ad or tracker blocked on this page' : `${n} ads and trackers blocked on this page`),
   blockOn: (host: string) => `Block Ads and Trackers on ${host}`,
-  blockingOff: 'Blocking Is Off in the Settings'
+  blockingOff: 'Blocking Is Off in the Settings',
+  verticalTabs: 'Vertical Tabs',
+  addToNewGroup: 'Add Tab to New Group',
+  addToGroup: 'Add Tab to Group',
+  removeFromGroup: 'Remove from Group',
+  unnamedGroup: (color: string) => `Unnamed Group (${color})`,
+  colors: { cyan: 'Cyan', blue: 'Blue', purple: 'Purple', green: 'Green', amber: 'Amber', danger: 'Red' },
+  splitWithNewTab: 'Split with New Tab',
+  openBeside: 'Open Beside Current Tab',
+  swapSides: 'Swap Sides',
+  stacked: 'Stack Top and Bottom',
+  sideBySide: 'Side by Side',
+  closeSplit: 'Close Split View'
 }
 
 export type Labels = typeof EN
@@ -114,7 +126,19 @@ const DE: Labels = {
   pictureInPicture: 'Bild im Bild',
   blocked: (n) => (n === 1 ? '1 Werbung oder Tracker auf dieser Seite blockiert' : `${n} Werbungen und Tracker auf dieser Seite blockiert`),
   blockOn: (host) => `Werbung und Tracker auf ${host} blockieren`,
-  blockingOff: 'Blockieren ist in den Einstellungen aus'
+  blockingOff: 'Blockieren ist in den Einstellungen aus',
+  verticalTabs: 'Vertikale Tabs',
+  addToNewGroup: 'Zu neuer Gruppe hinzufügen',
+  addToGroup: 'Zu Gruppe hinzufügen',
+  removeFromGroup: 'Aus Gruppe entfernen',
+  unnamedGroup: (color) => `Unbenannte Gruppe (${color})`,
+  colors: { cyan: 'Cyan', blue: 'Blau', purple: 'Lila', green: 'Grün', amber: 'Bernstein', danger: 'Rot' },
+  splitWithNewTab: 'Mit neuem Tab teilen',
+  openBeside: 'Neben aktuellem Tab öffnen',
+  swapSides: 'Seiten tauschen',
+  stacked: 'Übereinander anordnen',
+  sideBySide: 'Nebeneinander anordnen',
+  closeSplit: 'Geteilte Ansicht beenden'
 }
 
 export function labels(locale: 'de' | 'en'): Labels {

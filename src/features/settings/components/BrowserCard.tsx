@@ -14,7 +14,7 @@ import { Toggle } from './Toggle'
 const action =
   'mt-2 flex items-center gap-1.5 rounded-md border border-hud/60 px-2.5 py-1.5 font-sans text-[12px] text-text-secondary transition-colors'
 
-/** The browser: which search engine (and its suggestions), the bookmarks bar, where links from Mindeck open, importing, the history. */
+/** The browser: which search engine (and its suggestions), the bookmarks bar, vertical tabs, where links from Mindeck open, importing, the history. */
 export function BrowserCard() {
   const t = useT()
   const [settings, setSettings] = useState<BrowserSettings>()
@@ -47,6 +47,7 @@ export function BrowserCard() {
       <div className="mt-2">
         <Toggle label={t.settings.searchSuggestions} hint={t.settings.searchSuggestionsHint} checked={settings.searchSuggestions} onChange={(v) => configure({ searchSuggestions: v })} />
         <Toggle label={t.settings.bookmarksBar} checked={settings.bookmarksBar} onChange={(v) => configure({ bookmarksBar: v })} />
+        <Toggle label={t.browserTabs.verticalTabs} hint={t.browserTabs.verticalTabsHint} checked={settings.verticalTabs} onChange={(v) => configure({ verticalTabs: v })} />
         <Toggle label={t.settings.openLinks} hint={t.settings.openLinksHint} checked={settings.openLinksInMindeck} onChange={(v) => configure({ openLinksInMindeck: v })} />
       </div>
       <BrowserExtrasSettings settings={settings} configure={configure} onChange={apply} />

@@ -53,6 +53,7 @@ export function XtermPane({ tab, label, active, framed, onNavigate }: PaneProps)
       if (data === '\r') void useTerminals.getState().restart(tab.id)
     },
     onFind: () => setFinding(true),
+    onClose: () => void useTerminals.getState().close(tab.id),
     where: () => tabRef.current,
     onOpenFile: (file, line) => void openFile(file, line),
     restored: tab.restored,
@@ -86,8 +87,8 @@ export function XtermPane({ tab, label, active, framed, onNavigate }: PaneProps)
   const items = (): MenuItem[] => {
     const lastOutput = tab.integration ? api.lastOutput() : undefined
     return [
-      { label: t.terminal.copy, run: api.copy, disabled: !api.hasSelection() },
-      { label: t.terminal.paste, run: () => void api.paste() },
+      { label: `${t.terminal.copy} (${shortcutLabel('copy')})`, run: api.copy, disabled: !api.hasSelection() },
+      { label: `${t.terminal.paste} (${shortcutLabel('paste')})`, run: () => void api.paste() },
       { label: t.terminal.selectAll, run: api.selectAll },
       'separator',
       { label: `${t.terminal.find} (${shortcutLabel('find')})`, run: () => setFinding(true) },

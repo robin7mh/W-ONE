@@ -425,6 +425,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         useSearch.getState().set({ showReplace: true })
       }
       else if (key === 'g' && e.shiftKey) scm.setPane('scm')
+      // ⌘W / Ctrl+W: the tab (asking first when it has unsaved edits); without one, the workspace closes the pane.
+      else if (key === 'w' && !e.shiftKey && !e.altKey && useEditor.getState().activeId) useEditor.getState().requestClose(useEditor.getState().activeId!)
       else if (key === '\\') {
         const editor = useEditor.getState()
         if (editor.splitId) editor.closeSplit()
