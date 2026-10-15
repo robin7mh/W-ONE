@@ -45,7 +45,9 @@ import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
 import type { CursorInfo } from './CodeEditor'
 import { usePaneFocused } from '@/features/workspace/pane'
-import { workspaceCommands } from '@/features/workspace/commands'
+import { usePalette } from '@/features/palette/store'
+import { allCommands, registerCommands } from '@/features/palette/registry'
+import { showModule } from '@/features/palette/reveal'
 
 // Monaco is a few MB — it loads the first time the Editor module opens.
 const CodeEditor = lazy(() => import('./CodeEditor'))
@@ -179,7 +181,7 @@ function runUserBinding(e: KeyboardEvent, commands: () => PickItem[]): boolean {
     const id = WORKBENCH_COMMANDS[b.command]
     const strokes = id ? parseKeybinding(b.key) : null
     if (!strokes || strokes.length !== 1 || !matchesStroke(strokes[0], e)) continue
-    if (id === 'palette') useScm.getState().setQuickOpen(true, '>')
+    if (id === 'palette') usePalette.getState().show()
     else void commands().find((c) => c.id === id)?.run()
     return true
   }
@@ -356,10 +358,25 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const commands = useRef<() => PickItem[]>()
   commands.current = () =>
     buildCommands(t, {
-      onNavigate,
       readOnly,
-      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : []), { id: 'migrate', label: `Mindeck: ${t.migrate.title}`, run: () => onNavigate('settings') }, ...workspaceCommands(t)]
+      extra: [...(readOnly ? [] : [...debugCommands(t), ...liveCommands(t), ...testCommands(t)]), ...(desktop && projectId ? remoteCommands(t) : [])]
     })
+  // The palette lists the editor's commands while the editor is there; running one brings the editor up.
+  useEffect(
+    () =>
+      registerCommands('editor', (dict) =>
+        commands.current!().map((c) => ({
+          ...c,
+          group: dict.nav.editor,
+          icon: Code2,
+          run: () => {
+            showModule('editor')
+            return c.run()
+          }
+        }))
+      ),
+    []
+  )
   const byFile = useProblems((s) => s.byFile)
   const problems = useMemo(() => (projectId ? projectProblems(byFile, projectId) : []), [byFile, projectId])
   const errors = problems.filter((p) => p.severity === 'error').length
@@ -404,10 +421,10 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
     }
     const onKey = (e: KeyboardEvent) => {
       const scm = useScm.getState()
-      if (runUserBinding(e, () => commands.current!())) return e.preventDefault()
+      if (runUserBinding(e, () => allCommands(t))) return e.preventDefault()
       if (debugKey(e)) return e.preventDefault()
       if (e.key === 'F1') {
-        scm.setQuickOpen(true, '>')
+        usePalette.getState().show()
         return e.preventDefault()
       }
       if (e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'g') {
@@ -418,7 +435,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       const key = e.key.toLowerCase()
       if (key === 's' && e.altKey) void useEditor.getState().saveAll()
       else if (key === 's') void useEditor.getState().save()
-      else if (key === 'p') scm.setQuickOpen(true, e.shiftKey ? '>' : '')
+      else if (key === 'p' && e.shiftKey) usePalette.getState().show()
+      else if (key === 'p') scm.setQuickOpen(true)
       else if (key === 'f' && e.shiftKey) scm.setPane('search')
       else if (key === 'h' && e.shiftKey) {
         scm.setPane('search')
@@ -790,7 +808,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
         </footer>
       </section>
       {quickOpen && (
-        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} commands={commands.current()} />
+        <QuickOpen key={pick ? `pick:${pick.placeholder}` : `q:${quickQuery}`} />
       )}
     </Panel>
   )

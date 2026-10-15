@@ -142,7 +142,7 @@ describe('split editor: the view', () => {
     useEditor.setState({ tabs: [tab('a.ts'), tab('b.ts')], activeId: 'p:a.ts', splitId: 'p:b.ts' })
     render(<EditorTabs projectNames={new Map()} />)
     expect(screen.getAllByLabelText('Shown on the right')).toHaveLength(1)
-    const toggle = () => buildCommands(en, { onNavigate: vi.fn(), readOnly: false }).find((c) => c.id === 'view.split')!
+    const toggle = () => buildCommands(en, { readOnly: false }).find((c) => c.id === 'view.split')!
     expect(toggle().keys).toBe('⌘\\')
     act(() => void toggle().run())
     expect(e().splitId).toBeUndefined()

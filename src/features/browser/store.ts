@@ -32,6 +32,8 @@ export interface BrowserHandlers {
   focused?(): void
   /** A workspace key pressed while a page had the keyboard. */
   workspaceKey?(key: WorkspaceKey): void
+  /** ⇧⌘P while a page has the keyboard: Mindeck's command palette. */
+  palette?(): void
 }
 
 let handlers: BrowserHandlers | null = null
@@ -101,6 +103,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     else if (c === 'bookmark') void get().bookmarkActive()
     else if (c === 'bookmarksBar') void get().configure({ bookmarksBar: !get().settings.bookmarksBar })
     else if (c === 'import') set({ importOpen: true })
+    else if (c === 'palette') handlers?.palette?.()
     else {
       const tab = activeTab(get().state)
       if (tab) handlers?.sendToAgent(tab)

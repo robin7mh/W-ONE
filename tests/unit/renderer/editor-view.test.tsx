@@ -35,6 +35,8 @@ import { tabKey, useEditor } from '@/features/editor/store'
 import { useProjects } from '@/features/projects/store'
 import { useSession } from '@/features/session/store'
 import { PaneContext } from '@/features/workspace/pane'
+import { allCommands } from '@/features/palette/registry'
+import { en } from '@/lib/i18n/en'
 
 const initialEditor = useEditor.getState()
 const initialProjects = useProjects.getState()
@@ -417,11 +419,10 @@ describe('EditorView', () => {
     expect(screen.getByText('Read-only')).toBeInTheDocument()
     expect(screen.getByText('Keep mine')).toBeDisabled()
     // Read-only: the palette has nothing that writes or runs code.
-    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true })
-    const labels = screen.getAllByRole('option').map((o) => o.textContent)
-    expect(labels.some((l) => l!.startsWith('Debug:'))).toBe(false)
-    expect(labels).not.toContain('File: Save⌘S')
-    fireEvent.keyDown(screen.getByRole('dialog').querySelector('input')!, { key: 'Escape' })
+    const labels = allCommands(en).map((c) => c.label)
+    expect(labels.some((l) => l.startsWith('Debug:'))).toBe(false)
+    expect(labels).not.toContain('File: Save')
+    expect(labels).toContain('File: Close Editor')
     act(() => useEditor.setState({ activeId: 'p:b.png' }))
     expect(screen.getByText('Binary file')).toBeInTheDocument()
     expect(screen.queryByText('Open in VS Code')).toBeNull()
