@@ -49,6 +49,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Mindeck Cloud baked in: the published image requires a license (server/main.ts).
+          build-args: |
+            MINDECK_CLOUD_URL=${{ vars.MINDECK_CLOUD_URL }}
+            MINDECK_CLOUD_KEY=${{ secrets.MINDECK_CLOUD_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

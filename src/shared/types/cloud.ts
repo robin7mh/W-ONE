@@ -6,9 +6,11 @@
 export type LicensePlan = 'trial' | 'lifetime'
 
 /**
- * - `active`           licensed: trial time left, or lifetime
- * - `paused`           an active trial lease ran out while nobody used Mindeck —
- *                      renewed on the next heartbeat, so it stays usable
+ * - `active`           licensed: trial time left, or lifetime (also offline, with
+ *                      the lifetime license's offline certificate)
+ * - `paused`           an active lease ran out while nobody used Mindeck —
+ *                      renewed on the next heartbeat, so it stays usable. A
+ *                      trial's only for 2 h once renewing it failed (cloud 5xx).
  * - `signed_out`       no Mindeck account on this core
  * - `checking`         signed in, waiting for the cloud's first answer
  * - `email_unverified` the trial starts once the email address is confirmed
@@ -47,7 +49,7 @@ export interface CloudStatus {
   state: LicenseState
   account: CloudAccount | null
   license: CloudLicense | null
-  /** End of the current entitlement (trial lease or lifetime offline window), ISO time. */
+  /** End of the current entitlement (trial lease, lifetime offline window or certificate), ISO time. */
   validUntil: string | null
   /** The last call to the cloud went through. */
   online: boolean

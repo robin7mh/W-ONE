@@ -17,7 +17,8 @@ COPY package.json package-lock.json ./
 COPY scripts ./scripts
 RUN npm ci --no-audit --no-fund
 COPY . .
-# Mindeck Cloud for this image (license + sign-in), baked in at build time:
+# Mindeck Cloud for this image (license + sign-in), baked in at build time —
+# with it, the image requires a license (no run-time variable turns that off):
 #   docker build --build-arg MINDECK_CLOUD_URL=https://api.example.com --build-arg MINDECK_CLOUD_KEY=… .
 ARG MINDECK_CLOUD_URL=
 ARG MINDECK_CLOUD_KEY=

@@ -2,9 +2,9 @@ import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CloudService, deriveState, SESSION_SECRET, type CloudServiceOptions } from '../../../electron/main/services/cloud/CloudService'
+import { CloudService, deriveState, holdsOffline, OFFLINE_SECRET, PAUSE_GRACE_MS, SESSION_SECRET, type CloudServiceOptions } from '../../../electron/main/services/cloud/CloudService'
 import { parsePublicKey, verifyEntitlement, type EntitlementClaims } from '../../../electron/main/services/cloud/entitlement'
-import { bakedCloud, cloudConfig, DEV_CLOUD_URL } from '../../../electron/main/services/cloud/config'
+import { bakedCloud, cloudConfig, cloudDefines, DEV_CLOUD_URL, isReleaseBuild } from '../../../electron/main/services/cloud/config'
 import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
 import { Router } from '../../../electron/ipc/router'
 import { isLicenseFree } from '@shared/types/cloud'
@@ -41,6 +41,8 @@ function fakeCloud(clock: { now: number }) {
     used: 0,
     down: false,
     lease: true as boolean | 'forged' | 'broken',
+    /** A lifetime account's offline certificate (newer clouds); undefined = an older cloud without the field. */
+    cert: undefined as undefined | 'good' | 'forged' | 'temporary',
     fail: {} as Record<string, { status: number; body?: unknown }>,
     ai: {
       available: true,
@@ -71,7 +73,14 @@ function fakeCloud(clock: { now: number }) {
         const iat = Math.floor(clock.now / 1000)
         const claims = { sub: 'u1', email: 'robin@mindeck.test', plan: s.plan, active: s.active, reason: s.reason, rem: 1, iat, exp: iat + s.ttl }
         const token = s.lease === 'forged' ? signToken(JSON.stringify(claims), keys().privateKey) : signToken(JSON.stringify(claims), k.privateKey)
-        return json({ license: license(), entitlement: s.lease ? { token } : null, nextHeartbeatSeconds: 60 })
+        const perpetual = { ...claims, perpetual: s.cert !== 'temporary', exp: iat + 100 * 365 * 86_400 }
+        const certSigner = s.cert === 'forged' ? keys().privateKey : k.privateKey
+        return json({
+          license: license(),
+          entitlement: s.lease ? { token } : null,
+          nextHeartbeatSeconds: 60,
+          ...(s.cert ? { offlineCertificate: signToken(JSON.stringify(perpetual), certSigner) } : {})
+        })
       }
       case '/v1/billing/checkout':
         return json({ url: 'https://checkout.stripe.test/1' })
@@ -157,6 +166,31 @@ describe('deriveState', () => {
     expect(deriveState({ ...base, now: 200_000, online: false, claims: claims() })).toBe('offline')
     expect(deriveState({ ...base, claims: null })).toBe('checking')
   })
+
+  it('keeps an expired trial lease usable only for a while once a renewal failed', () => {
+    const base = { signedIn: true, online: true, claims: claims() } // ended at 100 s
+    const late = 100_000 + PAUSE_GRACE_MS + 1
+    expect(deriveState({ ...base, now: late })).toBe('paused') // nobody asked since: nobody was here
+    expect(deriveState({ ...base, now: late, lastAttempt: 50_000 })).toBe('paused')
+    expect(deriveState({ ...base, now: 100_000 + PAUSE_GRACE_MS, lastAttempt: 120_000 })).toBe('paused')
+    expect(deriveState({ ...base, now: late, lastAttempt: 120_000 })).toBe('offline')
+    expect(deriveState({ ...base, now: late, lastAttempt: 120_000, claims: claims({ plan: 'lifetime' }) })).toBe('paused')
+  })
+
+  it('a lifetime license’s offline certificate keeps Mindeck running without the cloud', () => {
+    const cert = claims({ plan: 'lifetime', perpetual: true, exp: 4_000_000_000 })
+    const base = { signedIn: true, now: 200_000, claims: claims({ plan: 'lifetime' }), offline: cert }
+    expect(deriveState({ ...base, online: false })).toBe('active')
+    expect(deriveState({ ...base, online: true, lastAttempt: 150_000 })).toBe('active')
+    expect(deriveState({ ...base, online: false, claims: null })).toBe('active')
+    // the cloud's word that the license ended wins
+    expect(deriveState({ ...base, online: true, claims: claims({ active: false, reason: 'trial_expired' }) })).toBe('trial_expired')
+    expect(holdsOffline(null, 0)).toBe(false)
+    expect(holdsOffline(claims({ perpetual: false, exp: 4_000_000_000 }), 0)).toBe(false)
+    expect(holdsOffline(claims({ perpetual: true, active: false, exp: 4_000_000_000 }), 0)).toBe(false)
+    expect(holdsOffline(claims({ perpetual: true, exp: 1 }), 2000)).toBe(false)
+    expect(deriveState({ ...base, online: false, offline: claims({ perpetual: true, exp: 1 }) })).toBe('offline')
+  })
 })
 
 describe('entitlement tokens', () => {
@@ -202,6 +236,18 @@ describe('cloud config', () => {
     expect(cloudConfig(false, { MINDECK_LICENSE: 'required' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
     expect(cloudConfig(true, {}, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true })
     expect(cloudConfig(false).enforced).toBe(false)
+  })
+
+  it('a release is a build with the cloud baked in — and a baked cloud needs its key', () => {
+    expect(isReleaseBuild()).toBe(false)
+    expect(isReleaseBuild({ url: 'https://api.mindeck.test', key: 'K' })).toBe(true)
+    expect(cloudDefines({})).toEqual({ __MINDECK_CLOUD_URL__: '""', __MINDECK_CLOUD_KEY__: '""' })
+    expect(cloudDefines({ MINDECK_CLOUD_URL: 'https://api.mindeck.test', MINDECK_CLOUD_KEY: 'K' })).toEqual({
+      __MINDECK_CLOUD_URL__: '"https://api.mindeck.test"',
+      __MINDECK_CLOUD_KEY__: '"K"'
+    })
+    expect(() => cloudDefines({ MINDECK_CLOUD_URL: 'https://api.mindeck.test' })).toThrow('without MINDECK_CLOUD_KEY')
+    expect(cloudDefines()).toHaveProperty('__MINDECK_CLOUD_URL__')
   })
 
   it('a core the desktop runs elsewhere follows its license (also in release builds)', () => {
@@ -377,6 +423,103 @@ describe('CloudService', () => {
     t.advance(10)
     await t.svc.tick() // failed 10 s ago: rest first
     expect(beats()).toBe(2)
+  })
+
+  it('stops a trial whose renewals keep failing two hours after the lease ended (a cloud that answers 5xx)', async () => {
+    const t = await setup()
+    await t.signIn()
+    t.cloud.s.fail['/v1/license/heartbeat'] = { status: 503 }
+    t.advance(60)
+    await t.svc.tick() // renewal due, fails
+    t.advance(60)
+    await t.svc.tick() // the lease has ended, the renewal still fails
+    expect(t.svc.status()).toMatchObject({ state: 'paused', allowed: true, online: true, error: 'http-503' })
+    t.advance(PAUSE_GRACE_MS / 1000)
+    await t.svc.tick()
+    expect(t.svc.status()).toMatchObject({ state: 'offline', allowed: false, error: 'http-503' })
+    delete t.cloud.s.fail['/v1/license/heartbeat']
+    t.advance(10)
+    await t.svc.tick()
+    expect(t.svc.status()).toMatchObject({ state: 'active', allowed: true, error: null })
+  })
+
+  it('lifetime: keeps the cloud’s offline certificate (encrypted with the secrets) and runs on it without the cloud', async () => {
+    const t = await setup()
+    t.cloud.s.plan = 'lifetime'
+    t.cloud.s.cert = 'good'
+    await t.signIn()
+    const stored = await t.secrets.get(OFFLINE_SECRET)
+    expect(stored).toMatch(/^mindeck1\./)
+    expect(await readFile(join(t.dir, 'cloud.json'), 'utf8')).not.toContain(stored!)
+    // the lease (90 s here) runs out while the cloud is gone — or answers 5xx
+    t.cloud.s.down = true
+    t.advance(20 * 60)
+    await t.svc.tick()
+    const status = t.svc.status()
+    expect(status).toMatchObject({ state: 'active', allowed: true, online: false })
+    expect(Date.parse(status.validUntil!)).toBeGreaterThan(t.clock.now + 90 * 365 * 86_400_000)
+    t.cloud.s.down = false
+    t.cloud.s.fail['/v1/license/heartbeat'] = { status: 500 }
+    t.advance(20 * 60)
+    await t.svc.tick()
+    expect(t.svc.status()).toMatchObject({ state: 'active', online: true, error: 'http-500' })
+    t.svc.dispose()
+
+    // after a restart, still without the cloud
+    const again = await setup({ dir: t.dir, secrets: t.secrets, offline: true })
+    again.advance(3 * 86_400 * 365)
+    expect(again.svc.status()).toMatchObject({ state: 'active', allowed: true })
+  })
+
+  it('lifetime: a refund (the cloud says inactive) drops the certificate; an older cloud without it changes nothing', async () => {
+    const t = await setup()
+    t.cloud.s.plan = 'lifetime'
+    t.cloud.s.cert = 'good'
+    await t.signIn()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeDefined()
+    // an older cloud (no field) and a lifetime license: the certificate stays
+    t.cloud.s.cert = undefined
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeDefined()
+    // refunded: back to an expired trial
+    t.cloud.s.plan = 'trial'
+    t.cloud.s.active = false
+    t.cloud.s.reason = 'trial_expired'
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+    t.cloud.s.down = true
+    t.advance(3600)
+    expect(t.svc.status()).toMatchObject({ state: 'trial_expired', allowed: false })
+  })
+
+  it('lifetime: an inactive lease alone also drops it; forged or temporary certificates are ignored; sign-out forgets it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const t = await setup()
+    t.cloud.s.plan = 'lifetime'
+    t.cloud.s.cert = 'forged'
+    await t.signIn()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('offline certificate'))
+    t.cloud.s.cert = 'temporary' // genuine, but not perpetual
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+    t.cloud.s.cert = 'good'
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeDefined()
+    t.cloud.s.cert = undefined
+    t.cloud.s.active = false // still "lifetime", but the cloud says no
+    await t.svc.refresh()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+
+    t.cloud.s.active = true
+    t.cloud.s.cert = 'good'
+    await t.svc.refresh()
+    await t.svc.logout()
+    expect(await t.secrets.get(OFFLINE_SECRET)).toBeUndefined()
+    // signed out, a certificate left in the store is not even looked at
+    await t.secrets.set(OFFLINE_SECRET, 'mindeck1.x.y')
+    const again = await setup({ dir: t.dir, secrets: t.secrets, offline: true })
+    expect(again.svc.status().state).toBe('signed_out')
   })
 
   it('reports what the cloud refuses, and re-checks every 30 s', async () => {
@@ -573,6 +716,7 @@ describe('CloudService', () => {
       join(dir, 'cloud.json'),
       JSON.stringify({ installId: 'abc', account: { email: 'a@b.c', name: null }, license: null, entitlement: 'mindeck1.a.b', publicKey: null, webUrl: null })
     )
+    await new SecretStore(join(dir, 'secrets.json')).set(OFFLINE_SECRET, 'mindeck1.a.b') // no key to check it with
     const t = await setup({ dir, enforced: false, offline: true })
     await vi.waitFor(() => expect(t.svc.status().online).toBe(false))
     expect(t.svc.status()).toMatchObject({ state: 'offline', allowed: true, validUntil: null, error: 'cloud-unreachable' })
