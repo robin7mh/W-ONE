@@ -420,7 +420,7 @@ describe('EditorView with source control', () => {
       'projects:list': () => [{ id: 'p', name: 'Demo', path: '/x/p', addedAt: '', lastSeenAt: '' }],
       'files:list': () => [],
       'files:stat': () => [],
-      'scm:status': () => status({ ahead: 1, behind: 2, files: Array.from({ length: 120 }, (_, i) => ({ path: `f${i}.ts`, unstaged: 'modified' as const })) }),
+      'scm:status': () => status({ ahead: 1, behind: 2, files: Array.from({ length: 100 }, (_, i) => ({ path: `f${i}.ts`, unstaged: 'modified' as const })) }),
       'scm:branches': () => [],
       'scm:log': () => [commit('c1', [])],
       'scm:show': () => ({ hash: 'c1', author: 'Ada', email: 'a@a', date: 0, message: 'first', files: [] }),
