@@ -299,10 +299,9 @@ describe('info and folder sizes', () => {
     await symlink(join(home, 'nowhere'), join(home, 'broken'))
     expect((await finder.info(join(home, 'broken'))).entry.link).toBe(true)
 
-    const uid = vi.spyOn(process, 'getuid').mockReturnValue(4242)
-    expect((await finder.info(home)).owner).toBeNull()
-    uid.mockRestore()
     const getuid = process.getuid
+    Object.defineProperty(process, 'getuid', { value: () => 4242, configurable: true })
+    expect((await finder.info(home)).owner).toBeNull()
     Object.defineProperty(process, 'getuid', { value: undefined, configurable: true })
     expect((await finder.info(home)).owner).toBeNull()
     Object.defineProperty(process, 'getuid', { value: getuid, configurable: true })
@@ -542,7 +541,7 @@ describe('system clipboard', () => {
         read: vi.fn(async () =>
           items.map((data) => ({
             types: Object.keys(data),
-            getType: async (t: string) => new Blob([data[t]])
+            getType: async (t: string) => new Blob([data[t] as BlobPart])
           }))
         ),
         write: vi.fn(async (list: never[]) => {
