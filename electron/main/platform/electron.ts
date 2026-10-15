@@ -17,6 +17,11 @@ export function safeExternal(url: string): boolean {
   return /^(https?:\/\/|mailto:)/i.test(url)
 }
 
+/** The OS trash (Finder's, the Recycle Bin, the desktop's). */
+async function osTrash(path: string): Promise<void> {
+  await shell.trashItem(path)
+}
+
 /** Desktop host: native dialogs, the OS file manager, its link handlers and the OS trash. */
 export const electronPlatform: Platform = {
   kind: 'desktop',
@@ -36,10 +41,8 @@ export const electronPlatform: Platform = {
     await shell.openExternal(url)
   },
   appForUrl: (url) => app.getApplicationNameForProtocol(url),
-  async trashItem(path) {
-    await shell.trashItem(path)
-  },
-  restorableTrash: desktopTrash(process.platform, process.env, homedir()),
+  trashItem: osTrash,
+  restorableTrash: desktopTrash({ platform: process.platform, env: process.env, home: homedir(), trashItem: osTrash }),
   fileClipboard: fileClipboard(clipboard, (data) => new ClipboardItem(data), process.platform),
   openRemoteWindow({ title, url, token, deviceId }) {
     const win = new BrowserWindow({

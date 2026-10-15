@@ -13,6 +13,7 @@ export function registerFinderIpc(router: Router, finder: FinderService): void {
   router.register('finder:move', ({ paths, dest }) => finder.move(paths, dest))
   router.register('finder:copy', ({ paths, dest }) => finder.copy(paths, dest))
   router.register('finder:untrash', ({ items }) => finder.untrash(items))
+  router.register('finder:privacySettings', () => finder.privacySettings())
   router.register('finder:conflicts', ({ paths, dest }) => finder.conflicts(paths, dest))
   router.register('finder:transfer', (req) => finder.transfer(req))
   router.register('finder:cancel', ({ id }) => finder.cancel(id))

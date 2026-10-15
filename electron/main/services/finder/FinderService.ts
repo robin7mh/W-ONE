@@ -16,7 +16,8 @@ import {
   type FolderSize,
   type TransferRequest,
   type TransferResult,
-  type TrashedItem
+  type TrashedItem,
+  type UntrashResult
 } from '@shared/types/finder'
 import { Cancelled, copyTree, Job, measure } from './transfer'
 import { archiveKind, extract, zip } from './archive'
@@ -59,9 +60,11 @@ export interface FinderDeps {
   volumeDirs?: string[]
   openPath?: (path: string) => Promise<void>
   revealPath?: (path: string) => void
+  /** Hand a link to the system (System Settings' privacy pane on macOS). */
+  openExternal?: (url: string) => Promise<void>
   trash: (path: string) => Promise<void>
-  /** A trash Mindeck can put things back from (Linux) — makes trashing undoable. */
-  restorableTrash?: { trash(path: string): Promise<string>; restore(trashed: string, to: string): Promise<void> }
+  /** A trash Mindeck can put things back from (`platform/trash.ts`) — makes trashing undoable. */
+  restorableTrash?: { trash(path: string): Promise<string | undefined>; restore(trashed: string, to: string): Promise<void> }
   /** Files on the system clipboard (desktop only). */
   clipboard?: { write(paths: string[], cut: boolean): Promise<void>; read(): Promise<string[]> }
   /** Spotlight: paths under `dir` whose name matches `query`. Absent where there is none. */
@@ -256,16 +259,34 @@ export class FinderService {
     return out
   }
 
-  /** Undo for the trash: back to where they were (each place must still be free). */
-  async untrash(items: { path: string; restore: string }[]): Promise<void> {
+  /**
+   * Undo for the trash: back to where they were. A name taken there since
+   * keeps both (the returning one gets a number, as when copying); what is no
+   * longer in the trash is listed in `gone` while the rest comes back.
+   */
+  async untrash(items: { path: string; restore: string }[]): Promise<UntrashResult> {
     const trash = this.deps.restorableTrash
     if (!trash) throw coded('no-undo', 'This trash cannot be undone from Mindeck')
+    const result: UntrashResult = { items: [], gone: [] }
     for (const item of items) {
-      const to = this.absolute(item.path)
-      await this.assertWritable(to)
-      await this.assertFree(to)
-      await trash.restore(this.absolute(item.restore), to)
+      const path = this.absolute(item.path)
+      await this.assertWritable(path)
+      const to = await freeName(dirname(path), basename(path))
+      try {
+        await trash.restore(this.absolute(item.restore), to)
+        result.items.push({ path, to })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'trash-gone') throw err
+        result.gone.push(path)
+      }
     }
+    return result
+  }
+
+  /** macOS: System Settings at Full Disk Access — what taking things out of the Trash needs. */
+  async privacySettings(): Promise<void> {
+    if (!this.deps.openExternal) throw coded('desktop-only', 'System Settings can only be opened from the Mindeck desktop app')
+    await this.deps.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
   }
 
   /** Into `dest`; a name that is taken there gets a number (nothing is replaced). */
@@ -445,7 +466,8 @@ export class FinderService {
     const trash = this.deps.restorableTrash
     if (trash) {
       try {
-        return { path, restore: await trash.trash(path) }
+        const restore = await trash.trash(path)
+        return restore ? { path, restore } : { path }
       } catch (err) {
         // Another disk: its own trash, through the OS.
         if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err

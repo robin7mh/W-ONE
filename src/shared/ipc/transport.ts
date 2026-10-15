@@ -183,6 +183,43 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
   }
 }
 
+/** A SHA-256 fingerprint as 64 hex digits (any notation: `AB:CD…`, `ab cd…`), or null. */
+export function normalizeFingerprint(fingerprint: string): string | null {
+  const hex = fingerprint.replace(/[\s:]/g, '').toUpperCase()
+  return /^[0-9A-F]{64}$/.test(hex) ? hex : null
+}
+
+/** `AB:CD:…` — how certificate viewers show a fingerprint. */
+export function formatFingerprint(fingerprint: string): string {
+  return (normalizeFingerprint(fingerprint) ?? '').replace(/(..)(?!$)/g, '$1:')
+}
+
+/**
+ * The link a QR code carries: `<base>/#pair=<code>` and, for a core that
+ * speaks HTTPS, `&fp=<sha256>` — the certificate a client should find there.
+ */
+export function pairingLink(baseUrl: string, code: string, fingerprint?: string): string {
+  const fp = fingerprint ? normalizeFingerprint(fingerprint) : null
+  return `${trimSlash(baseUrl)}/#pair=${encodeURIComponent(code)}${fp ? `&fp=${fp.toLowerCase()}` : ''}`
+}
+
+export interface PairingLink {
+  baseUrl: string
+  code: string
+  /** `AB:CD:…`, when the link names the core's certificate. */
+  fingerprint?: string
+}
+
+/** A scanned pairing link taken apart (null when it is none). */
+export function parsePairingLink(link: string): PairingLink | null {
+  const m = /^(https?:\/\/[^#]+?)\/?#(.*)$/i.exec(link.trim())
+  const params = new URLSearchParams(m?.[2] ?? '')
+  const code = params.get('pair')
+  if (!m || !code) return null
+  const fingerprint = normalizeFingerprint(params.get('fp') ?? '')
+  return { baseUrl: m[1], code, ...(fingerprint ? { fingerprint: formatFingerprint(fingerprint) } : {}) }
+}
+
 /** Liveness check — also tells a client whether a URL really is a Mindeck core. */
 export async function probeCore(
   baseUrl: string,

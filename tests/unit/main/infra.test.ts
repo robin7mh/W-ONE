@@ -536,6 +536,7 @@ describe('paths', () => {
         settingsFile: join(home, 'Mindeck', 'data', 'settings.json'),
         defaultVaultRoot: join(home, 'Mindeck', 'vault'),
         devicesFile: join(home, 'Mindeck', 'data', 'devices.json'),
+        tlsDir: join(home, 'Mindeck', 'data', 'tls'),
         secretsFile: join(home, 'Mindeck', 'data', 'secrets.json'),
         cloudFile: join(home, 'Mindeck', 'data', 'cloud.json'),
         grantsFile: join(home, 'Mindeck', 'data', 'grants.json'),

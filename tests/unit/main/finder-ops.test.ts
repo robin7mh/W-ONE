@@ -237,11 +237,25 @@ describe('undo: restore moves and the trash', () => {
     expect(await readFile(join(data, 'Trash', 'info', 'one.txt.trashinfo'), 'utf8')).toBe(
       `[Trash Info]\nPath=${join(home, 'A', 'one.txt').split('/').map(encodeURIComponent).join('/')}\nDeletionDate=2026-10-15T09:30:05\n`
     )
-    await finder.untrash(items.map((i) => ({ path: i.path, restore: i.restore! })))
-    expect(existsSync(join(home, 'A', 'one.txt'))).toBe(true)
+    // Several at once; a name taken since keeps both (the one coming back gets a number).
+    await writeFile(join(home, 'B'), 'new B')
+    expect(await finder.untrash(items.map((i) => ({ path: i.path, restore: i.restore! })))).toEqual({
+      items: [
+        { path: join(home, 'A', 'one.txt'), to: join(home, 'A', 'one.txt') },
+        { path: join(home, 'B'), to: join(home, 'B 2') }
+      ],
+      gone: []
+    })
+    expect(await readFile(join(home, 'A', 'one.txt'), 'utf8')).toBe('one')
+    expect(await readFile(join(home, 'B'), 'utf8')).toBe('new B')
+    expect((await stat(join(home, 'B 2'))).isDirectory()).toBe(true)
     expect(existsSync(join(data, 'Trash', 'info', 'one.txt.trashinfo'))).toBe(false)
-    await expect(finder.untrash([{ path: join(home, 'A', 'one.txt'), restore: join(data, 'Trash', 'files', 'one.txt') }])).rejects.toMatchObject({ code: 'exists' })
-    await expect(finder.untrash([{ path: join(home, 'x.txt'), restore: join(data, 'Trash', 'files', 'gone') }])).rejects.toMatchObject({ code: 'not-found' })
+    // Emptied from the trash since: listed, the rest still comes back.
+    const [two] = await finder.trash([join(home, 'A', 'two.txt')])
+    expect(await finder.untrash([{ path: join(home, 'x.txt'), restore: join(data, 'Trash', 'files', 'gone') }, { path: two.path, restore: two.restore! }])).toEqual({
+      items: [{ path: join(home, 'A', 'two.txt'), to: join(home, 'A', 'two.txt') }],
+      gone: [join(home, 'x.txt')]
+    })
     await expect(finder.untrash([{ path: join(home, 'x.txt'), restore: join(home, 'A', 'two.txt') }])).rejects.toMatchObject({ code: 'bad-path' })
 
     // Same names get numbered; the old record stays with its file.
@@ -252,14 +266,27 @@ describe('undo: restore moves and the trash', () => {
   })
 
   it('falls back to the OS trash on other disks, and passes other errors on', async () => {
-    const restorable = { trash: vi.fn(async (): Promise<string> => Promise.reject(errno('EXDEV'))), restore: vi.fn() }
+    const restorable = { trash: vi.fn(async (): Promise<string | undefined> => Promise.reject(errno('EXDEV'))), restore: vi.fn(async () => {}) }
     const { finder, home, trash } = await world({ restorableTrash: restorable })
     expect(await finder.trash([join(home, 'A', 'one.txt')])).toEqual([{ path: join(home, 'A', 'one.txt') }])
     expect(trash).toHaveBeenCalled()
     restorable.trash.mockRejectedValueOnce(errno('EACCES'))
     await expect(finder.trash([join(home, 'A', 'two.txt')])).rejects.toMatchObject({ code: 'EACCES' })
+    // In the OS trash but not found again there: no way back offered.
+    restorable.trash.mockResolvedValueOnce(undefined)
+    expect(await finder.trash([join(home, 'A', 'two.txt')])).toEqual([{ path: join(home, 'A', 'two.txt') }])
+    // Errors putting back other than "gone" (macOS: Full Disk Access) stop the undo.
+    restorable.restore.mockRejectedValueOnce(errno('full-disk-access'))
+    await expect(finder.untrash([{ path: join(home, 'A', 'two.txt'), restore: '/t/two.txt' }])).rejects.toMatchObject({ code: 'full-disk-access' })
     const plain = (await world()).finder
     await expect(plain.untrash([{ path: join(home, 'x'), restore: join(home, 'y') }])).rejects.toMatchObject({ code: 'no-undo' })
+  })
+
+  it('opens the macOS privacy settings where there is a desktop to open them on', async () => {
+    const openExternal = vi.fn(async () => {})
+    await (await world({ openExternal })).finder.privacySettings()
+    expect(openExternal).toHaveBeenCalledWith('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
+    await expect((await world()).finder.privacySettings()).rejects.toMatchObject({ code: 'desktop-only' })
   })
 
   it('the freedesktop trash removes its record when the move fails, and passes record errors on', async () => {
@@ -273,17 +300,18 @@ describe('undo: restore moves and the trash', () => {
     await expect(t.trash(join(data, long))).rejects.toMatchObject({ code: 'ENAMETOOLONG' })
   })
 
-  it('uses the freedesktop trash on Linux only, under XDG_DATA_HOME when set', async () => {
-    expect(desktopTrash('darwin', {}, '/h')).toBeUndefined()
-    expect(desktopTrash('win32', {}, '/h')).toBeUndefined()
+  it('uses the freedesktop trash on Linux, under XDG_DATA_HOME when set', async () => {
+    const trashItem = vi.fn(async () => {})
+    expect(desktopTrash({ platform: 'aix', env: {}, home: '/h', trashItem })).toBeUndefined()
     const data = await tempDir()
-    const viaEnv = desktopTrash('linux', { XDG_DATA_HOME: data }, '/nowhere')!
+    const viaEnv = desktopTrash({ platform: 'linux', env: { XDG_DATA_HOME: data }, home: '/nowhere', trashItem })!
     await writeFile(join(data, 'f'), '')
     expect(await viaEnv.trash(join(data, 'f'))).toBe(join(data, 'Trash', 'files', 'f'))
     const home = await tempDir()
-    const viaHome = desktopTrash('linux', {}, home)!
+    const viaHome = desktopTrash({ platform: 'linux', env: {}, home, trashItem })!
     await writeFile(join(home, 'g'), '')
     expect(await viaHome.trash(join(home, 'g'))).toBe(join(home, '.local', 'share', 'Trash', 'files', 'g'))
+    expect(trashItem).not.toHaveBeenCalled()
   })
 })
 
