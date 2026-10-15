@@ -4,6 +4,8 @@ import { useEditor } from './store'
 import { useScm, type PickItem } from './scm'
 import { useGitHub } from './github'
 import { editorActions } from './actions'
+import { useBlame } from './blame'
+import { useEditorPrefs } from './prefs'
 
 /** Monaco actions the palette lists under their own (translated) names, with VS Code's keys. */
 const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string][] = [
@@ -86,6 +88,8 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
               label: `Git: ${p.createBranch}`,
               run: () => scm().openPick({ placeholder: t.scm.branchName, items: [], onText: (name) => scm().createBranch(name) })
             },
+            { id: 'git.stash', label: `Git: ${t.stash.palette}`, run: () => scm().openPick({ placeholder: t.stash.message, items: [], onText: (message) => scm().stash(message, false) }) },
+            { id: 'git.stashUntracked', label: `Git: ${t.stash.paletteUntracked}`, run: () => scm().openPick({ placeholder: t.stash.message, items: [], onText: (message) => scm().stash(message, true) }) },
             {
               id: 'github.create',
               label: `GitHub: ${t.github.create}`,
@@ -96,7 +100,20 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
             }
           ]),
           pane('graph', t.scm.panes.graph),
-          pane('prs', t.scm.panes.prs)
+          pane('prs', t.scm.panes.prs),
+          {
+            id: 'git.blame',
+            label: `Git: ${t.blame.toggle}`,
+            run: () => {
+              const id = editor().focusedId()
+              if (id) useBlame.getState().toggle(id)
+            }
+          },
+          {
+            id: 'git.inlineBlame',
+            label: `Git: ${t.blame.toggleInline}`,
+            run: () => useEditorPrefs.getState().update({ inlineBlame: useEditorPrefs.getState().settings.inlineBlame === false })
+          }
         ]
 
   const editorItems: PickItem[] = !actions

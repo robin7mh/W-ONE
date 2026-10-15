@@ -140,12 +140,19 @@ export type ChatPart = { type: 'text'; text: string } | ToolCallPart
 export type ChatRole = 'user' | 'assistant'
 export type ChatStatus = 'streaming' | 'done' | 'error' | 'cancelled'
 
+/** What a user message carried besides its text (agent sessions): shown as chips. */
+export interface MessageAttachment {
+  kind: 'file' | 'folder' | 'note' | 'tab' | 'image'
+  label: string
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
   parts: ChatPart[]
   createdAt: string
   status: ChatStatus
+  attachments?: MessageAttachment[]
   error?: string
   /** Why it failed, for the app to say in its own words (`ai-credit-exhausted`, `license-required` …). */
   errorCode?: string

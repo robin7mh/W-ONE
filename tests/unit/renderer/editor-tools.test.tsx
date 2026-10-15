@@ -87,7 +87,11 @@ describe('command palette: commands', () => {
       'Git: Sync (pull, then push)',
       'Git: Checkout to…',
       'Git: Create Branch…',
-      'GitHub: Create pull request'
+      'Git: Stash Changes…',
+      'Git: Stash Changes (Include Untracked)…',
+      'GitHub: Create pull request',
+      'Git: Toggle File Blame',
+      'Git: Toggle Inline Blame'
     ])
     const readOnly = labels(buildCommands(en, { onNavigate, readOnly: true }))
     expect(readOnly).not.toContain('File: Save')

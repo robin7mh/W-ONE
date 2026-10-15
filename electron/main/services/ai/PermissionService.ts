@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import type { ApprovalDecision, PermissionGrant, PermissionRequest } from '@shared/types/ai'
 import type { EventBus } from '../events/EventBus'
+import { readJson } from '../../lib/jsonFile'
+import { writeAtomic } from '../../lib/writeAtomic'
 
 const APPROVAL_TIMEOUT_MS = 10 * 60_000
 
@@ -95,20 +95,14 @@ export class PermissionService {
 
   private async loadGrants(): Promise<PermissionGrant[]> {
     if (this.grantList) return this.grantList
-    try {
-      const parsed = JSON.parse(await readFile(this.deps.file, 'utf8'))
-      this.grantList = Array.isArray(parsed.grants) ? parsed.grants : []
-    } catch {
-      this.grantList = []
-    }
-    return this.grantList!
+    const parsed = await readJson<{ grants?: PermissionGrant[] }>(this.deps.file)
+    this.grantList = Array.isArray(parsed?.grants) ? parsed.grants : []
+    return this.grantList
   }
 
   private async saveGrants(grants: PermissionGrant[]): Promise<void> {
-    await mkdir(dirname(this.deps.file), { recursive: true })
-    const tmp = `${this.deps.file}.tmp`
-    await writeFile(tmp, JSON.stringify({ version: 1, grants }, null, 2), 'utf8')
-    await rename(tmp, this.deps.file)
+    // Only the user may read what they allowed which agent to do.
+    await writeAtomic(this.deps.file, JSON.stringify({ version: 1, grants }, null, 2), 0o600)
     this.grantList = grants
   }
 }
