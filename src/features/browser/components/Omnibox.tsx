@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { AppWindow, Clock, FileText, Globe, Laptop, Lock, Search, ShieldAlert } from 'lucide-react'
+import { AppWindow, Clock, FileText, Globe, Laptop, Lock, Search, ShieldAlert, Star } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { BrowserSuggestion, BrowserTab } from '@shared/types/browser'
 import { cn } from '@/lib/cn'
@@ -9,7 +9,7 @@ import { useBrowser } from '../store'
 import { displayUrl, inlineCompletion, security } from '../url'
 
 const SECURITY_ICON = { secure: Lock, insecure: ShieldAlert, local: Laptop, file: FileText, none: Search }
-const KIND_ICON = { navigate: Globe, search: Search, history: Clock, tab: AppWindow }
+const KIND_ICON = { navigate: Globe, search: Search, history: Clock, tab: AppWindow, bookmark: Star, suggestion: Search }
 
 /**
  * The address bar: an address or search words, with suggestions from the

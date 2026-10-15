@@ -173,7 +173,9 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     openExternal: platform.openExternal,
     appForUrl: platform.appForUrl,
     openPath: platform.openPath,
-    revealPath: platform.revealPath
+    revealPath: platform.revealPath,
+    // Other browsers' profiles are the desktop user's; a headless core has none to import.
+    ...(platform.kind === 'desktop' ? { importEnv: { home: homedir(), platform: process.platform, env: process.env } } : {})
   })
   await browser.init()
 

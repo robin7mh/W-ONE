@@ -14,7 +14,7 @@ import {
 } from 'electron'
 import type { BrowserGo, ViewBounds } from '@shared/types/browser'
 import { labels } from '../../services/browser/labels'
-import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry } from '../../services/browser/types'
+import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry, TabNavigation } from '../../services/browser/types'
 import { contextMenu, type ContextActions } from './menus'
 import { BROWSER_PARTITION, configureBrowserSession, type SessionTarget } from './session'
 import { matchShortcut } from './shortcuts'
@@ -84,7 +84,7 @@ export class ElectronBrowserHost implements BrowserHost {
     win.webContents.on('before-input-event', this.onMainInput)
   }
 
-  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean } = {}): void {
+  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean; history?: TabNavigation } = {}): void {
     const view = new WebContentsView({
       webPreferences: {
         partition: BROWSER_PARTITION,
@@ -106,7 +106,20 @@ export class ElectronBrowserHost implements BrowserHost {
     if (opts.muted) contents.setAudioMuted(true)
     this.wire(tabId, contents)
     this.layout()
-    void contents.loadURL(url).catch(() => {}) // failures arrive as did-fail-load
+    // Failures arrive as did-fail-load. A tab from the last session gets its back/forward list back
+    // (and just its page, should the list not come back at all).
+    const load = () => void contents.loadURL(url).catch(() => {})
+    if (!opts.history) return load()
+    void contents.navigationHistory.restore({ entries: opts.history.entries, index: opts.history.index }).catch(() => {
+      if (!contents.isDestroyed() && !contents.getURL()) load()
+    })
+  }
+
+  navigation(tabId: string): TabNavigation | undefined {
+    const c = this.contents(tabId)
+    if (!c) return undefined
+    const entries = c.navigationHistory.getAllEntries().map((e) => ({ url: e.url, title: e.title }))
+    return { entries, index: c.navigationHistory.getActiveIndex() }
   }
 
   destroy(tabId: string): void {

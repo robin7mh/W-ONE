@@ -34,6 +34,11 @@ export type ShortcutAction =
   | 'tab8'
   | 'devtools'
   | 'print'
+  | 'bookmark'
+  | 'bookmarksBar'
+  | 'tabSearch'
+  | 'history'
+  | 'bookmarkManager'
 
 export interface ConsoleEntry {
   level: 'debug' | 'info' | 'warning' | 'error'
@@ -55,6 +60,13 @@ export interface PermissionAsk {
   app?: string
 }
 
+/** A tab's back/forward list — what a restart brings back. */
+export interface TabNavigation {
+  entries: { url: string; title: string }[]
+  /** The entry on screen. */
+  index: number
+}
+
 /** Chrome DevTools Protocol on one tab, and its picture — what agents act through. */
 export interface AutomationTarget {
   cdp<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>
@@ -67,9 +79,14 @@ export interface AutomationTarget {
  * WebContentsView, `platform/browser`); the core decides, the host shows.
  */
 export interface BrowserHost {
-  /** Create the tab's view and load `url`. `agent`: an agent works here (keeps running in the background). */
-  create(tabId: string, url: string, opts?: { agent?: boolean; zoom?: number; muted?: boolean }): void
+  /**
+   * Create the tab's view and load `url`. `agent`: an agent works here (keeps running in the background).
+   * `history`: its back/forward list from before a restart, restored instead of loading `url` alone.
+   */
+  create(tabId: string, url: string, opts?: { agent?: boolean; zoom?: number; muted?: boolean; history?: TabNavigation }): void
   destroy(tabId: string): void
+  /** The tab's back/forward list right now (undefined: no view). */
+  navigation(tabId: string): TabNavigation | undefined
   load(tabId: string, url: string): void
   go(tabId: string, action: BrowserGo): void
   /** The view on screen (undefined: none — the new-tab page or an error page shows instead). */

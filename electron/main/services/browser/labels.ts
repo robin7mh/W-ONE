@@ -35,7 +35,16 @@ const EN = {
   selectAll: 'Select All',
   searchFor: (engine: string, text: string) => `Search ${engine} for “${text.length > 24 ? `${text.slice(0, 24)}…` : text}”`,
   addToDictionary: 'Add to Dictionary',
-  inspect: 'Inspect'
+  inspect: 'Inspect',
+  bookmarkPage: 'Bookmark This Page…',
+  bookmarksBar: 'Show Bookmarks Bar',
+  bookmarkManager: 'Bookmark Manager',
+  history: 'History',
+  tabSearch: 'Search Tabs…',
+  importData: 'Import Bookmarks and History…',
+  barFolder: 'Bookmarks bar',
+  importedFrom: (browser: string) => `Imported from ${browser}`,
+  imported: 'Imported'
 }
 
 export type Labels = typeof EN
@@ -76,7 +85,16 @@ const DE: Labels = {
   selectAll: 'Alles auswählen',
   searchFor: (engine, text) => `Mit ${engine} nach „${text.length > 24 ? `${text.slice(0, 24)}…` : text}“ suchen`,
   addToDictionary: 'Zum Wörterbuch hinzufügen',
-  inspect: 'Untersuchen'
+  inspect: 'Untersuchen',
+  bookmarkPage: 'Lesezeichen für diese Seite …',
+  bookmarksBar: 'Lesezeichenleiste anzeigen',
+  bookmarkManager: 'Lesezeichen-Manager',
+  history: 'Verlauf',
+  tabSearch: 'Tabs durchsuchen …',
+  importData: 'Lesezeichen und Verlauf importieren …',
+  barFolder: 'Lesezeichenleiste',
+  importedFrom: (browser) => `Importiert aus ${browser}`,
+  imported: 'Importiert'
 }
 
 export function labels(locale: 'de' | 'en'): Labels {

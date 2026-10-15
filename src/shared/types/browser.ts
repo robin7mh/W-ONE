@@ -10,9 +10,13 @@ export interface BrowserSettings {
   searchEngine: SearchEngine
   /** Links clicked inside Mindeck (agent chats, notes) open in the Mindeck browser, not the system's. */
   openLinksInMindeck: boolean
+  /** The address bar asks the search engine for suggestions (what is typed goes to it). */
+  searchSuggestions: boolean
+  /** The bookmarks bar under the toolbar (⌘⇧B). */
+  bookmarksBar: boolean
 }
 
-export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = { searchEngine: 'google', openLinksInMindeck: true }
+export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = { searchEngine: 'google', openLinksInMindeck: true, searchSuggestions: true, bookmarksBar: true }
 
 /** What an agent did in a tab — the UI says it in its language. */
 export type AgentAction = 'open' | 'navigate' | 'read' | 'snapshot' | 'screenshot' | 'console' | 'click' | 'type' | 'press'
@@ -113,11 +117,16 @@ export interface BrowserState {
   downloads: BrowserDownload[]
   permissions: BrowserPermissionRequest[]
   devServers: DevServer[]
+  /** Mindeck quit unexpectedly: this many tabs of that session wait to be restored (or dismissed). */
+  restorable?: number
 }
 
 export interface BrowserSuggestion {
-  /** navigate: an address · search: the search engine · history: a visited page · tab: switch to an open tab. */
-  kind: 'navigate' | 'search' | 'history' | 'tab'
+  /**
+   * navigate: an address · search: the search engine · history: a visited page · tab: switch to an open tab ·
+   * bookmark: a saved page · suggestion: what the search engine suggests for the words typed.
+   */
+  kind: 'navigate' | 'search' | 'history' | 'tab' | 'bookmark' | 'suggestion'
   url: string
   title: string
   tabId?: string
@@ -151,4 +160,4 @@ export type BrowserGo = 'back' | 'forward' | 'reload' | 'hardReload' | 'stop'
 export type BrowserTool = 'tabMenu' | 'pageMenu' | 'devtools' | 'print' | 'handoff'
 
 /** What a shortcut or menu asks the Mindeck UI to do (the page may have the keyboard focus). */
-export type BrowserCommand = 'focusOmnibox' | 'find' | 'sendToAgent' | 'settings'
+export type BrowserCommand = 'focusOmnibox' | 'find' | 'sendToAgent' | 'settings' | 'tabSearch' | 'bookmark' | 'bookmarksBar' | 'import'

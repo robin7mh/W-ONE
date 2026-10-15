@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir, tick } from './helpers'
 import { BrowserService, zoomStep, type BrowserDeps } from '../../../electron/main/services/browser/BrowserService'
-import type { AutomationTarget, BrowserHost, MenuEntry } from '../../../electron/main/services/browser/types'
+import type { AutomationTarget, BrowserHost, MenuEntry, TabNavigation } from '../../../electron/main/services/browser/types'
 import type { AppSettings } from '@shared/types/settings'
 import type { BrowserDownload, BrowserState } from '@shared/types/browser'
 
@@ -13,6 +13,7 @@ function fakeHost() {
   const host = {
     create: vi.fn(),
     destroy: vi.fn(),
+    navigation: vi.fn((): TabNavigation | undefined => undefined),
     load: vi.fn(),
     go: vi.fn(),
     show: vi.fn(),
@@ -410,6 +411,12 @@ describe('BrowserService · tools, menus and suggestions', () => {
     expect(m.filter((e) => 'label' in e).map((e) => [(e as { label: string }).label, (e as { enabled?: boolean }).enabled ?? true])).toEqual([
       ['New Tab', true],
       ['Reopen Closed Tab', true],
+      ['Search Tabs…', true],
+      ['Bookmark This Page…', true],
+      ['Show Bookmarks Bar', true],
+      ['Bookmark Manager', true],
+      ['History', true],
+      ['Import Bookmarks and History…', false],
       ['Find…', true],
       ['Zoom In', true],
       ['Zoom Out', true],
@@ -622,8 +629,8 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     expect(b.openFromApp('https://a.dev/')).toBe(true)
     await tick()
     expect(published).toContainEqual({ channel: 'browser:reveal', payload: { tabId: b.state().activeId } })
-    expect(b.settings()).toEqual({ searchEngine: 'google', openLinksInMindeck: true })
-    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toEqual({ searchEngine: 'kagi', openLinksInMindeck: false })
+    expect(b.settings()).toEqual({ searchEngine: 'google', openLinksInMindeck: true, searchSuggestions: true, bookmarksBar: true })
+    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toEqual({ searchEngine: 'kagi', openLinksInMindeck: false, searchSuggestions: true, bookmarksBar: true })
     expect(b.openFromApp('https://b.dev/')).toBe(false)
   })
 })
