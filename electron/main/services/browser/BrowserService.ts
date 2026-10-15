@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { IpcEvents } from '@shared/ipc/contract'
 import {
@@ -31,6 +30,7 @@ import {
   type ImportSource
 } from '@shared/types/browserData'
 import type { AppSettings } from '@shared/types/settings'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { BrowserBookmarks } from './bookmarks'
 import { bareUrl, BrowserHistory } from './history'
@@ -116,14 +116,6 @@ const LOAD_TIMEOUT_MS = 15_000
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
-}
-
-async function readJson<T>(file: string): Promise<T | undefined> {
-  try {
-    return JSON.parse(await readFile(file, 'utf8')) as T
-  } catch {
-    return undefined
-  }
 }
 
 /** A saved back/forward list, if it is one — at most MAX_NAV entries around the current one. */
@@ -1207,7 +1199,7 @@ export class BrowserService {
     }
     const tabs = [...this.tabs, ...(this.restorable?.tabs ?? [])].map(save)
     const data = { version: 1, exit: clean ? 'clean' : 'running', activeId: this.activeId, tabs, closed: this.closed, downloads: this.downloads }
-    await writeAtomic(this.file('session.json'), JSON.stringify(data)).catch((err) => console.error('[browser] saving the session failed', err))
+    await writeAtomic(this.file('session.json'), JSON.stringify(data), 0o600).catch((err) => console.error('[browser] saving the session failed', err))
   }
 
   private saveSites(): void {

@@ -15,6 +15,8 @@ export interface EntitlementClaims {
   /** Trial seconds left (0 for lifetime). */
   rem: number
   dev?: string
+  /** A lifetime license's offline certificate: valid without the cloud for good (until refunded). */
+  perpetual?: boolean
   iat: number
   exp: number
 }

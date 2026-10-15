@@ -219,7 +219,7 @@ export class BrowserHistory {
     }
     void this.enqueue(async () => {
       await mkdir(dirname(this.file), { recursive: true })
-      await appendFile(this.file, `${JSON.stringify(line)}\n`, 'utf8')
+      await appendFile(this.file, `${JSON.stringify(line)}\n`, { encoding: 'utf8', mode: 0o600 })
     })
   }
 
@@ -231,7 +231,7 @@ export class BrowserHistory {
     for (const e of keep) this.entries.set(e.url, e)
     this.extra = 0
     const text = keep.map((e) => `${JSON.stringify({ u: e.url, t: e.title, v: e.visits, l: e.last } satisfies Line)}\n`).join('')
-    return this.enqueue(() => (text ? writeAtomic(this.file, text) : rm(this.file, { force: true })))
+    return this.enqueue(() => (text ? writeAtomic(this.file, text, 0o600) : rm(this.file, { force: true })))
   }
 
   private enqueue(task: () => Promise<unknown>): Promise<void> {

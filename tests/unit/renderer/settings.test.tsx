@@ -10,6 +10,7 @@ import { SystemView } from '@/features/system/components/SystemView'
 import { ContextSection } from '@/features/projects/components/ContextSection'
 import { useContextStore } from '@/features/context/store'
 import { useAssistant } from '@/features/agents/store'
+import { useComposerPrefs } from '@/features/agents/composerPrefs'
 import { useSession } from '@/features/session/store'
 import { codeFromHash, PairScreen } from '@/features/session/components/PairScreen'
 import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
@@ -169,6 +170,47 @@ describe('SettingsView', () => {
     await act(settle)
     expect(detect).toHaveBeenCalledTimes(2)
     expect(screen.queryByText('Codex')).toBeNull()
+  })
+
+  it('the composer\'s send key and pushes to the phone (with a Mindeck account)', async () => {
+    const setPush = vi.fn(({ enabled }: { enabled: boolean }) => ({ enabled, signedIn: true }))
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: true }), 'agents:setPushSettings': setPush }))
+    render(<SettingsView />)
+    await act(settle)
+    const push = screen.getByRole('switch', { name: 'Notifications on your phone' })
+    expect(push).toBeChecked()
+    fireEvent.click(push)
+    await act(settle)
+    expect(setPush).toHaveBeenCalledWith({ enabled: false })
+    expect(push).not.toBeChecked()
+    const mod = screen.getByRole('switch', { name: '⌘/Ctrl+Enter sends' })
+    fireEvent.click(mod)
+    expect(useComposerPrefs.getState().sendKey).toBe('mod-enter')
+    fireEvent.click(mod)
+    expect(useComposerPrefs.getState().sendKey).toBe('enter')
+  })
+
+  it('pushes need a Mindeck account; a failing core changes nothing', async () => {
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: false }) }))
+    const { unmount } = render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).toBeDisabled()
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).not.toBeChecked()
+    expect(screen.getByText(/Sign in to your Mindeck account to get them/)).toBeInTheDocument()
+    unmount()
+
+    installBridge(settingsCore({ 'agents:pushSettings': () => ({ enabled: true, signedIn: true }), 'agents:setPushSettings': () => fail('core down') }))
+    const second = render(<SettingsView />)
+    await act(settle)
+    fireEvent.click(screen.getByRole('switch', { name: 'Notifications on your phone' }))
+    await act(settle)
+    expect(screen.getByRole('switch', { name: 'Notifications on your phone' })).toBeChecked()
+    second.unmount()
+
+    installBridge(settingsCore({ 'agents:pushSettings': () => fail('core down') }))
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.queryByRole('switch', { name: 'Notifications on your phone' })).toBeNull()
   })
 
   it('pairing without the LAN explains itself; switching the LAN on brings the QR code (same code)', async () => {

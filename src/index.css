@@ -368,3 +368,40 @@
 .monaco-editor .mindeck-ai-target {
   background: rgb(var(--accent-cyan) / 0.08);
 }
+
+/* Merge conflicts: current (ours) green, incoming (theirs) blue, the common base muted. */
+.monaco-editor .mindeck-conflict-current-marker {
+  background: rgb(var(--accent-green) / 0.32);
+}
+.monaco-editor .mindeck-conflict-current {
+  background: rgb(var(--accent-green) / 0.14);
+}
+.monaco-editor .mindeck-conflict-base {
+  background: rgb(var(--text-muted) / 0.14);
+}
+.monaco-editor .mindeck-conflict-separator {
+  background: rgb(var(--text-muted) / 0.24);
+}
+.monaco-editor .mindeck-conflict-incoming {
+  background: rgb(var(--accent-blue) / 0.14);
+}
+.monaco-editor .mindeck-conflict-incoming-marker {
+  background: rgb(var(--accent-blue) / 0.32);
+}
+
+/* Git blame: dimmed after the cursor's line, and the per-file column in front of every line. */
+.monaco-editor .mindeck-blame-inline {
+  color: rgb(var(--text-muted) / 0.75);
+  font-style: italic;
+  cursor: pointer;
+}
+.monaco-editor .mindeck-blame-line,
+.monaco-editor .mindeck-blame-hunk {
+  color: rgb(var(--text-muted));
+  background: rgb(var(--text-muted) / 0.08);
+  margin-right: 12px;
+  cursor: pointer;
+}
+.monaco-editor .mindeck-blame-hunk {
+  box-shadow: inset 0 1px 0 rgb(var(--text-muted) / 0.35);
+}

@@ -1,6 +1,6 @@
 import type { AiCredit, AiStatus } from '@shared/types/ai'
 import { randomUUID, type KeyObject } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import {
   USABLE_STATES,
@@ -10,10 +10,13 @@ import {
   type LicenseState
 } from '@shared/types/cloud'
 import type { SecretStore } from '../ai/SecretStore'
+import { readJson } from '../../lib/jsonFile'
 import { parsePublicKey, verifyEntitlement, type EntitlementClaims } from './entitlement'
 
 /** The session token's name in the secret store (keychain on desktop). */
 export const SESSION_SECRET = 'cloud.session'
+/** A lifetime license's offline certificate, kept like the session (encrypted on desktop). */
+export const OFFLINE_SECRET = 'cloud.offline'
 
 const TICK_MS = 10_000
 /** Pause after a failed call, and between re-checks while the cloud says no. */
@@ -22,6 +25,11 @@ const RETRY_MS = 30_000
 const RENEW_BEFORE_MS = 45_000
 /** Lifetime: refreshed now and then (refunds, revocations), else valid offline. */
 const LIFETIME_REFRESH_MS = 15 * 60_000
+/**
+ * A trial lease that ran out stays usable this long while the cloud answers
+ * but renews nothing (a 5xx, an empty answer) — not for good.
+ */
+export const PAUSE_GRACE_MS = 2 * 60 * 60_000
 
 export interface CloudServiceOptions {
   baseUrl: string
@@ -70,6 +78,8 @@ interface AuthResponse {
 interface HeartbeatResponse {
   license: ApiLicense
   entitlement: { token: string } | null
+  /** Lifetime accounts (newer clouds): a perpetual entitlement for running without the cloud. */
+  offlineCertificate?: string
 }
 interface Meta {
   entitlementPublicKey: string
@@ -88,24 +98,40 @@ const toLicense = (l: ApiLicense): CloudLicense => ({
   trialRemainingSeconds: l.trial.remainingSeconds
 })
 
+/** A verified offline certificate that still holds: lifetime, active, perpetual. */
+export function holdsOffline(cert: EntitlementClaims | null, now: number): cert is EntitlementClaims {
+  return !!cert && cert.perpetual === true && cert.active && cert.exp * 1000 > now
+}
+
 /**
  * The license state from what the core knows. A fresh entitlement decides;
- * an active lease that ran out stays usable while the cloud is reachable
- * (nobody was using Mindeck, or the renewal is on its way); without the cloud
- * and without a valid entitlement, Mindeck waits.
+ * so does a lifetime license's offline certificate, with or without the
+ * cloud. An active lease that ran out stays usable while the cloud is
+ * reachable (nobody was using Mindeck, or the renewal is on its way) — a
+ * trial's only until a renewal tried after it ran out has failed for
+ * PAUSE_GRACE_MS. Without the cloud and without a valid entitlement, Mindeck
+ * waits.
  */
 export function deriveState(i: {
   signedIn: boolean
   claims: EntitlementClaims | null
   now: number
   online: boolean
+  /** The lifetime license's offline certificate (verified), if any. */
+  offline?: EntitlementClaims | null
+  /** When the core last asked the cloud for a lease. */
+  lastAttempt?: number
 }): LicenseState {
   if (!i.signedIn) return 'signed_out'
   const c = i.claims
   if (c && !c.active) return c.reason === 'email_unverified' ? 'email_unverified' : 'trial_expired'
   if (c && c.exp * 1000 > i.now) return 'active'
+  if (holdsOffline(i.offline ?? null, i.now)) return 'active'
   if (!i.online) return 'offline'
-  return c ? 'paused' : 'checking'
+  if (!c) return 'checking'
+  const ended = c.exp * 1000
+  const tried = (i.lastAttempt ?? 0) > ended
+  return c.plan === 'trial' && tried && i.now > ended + PAUSE_GRACE_MS ? 'offline' : 'paused'
 }
 
 /**
@@ -124,6 +150,8 @@ export class CloudService {
     webUrl: null
   }
   private claims: EntitlementClaims | null = null
+  /** The lifetime license's offline certificate, verified. */
+  private offline: EntitlementClaims | null = null
   private key: KeyObject | null = null
   private online = true
   private error: string | null = null
@@ -151,6 +179,8 @@ export class CloudService {
     }
     this.key = this.publicKey()
     this.claims = this.data.entitlement && this.key ? verifyEntitlement(this.data.entitlement, this.key) : null
+    const cert = this.data.account ? await this.opts.secrets.get(OFFLINE_SECRET) : undefined
+    this.offline = cert ? this.verifyOffline(cert) : null
     // A follower only ever hears from the desktop (cloud:adopt).
     if (this.opts.follower) return this.emit()
     this.timer = setInterval(() => void this.tick(), TICK_MS)
@@ -175,20 +205,25 @@ export class CloudService {
   }
 
   status(): CloudStatus {
+    const now = this.now()
     const state = deriveState({
       signedIn: !!this.data.account,
       claims: this.claims,
-      now: this.now(),
+      now,
       // A follower never hears from the cloud: an entitlement that ran out locks it until the desktop hands over a new one.
-      online: this.online && !this.opts.follower
+      online: this.online && !this.opts.follower,
+      offline: this.offline,
+      lastAttempt: this.lastAttempt
     })
+    // Running on the offline certificate: it says how long.
+    const until = this.claims && this.claims.exp * 1000 > now ? this.claims : holdsOffline(this.offline, now) ? this.offline : this.claims
     return {
       enforced: this.opts.enforced,
       allowed: !this.opts.enforced || USABLE_STATES.includes(state),
       state,
       account: this.data.account,
       license: this.data.license,
-      validUntil: this.claims ? new Date(this.claims.exp * 1000).toISOString() : null,
+      validUntil: until ? new Date(until.exp * 1000).toISOString() : null,
       online: this.online,
       webUrl: this.data.webUrl,
       error: this.error
@@ -326,6 +361,7 @@ export class CloudService {
           this.claims = claims
           this.data.entitlement = res.entitlement.token
         }
+        await this.keepOffline(res)
         await this.save()
         this.lastSuccess = this.now()
         this.error = null
@@ -355,6 +391,7 @@ export class CloudService {
 
   private async signedIn(res: AuthResponse): Promise<void> {
     await this.opts.secrets.set(SESSION_SECRET, res.session.token)
+    await this.dropOffline() // another account, maybe: its own certificate comes with the first heartbeat
     this.data.account = toAccount(res.user)
     this.data.license = toLicense(res.license)
     this.data.entitlement = null
@@ -367,11 +404,42 @@ export class CloudService {
   /** Signed out (by choice, or the cloud no longer knows the session). */
   private async forget(error: string | null): Promise<void> {
     await this.opts.secrets.set(SESSION_SECRET, null)
+    await this.dropOffline()
     this.data = { ...this.data, account: null, license: null, entitlement: null }
     this.claims = null
     this.error = error
     await this.save()
     this.emit()
+  }
+
+  /**
+   * A lifetime license's offline certificate from a heartbeat: kept when it
+   * verifies; dropped when the cloud says the license is no longer active
+   * (a refund). A cloud that sends none (older versions) changes nothing.
+   */
+  private async keepOffline(res: HeartbeatResponse): Promise<void> {
+    if (typeof res.offlineCertificate === 'string') {
+      const cert = this.verifyOffline(res.offlineCertificate)
+      if (cert) {
+        this.offline = cert
+        await this.opts.secrets.set(OFFLINE_SECRET, res.offlineCertificate)
+        return
+      }
+      console.warn('[cloud] ignoring an offline certificate this core cannot verify')
+    }
+    const revoked = (this.claims && !this.claims.active) || res.license.plan !== 'lifetime'
+    if (revoked && this.offline) await this.dropOffline()
+  }
+
+  private async dropOffline(): Promise<void> {
+    this.offline = null
+    await this.opts.secrets.set(OFFLINE_SECRET, null)
+  }
+
+  /** The certificate's claims if it is genuine and perpetual — else null. */
+  private verifyOffline(token: string): EntitlementClaims | null {
+    const claims = this.key ? verifyEntitlement(token, this.key) : null
+    return claims && holdsOffline(claims, this.now()) ? claims : null
   }
 
   private note(err: unknown): void {
@@ -442,12 +510,8 @@ export class CloudService {
   }
 
   private async load(): Promise<Partial<Persisted>> {
-    try {
-      const parsed = JSON.parse(await readFile(this.opts.file, 'utf8')) as Partial<Persisted>
-      return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch {
-      return {}
-    }
+    const parsed = await readJson<Partial<Persisted>>(this.opts.file)
+    return parsed && typeof parsed === 'object' ? parsed : {}
   }
 
   private async save(): Promise<void> {

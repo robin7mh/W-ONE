@@ -27,6 +27,7 @@ import { useSession } from '@/features/session/store'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
+import { ModuleBoundary } from '@/components/shell/ErrorBoundary'
 import { useBoot } from '@/hooks/useBoot'
 import type { ModuleId } from '@/types'
 
@@ -55,6 +56,7 @@ const panelIn = (delay: number) => ({
 })
 
 export function AppShell() {
+  const t = useT()
   const { booted, skip } = useBoot(BOOT_TOTAL_MS)
   const [active, setActive] = useState<ModuleId>('core')
   // Session uptime counts from boot. Only the top bar's indicator ticks — a
@@ -146,20 +148,29 @@ export function AppShell() {
 
         <main className="flex min-w-0 flex-1 gap-2.5 overflow-hidden p-2.5">
           <motion.div {...panelIn(0.18)} className="flex min-w-0 flex-1 flex-col">
-            {renderMain()}
+            {/* Each module in its own error boundary: one that crashes shows a panel, the rest keeps running. */}
+            <ModuleBoundary key={active} id={active} name={t.nav[active]}>
+              {renderMain()}
+            </ModuleBoundary>
             {kept.terminal && !shellsOff && (
               <div className={active === 'terminal' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <TerminalView />
+                <ModuleBoundary id="terminal" name={t.nav.terminal}>
+                  <TerminalView />
+                </ModuleBoundary>
               </div>
             )}
             {kept.editor && (
               <div className={active === 'editor' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <EditorView active={active === 'editor'} onNavigate={setActive} />
+                <ModuleBoundary id="editor" name={t.nav.editor}>
+                  <EditorView active={active === 'editor'} onNavigate={setActive} />
+                </ModuleBoundary>
               </div>
             )}
             {kept.browser && (
               <div className={active === 'browser' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                <BrowserView active={active === 'browser'} />
+                <ModuleBoundary id="browser" name={t.nav.browser}>
+                  <BrowserView active={active === 'browser'} />
+                </ModuleBoundary>
               </div>
             )}
           </motion.div>
@@ -170,7 +181,9 @@ export function AppShell() {
               {...panelIn(0.24)}
               className="hidden w-72 shrink-0 lg:flex 2xl:w-80"
             >
-              <SystemMonitorPanel />
+              <ModuleBoundary id="monitor" name={t.monitor.title}>
+                <SystemMonitorPanel />
+              </ModuleBoundary>
             </motion.div>
           )}
         </main>
@@ -178,7 +191,9 @@ export function AppShell() {
 
       {/* Bottom command deck (collapsible) */}
       <motion.div {...panelIn(0.3)}>
-        <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
+        <ModuleBoundary id="deck" name={t.deck.title}>
+          <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
+        </ModuleBoundary>
       </motion.div>
 
       {/* Approvals float above every module (the open chat shows its own inline; the

@@ -17,6 +17,7 @@ const mon = vi.hoisted(() => {
     }
   }
   class FakeModel {
+    edits: unknown[] = []
     version = 1
     disposed = false
     change = new Emitter()
@@ -44,7 +45,12 @@ const mon = vi.hoisted(() => {
     onDidChangeContent(fn: Fn) {
       return this.change.event(fn)
     }
+    stack = 0
+    pushStackElement() {
+      this.stack += 1
+    }
     pushEditOperations(_sel: unknown, edits: { text: string }[]) {
+      this.edits.push(edits)
       this.value = edits[0].text
       this.version += 1
       this.change.fire()
@@ -74,6 +80,7 @@ const mon = vi.hoisted(() => {
     restoreViewState = vi.fn()
     revealLineInCenter = vi.fn()
     setPosition = vi.fn()
+    setSelection = vi.fn()
     commands: { keys: number; run: () => void }[] = []
     ran: string[] = []
     disposed = false
@@ -152,6 +159,14 @@ const mon = vi.hoisted(() => {
       remeasureFonts: vi.fn()
     },
     Uri: { file: (path: string) => ({ path }) },
+    Range: class {
+      constructor(
+        public startLineNumber: number,
+        public startColumn: number,
+        public endLineNumber: number,
+        public endColumn: number
+      ) {}
+    },
     KeyCode: { F1: 59, KeyG: 37 },
     KeyMod: { WinCtrl: 256 },
     languages: { getLanguages: () => [{ id: 'typescript', aliases: ['TypeScript', 'ts'] }, { id: 'bare' }] },
@@ -179,6 +194,9 @@ vi.mock('@/features/editor/monaco/breakpoints', () => ({
     return () => (features.detached += 1)
   }
 }))
+// Conflicts and blame have their own tests (merge-blame.test.ts).
+vi.mock('@/features/editor/monaco/conflicts', () => ({ attachConflicts: () => () => {} }))
+vi.mock('@/features/editor/monaco/blame', () => ({ attachBlame: () => () => {} }))
 vi.mock('@/features/editor/monaco/lsp', () => ({ setupLsp: () => (features.lsp += 1) }))
 vi.mock('@/features/editor/monaco/userPrefs', () => ({ setupUserPrefs: () => (features.prefs += 1) }))
 vi.mock('@/features/editor/monaco/lint', () => ({ setupLint: () => {}, fixAll: async (model: { getValue(): string; setValue(v: string): void }) => (model.setValue(model.getValue().replace(/var /g, 'let ')), true) }))
@@ -200,7 +218,7 @@ vi.mock('monaco-editor/language/css/css.worker.js?worker', () => ({ default: cla
 vi.mock('monaco-editor/language/html/html.worker.js?worker', () => ({ default: class { kind = 'html' } }))
 vi.mock('monaco-editor/language/typescript/ts.worker.js?worker', () => ({ default: class { kind = 'ts' } }))
 
-import { setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
+import { bufferText, editBuffer, setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
 import { applyMonacoTheme, languageName } from '@/features/editor/monaco/setup'
 import { monacoTheme } from '@/features/editor/monaco/theme'
 import CodeEditor from '@/features/editor/components/CodeEditor'
@@ -596,6 +614,17 @@ describe('CodeEditor (Monaco view)', () => {
     expect(editor().revealLineInCenter).toHaveBeenCalledWith(9)
     expect(editor().setPosition).toHaveBeenCalledWith({ lineNumber: 9, column: 1 })
     expect(e().reveal).toBeUndefined()
+    // …and a search match gets selected
+    act(() => useEditor.setState({ reveal: { id: 'p:a.ts', line: 4, match: { column: 2, length: 3 } } }))
+    expect(editor().setSelection).toHaveBeenCalledWith({ startLineNumber: 4, startColumn: 3, endLineNumber: 4, endColumn: 6 })
+
+    // search & replace edits a buffer as one undo step (only buffers that exist)
+    expect(editBuffer('p:a.ts', [{ line: 1, column: 0, length: 1, text: 'Z' }])).toBe(true)
+    expect(model('a.ts').edits.at(-1)).toEqual([{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 2 }, text: 'Z' }])
+    expect(model('a.ts').stack).toBe(2)
+    expect(bufferText('p:a.ts')).toBe('Z')
+    expect(editBuffer('p:nope.ts', [])).toBe(false)
+    expect(bufferText('p:nope.ts')).toBeUndefined()
 
     rerender(view(e().tabs[2])) // still loading → no buffer shown
     expect(editor().model).toBeNull()

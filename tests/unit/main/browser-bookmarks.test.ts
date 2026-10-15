@@ -137,11 +137,11 @@ describe('bookmarks', () => {
     const noRoots = await setup('{}')
     expect(noRoots.b.tree()[0].children).toEqual([])
 
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await setup('null')).b.tree()[0].children).toEqual([])
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const broken = await setup('{ not json')
     expect(broken.b.tree()[0].children).toEqual([])
-    expect((await readdir(broken.dir)).some((f) => f.startsWith('bookmarks.json.broken-'))).toBe(true)
-    expect(err).toHaveBeenCalledWith('[browser] bookmarks unreadable — set aside', expect.anything())
+    expect((await readdir(broken.dir)).some((f) => f.startsWith('bookmarks.corrupt-'))).toBe(true)
   })
 
   it('stop at the limit, and log a save that fails', async () => {

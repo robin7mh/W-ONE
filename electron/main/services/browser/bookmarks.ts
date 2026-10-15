@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, rename } from 'node:fs/promises'
 import { BOOKMARK_ROOTS, isFolder, type BookmarkFolder, type BookmarkItem, type BookmarkNode, type BookmarkRoot } from '@shared/types/browserData'
+import { readJsonFile } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { bareUrl } from './history'
 
@@ -41,7 +41,7 @@ function sanitize(raw: unknown, now: number, budget: { left: number }): Bookmark
  * The user's bookmarks: two folders — the bar under the toolbar and "Other
  * bookmarks" — each holding bookmarks and folders, in `bookmarks.json`,
  * written atomically a moment after each change (architecture §11.5: files,
- * no database). A file that can't be read is set aside, never overwritten.
+ * no database).
  */
 export class BrowserBookmarks {
   private roots: Record<BookmarkRoot, BookmarkFolder>
@@ -57,25 +57,14 @@ export class BrowserBookmarks {
     this.roots = this.empty()
   }
 
+  /** Reads `bookmarks.json`; a damaged file is set aside (and the library starts empty), never overwritten. */
   async load(): Promise<void> {
-    let raw: string
-    try {
-      raw = await readFile(this.file, 'utf8')
-    } catch {
-      return // no bookmarks yet
-    }
-    try {
-      const data = JSON.parse(raw) as { roots?: Record<string, unknown> }
-      const budget = { left: MAX_NODES }
-      const roots = this.empty()
-      for (const key of BOOKMARK_ROOTS) {
-        const node = sanitize(data.roots?.[key], this.now(), budget)
-        if (node && isFolder(node)) roots[key].children = node.children
-      }
-      this.roots = roots
-    } catch (err) {
-      console.error('[browser] bookmarks unreadable — set aside', err)
-      await rename(this.file, `${this.file}.broken-${this.now()}`).catch(() => {})
+    const read = await readJsonFile<{ roots?: Record<string, unknown> } | null>(this.file)
+    if (read.status !== 'ok') return
+    const budget = { left: MAX_NODES }
+    for (const key of BOOKMARK_ROOTS) {
+      const node = sanitize(read.value?.roots?.[key], this.now(), budget)
+      if (node && isFolder(node)) this.roots[key].children = node.children
     }
   }
 
@@ -247,7 +236,7 @@ export class BrowserBookmarks {
     this.dirty = false
     const data = JSON.stringify({ version: 1, roots: this.roots })
     this.writing = this.writing.then(() =>
-      writeAtomic(this.file, data).catch((err) => console.error('[browser] saving bookmarks failed', err))
+      writeAtomic(this.file, data, 0o600).catch((err) => console.error('[browser] saving bookmarks failed', err))
     )
     return this.writing
   }
