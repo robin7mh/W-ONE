@@ -414,7 +414,7 @@ describe('SearchService: paired devices', () => {
     await writeFile(join(root, 'certs', 'server.pem'), 'needle\n')
     const { service, events, done } = harness(root)
     const router = new Router({ remoteTerminal: () => false })
-    registerSearchIpc(router, service, (path) => /(^|\/)(\.npmrc|[^/]+\.pem)$/.test(path))
+    registerSearchIpc(router, service, { denied: (path) => /(^|\/)(\.npmrc|[^/]+\.pem)$/.exec(path)?.[2] })
 
     const remote = { transport: 'remote' as const, deviceId: 'phone', role: 'member' as const }
     expect(await router.dispatch('search:start', { id: 's', projectId: 'p', query: q('needle') }, remote)).toMatchObject({ ok: true })
