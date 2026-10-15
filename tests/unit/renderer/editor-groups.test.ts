@@ -462,6 +462,15 @@ describe('editor groups: a layout per project', () => {
     expect(localStorage.getItem('mindeck.editor.layouts')).toBeNull()
   })
 
+  it('a stored focus on a group that isn’t there falls back to the first group', async () => {
+    routes()
+    useEditor.setState({ projectId: undefined })
+    localStorage.setItem('mindeck.editor.layouts', JSON.stringify({ p: { grid: row([leaf('g1'), leaf('g2')]), groups: [], active: 'g7' } }))
+    await e().selectProject('p')
+    expect(e().activeGroup).toBe('g1')
+    expect(groups()).toEqual(['g1:', 'g2:'])
+  })
+
   it('the first project of a start keeps files already on screen', async () => {
     routes()
     useEditor.setState({ projectId: undefined, tabs: [tab('a.ts')], ...oneGroup(['p:a.ts']) })
