@@ -60,7 +60,7 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import { FinderService } from '../../../electron/main/services/finder/FinderService'
 import { Cancelled, copyTree, Job, measure } from '../../../electron/main/services/finder/transfer'
-import { archiveKind, safeTarget } from '../../../electron/main/services/finder/archive'
+import { archiveKind, MAX_TAR_META, safeTarget } from '../../../electron/main/services/finder/archive'
 import { desktopTrash, freedesktopTrash } from '../../../electron/main/platform/trash'
 import { fileClipboard, pathsToPlist, plistToPaths, raw, urisToPaths } from '../../../electron/main/platform/fileClipboard'
 import type { FinderProgress } from '@shared/types/finder'
@@ -511,6 +511,15 @@ describe('archives', () => {
     fsFail.readStream = 'gone.tar'
     await writeFile(join(home, 'gone.tar'), tar(entry('g.txt', 'g')))
     await expect(finder.extract(join(home, 'gone.tar'), 'b6')).rejects.toThrow('read failed')
+    // A long-name record big enough to fill the memory is no long name.
+    await writeFile(join(home, 'meta.tar'), Buffer.concat([tarHeader('././@LongLink', { type: 'L', size: MAX_TAR_META + 1 }), Buffer.alloc(1024)]))
+    await expect(finder.extract(join(home, 'meta.tar'), 'b9')).rejects.toMatchObject({ code: 'bad-archive', message: expect.stringContaining('oversized') })
+    await writeFile(join(home, 'pax.tar'), Buffer.concat([tarHeader('PaxHeader', { type: 'x', size: 0xfffffff0, base256: true }), Buffer.alloc(1024)]))
+    await expect(finder.extract(join(home, 'pax.tar'), 'b10')).rejects.toMatchObject({ code: 'bad-archive' })
+    // A .tar.gz that unpacks to more than the disk has free stops before it fills it.
+    fsFail.statfs = { bavail: 2, bsize: 1024 }
+    await writeFile(join(home, 'bomb.tgz'), gzipSync(tar(entry('a.bin', 'a'.repeat(1500)), entry('b.bin', 'b'.repeat(1500)))))
+    await expect(finder.extract(join(home, 'bomb.tgz'), 'b11')).rejects.toMatchObject({ code: 'no-space' })
     expect((await readdir(home)).filter((n) => n.startsWith('.'))).toEqual([])
 
     let f!: FinderService
