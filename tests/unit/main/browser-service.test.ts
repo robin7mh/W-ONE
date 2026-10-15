@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir, tick } from './helpers'
 import { BrowserService, zoomStep, type BrowserDeps } from '../../../electron/main/services/browser/BrowserService'
-import type { AutomationTarget, BrowserHost, MenuEntry } from '../../../electron/main/services/browser/types'
+import type { AutomationTarget, BrowserHost, MenuEntry, TabNavigation } from '../../../electron/main/services/browser/types'
 import type { AppSettings } from '@shared/types/settings'
 import type { BrowserDownload, BrowserState } from '@shared/types/browser'
 
@@ -13,6 +13,7 @@ function fakeHost() {
   const host = {
     create: vi.fn(),
     destroy: vi.fn(),
+    navigation: vi.fn((_id: string): TabNavigation | undefined => undefined),
     load: vi.fn(),
     go: vi.fn(),
     show: vi.fn(),
@@ -29,7 +30,11 @@ function fakeHost() {
     focusUi: vi.fn(),
     setTheme: vi.fn(),
     automation: vi.fn(() => automation as unknown as AutomationTarget),
-    dispose: vi.fn()
+    dispose: vi.fn(),
+    clearPrivate: vi.fn(),
+    loadExtension: vi.fn(async (path: string) => ({ id: `id:${path}` })),
+    unloadExtension: vi.fn(),
+    openPopup: vi.fn()
   } satisfies BrowserHost
   return Object.assign(host, { target: automation })
 }
@@ -111,13 +116,15 @@ describe('BrowserService · tabs and the session', () => {
     expect(host.create).not.toHaveBeenCalled() // restored tabs load when first shown
 
     b.setView({ x: 1, y: 2, width: 300, height: 200 })
-    expect(host.setBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 300, height: 200 })
+    expect(host.setBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 300, height: 200 }, true)
     expect(host.create).toHaveBeenCalledWith('b', 'https://b.dev/', { agent: false, zoom: 1, muted: false })
     expect(host.show).toHaveBeenLastCalledWith('b')
     b.setView({ x: 1, y: 2, width: 300, height: 200 }) // already loaded: no second view
     expect(host.create).toHaveBeenCalledTimes(1)
     b.setView(null)
-    expect(host.setBounds).toHaveBeenLastCalledWith(null)
+    expect(host.setBounds).toHaveBeenLastCalledWith(null, true)
+    b.setView({ x: 1, y: 2, width: 300, height: 200 }, false) // its pane lost the focus: the UI keeps its keys
+    expect(host.setBounds).toHaveBeenLastCalledWith({ x: 1, y: 2, width: 300, height: 200 }, false)
 
     // a request and a waiting agent die with the window
     const answer = vi.fn()
@@ -409,7 +416,14 @@ describe('BrowserService · tools, menus and suggestions', () => {
     m = menu(host)
     expect(m.filter((e) => 'label' in e).map((e) => [(e as { label: string }).label, (e as { enabled?: boolean }).enabled ?? true])).toEqual([
       ['New Tab', true],
+      ['New Private Tab', true],
       ['Reopen Closed Tab', true],
+      ['Search Tabs…', true],
+      ['Bookmark This Page…', true],
+      ['Show Bookmarks Bar', true],
+      ['Bookmark Manager', true],
+      ['History', true],
+      ['Import Bookmarks and History…', false],
       ['Find…', true],
       ['Zoom In', true],
       ['Zoom Out', true],
@@ -552,6 +566,8 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     const a = b.open({ url: 'https://a.dev/' })
     const c = b.open({ url: 'https://c.dev/' })
     const active = () => b.state().activeId
+    events.focused('x') // a click into a page: the UI moves its focus to the browser's pane
+    expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'focused' } })
     events.shortcut('newTab')
     expect(b.state().tabs.at(-1)!.url).toBe('')
     expect(host.focusUi).toHaveBeenCalled()
@@ -589,7 +605,7 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     events.shortcut('hardReload')
     await tick()
     const commands = published.filter((p) => p.channel === 'browser:command').map((p) => (p.payload as { command: string }).command)
-    expect(commands).toEqual(['focusOmnibox', 'focusOmnibox', 'find'])
+    expect(commands).toEqual(['focused', 'focusOmnibox', 'focusOmnibox', 'find'])
   })
 
   it('answers the page: search for a selection, send to an agent, find results, console', async () => {
@@ -622,8 +638,8 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     expect(b.openFromApp('https://a.dev/')).toBe(true)
     await tick()
     expect(published).toContainEqual({ channel: 'browser:reveal', payload: { tabId: b.state().activeId } })
-    expect(b.settings()).toEqual({ searchEngine: 'google', openLinksInMindeck: true })
-    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toEqual({ searchEngine: 'kagi', openLinksInMindeck: false })
+    expect(b.settings()).toMatchObject({ searchEngine: 'google', openLinksInMindeck: true, searchSuggestions: true, bookmarksBar: true })
+    expect(await b.configure({ openLinksInMindeck: false, searchEngine: 'kagi' })).toMatchObject({ searchEngine: 'kagi', openLinksInMindeck: false, searchSuggestions: true, bookmarksBar: true })
     expect(b.openFromApp('https://b.dev/')).toBe(false)
   })
 })
@@ -663,7 +679,7 @@ describe('BrowserService · agents', () => {
     await expect(b.agentOpen('file:///etc/passwd', 'Claude Code')).rejects.toThrow('http and https addresses only')
     const opening = b.agentOpen('https://agent.dev/', 'Claude Code')
     const id = b.state().tabs.at(-1)!.id
-    expect(host.create).toHaveBeenLastCalledWith(id, 'https://agent.dev/', { agent: true, zoom: 1, muted: false })
+    expect(host.create).toHaveBeenLastCalledWith(id, 'https://agent.dev/', { agent: true, zoom: 1, muted: false, profile: 'agents' })
     events.loading(id, false)
     expect(await opening).toMatchObject({ url: 'https://agent.dev/', openedBy: 'Claude Code', shared: true, agent: { name: 'Claude Code', action: 'open' } })
     expect(b.state().activeId).not.toBe(id) // in the background
@@ -727,7 +743,7 @@ describe('BrowserService · saving', () => {
       expect.arrayContaining([
         { id: tab.id, url: 'https://a.dev/', title: '', favicon: 'data:image/png;base64,small', pinned: true, muted: true, share: { on: false, origin: 'https://a.dev' } },
         { id: big.id, url: 'https://b.dev/', title: '' },
-        { id: agent.id, url: 'https://c.dev/', title: '', openedBy: 'Codex' }
+        { id: agent.id, url: 'https://c.dev/', title: '', openedBy: 'Codex', profile: 'agents' }
       ])
     )
     expect(JSON.parse(await readFile(join(dir, 'sites.json'), 'utf8')).sites).toEqual({ 'https://a.dev': { zoom: 1.1 } })

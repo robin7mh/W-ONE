@@ -1,13 +1,17 @@
 import { useState, type DragEvent } from 'react'
-import { Bot, Globe, Loader2, Plus, Volume2, VolumeX, X } from 'lucide-react'
+import { Bot, Boxes, Clock, Globe, Loader2, Play, Plus, Star, VenetianMask, Volume2, VolumeX, X } from 'lucide-react'
 import type { BrowserTab } from '@shared/types/browser'
+import { internalPage } from '@shared/types/browserData'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { tabLabel } from '../library'
 import { useBrowser } from '../store'
 
 const DRAG_TYPE = 'application/x-mindeck-tab'
 
 function Favicon({ tab }: { tab: BrowserTab }) {
+  const own = internalPage(tab.url)
+  if (own) return own === 'history' ? <Clock size={13} className="shrink-0 text-cyan" aria-hidden /> : <Star size={13} className="shrink-0 text-cyan" aria-hidden />
   if (tab.loading) return <Loader2 size={13} className="shrink-0 animate-spin text-cyan" aria-hidden />
   if (tab.favicon) return <img src={tab.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-contain" draggable={false} />
   return <Globe size={13} className="shrink-0 text-text-muted" aria-hidden />
@@ -37,7 +41,7 @@ export function TabStrip() {
       <div role="tablist" aria-label={t.browser.title} className="flex min-w-0 items-end gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const active = tab.id === activeId
-          const title = tab.title || (tab.url ? tab.url : t.browser.untitled)
+          const title = tabLabel(tab, t.library.pages) || t.browser.untitled
           const agentic = !!tab.openedBy
           return (
             <div
@@ -65,11 +69,15 @@ export function TabStrip() {
                 tab.pinned ? 'w-9 justify-center px-0' : 'w-[clamp(120px,14vw,220px)] pl-2.5 pr-1',
                 active ? 'border-hud/70 bg-surface text-text-primary' : 'border-transparent text-text-secondary hover:bg-elevated/40',
                 dropAt === tab.id && 'border-cyan/60',
-                agentic && 'shadow-[inset_0_2px_0_0_rgb(var(--accent-purple)/0.8)]'
+                agentic && 'shadow-[inset_0_2px_0_0_rgb(var(--accent-purple)/0.8)]',
+                tab.profile === 'private' && 'bg-purple/[0.08]'
               )}
             >
               <Favicon tab={tab} />
+              {tab.profile === 'private' && <VenetianMask size={12} className="shrink-0 text-purple" aria-label={t.browserExtras.privateTab} />}
+              {tab.profile === 'agents' && !agentic && <Boxes size={12} className="shrink-0 text-purple" aria-label={t.browserExtras.agentsContainer} />}
               {!tab.pinned && <span className="min-w-0 flex-1 truncate font-sans text-[12px]">{title}</span>}
+              {tab.playing && !tab.audible && !tab.muted && !tab.pinned && <Play size={11} className="shrink-0 text-text-muted" aria-label={t.browserExtras.playing} />}
               {agentic && !tab.pinned && <Bot size={12} className="shrink-0 text-purple" aria-label={t.browser.agentTab(tab.openedBy!)} />}
               {(tab.audible || tab.muted) && !tab.pinned && (
                 <button

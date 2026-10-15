@@ -24,13 +24,20 @@ export interface ServerConfig {
   port: number
   /** Remote clients may open real shells. Off by default. */
   remoteTerminal: boolean
+  /**
+   * Folders paired devices may browse and add as projects or vault (absolute
+   * paths), besides the projects added at the desktop. Without remote shells
+   * they are all a device can reach.
+   */
+  remoteRoots: string[]
 }
 
 export const DEFAULT_SERVER_CONFIG: ServerConfig = {
   enabled: false,
   lan: false,
   port: 7420,
-  remoteTerminal: false
+  remoteTerminal: false,
+  remoteRoots: []
 }
 
 export interface ServerStatus {
@@ -47,13 +54,26 @@ export interface ServerStatus {
 export interface PairingCode {
   /** Short one-time code, e.g. `K7QM-2XPA`. */
   code: string
+  /** The role the device that redeems it gets. */
+  role: DeviceRole
   expiresAt: string
   urls: string[]
 }
 
+/**
+ * What a paired device may do. `member`: use Mindeck (projects, memory,
+ * assistant, approvals within the remote rules). `admin`: also pair and remove
+ * devices, set the AI key and sign the core in or out of the Mindeck account.
+ * Given at the desktop when pairing (a headless core's first device is admin).
+ */
+export type DeviceRole = 'member' | 'admin'
+
+export const DEVICE_ROLES: readonly DeviceRole[] = ['member', 'admin']
+
 export interface Device {
   id: string
   name: string
+  role: DeviceRole
   createdAt: string
   lastSeenAt?: string
 }
@@ -70,13 +90,16 @@ export interface DirListing {
   parent: string | null
   home: string
   dirs: string[]
+  /** Paired devices only: the folders they may browse (shared folders and the desktop's projects). */
+  roots?: string[]
 }
 
 /**
  * App updates (desktop, packaged): GitHub Releases via electron-updater.
- * `disabled` in dev runs and anywhere the app cannot update itself.
+ * `disabled` in dev runs; `available` where the app can't replace itself
+ * (Linux .deb) — the new version is downloaded by the user (`downloadUrl`).
  */
-export type UpdateState = 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'error'
+export type UpdateState = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
 
 export interface UpdateStatus {
   state: UpdateState
@@ -85,5 +108,7 @@ export interface UpdateStatus {
   version?: string
   /** Download progress, 0–100. */
   progress?: number
+  /** `available`: where the new version's installer is. */
+  downloadUrl?: string
   error?: string
 }

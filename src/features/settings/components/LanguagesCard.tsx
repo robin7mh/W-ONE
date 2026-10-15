@@ -87,7 +87,7 @@ export function LanguagesCard() {
   }
 
   return (
-    <Card icon={Code2} title={l.title} className="lg:col-span-2">
+    <Card icon={Code2} title={l.title} className="pane-lg:col-span-2">
       <div className="mb-2 flex items-start gap-2">
         <p className="flex-1 font-sans text-[12px] text-text-secondary">{l.intro}</p>
         <button type="button" aria-label={l.refresh} title={l.refresh} onClick={() => void load()} className="text-text-muted hover:text-cyan">

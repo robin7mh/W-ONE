@@ -202,6 +202,7 @@ describe('data & shared constants', () => {
       'memory:changed',
       'terminal:data',
       'terminal:exit',
+      'terminal:info',
       'ai:delta',
       'ai:inlineDelta',
       'ai:message',
@@ -221,14 +222,18 @@ describe('data & shared constants', () => {
       'sftp:progress',
       'remote:changed',
       'tests:changed',
+      'search:progress',
       'notebook:event',
       'browser:state',
       'browser:find',
       'browser:command',
-      'browser:reveal'
+      'browser:reveal',
+      'browser:bookmarks',
+      'browser:import',
+      'finder:progress'
     ])
     // the browser's pages are private: none of its events reach remote clients, all its channels are desktop-only
-    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal'])
+    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress'])
     for (const channel of IPC_CHANNELS.filter((c) => c.startsWith('browser:') || c.startsWith('finder:'))) expect(CHANNEL_ACCESS[channel]).toBe('desktop')
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
@@ -242,11 +247,12 @@ describe('data & shared constants', () => {
       import('@shared/types/project'),
       import('@shared/types/settings'),
       import('@shared/types/system'),
-      import('@shared/types/terminal'),
       import('@/types')
     ])) {
       expect(Object.keys(mod)).toEqual([])
     }
+    // the Terminal's types come with its defaults and bounds
+    expect(Object.keys(await import('@shared/types/terminal')).sort()).toEqual(['DEFAULT_TERMINAL_SETTINGS', 'TERMINAL_CURSORS', 'TERMINAL_LIMITS'])
   })
 })
 

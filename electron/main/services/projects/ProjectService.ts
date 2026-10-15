@@ -46,10 +46,15 @@ export class ProjectService {
     return path ? { path } : null
   }
 
-  async add(path: string): Promise<Project> {
+  /** `remote`: a paired device adds it — it stays reachable for devices only inside the shared folders. */
+  async add(path: string, remote = false): Promise<Project> {
     const canonical = await this.canonicalDir(path)
     const existing = this.registry.findByPath(canonical)
-    if (existing) return this.refresh(existing.id) // idempotent: refresh instead of duplicate
+    if (existing) {
+      // Added at the desktop after all: the desktop's own project now.
+      if (existing.addedRemotely && !remote) await this.registry.upsert({ ...existing, addedRemotely: undefined })
+      return this.refresh(existing.id) // idempotent: refresh instead of duplicate
+    }
 
     const now = new Date().toISOString()
     const [git, stack] = await Promise.all([detectGit(canonical), detectStack(canonical)])
@@ -60,7 +65,8 @@ export class ProjectService {
       addedAt: now,
       lastSeenAt: now,
       git,
-      stack
+      stack,
+      ...(remote ? { addedRemotely: true } : {})
     }
     return this.registry.upsert(project)
   }

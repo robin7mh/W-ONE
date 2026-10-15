@@ -12,12 +12,14 @@ import {
   type WebContents,
   type WindowOpenHandlerResponse
 } from 'electron'
-import type { BrowserGo, ViewBounds } from '@shared/types/browser'
+import type { BrowserGo, BrowserProfile, ViewBounds } from '@shared/types/browser'
 import { labels } from '../../services/browser/labels'
-import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry } from '../../services/browser/types'
+import type { AutomationTarget, BrowserHost, BrowserHostEvents, MenuEntry, TabNavigation } from '../../services/browser/types'
+import { ExtensionPopup, loadExtension, unloadExtension } from './extensions'
 import { contextMenu, type ContextActions } from './menus'
-import { BROWSER_PARTITION, configureBrowserSession, type SessionTarget } from './session'
-import { matchShortcut } from './shortcuts'
+import { clearPrivate, partitionOf, profileSession } from './partitions'
+import type { SessionTarget } from './session'
+import { isFullScreenKey, matchShortcut } from './shortcuts'
 
 /** Where views go before the browser was first on screen (agent tabs still need a size). */
 const DEFAULT_BOUNDS: ViewBounds = { x: 0, y: 0, width: 1280, height: 800 }
@@ -39,6 +41,16 @@ export function popupSize(features: string): { width: number; height: number } {
   return { width: get('width', 520), height: get('height', 680) }
 }
 
+/** Picture in picture for the video under the pointer (page coordinates) — or out of it again. */
+export function pipScript(x: number, y: number): string {
+  return `(() => {
+  const video = document.elementsFromPoint(${x}, ${y}).find((e) => e instanceof HTMLVideoElement)
+  if (!video) return
+  if (document.pictureInPictureElement === video) return document.exitPictureInPicture()
+  return video.requestPictureInPicture()
+})()`
+}
+
 /** Native menu items from the core's entries. */
 export function menuTemplate(entries: MenuEntry[]): MenuItemConstructorOptions[] {
   return entries.map((e) =>
@@ -50,44 +62,59 @@ export function menuTemplate(entries: MenuEntry[]): MenuItemConstructorOptions[]
 
 /**
  * The browser's web views inside the Mindeck window (architecture §12.9):
- * one WebContentsView per tab, in the `persist:mindeck-browser` profile —
- * sandboxed, no preload, no Node, nothing of Mindeck's bridge. Views sit on
- * top of the UI; the renderer tells where (`setBounds`) and freezes them as a
- * picture while its own menus or dialogs cover that area.
+ * one WebContentsView per tab, in the `persist:mindeck-browser` profile (or
+ * a private tab's in-memory one, or the agents' container) — sandboxed, no
+ * preload, no Node, nothing of Mindeck's bridge. Views sit on top of the UI;
+ * the renderer tells where (`setBounds`) and freezes them as a picture while
+ * its own menus or dialogs cover that area. A page in HTML fullscreen (a
+ * video) covers the whole window until Escape.
  */
 export class ElectronBrowserHost implements BrowserHost {
   private readonly views = new Map<string, WebContentsView>()
   private readonly zooms = new Map<string, number>()
+  /** Each tab's Chromium partition (its profile). */
+  private readonly partitions = new Map<string, string>()
   private readonly idle = new Map<string, NodeJS.Timeout>()
+  private readonly saveAs = new Set<string>()
+  private readonly extensionPopup: ExtensionPopup
   private shown?: string
+  /** The tab whose page is in HTML fullscreen. */
+  private fullscreen?: string
   private bounds: ViewBounds | null = null
+  /** The browser's pane has the focus: its keys work while the Mindeck UI has the keyboard. */
+  private keys = true
   private frozen = false
   /** Bumped by every freeze and unfreeze: a picture that arrives after an unfreeze does not freeze. */
   private freezeSeq = 0
   private readonly target: SessionTarget
   private readonly onMainInput = (event: Electron.Event, input: Electron.Input) => {
-    if (!this.bounds) return
+    if (!this.bounds || !this.keys) return
     const action = matchShortcut(input, MAC)
     if (!action) return
     event.preventDefault()
     this.events.shortcut(action)
   }
+  private readonly onResize = () => this.layout()
 
   constructor(
     private readonly win: BrowserWindow,
     private readonly events: BrowserHostEvents
   ) {
-    this.target = { events, tabOf: (contents) => this.tabOf(contents) }
+    this.target = { events, tabOf: (contents) => this.tabOf(contents), takeSaveAs: (url) => this.saveAs.delete(url) }
     current = this.target
-    configureBrowserSession(session.fromPartition(BROWSER_PARTITION), () => current)
+    profileSession(undefined, () => current)
+    this.extensionPopup = new ExtensionPopup(win, (url) => events.openTab(url, { background: false }))
     // The browser's keys also work while the Mindeck UI (the address bar) has the focus.
     win.webContents.on('before-input-event', this.onMainInput)
+    win.on('resize', this.onResize)
   }
 
-  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean } = {}): void {
+  create(tabId: string, url: string, opts: { agent?: boolean; zoom?: number; muted?: boolean; profile?: BrowserProfile; history?: TabNavigation } = {}): void {
+    profileSession(opts.profile, () => current)
+    const partition = partitionOf(opts.profile)
     const view = new WebContentsView({
       webPreferences: {
-        partition: BROWSER_PARTITION,
+        partition,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -101,12 +128,26 @@ export class ElectronBrowserHost implements BrowserHost {
     view.setVisible(false)
     this.win.contentView.addChildView(view)
     this.views.set(tabId, view)
+    this.partitions.set(tabId, partition)
     if (opts.zoom && opts.zoom !== 1) this.zooms.set(tabId, opts.zoom)
     const contents = view.webContents
     if (opts.muted) contents.setAudioMuted(true)
     this.wire(tabId, contents)
     this.layout()
-    void contents.loadURL(url).catch(() => {}) // failures arrive as did-fail-load
+    // Failures arrive as did-fail-load. A tab from the last session gets its back/forward list back
+    // (and just its page, should the list not come back at all).
+    const load = () => void contents.loadURL(url).catch(() => {})
+    if (!opts.history) return load()
+    void contents.navigationHistory.restore({ entries: opts.history.entries, index: opts.history.index }).catch(() => {
+      if (!contents.isDestroyed() && !contents.getURL()) load()
+    })
+  }
+
+  navigation(tabId: string): TabNavigation | undefined {
+    const c = this.contents(tabId)
+    if (!c) return undefined
+    const entries = c.navigationHistory.getAllEntries().map((e) => ({ url: e.url, title: e.title }))
+    return { entries, index: c.navigationHistory.getActiveIndex() }
   }
 
   destroy(tabId: string): void {
@@ -114,6 +155,8 @@ export class ElectronBrowserHost implements BrowserHost {
     if (!view) return
     this.views.delete(tabId)
     this.zooms.delete(tabId)
+    this.partitions.delete(tabId)
+    if (this.fullscreen === tabId) this.fullscreen = undefined
     clearTimeout(this.idle.get(tabId))
     this.idle.delete(tabId)
     // On window close the window is gone already; its views' pages still need closing.
@@ -136,12 +179,15 @@ export class ElectronBrowserHost implements BrowserHost {
   }
 
   show(tabId: string | undefined): void {
+    // Another tab comes up: the fullscreen page leaves fullscreen.
+    if (this.fullscreen && this.fullscreen !== tabId) this.exitFullscreen(this.fullscreen)
     this.shown = tabId
     this.layout()
   }
 
-  setBounds(bounds: ViewBounds | null): void {
+  setBounds(bounds: ViewBounds | null, focused = true): void {
     this.bounds = bounds
+    this.keys = focused
     this.layout()
   }
 
@@ -203,6 +249,22 @@ export class ElectronBrowserHost implements BrowserHost {
     nativeTheme.themeSource = theme
   }
 
+  clearPrivate(): void {
+    void clearPrivate().catch((err) => console.error('[browser] clearing the private profile failed', err))
+  }
+
+  loadExtension(path: string): Promise<{ id: string }> {
+    return loadExtension(path)
+  }
+
+  unloadExtension(id: string): void {
+    unloadExtension(id)
+  }
+
+  openPopup(url: string, anchor: ViewBounds): void {
+    this.extensionPopup.open(url, anchor)
+  }
+
   automation(tabId: string): AutomationTarget {
     const view = this.views.get(tabId)
     if (!view) throw Object.assign(new Error('The tab has no page loaded'), { code: 'not-loaded' })
@@ -223,7 +285,11 @@ export class ElectronBrowserHost implements BrowserHost {
   }
 
   dispose(): void {
-    if (!this.win.isDestroyed()) this.win.webContents.removeListener('before-input-event', this.onMainInput)
+    this.extensionPopup.close()
+    if (!this.win.isDestroyed()) {
+      this.win.webContents.removeListener('before-input-event', this.onMainInput)
+      this.win.removeListener('resize', this.onResize)
+    }
     for (const id of [...this.views.keys()]) this.destroy(id)
     if (current === this.target) current = null
   }
@@ -243,15 +309,38 @@ export class ElectronBrowserHost implements BrowserHost {
     return this.bounds && this.shown ? this.views.get(this.shown) : undefined
   }
 
-  /** Every view gets the place (hidden ones too, so pictures of them have a size); only the shown one is visible. */
+  /**
+   * Every view gets the place (hidden ones too, so pictures of them have a size); only the shown one is visible.
+   * A page in fullscreen gets the whole window instead, over everything else.
+   */
   private layout(): void {
     const zoom = this.win.webContents.getZoomFactor()
     const b = this.bounds ?? DEFAULT_BOUNDS
     const rect = { x: Math.round(b.x * zoom), y: Math.round(b.y * zoom), width: Math.round(b.width * zoom), height: Math.round(b.height * zoom) }
-    for (const [id, view] of this.views) {
-      view.setBounds(rect)
-      view.setVisible(!!this.bounds && !this.frozen && id === this.shown)
+    const full = this.fullscreen ? this.views.get(this.fullscreen) : undefined
+    if (full) {
+      const { width, height } = this.win.getContentBounds()
+      this.win.contentView.addChildView(full) // on top
+      full.setBounds({ x: 0, y: 0, width, height })
+      full.setVisible(true)
     }
+    for (const [id, view] of this.views) {
+      if (view === full) continue
+      view.setBounds(rect)
+      view.setVisible(!full && !!this.bounds && !this.frozen && id === this.shown)
+    }
+  }
+
+  private exitFullscreen(tabId: string): void {
+    void this.contents(tabId)
+      ?.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true)
+      .catch(() => {})
+  }
+
+  private onFullscreen(tabId: string, on: boolean): void {
+    if (on) this.fullscreen = tabId
+    else if (this.fullscreen === tabId) this.fullscreen = undefined
+    this.layout()
   }
 
   private keepAttached(tabId: string, c: WebContents): void {
@@ -292,6 +381,21 @@ export class ElectronBrowserHost implements BrowserHost {
     })
     c.on('render-process-gone', () => ev.crashed(tabId))
     c.on('audio-state-changed', (e) => ev.audible(tabId, e.audible))
+    c.on('media-started-playing', () => ev.media(tabId, true))
+    c.on('media-paused', () => ev.media(tabId, false))
+    c.on('enter-html-full-screen', () => this.onFullscreen(tabId, true))
+    c.on('leave-html-full-screen', () => this.onFullscreen(tabId, false))
+    // Element hiding of the ad blocker, as a user style sheet (no script in the page).
+    c.on('dom-ready', () => {
+      const css = ev.cosmetics(tabId, c.getURL())
+      if (css) void c.insertCSS(css, { cssOrigin: 'user' }).catch(() => {})
+    })
+    c.on('login', (event, details, auth, callback) => {
+      event.preventDefault()
+      ev.login(tabId, { url: details.url, host: `${auth.host}:${auth.port}`, realm: auth.realm, isProxy: auth.isProxy }, (credentials) =>
+        credentials ? callback(credentials.username, credentials.password) : callback()
+      )
+    })
     c.on('zoom-changed', (_e, direction) => ev.zoomed(tabId, direction))
     c.on('found-in-page', (_e, r) => ev.found({ tabId, active: r.activeMatchOrdinal, matches: r.matches }))
     c.on('console-message', (e) =>
@@ -300,7 +404,16 @@ export class ElectronBrowserHost implements BrowserHost {
     c.on('context-menu', (_e, params) =>
       this.popup(contextMenu(params, this.actions(tabId, c), labels(ev.locale()), ev.searchLabel(), app.getApplicationNameForProtocol('https://')))
     )
+    c.on('focus', () => ev.focused(tabId))
     c.on('before-input-event', (event, input) => {
+      if (this.fullscreen === tabId && input.type === 'keyDown' && input.key === 'Escape') {
+        event.preventDefault()
+        return this.exitFullscreen(tabId)
+      }
+      if (isFullScreenKey(input, MAC)) {
+        event.preventDefault()
+        return this.win.setFullScreen(!this.win.isFullScreen())
+      }
       const action = matchShortcut(input, MAC)
       if (!action) return
       event.preventDefault()
@@ -313,7 +426,8 @@ export class ElectronBrowserHost implements BrowserHost {
     if (!url) return this.events.favicon(tabId, undefined)
     if (url.startsWith('data:')) return this.events.favicon(tabId, url.length <= MAX_FAVICON_BYTES * 1.4 ? url : undefined)
     try {
-      const res = await session.fromPartition(BROWSER_PARTITION).fetch(url)
+      // In the tab's own profile: a private tab's icon is fetched with its cookies, not the user's.
+      const res = await session.fromPartition(this.partitions.get(tabId)!).fetch(url)
       const type = (res.headers.get('content-type')?.split(';')[0] || 'image/x-icon').trim().toLowerCase()
       // Only pictures: some servers answer /favicon.ico with an HTML page.
       if (!res.ok || !type.startsWith('image/')) return
@@ -335,7 +449,8 @@ export class ElectronBrowserHost implements BrowserHost {
         overrideBrowserWindowOptions: {
           ...popupSize(features),
           autoHideMenuBar: true,
-          webPreferences: { partition: BROWSER_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
+          // The same profile as its opener — a private tab's sign-in popup is private too.
+          webPreferences: { partition: this.partitions.get(tabId)!, sandbox: true, contextIsolation: true, nodeIntegration: false }
         }
       }
     }
@@ -353,6 +468,15 @@ export class ElectronBrowserHost implements BrowserHost {
   private actions(tabId: string, c: WebContents): ContextActions {
     return {
       openTab: (url) => this.events.openTab(url, { background: true, opener: tabId }),
+      openPrivate: (url) => this.events.openTab(url, { background: false, private: true }),
+      saveAs: (url) => {
+        this.saveAs.add(url)
+        c.downloadURL(url)
+      },
+      pictureInPicture: (x, y) => {
+        const zoom = c.getZoomFactor()
+        void c.executeJavaScript(pipScript(Math.round(x / zoom), Math.round(y / zoom)), true).catch(() => {})
+      },
       handoff: (url) => void shell.openExternal(url),
       copyText: (text) => clipboard.writeText(text),
       saveImage: (url) => c.downloadURL(url),

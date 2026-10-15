@@ -1,15 +1,20 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, protocol, shell } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, protocol, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { release, type } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { migrateLegacyData, mindeckPaths } from './main/lib/paths'
-import { electronCipher, electronPlatform } from './main/platform/electron'
+import { captureConsole, catchCrashes, Logger } from './main/lib/log'
+import { electronCipher, electronPlatform, secretsProtected } from './main/platform/electron'
+import { DesktopLifecycle, usingMindeck, type LifecycleLabels } from './main/platform/lifecycle'
+import { registerDesktopIpc } from './ipc/desktop.ipc'
 import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
 import { autoUpdater } from 'electron-updater'
 import { cloudConfig } from './main/services/cloud/config'
-import { UpdateService } from './main/services/update/UpdateService'
+import { manualUpdateFile, UpdateService } from './main/services/update/UpdateService'
 import { createBrowserHost } from './main/platform/browser/host'
+import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
 
 /** A 1×1 picture for drags whose file has no icon. */
@@ -17,6 +22,22 @@ const DRAG_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
 const IDLE_SECONDS = 5 * 60
+
+// ~/Mindeck/{data,vault,logs} holds everything — every location derives from paths.ts.
+const paths = mindeckPaths()
+
+// Everything the main process says, and every crash it survives, lands in
+// ~/Mindeck/logs (rotated); native crashes leave a minidump there — nothing is uploaded.
+const logger = new Logger({ dir: paths.logsDir })
+captureConsole(logger)
+catchCrashes(logger)
+app.setPath('crashDumps', join(paths.logsDir, 'crashes'))
+crashReporter.start({ uploadToServer: false })
+
+// One Mindeck at a time: a second start (a shortcut, the dock while it runs in the
+// background) brings the running one up instead of opening the same data twice.
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.quit()
 
 // main/preload are bundled as CommonJS (Electron's well-supported default), so
 // __dirname is natively available — no import.meta shim needed.
@@ -27,6 +48,48 @@ const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 let mainWindow: BrowserWindow | null = null
 let core: Core | null = null
 let updates: UpdateService | null = null
+/** When the window last lost the focus — the trial still counts a short while after. */
+let lastFocusAt = 0
+
+/** Loads Mindeck's page into the window (again, after a crash). */
+function loadApp(win: BrowserWindow): void {
+  if (DEV_SERVER_URL) void win.loadURL(DEV_SERVER_URL)
+  else void win.loadFile(join(__dirname, '../renderer/index.html'))
+}
+
+/** The tray icon while Mindeck runs in the background (Windows/Linux). */
+function createTray(l: LifecycleLabels, actions: { show(): void; quit(): void }): Tray {
+  const icon = app.isPackaged ? join(process.resourcesPath, 'tray.png') : join(__dirname, '../../build/icon.png')
+  const size = process.platform === 'win32' ? 16 : 22
+  const tray = new Tray(nativeImage.createFromPath(icon).resize({ width: size, height: size }))
+  tray.setToolTip(l.tooltip)
+  tray.setContextMenu(Menu.buildFromTemplate([{ label: l.show, click: actions.show }, { type: 'separator' }, { label: l.quit, click: actions.quit }]))
+  tray.on('click', actions.show)
+  return tray
+}
+
+/** The work closing the window would end: live agent sessions and the user's terminals. */
+function running() {
+  return { agents: core?.agents.list().filter((s) => s.live).length ?? 0, terminals: core?.terminal.list().length ?? 0 }
+}
+
+/** Closing the window, quitting, a crashed window — and the agents and terminals that keep running. */
+const lifecycle = new DesktopLifecycle({
+  platform: process.platform,
+  running,
+  closeBehavior: () => core?.settings.get().closeBehavior ?? 'ask',
+  remember: async (closeBehavior) => core?.settings.update({ closeBehavior }),
+  ask: (options) => {
+    const parent = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
+    return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)
+  },
+  locale: () => core?.browser.hostEvents().locale() ?? 'en',
+  createTray,
+  quit: () => app.quit(),
+  reload: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) loadApp(mainWindow)
+  }
+})
 
 // Previews in the Files module (images, video, audio) come from local files through this scheme.
 protocol.registerSchemesAsPrivileged([{ scheme: FILE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
@@ -85,8 +148,10 @@ function createWindow(): void {
   core!.browser.attach(browserHost)
 
   win.on('ready-to-show', () => win.show())
+  // With agents or terminals running, closing hides the window (or asks) instead.
+  win.on('close', (event) => lifecycle.onClose(win, event))
   win.on('closed', () => {
-    // No shell outlives its window (on macOS the app itself keeps running).
+    // It really closed: nothing was running, or Mindeck is quitting.
     core?.terminal.killAll()
     core?.browser.detach()
     browserHost.dispose()
@@ -98,6 +163,14 @@ function createWindow(): void {
   win.on('maximize', emitMaxState)
   win.on('unmaximize', emitMaxState)
 
+  // ⌃⌘F / F11: full screen, before the page and the menu see the key (the pages' own views do the same).
+  const mac = process.platform === 'darwin'
+  win.webContents.on('before-input-event', (event, input) => {
+    if (!isFullScreenKey(input, mac)) return
+    event.preventDefault()
+    win.setFullScreen(!win.isFullScreen())
+  })
+
   // macOS hides the traffic lights in fullscreen; the top bar drops their gap.
   const emitFullScreen = () => win.webContents.send('window:fullscreen-changed', win.isFullScreen())
   win.on('enter-full-screen', emitFullScreen)
@@ -108,6 +181,18 @@ function createWindow(): void {
   win.on('restore', () => core?.system.setPaused(false))
   win.on('hide', () => core?.system.setPaused(true))
   win.on('show', () => core?.system.setPaused(false))
+  win.on('blur', () => (lastFocusAt = Date.now()))
+
+  // The renderer crashed or hangs: Mindeck's work runs in this process — bring the window back.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[window] the renderer is gone (${details.reason}, exit code ${details.exitCode})`)
+    void lifecycle.onRendererGone(details.reason)
+  })
+  win.on('unresponsive', () => {
+    console.warn('[window] the renderer is not responding')
+    void lifecycle.onUnresponsive()
+  })
+  win.on('responsive', () => lifecycle.onResponsive())
 
   // The editor vetoes unloading while files have unsaved edits — ask the user.
   win.webContents.on('will-prevent-unload', (event) => {
@@ -120,6 +205,7 @@ function createWindow(): void {
       detail: 'Close anyway and lose them?'
     })
     if (choice === 0) event.preventDefault()
+    else lifecycle.cancelQuit() // the window stays: so does Mindeck
   })
 
   // The window never navigates away from Mindeck: links go to the browser (or their app) instead.
@@ -132,12 +218,12 @@ function createWindow(): void {
     event.preventDefault()
     openLink(url)
   })
+  // Nor does a redirect take it elsewhere.
+  win.webContents.on('will-redirect', (event, url) => {
+    if (!isAppUrl(url)) event.preventDefault()
+  })
 
-  if (DEV_SERVER_URL) {
-    void win.loadURL(DEV_SERVER_URL)
-  } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  loadApp(win)
 }
 
 // --- Window control IPC (invoked from preload bridge) ---
@@ -147,6 +233,7 @@ ipcMain.on('window:toggle-maximize', () => {
   mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.on('window:toggle-fullscreen', () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()))
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
 
@@ -167,15 +254,12 @@ function notify(title: string, body: string): void {
   if (!Notification.isSupported() || BrowserWindow.getFocusedWindow()) return
   const n = new Notification({ title, body })
   n.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
+    if (mainWindow) lifecycle.reveal(mainWindow)
   })
   n.show()
 }
 
 async function startCore(): Promise<void> {
-  // ~/Mindeck/{data,vault} holds everything — every location derives from paths.ts.
-  const paths = mindeckPaths()
   const legacyDir = join(app.getPath('userData'), 'mindeck')
   try {
     if (migrateLegacyData(paths, legacyDir)) console.log(`[data] copied ${legacyDir} → ${paths.dataDir}`)
@@ -183,26 +267,32 @@ async function startCore(): Promise<void> {
     console.error('[data] migration from the old data folder failed — starting fresh\n', err)
   }
 
+  const cipher = electronCipher()
   core = await createCore({
     mode: 'desktop',
     version: app.getVersion(),
     paths,
     platform: electronPlatform,
-    cipher: electronCipher(),
+    cipher,
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
     webRoot: join(__dirname, '../renderer'),
     notify,
+    isFocused: () => !!BrowserWindow.getFocusedWindow(),
     // The packaged app needs a license; `npm run dev` only with MINDECK_LICENSE=required.
     cloud: cloudConfig(app.isPackaged),
-    isUserActive: () => powerMonitor.getSystemIdleTime() < IDLE_SECONDS
+    // The trial counts only while Mindeck is in front of someone — not while it runs in the background.
+    isUserActive: () => usingMindeck(mainWindow, lastFocusAt, Date.now(), powerMonitor.getSystemIdleTime() >= IDLE_SECONDS)
   })
   core.hub.subscribe(broadcast)
+  const c = core
 
   // Self-update only where it can work: the packaged app (GitHub Releases).
   updates = new UpdateService({
     updater: app.isPackaged ? autoUpdater : null,
     currentVersion: app.getVersion(),
-    onStatus: (status) => broadcast('update:status', status)
+    onStatus: (status) => broadcast('update:status', status),
+    // A .deb can't replace itself: the user downloads the new version.
+    manualDownload: manualUpdateFile(process.platform, process.arch, process.resourcesPath)
   })
   const u = updates
   core.router.register('update:status', () => u.status())
@@ -210,11 +300,32 @@ async function startCore(): Promise<void> {
   core.router.register('update:install', () => u.install())
   u.start()
 
+  registerDesktopIpc(core.router, {
+    logger,
+    settings: core.settings,
+    secretsEncrypted: !!cipher && secretsProtected(),
+    openPath: shell.openPath,
+    diagnostics: () => ({
+      version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      os: `${type()} ${release()}`,
+      versions: process.versions,
+      locale: app.getLocale(),
+      packaged: app.isPackaged,
+      license: c.cloud.status().state,
+      running: running(),
+      uptime: process.uptime(),
+      home: app.getPath('home')
+    })
+  })
+
   bindIpc(core.router, isAppUrl)
   await core.server.start()
 }
 
 app.whenReady().then(async () => {
+  if (!primary) return
   protocol.handle(FILE_SCHEME, (request) =>
     serveFile(request, {
       thumbnail: async (path, size) => {
@@ -225,18 +336,28 @@ app.whenReady().then(async () => {
   )
   await startCore()
   createWindow()
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  // The Dock (macOS), or a second start: the window back — a new one if it really closed.
+  const bringBack = () => (mainWindow ? lifecycle.reveal(mainWindow) : createWindow())
+  app.on('activate', bringBack)
+  app.on('second-instance', bringBack)
+})
+
+// ⌘Q, the tray, the app menu, an update: confirm while agents or terminals run.
+app.on('before-quit', (event) => lifecycle.onBeforeQuit(event))
+
+// A helper process (GPU, network, a utility) ended unexpectedly — for the log.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit') return
+  console.warn(`[app] ${details.type}${details.name ? ` (${details.name})` : ''} process gone: ${details.reason}, exit code ${details.exitCode}`)
 })
 
 // will-quit, not before-quit: closing the windows can still be cancelled (unsaved
 // editor changes), and the core must survive that.
 app.on('will-quit', () => {
-  const running = core
+  const stopping = core
   core = null
   updates?.dispose()
-  void running?.dispose().catch(() => {})
+  void stopping?.dispose().catch(() => {})
 })
 
 app.on('window-all-closed', () => {

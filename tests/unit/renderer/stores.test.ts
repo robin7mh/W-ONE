@@ -239,6 +239,18 @@ describe('terminal store', () => {
     expect(useTerminals.getState().tabs).toHaveLength(1)
   })
 
+  it('run: a new shell in Home that runs a command, typed in for the user', async () => {
+    const created = info()
+    const written: unknown[] = []
+    installBridge({ 'terminal:list': () => [], 'terminal:create': () => created, 'terminal:write': (p: unknown) => void written.push(p) })
+    expect(await useTerminals.getState().run('claude auth login')).toEqual(created)
+    expect(written).toEqual([{ id: created.id, data: 'claude auth login\r' }])
+    expect(useTerminals.getState()).toMatchObject({ activeId: created.id, tabs: [created] })
+    installBridge({ 'terminal:create': () => fail('remote shells are off') })
+    expect(await useTerminals.getState().run('x')).toBeUndefined()
+    expect(useTerminals.getState().error).toBe('remote shells are off')
+  })
+
   it('layouts never reorder: new tabs append, picking a tab only focuses it', async () => {
     const queue: TerminalInfo[] = []
     installBridge({ 'terminal:create': () => queue.shift()!, 'terminal:kill': () => fail('x') })

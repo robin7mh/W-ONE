@@ -56,6 +56,15 @@ export function originOf(url: string): string {
   }
 }
 
+/** The page's host name (`example.com`, lower case), '' when it has none. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 /** Hosts reached over plain http when typed without a scheme: this machine and the local network. */
 function plainHttp(host: string): boolean {
   const h = host.toLowerCase()

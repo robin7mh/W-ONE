@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installBridge, settle } from './bridge'
 import { formatMode, isArchive, pathChain } from '@/features/files/kinds'
+import { de } from '@/lib/i18n/de'
 import type { FinderEntry, FinderProgress } from '@shared/types/finder'
 
 const entry = (path: string, extra: Partial<FinderEntry> = {}): FinderEntry => ({
@@ -68,6 +69,8 @@ describe('files helpers (more)', () => {
     expect(pathChain('/etc/x', '/home').map((c) => c.path)).toEqual(['/', '/etc', '/etc/x'])
     expect(pathChain('C:\\Users\\me').map((c) => c.path)).toEqual(['\\', 'C:', 'C:\\Users', 'C:\\Users\\me'])
     expect(['a.zip', 'b.TAR.GZ', 'c.tgz', 'd.tar', 'e.rar'].map(isArchive)).toEqual([true, true, true, true, false])
+    expect(de.files.folderSize('5 KB', 1, false)).toBe('5 KB · 1 Datei')
+    expect(de.files.folderSize('5 KB', 2, true)).toBe('mindestens 5 KB · 2 Dateien')
   })
 })
 

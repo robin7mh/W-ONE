@@ -26,6 +26,7 @@ vi.mock('@/features/memory/components/NoteEditor', () => ({
 }))
 
 import { MemoryView } from '@/features/memory/components/MemoryView'
+import { PaneContext } from '@/features/workspace/pane'
 import { useMemory } from '@/features/memory/store'
 
 const initial = useMemory.getState()
@@ -208,6 +209,14 @@ describe('MemoryView · daily notes and templates', () => {
     fireEvent.keyDown(window, { key: 'x', metaKey: true, shiftKey: true })
     expect(a.openDaily).toHaveBeenCalledTimes(3)
     unmount()
+    fireEvent.keyDown(window, { key: 'd', metaKey: true, shiftKey: true })
+    expect(a.openDaily).toHaveBeenCalledTimes(3)
+    // Next to another module, without the focus: not Memory's key.
+    render(
+      <PaneContext.Provider value={{ focused: false }}>
+        <MemoryView />
+      </PaneContext.Provider>
+    )
     fireEvent.keyDown(window, { key: 'd', metaKey: true, shiftKey: true })
     expect(a.openDaily).toHaveBeenCalledTimes(3)
   })

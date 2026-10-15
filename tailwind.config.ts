@@ -1,4 +1,6 @@
 import type { Config } from 'tailwindcss'
+import plugin from 'tailwindcss/plugin'
+import { PANE_STEPS } from './src/features/workspace/steps'
 
 /**
  * Colors map to CSS variables declared in src/index.css so the whole app has a
@@ -65,5 +67,10 @@ export default {
       }
     }
   },
-  plugins: []
+  plugins: [
+    // `pane-lg:flex`: like `lg:`, but for the width of the module's pane (see steps.ts).
+    plugin(({ addVariant }) => {
+      for (const step of Object.keys(PANE_STEPS)) addVariant(`pane-${step}`, `[data-pane~="${step}"] &`)
+    })
+  ]
 } satisfies Config

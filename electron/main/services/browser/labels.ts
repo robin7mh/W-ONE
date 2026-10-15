@@ -35,7 +35,26 @@ const EN = {
   selectAll: 'Select All',
   searchFor: (engine: string, text: string) => `Search ${engine} for “${text.length > 24 ? `${text.slice(0, 24)}…` : text}”`,
   addToDictionary: 'Add to Dictionary',
-  inspect: 'Inspect'
+  inspect: 'Inspect',
+  bookmarkPage: 'Bookmark This Page…',
+  bookmarksBar: 'Show Bookmarks Bar',
+  bookmarkManager: 'Bookmark Manager',
+  history: 'History',
+  tabSearch: 'Search Tabs…',
+  importData: 'Import Bookmarks and History…',
+  barFolder: 'Bookmarks bar',
+  importedFrom: (browser: string) => `Imported from ${browser}`,
+  imported: 'Imported',
+  newPrivateTab: 'New Private Tab',
+  openLinkPrivate: 'Open Link in Private Tab',
+  saveLinkAs: 'Save Link As…',
+  saveImageAs: 'Save Image As…',
+  saveVideoAs: 'Save Video As…',
+  saveAudioAs: 'Save Audio As…',
+  pictureInPicture: 'Picture in Picture',
+  blocked: (n: number) => (n === 1 ? '1 ad or tracker blocked on this page' : `${n} ads and trackers blocked on this page`),
+  blockOn: (host: string) => `Block Ads and Trackers on ${host}`,
+  blockingOff: 'Blocking Is Off in the Settings'
 }
 
 export type Labels = typeof EN
@@ -76,7 +95,26 @@ const DE: Labels = {
   selectAll: 'Alles auswählen',
   searchFor: (engine, text) => `Mit ${engine} nach „${text.length > 24 ? `${text.slice(0, 24)}…` : text}“ suchen`,
   addToDictionary: 'Zum Wörterbuch hinzufügen',
-  inspect: 'Untersuchen'
+  inspect: 'Untersuchen',
+  bookmarkPage: 'Lesezeichen für diese Seite …',
+  bookmarksBar: 'Lesezeichenleiste anzeigen',
+  bookmarkManager: 'Lesezeichen-Manager',
+  history: 'Verlauf',
+  tabSearch: 'Tabs durchsuchen …',
+  importData: 'Lesezeichen und Verlauf importieren …',
+  barFolder: 'Lesezeichenleiste',
+  importedFrom: (browser) => `Importiert aus ${browser}`,
+  imported: 'Importiert',
+  newPrivateTab: 'Neuer privater Tab',
+  openLinkPrivate: 'Link in privatem Tab öffnen',
+  saveLinkAs: 'Link speichern unter …',
+  saveImageAs: 'Bild speichern unter …',
+  saveVideoAs: 'Video speichern unter …',
+  saveAudioAs: 'Audio speichern unter …',
+  pictureInPicture: 'Bild im Bild',
+  blocked: (n) => (n === 1 ? '1 Werbung oder Tracker auf dieser Seite blockiert' : `${n} Werbungen und Tracker auf dieser Seite blockiert`),
+  blockOn: (host) => `Werbung und Tracker auf ${host} blockieren`,
+  blockingOff: 'Blockieren ist in den Einstellungen aus'
 }
 
 export function labels(locale: 'de' | 'en'): Labels {

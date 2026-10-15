@@ -5,6 +5,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
 import { renderMarkdown } from '../markdown'
+import { usePaneFocused } from '@/features/workspace/pane'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
 
 interface Props {
@@ -101,7 +102,10 @@ export function NoteEditor(p: Props) {
   }, [html, mode, loadImage])
 
   // Obsidian shortcuts: ⌘/Ctrl+E toggles read/edit, ⌘/Ctrl+S saves now.
+  // Only while Memory's pane has the focus — next to the editor, ⌘S is the editor's.
+  const focused = usePaneFocused()
   useEffect(() => {
+    if (!focused) return
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
@@ -115,7 +119,7 @@ export function NoteEditor(p: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, onMode, onSave])
+  }, [mode, onMode, onSave, focused])
 
   /** A Markdown link: web addresses leave the app (main routes them to a browser), `.md` paths open notes. */
   const followHref = (href: string) => {

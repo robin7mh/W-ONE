@@ -2,48 +2,21 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle, choose } from './bridge'
 import type { AgentAvailability, AgentSession } from '@shared/types/agents'
+import { CLAUDE_MODELS, CLAUDE_MODES } from '@shared/types/claude'
 import type { ChatMessage, PermissionRequest } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
 
 // --- xterm (the session's terminal) and Monaco (diffs): jsdom runs neither ----------
 const x = vi.hoisted(() => ({
-  terms: [] as { written: string[]; focus: ReturnType<typeof vi.fn>; disposed: boolean }[],
-  fitThrows: false,
   diff: { created: 0, models: [] as { value: string; path: string; disposed: boolean }[], disposed: 0 }
 }))
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options: Record<string, unknown> = {}
-    written: string[] = []
-    focus = vi.fn()
-    disposed = false
-    constructor() {
-      x.terms.push(this)
-    }
-    loadAddon() {}
-    open() {}
-    write(d: string) {
-      this.written.push(d)
-    }
-    onData() {
-      return { dispose: vi.fn() }
-    }
-    onResize() {
-      return { dispose: vi.fn() }
-    }
-    dispose() {
-      this.disposed = true
-    }
-  }
-}))
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit = vi.fn(() => {
-      if (x.fitThrows) throw new Error('not measurable')
-    })
-  }
-}))
-vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
+vi.mock('@xterm/xterm', async () => (await import('./xtermFake')).xtermModule)
+vi.mock('@xterm/addon-fit', async () => (await import('./xtermFake')).fitModule)
+vi.mock('@xterm/addon-web-links', async () => (await import('./xtermFake')).webLinksModule)
+vi.mock('@xterm/addon-search', async () => (await import('./xtermFake')).searchModule)
+vi.mock('@xterm/addon-serialize', async () => (await import('./xtermFake')).serializeModule)
+vi.mock('@xterm/addon-unicode11', async () => (await import('./xtermFake')).unicodeModule)
+vi.mock('@xterm/addon-webgl', async () => (await import('./xtermFake')).webglModule)
 vi.mock('@/features/editor/monaco/setup', () => ({
   THEME: 'mindeck',
   applyMonacoTheme: vi.fn(),
@@ -63,6 +36,7 @@ vi.mock('@/features/editor/monaco/setup', () => ({
   }
 }))
 
+import { xt } from './xtermFake'
 import { useAgents, useActiveSession } from '@/features/agents/sessions'
 import { useAssistant } from '@/features/agents/store'
 import { describeEvent } from '@/features/agents/format'
@@ -79,8 +53,8 @@ beforeEach(() => {
   useAgents.setState(initialAgents, true)
   useAssistant.setState(initialAssistant, true)
   useProjects.setState({ projects: [project('p1', 'Demo'), project('p2', 'Site')], selectedId: undefined, load: vi.fn(async () => {}) })
-  x.terms.length = 0
-  x.fitThrows = false
+  xt.terms.length = 0
+  xt.fitThrows = false
   x.diff = { created: 0, models: [], disposed: 0 }
 })
 
@@ -193,6 +167,11 @@ describe('useAgents store', () => {
     expect(ag().sessions[0].status).toBe('working')
 
     expect(await ag().send('hello')).toBe(true)
+    expect(await ag().send('see', { refs: [{ kind: 'file', path: 'a.ts' }] })).toBe(true)
+    expect(calls.filter(([ch]) => ch === 'agents:send').map(([, p]) => p)).toEqual([
+      { id: 's9', text: 'hello' },
+      { id: 's9', text: 'see', refs: [{ kind: 'file', path: 'a.ts' }] }
+    ])
     await ag().interrupt()
     await ag().stop()
     await ag().resume('other')
@@ -212,6 +191,7 @@ describe('useAgents store', () => {
       'agents:create',
       'agents:get',
       'agents:send',
+      'agents:send',
       'agents:interrupt',
       'agents:stop',
       'agents:resume',
@@ -221,7 +201,7 @@ describe('useAgents store', () => {
       'agents:accept',
       'agents:discard'
     ])
-    expect(calls[5][1]).toEqual({ id: 'other' })
+    expect(calls[6][1]).toEqual({ id: 'other' })
 
     useAgents.setState({ sessions: [session({ id: 'keep' }), ...ag().sessions] })
     await ag().remove('keep') // not the active one
@@ -313,12 +293,16 @@ describe('NewChatDialog', () => {
     fireEvent.click(screen.getByLabelText('Own working folder'))
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
-    expect(create).toHaveBeenCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: 'Fix the login' })
+    expect(create).toHaveBeenCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: 'Fix the login', model: 'default', mode: 'default' })
 
+    // Claude Code starts with a model and a permission mode of the user's choice.
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Default model')
+    choose('Model', 'Opus')
+    choose('Mode', /^Plan first/)
     fireEvent.change(screen.getByLabelText('First message'), { target: { value: '   ' } })
     fireEvent.click(screen.getByText('Start'))
     await act(settle)
-    expect(create).toHaveBeenLastCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: undefined })
+    expect(create).toHaveBeenLastCalledWith({ kind: 'claude-code', projectId: 'p2', isolated: true, prompt: undefined, model: 'opus', mode: 'plan' })
   })
 
   it('Mindeck Assistant: chosen when no agent is ready; sends the first message into a new assistant chat', async () => {
@@ -399,19 +383,19 @@ describe('SessionPane', () => {
     await act(() => vi.advanceTimersByTimeAsync(1000))
     rerender(<SessionPane session={session({ status: 'idle', branch: 'mindeck/abc' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(5000))
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
     // The next start takes long: the agent asks something in its terminal, which opens.
     rerender(<SessionPane session={session({ status: 'starting', branch: 'mindeck/abc', terminalId: 'pty2' })} messages={[]} />)
     await act(() => vi.advanceTimersByTimeAsync(2900))
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
     await act(() => vi.advanceTimersByTimeAsync(100))
     vi.useRealTimers()
     await act(settle)
-    expect(x.terms).toHaveLength(1)
-    expect(x.terms[0].written).toContain('trust?')
+    expect(xt.terms).toHaveLength(1)
+    expect(xt.terms[0].written).toContain('trust?')
     expect(screen.getByLabelText('Hide terminal')).toBeInTheDocument()
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
-    expect(x.terms[0].focus).toHaveBeenCalled() // ready to answer the prompt
+    expect(xt.terms[0].focus).toHaveBeenCalled() // ready to answer the prompt
     fireEvent.click(screen.getByLabelText('End session'))
     expect(stop).toHaveBeenCalledWith('s1')
   })
@@ -430,7 +414,7 @@ describe('SessionPane', () => {
     ]
     const { rerender } = pane(session({ status: 'approval' }), messages)
     expect(screen.getByText('· Needs your approval')).toBeInTheDocument()
-    expect(x.terms).toHaveLength(0) // terminal only on request
+    expect(xt.terms).toHaveLength(0) // terminal only on request
     fireEvent.click(screen.getByLabelText('Interrupt'))
     fireEvent.click(screen.getByLabelText('Stop')) // the composer's stop does the same
     expect(interrupt).toHaveBeenCalledTimes(2)
@@ -439,28 +423,40 @@ describe('SessionPane', () => {
 
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
-    expect(x.terms).toHaveLength(1)
+    expect(xt.terms).toHaveLength(1)
     fireEvent.click(screen.getByLabelText('Hide terminal'))
-    expect(x.terms[0].disposed).toBe(true)
+    expect(xt.terms[0].disposed).toBe(true)
 
     rerender(<SessionPane session={session({ status: 'idle' })} messages={messages} />)
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'next step' } })
     fireEvent.keyDown(screen.getByLabelText('Message'), { key: 'Enter' })
     await act(settle)
-    expect(send).toHaveBeenCalledWith('next step')
+    expect(send).toHaveBeenCalledWith('next step', { refs: [], images: [] })
     expect(screen.queryByLabelText('Interrupt')).toBeNull()
     void bridge
   })
 
+  it('an approval that belongs to no tool card (a Mindeck tool\'s own gate) shows at the end of the thread', () => {
+    installBridge({})
+    const respond = vi.fn(async () => {})
+    const gate = { id: 'gate1', conversationId: 's1', toolTitle: 'Append to note', risk: 'write', summary: 'Append to Plan.md', allowAlways: true } as PermissionRequest
+    useAssistant.setState({ pending: [gate, { ...gate, id: 'elsewhere', conversationId: 'x', summary: 'Not this session' }], respond })
+    pane(session({ status: 'working' }), [msg('u', 'user', 'note it')])
+    expect(screen.getByText('Append to Plan.md')).toBeInTheDocument()
+    expect(screen.queryByText('Not this session')).toBeNull()
+    fireEvent.click(screen.getByText('Allow once'))
+    expect(respond).toHaveBeenCalledWith('gate1', 'once')
+  })
+
   it('waiting: the terminal opens (even when it can\'t be measured yet); its end is noted', async () => {
     const bridge = installBridge({ 'terminal:attach': () => ({ buffer: '', end: 0 }) })
-    x.fitThrows = true
+    xt.fitThrows = true
     pane(session({ status: 'waiting' }))
     await act(settle)
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))))
-    expect(x.terms[0].focus).toHaveBeenCalled()
+    expect(xt.terms[0].focus).toHaveBeenCalled()
     act(() => bridge.emit('terminal:exit', { id: 'pty1', exitCode: 0 }))
-    expect(x.terms[0].written.join('')).toContain('[the agent ended]')
+    expect(xt.terms[0].written.join('')).toContain('[the agent ended]')
   })
 
   it('ended: resume; errors from the session and the store (dismissible); empty state', async () => {
@@ -527,6 +523,75 @@ describe('SessionPane', () => {
   })
 })
 
+describe('the composer in the cockpit', () => {
+  it('switches model and mode through the core; a failure shows; a removed session leaves no draft', async () => {
+    installBridge({
+      'agents:configure': (p: { id: string; model?: string }) => (p.model === 'bad' ? fail('Unknown model: bad') : session({ id: p.id, model: p.model })),
+      'agents:remove': () => undefined
+    })
+    useAgents.setState({ sessions: [session()], activeId: 's1' })
+    await ag().configure({ model: 'opus' })
+    expect(ag().sessions[0].model).toBe('opus')
+    await ag().configure({ model: 'bad' })
+    expect(ag().error).toBe('Unknown model: bad')
+    localStorage.setItem('mindeck.agents.draft.s1', JSON.stringify({ text: 'half', refs: [] }))
+    await ag().remove('s1')
+    expect(localStorage.getItem('mindeck.agents.draft.s1')).toBeNull()
+  })
+
+  it('Claude Code: models and permission modes in the composer; the mode applies from the next start while it runs', () => {
+    const configure = vi.fn(async () => {})
+    useAgents.setState({ configure })
+    const claudeSession = session({ models: CLAUDE_MODELS, modes: CLAUDE_MODES, model: 'sonnet', mode: 'default', images: true, commands: [] })
+    const { rerender } = render(<SessionPane session={claudeSession} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Sonnet')
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveTextContent('Ask before edits')
+    expect(screen.getByLabelText('Attach an image')).toBeInTheDocument()
+    choose('Model', 'Default model')
+    expect(configure).toHaveBeenLastCalledWith({ model: 'default' })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Mode' }))
+    expect(screen.getByRole('option', { name: /Plan first/ })).toHaveTextContent('Takes effect when the session starts again')
+    fireEvent.click(screen.getByRole('option', { name: /Plan first/ }))
+    expect(configure).toHaveBeenLastCalledWith({ mode: 'plan' })
+    rerender(<SessionPane session={{ ...claudeSession, live: false, model: undefined, mode: undefined }} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('Default model')
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveTextContent('Default mode')
+  })
+
+  it('ACP agents: the names they give; no pickers when they offer none', () => {
+    const acp = session({ kind: 'codex', terminalId: undefined, models: [{ id: 'gpt-5', name: 'GPT-5', description: 'Smart' }], modes: [{ id: 'auto', name: 'Auto', description: 'Runs on its own' }], model: 'gpt-5', mode: 'auto' })
+    const { rerender } = render(<SessionPane session={acp} messages={[]} />)
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveTextContent('GPT-5')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Mode' }))
+    expect(screen.getByRole('option', { name: /Auto/ })).toHaveTextContent('Runs on its own')
+    rerender(<SessionPane session={{ ...acp, models: [], modes: undefined }} messages={[]} />)
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Mode' })).toBeNull()
+  })
+
+  it('the chat shows what a message carried', () => {
+    render(
+      <SessionPane
+        session={session()}
+        messages={[{ ...msg('u', 'user', ''), attachments: [{ kind: 'file', label: 'src/a.ts' }, { kind: 'image', label: 'shot.png' }] }]}
+      />
+    )
+    expect(screen.getByRole('list', { name: 'Attached' })).toHaveTextContent('src/a.tsshot.png')
+  })
+
+  it('a new Codex chat starts without Claude\'s options', async () => {
+    const create = vi.fn(async () => true)
+    useAgents.setState({ availability: [claude(), { ...codex, ready: true }], create })
+    useProjects.setState({ selectedId: 'p1' })
+    render(<NewChatDialog onOpenSettings={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+    fireEvent.click(screen.getByText('Start'))
+    await act(settle)
+    expect(create).toHaveBeenCalledWith({ kind: 'codex', projectId: 'p1', isolated: false, prompt: undefined })
+  })
+})
+
 describe('SessionPane for ACP agents', () => {
   it('Codex: no terminal of its own; starting needs nothing from the user; messages go to the agent', () => {
     render(<SessionPane session={session({ kind: 'codex', status: 'starting', terminalId: undefined })} messages={[]} />)
@@ -536,7 +601,7 @@ describe('SessionPane for ACP agents', () => {
     expect(screen.getByText('Codex · Demo')).toBeInTheDocument()
     expect(screen.getByText(/Runs with your own Codex sign-in/)).toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message Codex…')
-    expect(x.terms).toHaveLength(0)
+    expect(xt.terms).toHaveLength(0)
   })
 })
 
@@ -549,17 +614,17 @@ describe('SessionPane: a shell for agents without a terminal', () => {
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
     expect(openShell).toHaveBeenCalledWith('s1')
-    expect(x.terms).toHaveLength(1)
-    expect(x.terms[0].written).toContain('$ ')
+    expect(xt.terms).toHaveLength(1)
+    expect(xt.terms[0].written).toContain('$ ')
     act(() => bridge.emit('terminal:exit', { id: 'sh1', exitCode: 0 }))
-    expect(x.terms[0].written.join('')).toContain('[the shell ended]')
+    expect(xt.terms[0].written.join('')).toContain('[the shell ended]')
     fireEvent.click(screen.getByLabelText('Hide terminal'))
-    expect(x.terms[0].disposed).toBe(true)
+    expect(xt.terms[0].disposed).toBe(true)
 
     openShell.mockResolvedValueOnce(undefined as never)
     fireEvent.click(screen.getByLabelText('Show terminal'))
     await act(settle)
-    expect(x.terms).toHaveLength(1)
+    expect(xt.terms).toHaveLength(1)
     expect(screen.getByLabelText('Show terminal')).toBeInTheDocument()
   })
 })

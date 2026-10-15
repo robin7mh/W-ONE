@@ -4,6 +4,8 @@ import { installBridge, settle } from './bridge'
 import { state, tab } from './browserFixtures'
 import { useBrowser } from '@/features/browser/store'
 import { useOverlays } from '@/lib/overlay'
+import { relayout } from '@/lib/relayout'
+import { PaneContext } from '@/features/workspace/pane'
 import { useAssistant } from '@/features/agents/store'
 import { useProjects } from '@/features/projects/store'
 import { useAppearance } from '@/lib/theme'
@@ -377,7 +379,7 @@ describe('Viewport', () => {
     rect({ left: 10.4, top: 20.6, width: 300, height: 200 })
     const { rerender, unmount } = render(<Viewport active />)
     await settle()
-    expect(sent('browser:view')).toEqual([{ bounds: { x: 10, y: 21, width: 300, height: 200 } }])
+    expect(sent('browser:view')).toEqual([{ bounds: { x: 10, y: 21, width: 300, height: 200 }, focused: true }])
     act(() => (globalThis as unknown as { FakeResizeObserver: { instances: { trigger(): void }[] } }).FakeResizeObserver.instances[0].trigger())
     window.dispatchEvent(new Event('resize'))
     rerender(<Viewport active />)
@@ -387,11 +389,43 @@ describe('Viewport', () => {
     rerender(<Viewport active />)
     rerender(<Viewport active={false} />)
     await settle()
-    expect(sent('browser:view').slice(1)).toEqual([{ bounds: { x: 10, y: 60, width: 300, height: 160 } }, { bounds: null }])
+    expect(sent('browser:view').slice(1)).toEqual([
+      { bounds: { x: 10, y: 60, width: 300, height: 160 }, focused: true },
+      { bounds: null, focused: true }
+    ])
     rerender(<Viewport active={false} />) // still hidden: nothing new
     unmount()
     await settle()
     expect(sent('browser:view')).toHaveLength(3)
+  })
+
+  it('follows its pane: a move without a resize, and whether the pane has the focus', async () => {
+    const { sent } = bridge()
+    useBrowser.setState({ state: state([tab('a', 'https://a.dev/')]) })
+    rect({ left: 0, top: 0, width: 300, height: 200 })
+    const pane = (focused: boolean) => (
+      <PaneContext.Provider value={{ focused }}>
+        <Viewport active />
+      </PaneContext.Provider>
+    )
+    const { rerender, unmount } = render(pane(false))
+    await settle()
+    expect(sent('browser:view')).toEqual([{ bounds: { x: 0, y: 0, width: 300, height: 200 }, focused: false }])
+    rect({ left: 400, top: 0, width: 300, height: 200 })
+    act(() => relayout()) // the panes swapped places
+    await settle()
+    expect(sent('browser:view').at(-1)).toEqual({ bounds: { x: 400, y: 0, width: 300, height: 200 }, focused: false })
+    rerender(pane(true)) // the user moved into the browser's pane: its keys win now
+    await settle()
+    expect(sent('browser:view').at(-1)).toEqual({ bounds: { x: 400, y: 0, width: 300, height: 200 }, focused: true })
+    expect(document.querySelector('[data-native-view]')).toBeTruthy()
+    unmount()
+    await settle()
+    expect(sent('browser:view').at(-1)).toEqual({ bounds: null, focused: true })
+    const count = sent('browser:view').length
+    relayout() // gone: nobody listens
+    await settle()
+    expect(sent('browser:view')).toHaveLength(count)
   })
 
   it('stands in a picture of the page while a menu or dialog covers it', async () => {

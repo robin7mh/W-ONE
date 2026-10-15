@@ -14,6 +14,7 @@ import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
 import { registerScmIpc } from '../../ipc/scm.ipc'
+import { registerSearchIpc } from '../../ipc/search.ipc'
 import { registerLspIpc } from '../../ipc/lsp.ipc'
 import { registerDebugIpc } from '../../ipc/debug.ipc'
 import { registerToolsIpc } from '../../ipc/tools.ipc'
@@ -55,6 +56,7 @@ import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
 import { ScmService } from '../services/scm/ScmService'
+import { SearchService } from '../services/search/SearchService'
 import { LspService } from '../services/lsp/LspService'
 import { DebugService } from '../services/debug/DebugService'
 import { ToolsService } from '../services/tools/ToolsService'
@@ -63,6 +65,7 @@ import { AuthService } from '../services/auth/AuthService'
 import { EventBus } from '../services/events/EventBus'
 import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
+import { RemoteAccess } from '../server/RemoteAccess'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
 import { InlineService } from '../services/ai/InlineService'
@@ -80,6 +83,7 @@ import { createMcpHandler, MEMORY_TOOLS } from '../services/agents/mcp'
 import { vaultJournal } from '../services/agents/journal'
 import { spawnAcp } from '../services/agents/acp'
 import { CloudService } from '../services/cloud/CloudService'
+import { PushService } from '../services/cloud/PushService'
 import { cloudConfig, type CloudConfig } from '../services/cloud/config'
 import { isLicenseFree } from '@shared/types/cloud'
 
@@ -100,6 +104,8 @@ export interface CoreOptions {
   notify?: (title: string, body: string) => void
   /** Mindeck Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
   cloud?: CloudConfig & { fetch?: typeof fetch }
+  /** Someone looks at Mindeck (desktop: its window has focus) — then no push goes to the phone. */
+  isFocused?: () => boolean
   /** Someone is at this machine (desktop: not idle). Remote clients count as use, too. */
   isUserActive?: () => boolean
 }
@@ -131,7 +137,8 @@ export interface Core {
  */
 export async function createCore(opts: CoreOptions): Promise<Core> {
   const { paths, platform } = opts
-  await mkdir(paths.dataDir, { recursive: true })
+  // Only the user may look into Mindeck's data (transcripts, grants, tokens).
+  await mkdir(paths.dataDir, { recursive: true, mode: 0o700 })
 
   const settings = new SettingsService(paths.settingsFile)
   await settings.init()
@@ -173,7 +180,12 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     openExternal: platform.openExternal,
     appForUrl: platform.appForUrl,
     openPath: platform.openPath,
-    revealPath: platform.revealPath
+    revealPath: platform.revealPath,
+    pickFolder: platform.pickFolder,
+    // The Chromium inside Electron (the Web Store serves extensions per Chrome version).
+    chromeVersion: process.versions.chrome,
+    // Other browsers' profiles are the desktop user's; a headless core has none to import.
+    ...(platform.kind === 'desktop' ? { importEnv: { home: homedir(), platform: process.platform, env: process.env } } : {})
   })
   await browser.init()
 
@@ -183,10 +195,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     emit: (channel, payload) => {
       hub.publish(channel, payload as never)
       if (channel === 'terminal:exit') return browser.devServers.exit((payload as TerminalExit).id)
+      if (channel !== 'terminal:data') return
       const { id, data } = payload as TerminalData
       browser.devServers.feed({ id, projectId: terminal.info(id)?.projectId }, data)
     },
-    resolveProject: (id) => projects.list().find((p) => p.id === id)
+    resolveProject: (id) => projects.list().find((p) => p.id === id),
+    settings,
+    dir: paths.dataDir
   })
 
   const fs = new FsService()
@@ -210,14 +225,16 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     tools: devTools,
     lsp
   })
-  const auth = new AuthService(paths.devicesFile)
+  // A headless core has no desktop to give roles: its first paired device is admin.
+  const auth = new AuthService(paths.devicesFile, undefined, opts.mode === 'server')
 
   // The router asks the server controller whether remote shells are allowed,
-  // and the cloud whether Mindeck is licensed (only ever called per request,
-  // after all of them exist).
+  // the cloud whether Mindeck is licensed, and RemoteAccess what a device may
+  // reach (only ever called per request, after all of them exist).
   const router = new Router({
     remoteTerminal: () => controller.remoteTerminal(),
-    licensed: (channel) => isLicenseFree(channel) || cloud.allowed()
+    licensed: (channel) => isLicenseFree(channel) || cloud.allowed(),
+    guard: (channel, payload) => remoteAccess.check(channel, payload)
   })
 
   const controller: ServerController = new ServerController({
@@ -233,6 +250,15 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       system.setRemoteClients(count)
       cloud.setRemoteClients(count)
     }
+  })
+
+  // What paired devices may reach: the shared folders and the desktop's projects, never keys or system folders.
+  const remoteAccess = new RemoteAccess({
+    roots: () => controller.remoteRoots(),
+    projects: () => projects.list(),
+    remoteShell: () => controller.remoteTerminal(),
+    dirs: (path) => fs.dirs(path),
+    protectedDirs: [paths.dataDir]
   })
 
   const info = (): AppInfo => ({
@@ -294,12 +320,21 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       search: (q) => vault.search(q)
     }),
     publish: (channel, payload) => hub.publish(channel, payload),
-    remoteShell: () => controller.remoteTerminal()
+    remoteShell: () => controller.remoteTerminal(),
+    remoteAccess
   })
 
   // The agent cockpit: the user's own coding agents (Claude Code), each in a
   // PTY, reporting back through hooks and reading Mindeck's memory over MCP —
   // both on a this-computer-only endpoint with a token per session.
+  // Pushes to the phone (Mindeck Cloud) when an agent needs the user and Mindeck is in the background.
+  const push = new PushService({
+    baseUrl: cloudCfg.url,
+    token: () => cloud.sessionToken(),
+    settings,
+    focused: opts.isFocused ?? (() => false),
+    fetch: cloudCfg.fetch
+  })
   const local: LocalAgentServer = new LocalAgentServer({
     hook: (id, body, signal) => agents.handleHook(id, body, signal),
     mcp: (id, body) => agents.handleMcp(id, body)
@@ -315,22 +350,27 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     projects: (id) => projects.list().find((p) => p.id === id),
     publish: (channel, payload) => hub.publish(channel, payload),
     // The browser lives in the desktop window: only a desktop core offers it to agents.
-    mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS),
+    // Its write tools pass Mindeck's own approval, whatever the agent's settings.
+    mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS, permissions),
     journal: vaultJournal(vault),
     notify: opts.notify,
+    push: (notice) => push.send(notice),
+    vaultRoot: async () => (await vault.status()).root,
     spawnAcp,
     claudeBin: process.env.MINDECK_CLAUDE_BIN || undefined,
     openFolder: (path) => openInVsCode(path, platform)
   })
   await Promise.all([agents.init(), local.start()])
 
-  registerProjectIpc(router, projects)
+  registerProjectIpc(router, projects, remoteAccess)
   registerSystemIpc(router, system)
   registerContextIpc(router, context)
   registerMemoryIpc(router, vault)
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
+  const search = new SearchService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'search:progress') })
+  registerSearchIpc(router, search)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)
@@ -350,7 +390,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const mongo = new MongoService({ secrets })
   registerMongoIpc(router, mongo)
   registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
-  registerAgentsIpc(router, agents)
+  registerAgentsIpc(router, agents, push)
   registerBrowserIpc(router, browser)
   registerFinderIpc(
     router,
@@ -366,12 +406,21 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     })
   )
   router.register('app:info', () => info())
-  router.register('fs:dirs', ({ path }) => fs.dirs(path))
+  router.register('fs:dirs', ({ path }, ctx) => (ctx.transport === 'remote' ? remoteAccess.dirs(path) : fs.dirs(path)))
   router.register('server:status', () => controller.status())
-  router.register('server:configure', (patch) => controller.configure(patch))
-  router.register('server:createPairingCode', () => controller.createPairingCode())
+  router.register('server:configure', async ({ remoteRoots, ...patch }) =>
+    controller.configure(remoteRoots ? { ...patch, remoteRoots: await remoteAccess.validateRoots(remoteRoots) } : patch)
+  )
+  router.register('server:createPairingCode', ({ role }) => controller.createPairingCode(role))
   router.register('server:devices', () => controller.devices())
-  router.register('server:revokeDevice', ({ id }) => controller.revoke(id))
+  router.register('server:revokeDevice', ({ id }, ctx) => {
+    // Unpairing itself is every device's right; removing others is an admin's.
+    if (ctx.transport === 'remote' && ctx.role !== 'admin' && id !== ctx.deviceId) {
+      throw Object.assign(new Error('Removing other devices needs the admin role'), { code: 'admin-only' })
+    }
+    return controller.revoke(id)
+  })
+  router.register('server:setDeviceRole', ({ id, role }) => controller.setDeviceRole(id, role))
   router.register('ai:status', () => ai.status())
   router.register('ai:setKey', ({ key }) => ai.setKey(key))
   router.register('ai:clearKey', () => ai.clearKey())
@@ -388,10 +437,13 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('ai:inlineComplete', (req) => inline.complete(req))
   router.register('ai:inlineEdit', (req) => inline.edit(req))
   router.register('ai:inlineCancel', ({ requestId }) => inline.cancel(requestId))
-  router.register('permission:pending', () => permissions.list())
-  router.register('permission:respond', ({ id, decision }, ctx) => permissions.respond(id, decision, ctx.deviceId))
+  // "Always allow" is the desktop's to give: devices are not offered it.
+  router.register('permission:pending', (_req, ctx) => permissions.list().map((r) => (ctx.transport === 'remote' ? { ...r, allowAlways: false } : r)))
+  router.register('permission:respond', ({ id, decision }, ctx) =>
+    permissions.respond(id, decision, ctx.transport === 'remote' ? { deviceId: ctx.deviceId, shells: controller.remoteTerminal() } : undefined)
+  )
   router.register('permission:grants', () => permissions.grants())
-  router.register('permission:revoke', ({ agentId, toolName }) => permissions.revoke(agentId, toolName))
+  router.register('permission:revoke', ({ agentId, toolName, projectId }) => permissions.revoke(agentId, toolName, projectId))
   router.register('events:recent', (q) => eventLog.recent(q))
   router.register('cloud:status', () => cloud.status())
   router.register('cloud:login', (req) => cloud.login(req))
@@ -461,6 +513,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await mongo.dispose()
       remote.dispose()
       lint.dispose()
+      search.dispose()
       notebooks.dispose()
       terminal.killAll()
       await browser.dispose()

@@ -7,6 +7,11 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { DEVICE_ROLES } from '@shared/types/server'
+import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
+import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
+import { TERMINAL_CURSORS, TERMINAL_LIMITS } from '@shared/types/terminal'
+import { EXTENSION_SOURCES } from '@shared/types/browserExtensions'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -32,6 +37,71 @@ const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) 
 /** One file or folder name — no separators, not `.` or `..` (the service checks again). */
 const fileName = z.string().trim().min(1).max(255)
 const paths = z.array(path).min(1).max(1000)
+/** A moment as ms since 1970. */
+const epochMs = z.number().finite().min(0).max(8.64e15)
+/** A stash, by its full commit hash. */
+const stashHash = z.string().regex(/^[0-9a-f]{40}$/i)
+/** Include / exclude globs of a project search. */
+const globs = z.array(z.string().min(1).max(500)).max(100).optional()
+
+/** A model or mode id an agent offers. */
+const optionId = z.string().min(1).max(200)
+/** `@` references and images of a message to an agent (the service checks paths and sizes again). */
+const composerRef = z.object({ kind: z.enum(['file', 'folder', 'note', 'tab']), path, label: text(500).optional() })
+const composerImage = z.object({
+  name: z.string().min(1).max(255),
+  mimeType: z.enum(IMAGE_TYPES),
+  data: z
+    .string()
+    .min(1)
+    .max(Math.ceil(MAX_IMAGE_BYTES / 3) * 4)
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+})
+
+/** An absolute folder: `/…`, `~`-less, or a Windows drive / UNC path. */
+const absolute = path.refine((p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p), 'must be an absolute path')
+const range = ([min, max]: readonly [number, number]) => z.number().finite().min(min).max(max)
+const terminalProfile = z.object({
+  id: z.string().regex(/^custom-[\w-]{1,64}$/),
+  name: z.string().trim().min(1).max(80),
+  command: z.string().trim().min(1).max(4096),
+  args: z.array(text(4096)).max(64),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).max(200), text(8192)).refine((e) => Object.keys(e).length <= 64),
+  cwd: absolute.optional()
+})
+const terminalSettings = z
+  .object({
+    fontFamily: z.string().trim().min(1).max(200),
+    fontSize: range(TERMINAL_LIMITS.fontSize),
+    lineHeight: range(TERMINAL_LIMITS.lineHeight),
+    cursorStyle: z.enum(TERMINAL_CURSORS),
+    cursorBlink: z.boolean(),
+    scrollback: range(TERMINAL_LIMITS.scrollback).int(),
+    bufferKb: range(TERMINAL_LIMITS.bufferKb).int(),
+    copyOnSelect: z.boolean(),
+    gpu: z.boolean(),
+    restore: z.boolean(),
+    shellIntegration: z.boolean(),
+    defaultProfile: text(200),
+    profiles: z.array(terminalProfile).max(TERMINAL_LIMITS.profiles)
+  })
+  .partial()
+const terminalSnapshot = z.object({
+  layout: z.enum(['single', 'cols', 'rows', 'grid']),
+  active: z.number().int().min(0).max(100),
+  tabs: z
+    .array(
+      z.object({
+        title,
+        cwd: path,
+        projectId: id.optional(),
+        profileId: id.optional(),
+        scrollback: text(512 * 1024)
+      })
+    )
+    .max(12),
+  savedAt: z.string().max(64)
+})
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -87,7 +157,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:setVault': z.object({ path }),
 
   'terminal:create': z
-    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional() })
+    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional(), profileId: id.optional() })
     .optional()
     .transform((v) => v ?? {}),
   'terminal:list': none,
@@ -95,6 +165,11 @@ export const REQUEST_SCHEMAS: Schemas = {
   'terminal:write': z.object({ id, data: text(1024 * 1024) }),
   'terminal:resize': z.object({ id, cols: z.number(), rows: z.number() }),
   'terminal:kill': z.object({ id }),
+  'terminal:shells': none,
+  'terminal:settings': none,
+  'terminal:configure': terminalSettings,
+  'terminal:persist': terminalSnapshot,
+  'terminal:restore': none,
 
   'files:list': z.object({ projectId: id, dir: text(4096).optional() }),
   'files:read': z.object({ projectId: id, path }),
@@ -124,12 +199,35 @@ export const REQUEST_SCHEMAS: Schemas = {
     target: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('unstaged') }),
       z.object({ kind: z.literal('staged') }),
-      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() })
+      z.object({ kind: z.literal('commit'), hash: z.string().regex(/^[0-9a-f]{4,40}$/i), from: path.optional() }),
+      z.object({ kind: z.literal('stash'), hash: stashHash, from: path.optional(), untracked: z.boolean().optional() })
     ])
   }),
   'scm:original': z.object({ projectId: id, path }),
   'scm:files': z.object({ projectId: id }),
-  'scm:search': z.object({ projectId: id, query: text(500), regex: z.boolean().optional(), caseSensitive: z.boolean().optional() }),
+  'scm:abort': z.object({ projectId: id }),
+  'scm:continue': z.object({ projectId: id }),
+  'scm:stashes': z.object({ projectId: id }),
+  'scm:stash': z.object({ projectId: id, message: text(2000).optional(), untracked: z.boolean().optional() }),
+  'scm:applyStash': z.object({ projectId: id, hash: stashHash, pop: z.boolean().optional() }),
+  'scm:dropStash': z.object({ projectId: id, hash: stashHash }),
+  'scm:stashFiles': z.object({ projectId: id, hash: stashHash }),
+  'scm:blame': z.object({ projectId: id, path, text: text(6 * 1024 * 1024).optional() }),
+
+  'search:start': z.object({
+    id,
+    projectId: id,
+    query: z.object({
+      pattern: z.string().min(1).max(2000),
+      regex: z.boolean().optional(),
+      caseSensitive: z.boolean().optional(),
+      wholeWord: z.boolean().optional(),
+      include: globs,
+      exclude: globs,
+      skip: z.array(path).max(1000).optional()
+    })
+  }),
+  'search:cancel': z.object({ id }),
 
   'lsp:open': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
   'lsp:change': z.object({ projectId: id, path, text: text(6 * 1024 * 1024) }),
@@ -164,6 +262,7 @@ export const REQUEST_SCHEMAS: Schemas = {
 
   'tools:status': none,
   'tools:install': z.object({ id: z.string().min(1).max(50), part: z.enum(['server', 'debugger']) }),
+  'tools:runtimes': none,
 
   'migrate:scan': none,
   'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
@@ -244,11 +343,16 @@ export const REQUEST_SCHEMAS: Schemas = {
     enabled: z.boolean().optional(),
     lan: z.boolean().optional(),
     port: z.number().int().min(1024).max(65535).optional(),
-    remoteTerminal: z.boolean().optional()
+    remoteTerminal: z.boolean().optional(),
+    remoteRoots: z.array(path).max(50).optional()
   }),
-  'server:createPairingCode': none,
+  'server:createPairingCode': z
+    .object({ role: z.enum(DEVICE_ROLES).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
   'server:devices': none,
   'server:revokeDevice': z.object({ id }),
+  'server:setDeviceRole': z.object({ id, role: z.enum(DEVICE_ROLES) }),
 
   'ai:status': none,
   'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
@@ -297,7 +401,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'permission:pending': none,
   'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),
   'permission:grants': none,
-  'permission:revoke': z.object({ agentId: id, toolName: id }),
+  'permission:revoke': z.object({ agentId: id, toolName: id, projectId: id.optional() }),
 
   'agents:detect': none,
   'agents:list': none,
@@ -307,9 +411,19 @@ export const REQUEST_SCHEMAS: Schemas = {
     projectId: id,
     title: text(200).optional(),
     isolated: z.boolean().optional(),
-    prompt: text(100_000).optional()
+    prompt: text(100_000).optional(),
+    model: optionId.optional(),
+    mode: optionId.optional()
   }),
-  'agents:send': z.object({ id, text: z.string().min(1).max(100_000) }),
+  'agents:send': z.object({
+    id,
+    text: text(100_000),
+    refs: z.array(composerRef).max(MAX_REFS).optional(),
+    images: z.array(composerImage).max(MAX_IMAGES).optional()
+  }),
+  'agents:configure': z.object({ id, model: optionId.optional(), mode: optionId.optional() }),
+  'agents:pushSettings': none,
+  'agents:setPushSettings': z.object({ enabled: z.boolean() }),
   'agents:interrupt': z.object({ id }),
   'agents:stop': z.object({ id }),
   'agents:resume': z.object({ id }),
@@ -345,9 +459,37 @@ export const REQUEST_SCHEMAS: Schemas = {
   'update:check': none,
   'update:install': none,
 
+  'desktop:status': none,
+  'desktop:configure': z.object({ closeBehavior: z.enum(CLOSE_BEHAVIORS) }),
+  'desktop:openLogs': none,
+  'desktop:diagnostics': none,
+  'desktop:reportError': z.object({
+    kind: z.enum(['module', 'app', 'error', 'rejection']),
+    module: text(64).optional(),
+    message: text(2000),
+    stack: text(16_000).optional(),
+    componentStack: text(16_000).optional()
+  }),
+
+  'browser:extensions': none,
+  'browser:extensions:install': z.discriminatedUnion('source', [
+    z.object({ source: z.literal(EXTENSION_SOURCES[0]), input: z.string().trim().min(1).max(2048) }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[1]), path: path.optional() }),
+    z.object({ source: z.literal(EXTENSION_SOURCES[2]), path })
+  ]),
+  'browser:extensions:profiles': none,
+  'browser:extensions:update': z.object({ id, enabled: z.boolean() }),
+  'browser:extensions:remove': z.object({ id }),
+  'browser:extensions:checkUpdates': none,
+  'browser:extensions:popup': z.object({ id, anchor: viewBounds }),
+  'browser:auth': z.object({ id, username: text(1024).optional(), password: text(4096).optional() }),
+  'browser:proceed': z.object({ id }),
+  'browser:dismissDrm': z.object({ id }),
+  'browser:pickDownloadDir': none,
+
   'browser:state': none,
   'browser:open': z
-    .object({ url: text(8192).optional(), background: z.boolean().optional() })
+    .object({ url: text(8192).optional(), background: z.boolean().optional(), private: z.boolean().optional() })
     .optional()
     .transform((v) => v ?? {}),
   'browser:close': z.object({ id }),
@@ -361,8 +503,8 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:zoom': z.object({ id, zoom: z.enum(['in', 'out', 'reset']) }),
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
-  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff']) }),
-  'browser:view': z.object({ bounds: viewBounds.nullable() }),
+  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff', 'shield']) }),
+  'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
   'browser:suggest': z.object({ text: text(2000) }),
@@ -374,8 +516,36 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:download': z.object({ id, action: z.enum(['open', 'reveal', 'cancel', 'remove']) }),
   'browser:permission': z.object({ id, allow: z.boolean(), remember: z.boolean().optional() }),
   'browser:settings': none,
-  'browser:configure': z.object({ searchEngine: z.enum(SEARCH_ENGINES).optional(), openLinksInMindeck: z.boolean().optional() }),
+  'browser:configure': z.object({
+    searchEngine: z.enum(SEARCH_ENGINES).optional(),
+    openLinksInMindeck: z.boolean().optional(),
+    adblock: z.boolean().optional(),
+    malwareProtection: z.boolean().optional(),
+    agentsUseLogins: z.boolean().optional(),
+    askDownloadLocation: z.boolean().optional(),
+    downloadDir: text(4096).optional(),
+    searchSuggestions: z.boolean().optional(),
+    bookmarksBar: z.boolean().optional()
+  }),
   'browser:ui': z.object({ theme: z.enum(['dark', 'light', 'system']), locale: z.enum(['de', 'en']) }),
+  'browser:searchSuggest': z.object({ text: text(2000) }),
+  'browser:historyList': z
+    .object({ query: text(500).optional(), before: epochMs.optional(), limit: z.number().int().min(1).max(1000).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'browser:historyDelete': z
+    .object({ urls: z.array(text(8192)).max(10_000).optional(), from: epochMs.optional(), to: epochMs.optional() })
+    .refine((v) => !!v.urls?.length || v.from !== undefined || v.to !== undefined, 'Say which pages to forget'),
+  'browser:bookmarks': none,
+  'browser:bookmarkAdd': z.object({ parentId: id.optional(), index: z.number().int().min(0).max(100_000).optional(), title, url: text(8192).min(1).optional() }),
+  'browser:bookmarkUpdate': z.object({ id, title: title.optional(), url: text(8192).min(1).optional() }),
+  'browser:bookmarkMove': z.object({ id, parentId: id, index: z.number().int().min(0).max(100_000) }),
+  'browser:bookmarkRemove': z.object({ ids: z.array(id).min(1).max(10_000) }),
+  'browser:bookmarksExport': none,
+  'browser:bookmarksImport': z.object({ html: text(20_000_000) }),
+  'browser:importSources': none,
+  'browser:import': z.object({ sourceId: text(4096).min(1), kinds: z.array(z.enum(['bookmarks', 'history', 'settings'])).min(1).max(3) }),
+  'browser:restoreSession': z.object({ restore: z.boolean() }),
 
   'finder:places': none,
   'finder:list': z

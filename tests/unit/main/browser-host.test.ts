@@ -1,5 +1,6 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { BrowserHostEvents, MenuEntry } from '../../../electron/main/services/browser/types'
+import type { SessionTarget } from '../../../electron/main/platform/browser/session'
 
 // --- electron double -------------------------------------------------------------
 type Fn = (...a: never[]) => unknown
@@ -34,7 +35,21 @@ class FakeContents {
     detach: vi.fn(() => (this.debugger.attached = false)),
     sendCommand: vi.fn(async (method: string) => ({ method }))
   }
-  navigationHistory = { canGoBack: () => this.canBack, canGoForward: () => this.canForward, goBack: vi.fn(), goForward: vi.fn() }
+  url = ''
+  entries: { url: string; title: string; pageState?: string }[] = []
+  activeIndex = -1
+  /** How `navigationHistory.restore` goes for every contents (a test may change it). */
+  static restoreWith: (c: FakeContents) => Promise<void> = () => Promise.resolve()
+  navigationHistory = {
+    canGoBack: () => this.canBack,
+    canGoForward: () => this.canForward,
+    goBack: vi.fn(),
+    goForward: vi.fn(),
+    getAllEntries: () => this.entries,
+    getActiveIndex: () => this.activeIndex,
+    restore: vi.fn(() => FakeContents.restoreWith(this))
+  }
+  getURL = () => this.url
   loadURL = vi.fn(async (url: string) => (url.includes('fail') ? Promise.reject(new Error('ERR_ABORTED')) : undefined))
   reload = vi.fn()
   reloadIgnoringCache = vi.fn()
@@ -111,6 +126,8 @@ function fakeSession() {
     setDisplayMediaRequestHandler: vi.fn(),
     setCertificateVerifyProc: vi.fn(),
     on: vi.fn(),
+    webRequest: { onBeforeRequest: vi.fn(), onBeforeSendHeaders: vi.fn() },
+    registerPreloadScript: vi.fn(),
     fetch: (...a: unknown[]) => h.fetch(...a)
   }
   return s
@@ -155,7 +172,13 @@ function fakeWindow() {
     destroyed: false,
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     webContents: new FakeContents(),
-    isDestroyed: () => win.destroyed
+    isDestroyed: () => win.destroyed,
+    on: vi.fn(),
+    removeListener: vi.fn(),
+    getContentBounds: () => ({ x: 0, y: 0, width: 1440, height: 900 }),
+    fullScreen: false,
+    isFullScreen: () => win.fullScreen,
+    setFullScreen: vi.fn((v: boolean) => (win.fullScreen = v))
   }
   return win
 }
@@ -174,13 +197,19 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     found: vi.fn(),
     console: vi.fn(),
     shortcut: vi.fn(),
+    focused: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
     download: vi.fn(),
     downloadUpdated: vi.fn(),
     locale: vi.fn(() => 'en' as const),
-    searchLabel: vi.fn(() => 'Google')
+    searchLabel: vi.fn(() => 'Google'),
+    downloadPrefs: vi.fn(() => ({ ask: false, dir: '' })),
+    request: vi.fn(() => ({})),
+    cosmetics: vi.fn(() => ''),
+    media: vi.fn(),
+    login: vi.fn()
   }
 }
 
@@ -226,6 +255,36 @@ describe('the browser host · views', () => {
     expect(open('t2', 'https://b.dev/', { agent: true }).opts.webPreferences.backgroundThrottling).toBe(false)
     open('t3', 'https://fail.dev/') // a failed load is reported by events, not thrown
     open('t4', 'https://d.dev/')
+  })
+
+  it('brings a tab’s back/forward list back after a restart, and reports it for the next one', async () => {
+    const { host, open } = setup()
+    const history = { entries: [{ url: 'https://a.dev/1', title: '1' }, { url: 'https://a.dev/2', title: '2' }], index: 1 }
+    const view = open('r', 'https://a.dev/2', { history })
+    expect(view.webContents.navigationHistory.restore).toHaveBeenCalledWith(history)
+    expect(view.webContents.loadURL).not.toHaveBeenCalled()
+    view.webContents.entries = [{ url: 'https://a.dev/1', title: '1', pageState: 'x' }, { url: 'https://a.dev/2', title: '2' }]
+    view.webContents.activeIndex = 1
+    expect(host.navigation('r')).toEqual(history)
+    expect(host.navigation('nope')).toBeUndefined()
+
+    // the list did not come back: just the page, unless something loaded already or the tab is gone
+    const preps = [(c: FakeContents) => c, (c: FakeContents) => (c.url = 'https://a.dev/1'), (c: FakeContents) => (c.destroyed = true)]
+    try {
+      for (const [i, prep] of preps.entries()) {
+        FakeContents.restoreWith = (c) => {
+          prep(c)
+          return Promise.reject(new Error('restore failed'))
+        }
+        open(`f${i}`, 'https://a.dev/2', { history })
+      }
+    } finally {
+      FakeContents.restoreWith = () => Promise.resolve()
+    }
+    const [plain, loaded, gone] = FakeView.all.slice(-3).map((v) => v.webContents)
+    await vi.waitFor(() => expect(plain.loadURL).toHaveBeenCalledWith('https://a.dev/2'))
+    expect(loaded.loadURL).not.toHaveBeenCalled()
+    expect(gone.loadURL).not.toHaveBeenCalled()
   })
 
   it('places views where the UI says — scaled by the UI zoom — and shows only the shown one', () => {
@@ -497,6 +556,26 @@ describe('the browser host · what pages report', () => {
     expect(ev.shortcut).toHaveBeenLastCalledWith('reload')
     win.webContents.emit('before-input-event', typing, key('x'))
     expect(typing.preventDefault).not.toHaveBeenCalled()
+
+    // Next to another module: the browser's keys only while its pane has the focus
+    const elsewhere = { preventDefault: vi.fn() }
+    host.setBounds({ x: 0, y: 0, width: 1, height: 1 }, false)
+    win.webContents.emit('before-input-event', elsewhere, key('F5'))
+    expect(elsewhere.preventDefault).not.toHaveBeenCalled()
+    c.emit('before-input-event', elsewhere, key('F5')) // the page itself has the keyboard: its keys
+    expect(elsewhere.preventDefault).toHaveBeenCalled()
+
+    c.emit('focus') // a click into the page
+    expect(ev.focused).toHaveBeenCalledWith('a')
+
+    // full screen from a page, exactly once (the menu does not see the key)
+    const full = { preventDefault: vi.fn() }
+    c.emit('before-input-event', full, process.platform === 'darwin' ? key('f', { meta: true, control: true }) : key('F11'))
+    expect(full.preventDefault).toHaveBeenCalled()
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(true)
+    c.emit('before-input-event', full, process.platform === 'darwin' ? key('f', { meta: true, control: true }) : key('F11'))
+    expect(win.setFullScreen).toHaveBeenLastCalledWith(false)
+    expect(ev.shortcut).not.toHaveBeenCalledWith('find', 'a')
   })
 
   it('builds the page context menu and does what each entry says', () => {
@@ -588,7 +667,10 @@ describe('the browser profile (session)', () => {
   beforeAll(async () => {
     s = await import('../../../electron/main/platform/browser/session')
     electron = await import('electron')
+    // Electron's Chromium version (Node has none)
+    ;(process.versions as Record<string, string>).chrome = '141.0.7390.54'
   })
+  afterAll(() => delete (process.versions as Record<string, string | undefined>).chrome)
   afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
 
   /** A session that keeps the handlers Mindeck installs. */
@@ -611,7 +693,15 @@ describe('the browser profile (session)', () => {
       setPermissionCheckHandler: (fn: (...a: unknown[]) => boolean) => (p.check = fn),
       setDisplayMediaRequestHandler: (fn: (...a: unknown[]) => void, opts: unknown) => ((p.display = fn), (p.displayOpts = opts)),
       on: (_event: string, fn: (...a: unknown[]) => void) => (p.download = fn),
-      setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn)
+      setCertificateVerifyProc: (fn: (request: { hostname: string }, cb: (n: number) => void) => void) => (p.verify = fn),
+      headers: undefined as undefined | ((details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void),
+      headerFilter: undefined as unknown,
+      webRequest: {
+        onBeforeRequest: vi.fn(),
+        onBeforeSendHeaders: (filter: unknown, fn: (details: { url: string; requestHeaders: Record<string, string> }, cb: (r: unknown) => void) => void) => ((p.headerFilter = filter), (p.headers = fn))
+      },
+      preloads: [] as unknown[],
+      registerPreloadScript: (script: unknown) => p.preloads.push(script)
     }
     return p
   }
@@ -670,11 +760,20 @@ describe('the browser profile (session)', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     s.configureBrowserSession(p as never, () => current)
     expect(p.sets).toBe(1)
     expect(p.ua).toBe('Mozilla/5.0 (X11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36')
+    // Chrome's client hints on every https request, and the page preload that makes navigator.userAgentData agree
+    expect(p.headerFilter).toEqual({ urls: ['https://*/*'] })
+    const sent = vi.fn()
+    p.headers!({ url: 'https://accounts.google.com/signin', requestHeaders: { Accept: '*/*', 'sec-ch-ua': '"Chromium";v="1"' } }, sent)
+    const headers = (sent.mock.calls[0][0] as { requestHeaders: Record<string, string> }).requestHeaders
+    expect(headers).toMatchObject({ Accept: '*/*', 'sec-ch-ua-platform': '"macOS"', 'sec-ch-ua-mobile': '?0' })
+    expect(headers['sec-ch-ua']).toContain('"Google Chrome"')
+    expect(headers['sec-ch-ua-full-version-list']).toContain('"Google Chrome";v="141.0.7390.54"')
+    expect(p.preloads).toEqual([{ id: 'mindeck-browser-page', type: 'frame', filePath: expect.stringMatching(/preload[\\/]browserPage\.js$/) }])
 
     const cb = vi.fn()
     p.request!({}, 'fullscreen', cb, { requestingUrl: 'https://a.dev/' })
@@ -732,7 +831,7 @@ describe('the browser profile (session)', () => {
   it('answers Chromium’s quick checks from what was remembered', () => {
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     expect(p.check!(null, 'fullscreen', 'https://a.dev', {})).toBe(true)
     expect(p.check!(null, 'usb', 'https://a.dev', {})).toBe(false)
@@ -747,7 +846,7 @@ describe('the browser profile (session)', () => {
   it('shares the screen with the system picker, or the whole screen after asking', async () => {
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     expect(p.displayOpts).toEqual({ useSystemPicker: true })
     const share = async (allow: boolean) => {
@@ -777,7 +876,7 @@ describe('the browser profile (session)', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' })
     const p = profile()
     const ev = events()
-    let current: { events: BrowserHostEvents; tabOf: () => string } | null = { events: ev, tabOf: () => 'tab' }
+    let current: SessionTarget | null = { events: ev, tabOf: () => 'tab', takeSaveAs: () => false }
     s.configureBrowserSession(p as never, () => current)
     const item = () => {
       const handlers: Record<string, (...a: unknown[]) => void> = {}
@@ -786,6 +885,7 @@ describe('the browser profile (session)', () => {
         received: 0,
         getFilename: () => 'report.pdf',
         setSavePath: vi.fn(),
+        getSavePath: () => '/Downloads/report.pdf',
         getURL: () => 'https://a.dev/report.pdf',
         getTotalBytes: () => 100,
         getReceivedBytes() {
@@ -842,10 +942,26 @@ describe('the browser profile (session)', () => {
 
 describe('the browser keys', () => {
   let match: typeof import('../../../electron/main/platform/browser/shortcuts').matchShortcut
+  let fullScreen: typeof import('../../../electron/main/platform/browser/shortcuts').isFullScreenKey
   beforeAll(async () => {
-    ;({ matchShortcut: match } = await import('../../../electron/main/platform/browser/shortcuts'))
+    ;({ matchShortcut: match, isFullScreenKey: fullScreen } = await import('../../../electron/main/platform/browser/shortcuts'))
   })
   const k = (keyName: string, mods: Partial<Record<'meta' | 'control' | 'alt' | 'shift', boolean>> = {}, type = 'keyDown') => ({ ...key(keyName, mods), type })
+
+  it('full screen is ⌃⌘F on macOS and F11 elsewhere', () => {
+    expect(fullScreen(k('f', { meta: true, control: true }), true)).toBe(true)
+    expect(fullScreen(k('F', { meta: true, control: true }), true)).toBe(true)
+    expect(fullScreen(k('f', { meta: true }), true)).toBe(false) // find
+    expect(fullScreen(k('f', { control: true }), true)).toBe(false)
+    expect(fullScreen(k('F11'), true)).toBe(false)
+    expect(fullScreen(k('F11'), false)).toBe(true)
+    expect(fullScreen(k('F11', { control: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { meta: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { shift: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', { alt: true }), false)).toBe(false)
+    expect(fullScreen(k('F11', {}, 'keyUp'), false)).toBe(false)
+    expect(fullScreen(k('F10'), false)).toBe(false)
+  })
 
   it('are Chrome’s keys with ⌘ on macOS', () => {
     const cmd = { meta: true }
@@ -880,6 +996,14 @@ describe('the browser keys', () => {
       [k('i', { meta: true, alt: true }), 'devtools'],
       [k('ˆ', { meta: true, alt: true }), 'devtools'],
       [k('x', { meta: true, alt: true }), null],
+      [k('d', cmd), 'bookmark'],
+      [k('y', cmd), 'history'],
+      [k('h', cmd), null],
+      [k('A', { meta: true, shift: true }), 'tabSearch'],
+      [k('B', { meta: true, shift: true }), 'bookmarksBar'],
+      [k('o', { meta: true, shift: true }), null],
+      [k('b', { meta: true, alt: true }), 'bookmarkManager'],
+      [k('∫', { meta: true, alt: true }), 'bookmarkManager'],
       [k('Tab', { control: true }), 'nextTab'],
       [k('Tab', { control: true, shift: true }), 'prevTab'],
       [k('F5'), 'reload'],
@@ -904,5 +1028,10 @@ describe('the browser keys', () => {
     expect(match(k('ArrowUp', { alt: true }), false)).toBeNull()
     expect(match(k('ArrowLeft', { alt: true, control: true }), false)).toBe('prevTab')
     expect(match(k('ArrowLeft', { alt: true, meta: true }), false)).toBeNull()
+    expect(match(k('h', ctrl), false)).toBe('history')
+    expect(match(k('y', ctrl), false)).toBeNull()
+    expect(match(k('O', { control: true, shift: true }), false)).toBe('bookmarkManager')
+    expect(match(k('b', { control: true, alt: true }), false)).toBeNull()
+    expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
   })
 })

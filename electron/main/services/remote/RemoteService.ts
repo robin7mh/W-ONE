@@ -266,7 +266,7 @@ export class RemoteService {
       live.procs.push(core)
       const started = await this.waitFor(core, /listening on/)
       core.on('exit', () => live.info.state === 'ready' && this.stop(live, 'failed', 'The remote Mindeck stopped'))
-      const { token, deviceId } = await this.pair(id, target.url, started, () => this.collect(target.run(`cd "${dirOf(this.opts.version)}" && MINDECK_HOME="$HOME/.mindeck" ./node out/server/index.cjs pair`)))
+      const { token, deviceId } = await this.pair(id, target.url, started, () => this.collect(target.run(`cd "${dirOf(this.opts.version)}" && MINDECK_HOME="$HOME/.mindeck" ./node out/server/index.cjs pair --admin`)))
       await this.handLicense(target.url, token)
       live.timer = setInterval(() => void this.handLicense(target.url, token).catch(() => {}), this.opts.licenseMs)
       live.timer.unref?.()

@@ -6,6 +6,7 @@ import type { Note, NoteMeta, SearchHit } from '@shared/types/memory'
 import { GraphStyleControl } from '@/features/memory/components/GraphStyleControl'
 import { NoteList } from '@/features/memory/components/NoteList'
 import { NoteEditor } from '@/features/memory/components/NoteEditor'
+import { PaneContext } from '@/features/workspace/pane'
 
 const meta = (path: string, extra: Partial<NoteMeta> = {}): NoteMeta => ({
   path,
@@ -345,6 +346,17 @@ describe('NoteEditor', () => {
 
     rerender(<NoteEditor {...p} mode="edit" source />)
     expect(screen.getByTitle('Source — plain Markdown')).toHaveAttribute('aria-pressed', 'true')
+
+    // next to the editor, without the focus: ⌘S is the editor's
+    const { unmount } = render(
+      <PaneContext.Provider value={{ focused: false }}>
+        <NoteEditor {...p} />
+      </PaneContext.Provider>
+    )
+    rerender(<div />)
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(p.onSave).toHaveBeenCalledTimes(1)
+    unmount()
   })
 
   it('preview links: wikilinks, external, relative markdown and plain anchors', () => {

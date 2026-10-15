@@ -34,6 +34,7 @@ import { EditorTabs } from '@/features/editor/components/EditorTabs'
 import { tabKey, useEditor } from '@/features/editor/store'
 import { useProjects } from '@/features/projects/store'
 import { useSession } from '@/features/session/store'
+import { PaneContext } from '@/features/workspace/pane'
 
 const initialEditor = useEditor.getState()
 const initialProjects = useProjects.getState()
@@ -339,6 +340,16 @@ describe('EditorView', () => {
     fireEvent.focus(window)
     fireEvent.keyDown(window, { key: 's', metaKey: true })
     expect(checkDisk).toHaveBeenCalledTimes(3)
+    expect(save).toHaveBeenCalledTimes(2)
+
+    // next to another module, without the focus: it follows the disk, the keys are the other module's
+    rerender(<PaneContext.Provider value={{ focused: false }}>{view(true)}</PaneContext.Provider>)
+    const polls = checkDisk.mock.calls.length
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(checkDisk.mock.calls.length).toBeGreaterThan(polls)
+    fireEvent.keyDown(window, { key: 's', metaKey: true })
     expect(save).toHaveBeenCalledTimes(2)
     vi.useRealTimers()
   })

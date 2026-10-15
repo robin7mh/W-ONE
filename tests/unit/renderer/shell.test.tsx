@@ -584,3 +584,76 @@ describe('AppShell with the Browser and Files', () => {
     Reflect.deleteProperty(window, 'mindeck')
   })
 })
+
+describe('AppShell with panes', () => {
+  it('shows modules side by side, follows the page’s focus, and hides the chrome in zen mode', async () => {
+    vi.doMock('@/features/browser/components/BrowserView', () => ({ BrowserView: ({ active }: { active: boolean }) => <div>{active ? 'BROWSER ON' : 'BROWSER OFF'}</div> }))
+    vi.doMock('@/features/agents/components/AgentsView', () => ({ AgentsView: () => <div>AGENTS</div> }))
+    vi.doMock('@/features/terminal/components/TerminalView', () => ({ TerminalView: () => <div>TERMINAL</div> }))
+    vi.doMock('@/features/dashboard/components/Dashboard', () => ({ Dashboard: () => <div>DASHBOARD</div> }))
+    vi.doMock('@/components/monitor/SystemMonitorPanel', () => ({ SystemMonitorPanel: () => <div>MONITOR</div> }))
+    vi.doMock('@/components/dashboard/BottomDashboard', () => ({ BottomDashboard: () => <div>DECK</div> }))
+    vi.doMock('@/components/topbar/TopStatusBar', () => ({ TopStatusBar: ({ showClock }: { showClock: boolean }) => <div>{showClock ? 'TOPBAR CLOCK' : 'TOPBAR'}</div> }))
+    vi.resetModules()
+    installBridge({}, 'linux')
+    const { AppShell } = await import('@/components/shell/AppShell')
+    const { useAssistant } = await import('@/features/agents/store')
+    const { useAgents } = await import('@/features/agents/sessions')
+    const { useBrowser } = await import('@/features/browser/store')
+    const { useWorkspace } = await import('@/features/workspace/store')
+    const { makeLayout } = await import('@/features/workspace/layout')
+    let handlers!: Parameters<ReturnType<typeof useBrowser.getState>['connect']>[0]
+    useBrowser.setState({
+      connect: (h) => {
+        handlers = h
+        return () => {}
+      }
+    })
+    useAssistant.setState({ connect: () => () => {} })
+    useAgents.setState({ connect: () => () => {} })
+    useWorkspace.setState({ layout: makeLayout('columns', ['agents', 'browser']) })
+
+    vi.useFakeTimers()
+    render(<AppShell />)
+    expect(screen.getByText('BROWSER OFF')).toBeInTheDocument() // not over the boot screen
+    fireEvent.click(screen.getByText('click to skip'))
+    act(() => {
+      vi.advanceTimersByTime(BOOT_TOTAL_MS)
+    })
+    vi.useRealTimers()
+
+    expect(screen.getByText('AGENTS')).toBeInTheDocument()
+    expect(screen.getByText('BROWSER ON')).toBeInTheDocument()
+    expect(screen.getByText('TOPBAR CLOCK')).toBeInTheDocument()
+    expect(screen.getByTestId('open-browser')).toBeInTheDocument() // on screen in the other pane
+    expect(screen.queryByTestId('open-agents')).toBeNull() // the focused one is marked in full
+
+    act(() => handlers.focused!()) // a click into the page
+    expect(useWorkspace.getState().layout.focus).toBe('p2')
+    fireEvent.click(screen.getByTitle('Core')) // the side navigation fills the focused pane
+    expect(useWorkspace.getState().layout.panes.map((p) => p.module)).toEqual(['agents', 'core'])
+    expect(screen.getByText('DASHBOARD')).toBeInTheDocument()
+    expect(screen.getByText('MONITOR')).toBeInTheDocument()
+    expect(screen.getByText('TOPBAR')).toBeInTheDocument()
+    expect(screen.getByText('BROWSER OFF')).toBeInTheDocument() // kept, hidden
+
+    act(() => useWorkspace.getState().setZen(true))
+    expect(screen.queryByText('TOPBAR')).toBeNull()
+    expect(screen.queryByText('DECK')).toBeNull()
+    expect(screen.queryByTitle('Terminal')).toBeNull()
+    expect(screen.getAllByRole('button', { name: /Leave zen mode/ }).length).toBeGreaterThan(0)
+    act(() => useWorkspace.getState().setZen(false))
+    expect(screen.getByText('DECK')).toBeInTheDocument()
+
+    for (const m of [
+      '@/features/browser/components/BrowserView',
+      '@/features/agents/components/AgentsView',
+      '@/features/terminal/components/TerminalView',
+      '@/features/dashboard/components/Dashboard',
+      '@/components/monitor/SystemMonitorPanel',
+      '@/components/dashboard/BottomDashboard',
+      '@/components/topbar/TopStatusBar'
+    ])
+      vi.doUnmock(m)
+  })
+})

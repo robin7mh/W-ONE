@@ -1,13 +1,26 @@
 import { spawn, type IPty } from 'node-pty'
 import { existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
-import { basename, isAbsolute, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
+import { REQUEST_SCHEMAS } from '@shared/ipc/schemas'
+import type { AppSettings } from '@shared/types/settings'
+import {
+  DEFAULT_TERMINAL_SETTINGS,
+  type TerminalAttach,
+  type TerminalData,
+  type TerminalExit,
+  type TerminalInfo,
+  type TerminalSettings,
+  type TerminalShell,
+  type TerminalSnapshot
+} from '@shared/types/terminal'
+import { writeAtomic } from '../../lib/writeAtomic'
+import { integrate, scanCwd, shellKind, writeScripts, type ShellLaunch } from './integration'
+import { detectShells } from './shells'
 
 const MAX_SESSIONS = 12
-const BUFFER_LIMIT = 256 * 1024 // chars of scrollback kept for re-attaching views
 const FLUSH_MS = 8 // batch PTY output into ~frame-sized IPC messages
 const MAX_WRITE = 1024 * 1024
 
@@ -18,11 +31,14 @@ interface Session {
   timer?: NodeJS.Timeout
   buffer: string
   end: number
+  /** The start of a folder report (OSC 7) the next chunk completes. */
+  osc: string
 }
 
 type Emit = {
   (channel: 'terminal:data', payload: TerminalData): void
   (channel: 'terminal:exit', payload: TerminalExit): void
+  (channel: 'terminal:info', payload: TerminalInfo): void
 }
 
 function coded(code: string, message: string): Error {
@@ -81,36 +97,140 @@ export function shellEnv(): Record<string, string> {
   return env
 }
 
+/** A folder's tab title: `~` for Home, else its name. */
+const folderTitle = (cwd: string) => (cwd === homedir() ? '~' : basename(cwd) || cwd)
+
+/** A folder for display, Home shortened to `~`. */
+function cwdLabel(cwd: string): string {
+  const home = homedir()
+  return cwd === home ? '~' : cwd.startsWith(home + sep) ? `~${cwd.slice(home.length)}` : cwd
+}
+
+const isDir = (path: string) => stat(path).then((s) => s.isDirectory(), () => false)
+
 /**
  * Interactive shells for the user (phase PT). Distinct from agent command
  * execution (§8.1): the renderer can only send keystrokes and sizes — which
- * binary runs, and where, is decided here. Output is batched per frame and a
- * bounded scrollback is kept so a view can re-attach after a reload.
+ * binary runs, and where, is decided here (a detected shell, or a profile the
+ * user set up in the desktop's settings). Output is batched per frame and a
+ * bounded scrollback is kept so a view can re-attach after a reload; the
+ * folder a shell reports (OSC 7) follows along. The renderer's tabs, layout
+ * and recent output are kept in a file so they come back after a restart.
  */
 export class TerminalService {
   private readonly sessions = new Map<string, Session>()
+  /** Chars of output kept per session (Settings → Terminal). */
+  private limit: number
+  /** The integration scripts are written once per run; false: they couldn't be. */
+  private scripts?: Promise<boolean>
 
   constructor(
     private readonly opts: {
       emit: Emit
       /** Project id → name/path (ProjectService); undefined if unknown. */
       resolveProject: (id: string) => { name: string; path: string } | undefined
+      /** The app settings: the Terminal's preferences live in `terminal`. */
+      settings: { get(): AppSettings; update(patch: Partial<AppSettings>): Promise<AppSettings> }
+      /** Where the integration scripts and the saved terminals go (the data folder). */
+      dir: string
     }
-  ) {}
+  ) {
+    this.limit = this.settings().bufferKb * 1024
+  }
 
-  async create(req: { projectId?: string; cwd?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
+  /** The Terminal's preferences, defaults filled in. */
+  settings(): TerminalSettings {
+    return { ...DEFAULT_TERMINAL_SETTINGS, ...this.opts.settings.get().terminal }
+  }
+
+  async configure(patch: Partial<TerminalSettings>): Promise<TerminalSettings> {
+    const next = { ...this.settings(), ...patch }
+    await this.opts.settings.update({ terminal: next })
+    this.limit = next.bufferKb * 1024
+    return next
+  }
+
+  /** The shells installed here — profiles of their own, next to the user's. */
+  shells(): TerminalShell[] {
+    return detectShells()
+  }
+
+  async create(req: { projectId?: string; cwd?: string; cols?: number; rows?: number; profileId?: string }): Promise<TerminalInfo> {
     const project = req?.projectId ? this.opts.resolveProject(req.projectId) : undefined
     if (req?.projectId && !project) throw coded('not-found', 'Project not found')
-    if (!project && req?.cwd && !isAbsolute(req.cwd)) throw coded('bad-path', 'cwd must be an absolute folder')
-    const cwd = project?.path ?? (req?.cwd ? resolve(req.cwd) : homedir())
+    if (req?.cwd && !isAbsolute(req.cwd)) throw coded('bad-path', 'cwd must be an absolute folder')
+    const prefs = this.settings()
+    const profile = this.profile(req?.profileId ?? prefs.defaultProfile, !!req?.profileId)
+    // A folder asked for (a restored tab's last one) wins over the project's root.
+    const cwd = req?.cwd ? resolve(req.cwd) : (project?.path ?? profile.cwd ?? homedir())
+    const launch = prefs.shellIntegration ? await this.integrated(profile.command, profile.env) : undefined
+    const command = launch ?? profile.command
     return this.start({
-      title: project?.name ?? (cwd === homedir() ? '~' : basename(cwd) || cwd),
+      title: project?.name ?? folderTitle(cwd),
       cwd,
-      command: shellCommand(),
+      // A profile's own program starts through the login shell (the user's PATH), like an
+      // agent — unless it is a shell itself: that one sets up its PATH (and takes the integration).
+      command: profile.custom && !shellKind(profile.command.file) ? viaLoginShell(command) : command,
+      shell: basename(profile.command.file).replace(/\.exe$/i, ''),
+      env: { ...profile.env, ...launch?.env },
       projectId: project ? req.projectId : undefined,
+      profileId: profile.id,
+      integration: !!launch,
       cols: req?.cols,
       rows: req?.rows
     })
+  }
+
+  /**
+   * What a profile id starts: the user's own profile, a detected shell, or
+   * (none given) the login shell. An unknown default falls back to the login
+   * shell; an unknown id asked for is an error.
+   */
+  private profile(
+    id: string | undefined,
+    explicit: boolean
+  ): { id?: string; command: ShellLaunch; env?: Record<string, string>; cwd?: string; custom?: boolean } {
+    if (id) {
+      const own = this.settings().profiles.find((p) => p.id === id)
+      if (own) return { id, command: { file: own.command, args: own.args }, env: own.env, cwd: own.cwd, custom: true }
+      const shell = this.shells().find((s) => s.id === id)
+      if (shell) return { id, command: { file: shell.file, args: shell.args } }
+      if (explicit) throw coded('not-found', 'Terminal profile not found')
+    }
+    return { command: shellCommand() }
+  }
+
+  /** The command with shell integration, if it can take it (and the scripts are in place). */
+  private async integrated(command: ShellLaunch, env: Record<string, string> = {}): Promise<ShellLaunch | undefined> {
+    const kind = shellKind(command.file)
+    if (!kind) return undefined
+    const dir = join(this.opts.dir, 'shell-integration')
+    if (kind !== 'pwsh') {
+      this.scripts ??= writeScripts(dir).then(
+        () => true,
+        () => false
+      )
+      if (!(await this.scripts)) return undefined
+    }
+    return integrate(command, dir, { ...shellEnv(), ...env })
+  }
+
+  /** Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off). */
+  async persist(snapshot: TerminalSnapshot): Promise<void> {
+    const file = join(this.opts.dir, 'terminals.json')
+    if (!this.settings().restore) return rm(file, { force: true })
+    await writeAtomic(file, JSON.stringify(snapshot))
+  }
+
+  /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */
+  async restore(): Promise<TerminalSnapshot | null> {
+    if (!this.settings().restore) return null
+    try {
+      const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(JSON.parse(await readFile(join(this.opts.dir, 'terminals.json'), 'utf8')))
+      return parsed.success ? parsed.data : null
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -135,8 +255,12 @@ export class TerminalService {
     title: string
     cwd: string
     command: { file: string; args: string[] }
+    /** Display name of the program (default: the binary's). */
+    shell?: string
     env?: Record<string, string>
     projectId?: string
+    profileId?: string
+    integration?: boolean
     cols?: number
     rows?: number
     kind?: 'agent'
@@ -144,7 +268,7 @@ export class TerminalService {
   }): Promise<TerminalInfo> {
     if (this.sessions.size >= MAX_SESSIONS) throw coded('limit', `At most ${MAX_SESSIONS} terminals`)
     const { cwd, command } = req
-    if (!(await stat(cwd).then((s) => s.isDirectory(), () => false))) {
+    if (!(await isDir(cwd))) {
       throw coded('not-found', `Folder not found: ${cwd}`)
     }
 
@@ -156,18 +280,19 @@ export class TerminalService {
       env: { ...shellEnv(), ...req.env }
     })
 
-    const home = homedir()
     const info: TerminalInfo = {
       id: randomUUID(),
       title: req.title,
       cwd,
-      cwdLabel: cwd === home ? '~' : cwd.startsWith(home + sep) ? `~${cwd.slice(home.length)}` : cwd,
-      shell: basename(command.file).replace(/\.exe$/i, ''),
+      cwdLabel: cwdLabel(cwd),
+      shell: req.shell ?? basename(command.file).replace(/\.exe$/i, ''),
       projectId: req.projectId,
       createdAt: new Date().toISOString(),
-      ...(req.kind ? { kind: req.kind } : {})
+      ...(req.kind ? { kind: req.kind } : {}),
+      ...(req.profileId ? { profileId: req.profileId } : {}),
+      ...(req.integration ? { integration: true } : {})
     }
-    const session: Session = { info, pty, pending: '', buffer: '', end: 0 }
+    const session: Session = { info, pty, pending: '', buffer: '', end: 0, osc: '' }
     pty.onData((data) => this.push(session, data))
     pty.onExit(({ exitCode }) => {
       this.flush(session)
@@ -256,7 +381,18 @@ export class TerminalService {
     const data = s.pending
     s.pending = ''
     s.end += data.length
-    s.buffer = (s.buffer + data).slice(-BUFFER_LIMIT)
+    s.buffer = (s.buffer + data).slice(-this.limit)
     this.opts.emit('terminal:data', { id: s.info.id, data, end: s.end })
+    this.follow(s, data)
+  }
+
+  /** The shell reported a new folder (OSC 7): a folder tab is named after it. */
+  private follow(s: Session, data: string): void {
+    const { cwd, carry } = scanCwd(s.osc + data)
+    s.osc = carry
+    if (!cwd || cwd === s.info.cwd) return
+    const title = s.info.projectId ? s.info.title : folderTitle(cwd)
+    s.info = { ...s.info, cwd, cwdLabel: cwdLabel(cwd), title }
+    this.opts.emit('terminal:info', s.info)
   }
 }

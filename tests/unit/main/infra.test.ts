@@ -50,6 +50,7 @@ import { registerMemoryIpc } from '../../../electron/ipc/memory.ipc'
 import { registerTerminalIpc } from '../../../electron/ipc/terminal.ipc'
 import { registerFilesIpc } from '../../../electron/ipc/files.ipc'
 import { registerScmIpc } from '../../../electron/ipc/scm.ipc'
+import { registerSearchIpc } from '../../../electron/ipc/search.ipc'
 import { registerLspIpc } from '../../../electron/ipc/lsp.ipc'
 import { registerDebugIpc } from '../../../electron/ipc/debug.ipc'
 import { registerToolsIpc } from '../../../electron/ipc/tools.ipc'
@@ -129,6 +130,38 @@ describe('ipc router', () => {
     expect(await defaults.dispatch('terminal:list', undefined, remoteCtx)).toMatchObject({ error: { code: 'remote-terminal-disabled' } })
   })
 
+  it('admin channels need the admin role remotely; the guard checks remote payloads only', async () => {
+    const guard = vi.fn((channel: string, payload: unknown) => {
+      if ((payload as { path?: string })?.path === '/etc') throw Object.assign(new Error('off-limits'), { code: 'remote-forbidden' })
+    })
+    const router = new Router({ remoteTerminal: () => false, guard })
+    router.register('server:createPairingCode', () => ({ code: 'X' }) as never)
+    router.register('projects:add', ({ path }) => ({ path }) as never)
+    expect(await router.dispatch('server:createPairingCode', undefined, ipcCtx)).toMatchObject({ ok: true })
+    expect(await router.dispatch('server:createPairingCode', undefined, remoteCtx)).toMatchObject({ ok: false, error: { code: 'admin-only' } })
+    expect(await router.dispatch('server:createPairingCode', undefined, { ...remoteCtx, role: 'member' })).toMatchObject({ error: { code: 'admin-only' } })
+    expect(await router.dispatch('server:createPairingCode', {}, { ...remoteCtx, role: 'admin' })).toEqual({ ok: true, data: { code: 'X' } })
+    expect(await router.dispatch('projects:add', { path: '/etc' }, ipcCtx)).toEqual({ ok: true, data: { path: '/etc' } })
+    expect(await router.dispatch('projects:add', { path: '/etc' }, remoteCtx)).toEqual({ ok: false, error: { code: 'remote-forbidden', message: 'off-limits' } })
+    expect(await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)).toMatchObject({ ok: true })
+    expect(guard).toHaveBeenCalledWith('projects:add', { path: '/srv/x' }, remoteCtx)
+    expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
+  })
+
+  it('paired devices list only the projects they may use, and add projects as remote ones', async () => {
+    const router = new Router({ remoteTerminal: () => false })
+    const service = { list: () => [{ id: 'a' }, { id: 'b' }], add: vi.fn(async (path: string) => ({ path })) }
+    const visible = vi.fn(async (list: { id: string }[]) => list.filter((p) => p.id === 'a'))
+    registerProjectIpc(router, service as never, { visible } as never)
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: true, data: [{ id: 'a' }, { id: 'b' }] })
+    expect(await router.dispatch('projects:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'a' }] })
+    await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)
+    expect(service.add).toHaveBeenCalledWith('/srv/x', true)
+    const plain = new Router({ remoteTerminal: () => false })
+    registerProjectIpc(plain, service as never)
+    expect(await plain.dispatch('projects:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'a' }, { id: 'b' }] })
+  })
+
   it('binds every contract channel to the window IPC through the router', async () => {
     electron.handlers.clear()
     const router = new Router()
@@ -166,7 +199,7 @@ describe('ipc handler modules bind every channel to its service', () => {
       [
         ['projects:list', undefined, 'list', []],
         ['projects:pickFolder', undefined, 'pickFolder', []],
-        ['projects:add', { path: '/x' }, 'add', ['/x']],
+        ['projects:add', { path: '/x' }, 'add', ['/x', false]],
         ['projects:remove', { id: 'i' }, 'remove', ['i']],
         ['projects:refresh', { id: 'i' }, 'refresh', ['i']],
         ['projects:pull', { id: 'i' }, 'pull', ['i']],
@@ -231,7 +264,18 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['terminal:attach', { id: 'i' }, 'attach', ['i']],
         ['terminal:write', { id: 'i', data: 'ls' }, 'write', ['i', 'ls']],
         ['terminal:resize', { id: 'i', cols: 80, rows: 24 }, 'resize', ['i', 80, 24]],
-        ['terminal:kill', { id: 'i' }, 'kill', ['i']]
+        ['terminal:kill', { id: 'i' }, 'kill', ['i']],
+        ['terminal:create', { profileId: 'zsh' }, 'create', [{ profileId: 'zsh' }]],
+        ['terminal:shells', undefined, 'shells', []],
+        ['terminal:settings', undefined, 'settings', []],
+        ['terminal:configure', { fontSize: 14, profiles: [] }, 'configure', [{ fontSize: 14, profiles: [] }]],
+        [
+          'terminal:persist',
+          { layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' },
+          'persist',
+          [{ layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' }]
+        ],
+        ['terminal:restore', undefined, 'restore', []]
       ]
     ],
     [
@@ -270,7 +314,22 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['scm:diff', { projectId: 'p', path: 'a', target: { kind: 'staged' } }, 'diff', ['p', 'a', { kind: 'staged' }]],
         ['scm:original', { projectId: 'p', path: 'a' }, 'original', ['p', 'a']],
         ['scm:files', { projectId: 'p' }, 'files', ['p']],
-        ['scm:search', { projectId: 'p', query: 'q', regex: true }, 'search', ['p', { query: 'q', regex: true, caseSensitive: undefined }]]
+        ['scm:abort', { projectId: 'p' }, 'abort', ['p']],
+        ['scm:continue', { projectId: 'p' }, 'continue', ['p']],
+        ['scm:stashes', { projectId: 'p' }, 'stashes', ['p']],
+        ['scm:stash', { projectId: 'p', message: 'm', untracked: true }, 'stash', ['p', { message: 'm', untracked: true }]],
+        ['scm:applyStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pop: true }, 'applyStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', true]],
+        ['scm:dropStash', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'dropStash', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:stashFiles', { projectId: 'p', hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'stashFiles', ['p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']],
+        ['scm:blame', { projectId: 'p', path: 'a', text: 't' }, 'blame', ['p', 'a', 't']]
+      ]
+    ],
+    [
+      'search',
+      registerSearchIpc,
+      [
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
       ]
     ],
     [
@@ -301,7 +360,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       registerToolsIpc,
       [
         ['tools:status', undefined, 'status', []],
-        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']]
+        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']],
+        ['tools:runtimes', undefined, 'runtimes', []]
       ]
     ],
     [
@@ -437,7 +497,11 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['agents:list', undefined, 'list', []],
         ['agents:get', { id: 'i' }, 'get', ['i']],
         ['agents:create', { kind: 'claude-code', projectId: 'p', isolated: true }, 'create', [{ kind: 'claude-code', projectId: 'p', isolated: true }]],
-        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi']],
+        ['agents:send', { id: 'i', text: 'hi' }, 'send', ['i', 'hi', {}]],
+        ['agents:send', { id: 'i', text: '', refs: [{ kind: 'file', path: 'a.ts' }] }, 'send', ['i', '', { refs: [{ kind: 'file', path: 'a.ts' }] }]],
+        ['agents:configure', { id: 'i', model: 'opus' }, 'configure', ['i', { model: 'opus' }]],
+        ['agents:pushSettings', undefined, 'settings', []],
+        ['agents:setPushSettings', { enabled: false }, 'configure', [false]],
         ['agents:interrupt', { id: 'i' }, 'interrupt', ['i']],
         ['agents:stop', { id: 'i' }, 'stop', ['i']],
         ['agents:resume', { id: 'i' }, 'resume', ['i']],
@@ -452,7 +516,8 @@ describe('ipc handler modules bind every channel to its service', () => {
   ] as const)('%s', async (_name, register, cases) => {
     const service = spyService()
     const router = new Router()
-    ;(register as (r: Router, s: unknown) => void)(router, service)
+    // Registrations with a second service (the agents' pushes) get the same spy.
+    ;(register as (r: Router, s: unknown, s2: unknown) => void)(router, service, service)
     for (const [channel, req, method, args] of cases) {
       expect(await router.dispatch(channel, req, { transport: 'ipc' })).toEqual({ ok: true, data: { method, args } })
     }
@@ -477,7 +542,8 @@ describe('paths', () => {
         eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
         runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
         agentsDir: join(home, 'Mindeck', 'data', 'agents'),
-        worktreesDir: join(home, 'Mindeck', 'worktrees')
+        worktreesDir: join(home, 'Mindeck', 'worktrees'),
+        logsDir: join(home, 'Mindeck', 'logs')
       })
       // Data from before the rename: used where it is.
       await mkdir(join(home, 'W-ONE'))
@@ -520,7 +586,8 @@ describe('preload bridge', () => {
     api.minimize()
     api.toggleMaximize()
     api.close()
-    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close'])
+    api.toggleFullScreen()
+    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close', 'window:toggle-fullscreen'])
     api.startDrag(['/a', '/b'])
     expect(electron.ipcRenderer.send).toHaveBeenLastCalledWith('files:start-drag', ['/a', '/b'])
     expect(api.pathForFile({ name: 'x.png' })).toBe('/dropped/x.png')

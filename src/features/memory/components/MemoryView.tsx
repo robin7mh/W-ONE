@@ -11,6 +11,7 @@ import { GraphStyleControl } from './GraphStyleControl'
 import { NoteList } from './NoteList'
 import { NoteEditor } from './NoteEditor'
 import { FolderPicker } from '@/components/ui/FolderPicker'
+import { usePaneFocused } from '@/features/workspace/pane'
 import { DailySettings } from './DailySettings'
 
 /**
@@ -37,8 +38,10 @@ export function MemoryView() {
   // Flush pending edits when leaving the module.
   useEffect(() => () => void useMemory.getState().save(), [])
 
-  // ⌘⇧D: today's daily note.
+  // ⌘⇧D: today's daily note — while Memory's pane has the focus.
+  const focused = usePaneFocused()
   useEffect(() => {
+    if (!focused) return
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault()
@@ -47,7 +50,7 @@ export function MemoryView() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [focused])
 
   const seg = 'flex items-center gap-1.5 rounded px-2 py-1 font-sans text-[11px] font-medium transition-colors'
 

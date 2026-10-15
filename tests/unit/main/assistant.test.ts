@@ -31,7 +31,7 @@ const tools: ToolDefinition<never>[] = [
     title: 'Write X',
     description: 'writes',
     risk: 'write',
-    schema: z.object({ v: z.string(), reason: z.string() }),
+    schema: z.object({ v: z.string(), reason: z.string(), projectId: z.string().optional() }),
     summarize: (i: { v: string }) => `write ${i.v}`,
     run: async (i: { v: string }) => `wrote:${i.v}`
   },
@@ -110,7 +110,9 @@ const call = (name: string, input: unknown, id = `tu_${name}`, text?: string, st
 const hang: Step = (req) =>
   new Promise((_, reject) => req.signal!.addEventListener('abort', () => reject(aiError('cancelled', 'Cancelled'))))
 
-async function harness(opts: { script?: Step[]; agents?: AgentDefinition[]; remoteShell?: boolean; noKey?: boolean } = {}) {
+async function harness(
+  opts: { script?: Step[]; agents?: AgentDefinition[]; remoteShell?: boolean; noKey?: boolean; remoteAccess?: { tool(input: unknown, projectId?: string): Promise<void> } } = {}
+) {
   const dir = await tempDir()
   const script = [...(opts.script ?? [])]
   const requests: LlmRequest[] = []
@@ -146,6 +148,7 @@ async function harness(opts: { script?: Step[]; agents?: AgentDefinition[]; remo
     context: { build: async (_t: string, p?: string) => `<context>${p ?? ''}</context>` } as never,
     publish: (channel, payload) => pushed.push({ channel, payload }),
     remoteShell: () => !!opts.remoteShell,
+    remoteAccess: opts.remoteAccess,
     agents: opts.agents ?? [agentDef()]
   })
   const reply = async (conversationId: string): Promise<ChatMessage> => (await svc.conversation(conversationId)).messages.at(-1)!
@@ -321,7 +324,7 @@ describe('AssistantService — tools and the permission gate', () => {
     await h.svc.idle()
     expect(toolParts(await h.reply(conversationId))[0]).toMatchObject({
       status: 'denied',
-      output: 'Running commands is disabled for remote devices on this Mindeck core.'
+      output: 'Changing files and running commands is disabled for remote devices on this Mindeck core.'
     })
 
     const allowed = await harness({ remoteShell: true, script: [call('exec_x', { cmd: 'ls', reason: 'r' }), say('ok')] })
@@ -330,6 +333,40 @@ describe('AssistantService — tools and the permission gate', () => {
     await allowed.permissions.respond(allowed.permissions.list()[0].id, 'once')
     await allowed.svc.idle()
     expect(toolParts(await allowed.reply(c.conversationId))[0].status).toBe('done')
+  })
+
+  it('a remote run writes nothing without remote shells, and stays out of what devices may not reach', async () => {
+    const tool = vi.fn(async (input: unknown) => {
+      if ((input as { q?: string }).q === 'secret') throw Object.assign(new Error('.env is off-limits for paired devices'), { code: 'remote-forbidden' })
+    })
+    const h = await harness({ remoteAccess: { tool }, script: [call('write_x', { v: '1', reason: 'r' }, 'w1'), call('read_x', { q: 'ok' }, 'r1'), call('read_x', { q: 'secret' }, 'r2'), say('done')] })
+    const { conversationId } = await h.svc.send({ text: 'x', projectId: 'p1' }, remote)
+    await h.svc.idle()
+    const parts = toolParts(await h.reply(conversationId))
+    expect(parts.map((p) => p.status)).toEqual(['denied', 'done', 'denied'])
+    expect(parts[2].output).toBe('.env is off-limits for paired devices')
+    expect(tool).toHaveBeenCalledWith({ q: 'ok' }, 'p1')
+    expect(h.permissions.list()).toEqual([])
+    // The desktop's runs are never checked.
+    const d = await harness({ remoteAccess: { tool }, script: [call('read_x', { q: 'secret' }), say('ok')] })
+    await d.svc.send({ text: 'x' }, ipc)
+    await d.svc.idle()
+    expect(tool).toHaveBeenCalledTimes(2)
+  })
+
+  it('"always" holds in the tool’s project only', async () => {
+    const h = await harness({
+      script: [call('write_x', { v: '1', reason: 'r' }, 'w1'), call('write_x', { v: '2', reason: 'r' }, 'w2'), call('write_x', { v: '3', reason: 'r', projectId: 'p2' }, 'w3'), say('ok')]
+    })
+    await h.svc.send({ text: 'x', projectId: 'p1' }, ipc)
+    await h.waitFor(() => h.permissions.list().length === 1)
+    expect(h.permissions.list()[0].projectId).toBe('p1')
+    await h.permissions.respond(h.permissions.list()[0].id, 'always')
+    await h.waitFor(() => h.permissions.list().length === 1) // w2 ran unasked; w3 names another project
+    expect(h.permissions.list()[0].projectId).toBe('p2')
+    await h.permissions.respond(h.permissions.list()[0].id, 'once')
+    await h.svc.idle()
+    expect(await h.permissions.grants()).toEqual([expect.objectContaining({ agentId: 'tester', toolName: 'write_x', projectId: 'p1' })])
   })
 
   it('rejects unknown and not-allowlisted tools, invalid input and failing tools', async () => {
