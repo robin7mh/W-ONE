@@ -24,6 +24,15 @@ export async function skipSetup(page: Page): Promise<void> {
   if (!decided.done) await page.getByRole('dialog', { name: 'Set up Mindeck' }).getByRole('button', { name: 'Skip setup' }).click()
 }
 
+/**
+ * A fresh profile shows the split screen's tip under the top bar's Split
+ * button; tests that don't need it put it away, so it covers nothing.
+ */
+export async function dismissTips(page: Page): Promise<void> {
+  const tip = page.getByRole('dialog', { name: 'Split screen' })
+  if (await tip.isVisible()) await tip.getByRole('button', { name: 'Dismiss' }).click()
+}
+
 export const test = base.extend<Fixtures>({
   home: async ({}, use) => {
     const dir = await mkdtemp(join(tmpdir(), 'mindeck-e2e-'))
@@ -64,6 +73,7 @@ export const test = base.extend<Fixtures>({
     const boot = page.getByText('click to skip')
     if (await boot.isVisible()) await boot.click()
     await boot.waitFor({ state: 'detached' })
+    await dismissTips(page)
     await use(page)
   }
 })
