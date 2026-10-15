@@ -11,6 +11,7 @@ import { FsService } from '../../../electron/main/services/fs/FsService'
 import { EventHub } from '../../../electron/main/core/EventHub'
 import { HttpServer } from '../../../electron/main/server/HttpServer'
 import { ServerController, lanAddresses } from '../../../electron/main/server/ServerController'
+import { Certificates } from '../../../electron/main/server/Certificates'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
 import { Router } from '../../../electron/ipc/router'
 import { parseRequest } from '@shared/ipc/schemas'
@@ -431,7 +432,14 @@ describe('ServerController', () => {
     return {
       dir,
       settings,
-      deps: { mode: 'desktop' as const, version: '1.0.0', router: new Router(), hub: new EventHub(), auth: new AuthService(join(dir, 'devices.json')) }
+      deps: {
+        mode: 'desktop' as const,
+        version: '1.0.0',
+        router: new Router(),
+        hub: new EventHub(),
+        auth: new AuthService(join(dir, 'devices.json')),
+        certificates: new Certificates({ dir: join(dir, 'tls') })
+      }
     }
   }
 
@@ -443,19 +451,22 @@ describe('ServerController', () => {
       settings,
       addresses: () => ['192.168.1.5'],
       createServer: () => {
-        const fake = { listen: vi.fn(async () => {}), close: vi.fn(async () => {}), disconnectDevice: vi.fn() }
+        const fake = { listen: vi.fn(async () => {}), close: vi.fn(async () => {}), disconnectDevice: vi.fn(), setTls: vi.fn() }
         created.push(fake)
         return fake as never
       }
     })
     expect(controller.status()).toEqual({ config: DEFAULT_SERVER_CONFIG, running: false, urls: ['http://127.0.0.1:7420'], error: undefined, configurable: true })
+    expect(DEFAULT_SERVER_CONFIG.tls).toBe(true) // the network gets HTTPS unless switched off
     await controller.start()
     expect(created).toHaveLength(0)
 
     let status = await controller.configure({ enabled: true, lan: true })
     expect(status.running).toBe(true)
-    expect(status.urls).toEqual(['http://127.0.0.1:7420', 'http://192.168.1.5:7420'])
-    expect(created[0].listen).toHaveBeenCalledWith('0.0.0.0', 7420)
+    // The desktop itself keeps plain HTTP on loopback; the network gets HTTPS.
+    expect(status.urls).toEqual(['http://127.0.0.1:7420', 'https://192.168.1.5:7420'])
+    expect(status.tls).toEqual({ fingerprint: expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/), expiresAt: expect.any(String), selfSigned: true })
+    expect(created[0].listen).toHaveBeenCalledWith('0.0.0.0', 7420, expect.objectContaining({ fingerprint: status.tls!.fingerprint, cert: expect.stringContaining('BEGIN CERTIFICATE') }))
     expect(settings.get().server).toMatchObject({ enabled: true, lan: true })
     await controller.start() // already running
     expect(created).toHaveLength(1)
@@ -467,7 +478,7 @@ describe('ServerController', () => {
     expect(created).toHaveLength(1)
 
     const code = await controller.createPairingCode()
-    expect(code).toMatchObject({ role: 'member' })
+    expect(code).toMatchObject({ role: 'member', fingerprint: status.tls!.fingerprint })
     expect(code.urls).toHaveLength(2)
     const paired = await deps.auth.pair(code.code, 'p')
     expect(await controller.devices()).toHaveLength(1)
@@ -479,7 +490,9 @@ describe('ServerController', () => {
 
     await controller.configure({ lan: false })
     expect(created[0].close).toHaveBeenCalled()
-    expect(created[1].listen).toHaveBeenCalledWith('127.0.0.1', 7420)
+    expect(created[1].listen).toHaveBeenCalledWith('127.0.0.1', 7420, undefined) // this computer only: no TLS
+    expect(controller.status().tls).toBeUndefined()
+    expect((await controller.createPairingCode()).fingerprint).toBeUndefined()
     await controller.stop()
     await controller.stop()
     await controller.revoke('nobody') // no server running
@@ -487,7 +500,7 @@ describe('ServerController', () => {
 
   it('keeps a start error in the status; reads saved settings', async () => {
     const { settings, deps } = await base()
-    await settings.update({ server: { enabled: true, lan: false, port: 7999, remoteTerminal: false, remoteRoots: [] } })
+    await settings.update({ server: { enabled: true, lan: false, tls: true, port: 7999, remoteTerminal: false, remoteRoots: [] } })
     const fake = { listen: vi.fn(async () => Promise.reject(new Error('EADDRINUSE'))), close: vi.fn(async () => {}) }
     const controller = new ServerController({ ...deps, settings, createServer: () => fake as never })
     await controller.start()
@@ -497,7 +510,7 @@ describe('ServerController', () => {
 
   it('standalone: fixed config, real server, not configurable', async () => {
     const { deps } = await base()
-    const controller = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: true, lan: false, port: 0, remoteTerminal: false, remoteRoots: [] } })
+    const controller = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: true, lan: false, tls: true, port: 0, remoteTerminal: false, remoteRoots: [] } })
     await controller.start()
     expect(controller.status()).toMatchObject({ running: true, configurable: false })
     expect(controller.status().urls[0]).toMatch(/^http:\/\/127\.0\.0\.1:[1-9]\d*$/)
@@ -511,7 +524,7 @@ describe('ServerController', () => {
 
   it('LAN mode without injected addresses asks the OS', async () => {
     const { deps } = await base()
-    const c = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: false, lan: true, port: 7420, remoteTerminal: false, remoteRoots: [] } })
+    const c = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: false, lan: true, tls: false, port: 7420, remoteTerminal: false, remoteRoots: [] } })
     expect(c.status().urls[0]).toBe('http://127.0.0.1:7420')
   })
 
