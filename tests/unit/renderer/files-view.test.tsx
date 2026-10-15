@@ -57,15 +57,19 @@ function setup(routes: Record<string, (p: never) => unknown> = {}) {
     'finder:list': ({ path, hidden }: { path: string; hidden?: boolean }) => {
       if (path === '/locked') throw Object.assign(new Error('Cannot read /locked: EACCES'), { code: 'no-access' })
       const entries = (FOLDERS[path] ?? []).filter((e) => hidden || !e.hidden)
-      return { path, parent: path === '/' ? null : path.split('/').slice(0, -1).join('/') || '/', entries, truncated: path === '/home/shop' }
+      return { path, parent: path === '/' ? null : path.split('/').slice(0, -1).join('/') || '/', entries, total: entries.length, offset: 0 }
     },
     'finder:preview': ({ path }: { path: string }) => preview(path),
     'finder:search': ({ query }: { query: string }) => (query === 'none' ? [] : [entry(`/home/shop/src/${query}.ts`)]),
     'finder:mkdir': ({ parent, name }: { parent: string; name: string }) => `${parent}/${name}`,
     'finder:rename': ({ path, name }: { path: string; name: string }) => `${path.split('/').slice(0, -1).join('/')}/${name}`,
-    'finder:trash': () => undefined,
-    'finder:move': () => [],
-    'finder:copy': () => [],
+    'finder:trash': () => [],
+    'finder:conflicts': () => [],
+    'finder:transfer': () => ({ items: [], replaced: [], skipped: [] }),
+    'finder:info': ({ path }: { path: string }) => ({ entry: preview(path).entry, createdMs: 0, accessedMs: 0, mode: 0o644, owner: 'me', writable: true }),
+    'finder:folderSize': () => ({ bytes: 4200, files: 3, folders: 1, partial: false }),
+    'finder:clipboardRead': () => [],
+    'finder:clipboardWrite': () => undefined,
     'finder:open': () => undefined,
     'finder:reveal': () => undefined,
     'memory:status': () => ({ exists: true, root: '/home/vault' }),
@@ -127,7 +131,6 @@ describe('FilesView', () => {
     fireEvent.doubleClick(row('shop'))
     await settle()
     expect(within(screen.getByTitle('Go to folder (⌘⇧G) — type a path')).getByRole('button', { name: 'shop' })).toBeInTheDocument()
-    expect(screen.getByText('Showing the first 3 entries')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Forward' }))
@@ -342,7 +345,7 @@ describe('FilesView', () => {
 
     // the folder itself
     let menu = menuOf(main())
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['New folder', 'Open Terminal here', 'Show in folder', 'Refresh'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['New folder', 'Paste', 'New tab', 'Open Terminal here', 'Show in folder', 'Refresh'])
     pick(menu, 'Open Terminal here')
     expect(openFolder).toHaveBeenCalledWith('/home')
     expect(onNavigate).toHaveBeenLastCalledWith('terminal')
@@ -353,7 +356,21 @@ describe('FilesView', () => {
 
     // a folder entry
     menu = menuOf(row('shop'))
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Open', 'Show in folder', 'Open Terminal here', 'Ask an agent about it', 'Copy path', 'Rename', 'Duplicate', 'Move to Trash'])
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Open',
+      'Open in new tab',
+      'Show in folder',
+      'Open Terminal here',
+      'Copy',
+      'Cut',
+      'Duplicate',
+      'Compress',
+      'Add to sidebar',
+      'Ask an agent about it',
+      'Copy path',
+      'Rename',
+      'Move to Trash'
+    ])
     pick(menu, 'Open Terminal here')
     expect(openFolder).toHaveBeenLastCalledWith('/home/shop')
     pick(menuOf(row('shop')), 'Ask an agent about it')
@@ -377,7 +394,7 @@ describe('FilesView', () => {
     pick(menuOf(row('archive.zip')), 'Show in folder')
     pick(menuOf(row('archive.zip')), 'Move to Trash')
     await settle()
-    expect(sent('finder:copy')).toEqual([{ paths: ['/home/archive.zip'], dest: '/home' }])
+    expect(sent('finder:transfer')).toEqual([{ id: expect.any(String), paths: ['/home/archive.zip'], dest: '/home', mode: 'copy', choices: {} }])
     expect(sent('finder:trash')).toEqual([{ paths: ['/home/archive.zip'] }])
     pick(menuOf(row('archive.zip')), 'Open')
 
@@ -434,13 +451,13 @@ describe('FilesView', () => {
     const area = screen.getByText('This folder is empty').closest('[tabindex="0"]')!
     fireEvent.contextMenu(area)
     expect(screen.queryByRole('menu')).toBeNull()
-    act(() => useFiles.setState({ error: undefined, listing: { path: 'C:\\Users\\me\\code', parent: 'C:\\Users\\me', entries: [], truncated: false } }))
+    act(() => useFiles.setState({ error: undefined, listing: { path: 'C:\\Users\\me\\code', parent: 'C:\\Users\\me', entries: [], total: 0, offset: 0 } }))
     const crumbs = screen.getByTitle('Go to folder (⌘⇧G) — type a path')
     expect(within(crumbs).getAllByRole('button').map((b) => [b.textContent, b.title])).toEqual([
       ['~', 'C:\\Users\\me'],
       ['code', 'C:\\Users\\me\\code']
     ])
-    act(() => useFiles.setState({ listing: { path: 'D:\\data', parent: 'D:\\', entries: [], truncated: false } }))
+    act(() => useFiles.setState({ listing: { path: 'D:\\data', parent: 'D:\\', entries: [], total: 0, offset: 0 } }))
     expect(within(crumbs).getAllByRole('button').map((b) => [b.textContent, b.title])).toEqual([
       ['\\', '\\'],
       ['D:', 'D:'],
@@ -464,10 +481,10 @@ describe('FilesView', () => {
       vi.advanceTimersByTime(3600)
     })
     expect(screen.queryByText('3 items moved to the Trash')).toBeNull()
-    act(() => useFiles.setState({ listing: { path: '/home/shop/src', parent: '/home/shop', entries: [], truncated: false } }))
+    act(() => useFiles.setState({ listing: { path: '/home/shop/src', parent: '/home/shop', entries: [], total: 0, offset: 0 } }))
     expect(screen.getByText('This folder is empty')).toBeInTheDocument()
     act(() => useFiles.setState({ selected: ['/x'] }))
-    act(() => useFiles.setState({ listing: { path: '/home', parent: '/', entries: [entry('/home/a.txt')], truncated: false }, selected: ['/home/a.txt'] }))
+    act(() => useFiles.setState({ listing: { path: '/home', parent: '/', entries: [entry('/home/a.txt')], total: 0, offset: 0 }, selected: ['/home/a.txt'] }))
     expect(screen.getByText('1 of 1 selected')).toBeInTheDocument()
     fireEvent.click(main()) // the empty area: nothing picked
     expect(useFiles.getState().selected).toEqual([])
@@ -482,7 +499,7 @@ describe('files building blocks', () => {
   }
 
   it('Sidebar: places, vault, projects and drives — and a drop target for moving and copying', async () => {
-    installBridge({ 'memory:status': () => ({ exists: false, root: '/v' }), 'finder:move': () => [], 'finder:copy': () => [], 'finder:list': () => ({ path: '/home', parent: '/', entries: [], truncated: false }) })
+    installBridge({ 'memory:status': () => ({ exists: false, root: '/v' }), 'finder:move': () => [], 'finder:copy': () => [], 'finder:list': () => ({ path: '/home', parent: '/', entries: [], total: 0, offset: 0 }) })
     const move = vi.fn(async () => {})
     useFiles.setState({ places: { home: '/home', places: [{ id: 'home', path: '/home' }], volumes: [] }, move })
     useProjects.setState({ projects: [{ id: 'p', name: 'p', path: '/p', addedAt: '', lastSeenAt: '' }] })
@@ -492,8 +509,12 @@ describe('files building blocks', () => {
     expect(screen.queryByText('Locations')).toBeNull()
     const home = screen.getByRole('button', { name: 'Home' })
     const files = (paths: string[]) => ({ types: ['application/x-mindeck-files'], getData: () => JSON.stringify(paths), dropEffect: '' })
-    drag('dragOver', home, { types: ['Files'] }) // from outside Mindeck: not ours
+    drag('dragOver', home, { types: ['text/plain'] }) // not files
     expect(home.className).not.toContain('ring-cyan/50')
+    const fromOs = { types: ['Files'], dropEffect: '' }
+    drag('dragOver', home, fromOs) // from Finder / Explorer: copied in
+    expect(fromOs.dropEffect).toBe('copy')
+    fireEvent.dragLeave(home)
     const over = files(['/x.txt'])
     drag('dragOver', home, over)
     expect(home.className).toContain('ring-cyan/50')
@@ -505,7 +526,11 @@ describe('files building blocks', () => {
     drag('drop', home, files(['/x.txt', '/home']))
     drag('drop', home, files(['/y.txt']), true)
     drag('drop', home, files(['/home'])) // onto itself: nothing
-    drag('drop', home, { types: ['application/x-mindeck-files'], getData: () => '' })
+    const dropFiles = vi.fn(async () => {})
+    useFiles.setState({ dropFiles })
+    const file = new File([''], 'f.txt')
+    drag('drop', home, { types: ['Files'], getData: () => '', files: [file] }, true)
+    expect(dropFiles).toHaveBeenCalledWith([file], '/home', true)
     expect(move.mock.calls).toEqual([
       [['/x.txt'], '/home', false],
       [['/y.txt'], '/home', true]
@@ -515,7 +540,7 @@ describe('files building blocks', () => {
   it('rows and tiles drag the selection (or themselves) onto folders', async () => {
     quiet()
     const move = vi.fn(async () => {})
-    const list = { path: '/home', parent: '/', entries: [entry('/home/a.txt'), entry('/home/b.txt'), entry('/home/dir', { kind: 'dir' }), entry('/home/.h', { hidden: true })], truncated: false }
+    const list = { path: '/home', parent: '/', entries: [entry('/home/a.txt'), entry('/home/b.txt'), entry('/home/dir', { kind: 'dir' }), entry('/home/.h', { hidden: true })], total: 4, offset: 0 }
     useFiles.setState({ listing: list, selected: ['/home/a.txt', '/home/b.txt'], move })
     render(<FilesView onNavigate={vi.fn()} />)
     const data: Record<string, string> = {}
@@ -579,7 +604,7 @@ describe('files building blocks', () => {
 
   it('sorts by the column clicked, telling assistive tech the order', async () => {
     quiet()
-    useFiles.setState({ listing: { path: '/home', parent: '/', entries: [entry('/home/b.txt', { size: 1 }), entry('/home/a.txt', { size: 2 })], truncated: false } })
+    useFiles.setState({ listing: { path: '/home', parent: '/', entries: [entry('/home/b.txt', { size: 1 }), entry('/home/a.txt', { size: 2 })], total: 0, offset: 0 } })
     render(<FilesView onNavigate={vi.fn()} />)
     const header = (name: string) => screen.getByRole('columnheader', { name: new RegExp(name) })
     expect(header('Name')).toHaveAttribute('aria-sort', 'ascending')

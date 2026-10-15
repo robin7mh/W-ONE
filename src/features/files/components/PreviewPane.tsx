@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n'
 import { isMac } from '@/lib/platform'
 import { renderMarkdown } from '@/features/memory/markdown'
 import { useBrowser } from '@/features/browser/store'
-import { entryKind, fileUrl, formatBytes, formatModified, thumbUrl } from '../kinds'
+import { entryKind, fileUrl, formatBytes, formatMode, formatModified, thumbUrl } from '../kinds'
 import { useFiles } from '../store'
 import { FileIcon } from './FileIcon'
 
@@ -83,6 +83,8 @@ export function PreviewPane({ actions, editable, browsable }: { actions: Preview
   const t = useT()
   const preview = useFiles((s) => s.preview)
   const count = useFiles((s) => s.selected.length)
+  const info = useFiles((s) => (s.info?.entry.path === s.preview?.entry.path ? s.info : undefined))
+  const size = useFiles((s) => s.size)
   if (!preview || count !== 1) {
     return (
       <aside className="flex w-80 shrink-0 items-center justify-center border-l border-hud/50 p-4">
@@ -111,9 +113,34 @@ export function PreviewPane({ actions, editable, browsable }: { actions: Preview
             <dd className="font-mono text-[11.5px] text-text-secondary">{formatBytes(entry.size)}</dd>
           </>
         )}
+        {entry.kind === 'dir' && size && (
+          <>
+            <dt><TechLabel>{t.files.size}</TechLabel></dt>
+            <dd className="font-mono text-[11.5px] text-text-secondary">
+              {size === 'counting' ? t.files.counting : t.files.folderSize(formatBytes(size.bytes), size.files, size.partial)}
+            </dd>
+          </>
+        )}
+        {info && (
+          <>
+            <dt><TechLabel>{t.files.created}</TechLabel></dt>
+            <dd className="font-mono text-[11.5px] text-text-secondary">{formatModified(info.createdMs)}</dd>
+          </>
+        )}
         <dt><TechLabel>{t.files.modified}</TechLabel></dt>
         <dd className="font-mono text-[11.5px] text-text-secondary">{formatModified(entry.mtimeMs)}</dd>
+        {info && (
+          <>
+            <dt><TechLabel>{t.files.permissions}</TechLabel></dt>
+            <dd className="font-mono text-[11.5px] text-text-secondary" title={info.mode.toString(8).padStart(3, '0')}>
+              {formatMode(info.mode)}
+            </dd>
+            <dt><TechLabel>{t.files.owner}</TechLabel></dt>
+            <dd className="font-sans text-[12px] text-text-secondary">{info.owner ?? t.files.otherOwner}</dd>
+          </>
+        )}
       </dl>
+      {info && !info.writable && <p className="mx-3 mt-2 font-sans text-[11px] text-amber">{t.files.readOnly}</p>}
       <p className="mx-3 mt-2 break-all font-mono text-[10.5px] text-text-muted">{entry.path}</p>
       <div className="mt-3 flex flex-wrap gap-1.5 px-3 pb-3">
         <button type="button" onClick={() => actions.open(entry.path)} className={action}>
