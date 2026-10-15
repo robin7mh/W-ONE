@@ -143,6 +143,9 @@ function fakeWindow() {
     on: vi.fn((event: string, fn: () => void) => listeners.set(event, fn)),
     removeListener: vi.fn(),
     getContentBounds: () => win.content,
+    fullScreen: false,
+    isFullScreen: () => win.fullScreen,
+    setFullScreen: vi.fn((v: boolean) => (win.fullScreen = v)),
     fire: (event: string) => listeners.get(event)!()
   }
   return win
@@ -162,6 +165,7 @@ function events(): { [K in keyof BrowserHostEvents]: Mock<BrowserHostEvents[K]> 
     found: vi.fn(),
     console: vi.fn(),
     shortcut: vi.fn(),
+    focused: vi.fn(),
     command: vi.fn(),
     permission: vi.fn(),
     permissionCheck: vi.fn(() => false),
@@ -277,7 +281,9 @@ describe('the browser host · profiles, fullscreen, media, logins', () => {
     // UI menus do not freeze a fullscreen page, nor does the module hiding it
     host.setBounds(null)
     expect(a.visible).toBe(true)
-    host.setBounds({ x: 10, y: 50, width: 800, height: 600 })
+    // the panes move meanwhile, the browser's pane loses the focus: fullscreen stays, Escape still works
+    host.setBounds({ x: 10, y: 50, width: 800, height: 600 }, false)
+    expect(a.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
     // Escape leaves fullscreen — other keys and other tabs' Escape are the page's
     const esc = { preventDefault: vi.fn() }
     a.webContents.emit('before-input-event', esc, key('Escape', 'keyUp'))
@@ -291,6 +297,9 @@ describe('the browser host · profiles, fullscreen, media, logins', () => {
     expect(a.bounds!.width).toBe(1920)
     a.webContents.emit('leave-html-full-screen')
     expect(a.bounds).toEqual({ x: 10, y: 50, width: 800, height: 600 })
+    // F11 / ⌃⌘F still toggles the window's own full screen from the page
+    a.webContents.emit('before-input-event', esc, { ...key('F11') })
+    expect(win.setFullScreen).toHaveBeenCalledWith(true)
 
     // fullscreen again, then another tab: the first leaves fullscreen
     a.webContents.emit('enter-html-full-screen')

@@ -22,6 +22,7 @@ const api = {
       ipcRenderer.removeListener('window:maximized-changed', listener)
     }
   },
+  toggleFullScreen: () => ipcRenderer.send('window:toggle-fullscreen'),
   isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:is-fullscreen'),
   onFullScreenChange: (cb: (isFull: boolean) => void): (() => void) => {
     const listener = (_: unknown, isFull: boolean) => cb(isFull)

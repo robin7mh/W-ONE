@@ -250,6 +250,8 @@ export class BrowserService {
       found: (result) => this.deps.publish('browser:find', result),
       console: (id, entry) => this.onConsole(id, entry),
       shortcut: (action) => this.onShortcut(action),
+      // The UI moves its focus to the browser's pane.
+      focused: () => this.deps.publish('browser:command', { command: 'focused' }),
       command: (id, command, arg) => this.lookup(id) && this.onCommand(id, command, arg),
       permission: (ask, respond) => this.onPermission(ask, respond),
       permissionCheck: (origin, kind) => this.sites[origin]?.permissions?.[kind] === true,
@@ -467,10 +469,14 @@ export class BrowserService {
     else this.host?.print(id)
   }
 
-  /** Where the web view goes; null takes it off screen (the module is hidden). */
-  setView(bounds: ViewBounds | null): void {
+  /**
+   * Where the web view goes; null takes it off screen (the module is hidden).
+   * `focused`: the browser's pane has the focus — only then do its keys win
+   * over the UI's (next to an editor, ⌘S and ⌘W stay the editor's).
+   */
+  setView(bounds: ViewBounds | null, focused = true): void {
     this.bounds = bounds
-    this.host?.setBounds(bounds)
+    this.host?.setBounds(bounds, focused)
     const active = this.active()
     if (bounds) this.ensureLive(active)
     this.syncView()

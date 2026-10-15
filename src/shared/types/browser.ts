@@ -202,4 +202,4 @@ export type BrowserGo = 'back' | 'forward' | 'reload' | 'hardReload' | 'stop'
 export type BrowserTool = 'tabMenu' | 'pageMenu' | 'devtools' | 'print' | 'handoff' | 'shield'
 
 /** What a shortcut or menu asks the Mindeck UI to do (the page may have the keyboard focus). */
-export type BrowserCommand = 'focusOmnibox' | 'find' | 'sendToAgent' | 'settings'
+export type BrowserCommand = 'focusOmnibox' | 'find' | 'sendToAgent' | 'settings' | 'focused'

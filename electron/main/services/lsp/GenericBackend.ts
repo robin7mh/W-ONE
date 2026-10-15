@@ -19,6 +19,7 @@ import { LANGUAGES, languageOf, type LanguageInfo } from '@shared/types/language
 import { confine } from '../../lib/confine'
 import { shellCommand, shellEnv, shellQuote } from '../terminal/TerminalService'
 import { shellArgs } from '../../lib/shellArgs'
+import { spawnProgram } from '../../lib/executables'
 import { CATALOG, type ServerSpec } from '../tools/catalog'
 import { LspClient, type RpcProcess } from './LspClient'
 
@@ -120,8 +121,13 @@ const CAPABILITIES = {
   }
 }
 
-/** Start a language server like the user's terminal would (their PATH — node, go, ruby …). */
-export function spawnServer(command: string, args: string[], cwd: string): RpcProcess {
+/**
+ * Start a language server like the user's terminal would (their PATH — node,
+ * go, ruby …). Windows: directly, without PowerShell (npm's `.cmd` shims
+ * through cmd.exe) — the server's path is known.
+ */
+export function spawnServer(command: string, args: string[], cwd: string, platform: NodeJS.Platform = process.platform): RpcProcess {
+  if (platform === 'win32') return spawnProgram(command, args, { cwd, env: shellEnv(), stdio: ['pipe', 'pipe', 'ignore'] }, platform)
   const { file } = shellCommand()
   const line = [command, ...args].map(shellQuote).join(' ')
   return spawn(file, shellArgs(line), { cwd, env: shellEnv(), stdio: ['pipe', 'pipe', 'ignore'] })

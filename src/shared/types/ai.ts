@@ -209,14 +209,26 @@ export interface PermissionRequest {
   /** Why the agent wants it (from the agent). */
   reason: string
   input: unknown
-  /** "Always allow" is offered for write tools only, never for execute. */
+  /** "Always allow" is offered for write tools only, never for execute (and never to a paired device). */
   allowAlways: boolean
+  /** The project the tool acts in — an "Always allow" holds there only. */
+  projectId?: string
   createdAt: string
 }
 
+/** A grant's `projectId` for every project: grants kept from before grants were per project. */
+export const ALL_PROJECTS = '*'
+
+/**
+ * "Always allow": one agent, one tool, one project. `toolName` is the tool's
+ * stable key — its name, or a tool kind (`edit`, `read` …) for agents whose
+ * tool titles change with every call. Without `projectId` it holds in chats
+ * outside any project; `ALL_PROJECTS` everywhere.
+ */
 export interface PermissionGrant {
   agentId: string
   toolName: string
+  projectId?: string
   createdAt: string
 }
 

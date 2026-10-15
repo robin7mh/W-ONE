@@ -19,7 +19,7 @@ import { ExtensionPopup, loadExtension, unloadExtension } from './extensions'
 import { contextMenu, type ContextActions } from './menus'
 import { clearPrivate, partitionOf, profileSession } from './partitions'
 import type { SessionTarget } from './session'
-import { matchShortcut } from './shortcuts'
+import { isFullScreenKey, matchShortcut } from './shortcuts'
 
 /** Where views go before the browser was first on screen (agent tabs still need a size). */
 const DEFAULT_BOUNDS: ViewBounds = { x: 0, y: 0, width: 1280, height: 800 }
@@ -81,12 +81,14 @@ export class ElectronBrowserHost implements BrowserHost {
   /** The tab whose page is in HTML fullscreen. */
   private fullscreen?: string
   private bounds: ViewBounds | null = null
+  /** The browser's pane has the focus: its keys work while the Mindeck UI has the keyboard. */
+  private keys = true
   private frozen = false
   /** Bumped by every freeze and unfreeze: a picture that arrives after an unfreeze does not freeze. */
   private freezeSeq = 0
   private readonly target: SessionTarget
   private readonly onMainInput = (event: Electron.Event, input: Electron.Input) => {
-    if (!this.bounds) return
+    if (!this.bounds || !this.keys) return
     const action = matchShortcut(input, MAC)
     if (!action) return
     event.preventDefault()
@@ -170,8 +172,9 @@ export class ElectronBrowserHost implements BrowserHost {
     this.layout()
   }
 
-  setBounds(bounds: ViewBounds | null): void {
+  setBounds(bounds: ViewBounds | null, focused = true): void {
     this.bounds = bounds
+    this.keys = focused
     this.layout()
   }
 
@@ -388,10 +391,15 @@ export class ElectronBrowserHost implements BrowserHost {
     c.on('context-menu', (_e, params) =>
       this.popup(contextMenu(params, this.actions(tabId, c), labels(ev.locale()), ev.searchLabel(), app.getApplicationNameForProtocol('https://')))
     )
+    c.on('focus', () => ev.focused(tabId))
     c.on('before-input-event', (event, input) => {
       if (this.fullscreen === tabId && input.type === 'keyDown' && input.key === 'Escape') {
         event.preventDefault()
         return this.exitFullscreen(tabId)
+      }
+      if (isFullScreenKey(input, MAC)) {
+        event.preventDefault()
+        return this.win.setFullScreen(!this.win.isFullScreen())
       }
       const action = matchShortcut(input, MAC)
       if (!action) return

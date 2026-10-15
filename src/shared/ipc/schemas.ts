@@ -7,8 +7,10 @@ import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
 import { SEARCH_ENGINES } from '@shared/types/browser'
+import { DEVICE_ROLES } from '@shared/types/server'
 import { CLOSE_BEHAVIORS } from '@shared/types/desktop'
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, MAX_REFS } from '@shared/types/composer'
+import { TERMINAL_CURSORS, TERMINAL_LIMITS } from '@shared/types/terminal'
 import { EXTENSION_SOURCES } from '@shared/types/browserExtensions'
 import type { IpcChannel, IpcChannels } from './contract'
 
@@ -50,6 +52,51 @@ const composerImage = z.object({
     .min(1)
     .max(Math.ceil(MAX_IMAGE_BYTES / 3) * 4)
     .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+})
+
+/** An absolute folder: `/…`, `~`-less, or a Windows drive / UNC path. */
+const absolute = path.refine((p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p), 'must be an absolute path')
+const range = ([min, max]: readonly [number, number]) => z.number().finite().min(min).max(max)
+const terminalProfile = z.object({
+  id: z.string().regex(/^custom-[\w-]{1,64}$/),
+  name: z.string().trim().min(1).max(80),
+  command: z.string().trim().min(1).max(4096),
+  args: z.array(text(4096)).max(64),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).max(200), text(8192)).refine((e) => Object.keys(e).length <= 64),
+  cwd: absolute.optional()
+})
+const terminalSettings = z
+  .object({
+    fontFamily: z.string().trim().min(1).max(200),
+    fontSize: range(TERMINAL_LIMITS.fontSize),
+    lineHeight: range(TERMINAL_LIMITS.lineHeight),
+    cursorStyle: z.enum(TERMINAL_CURSORS),
+    cursorBlink: z.boolean(),
+    scrollback: range(TERMINAL_LIMITS.scrollback).int(),
+    bufferKb: range(TERMINAL_LIMITS.bufferKb).int(),
+    copyOnSelect: z.boolean(),
+    gpu: z.boolean(),
+    restore: z.boolean(),
+    shellIntegration: z.boolean(),
+    defaultProfile: text(200),
+    profiles: z.array(terminalProfile).max(TERMINAL_LIMITS.profiles)
+  })
+  .partial()
+const terminalSnapshot = z.object({
+  layout: z.enum(['single', 'cols', 'rows', 'grid']),
+  active: z.number().int().min(0).max(100),
+  tabs: z
+    .array(
+      z.object({
+        title,
+        cwd: path,
+        projectId: id.optional(),
+        profileId: id.optional(),
+        scrollback: text(512 * 1024)
+      })
+    )
+    .max(12),
+  savedAt: z.string().max(64)
 })
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
@@ -98,7 +145,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:setVault': z.object({ path }),
 
   'terminal:create': z
-    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional() })
+    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional(), profileId: id.optional() })
     .optional()
     .transform((v) => v ?? {}),
   'terminal:list': none,
@@ -106,6 +153,11 @@ export const REQUEST_SCHEMAS: Schemas = {
   'terminal:write': z.object({ id, data: text(1024 * 1024) }),
   'terminal:resize': z.object({ id, cols: z.number(), rows: z.number() }),
   'terminal:kill': z.object({ id }),
+  'terminal:shells': none,
+  'terminal:settings': none,
+  'terminal:configure': terminalSettings,
+  'terminal:persist': terminalSnapshot,
+  'terminal:restore': none,
 
   'files:list': z.object({ projectId: id, dir: text(4096).optional() }),
   'files:read': z.object({ projectId: id, path }),
@@ -198,6 +250,7 @@ export const REQUEST_SCHEMAS: Schemas = {
 
   'tools:status': none,
   'tools:install': z.object({ id: z.string().min(1).max(50), part: z.enum(['server', 'debugger']) }),
+  'tools:runtimes': none,
 
   'migrate:scan': none,
   'migrate:apply': z.object({ app: z.string().min(1).max(50) }),
@@ -278,11 +331,16 @@ export const REQUEST_SCHEMAS: Schemas = {
     enabled: z.boolean().optional(),
     lan: z.boolean().optional(),
     port: z.number().int().min(1024).max(65535).optional(),
-    remoteTerminal: z.boolean().optional()
+    remoteTerminal: z.boolean().optional(),
+    remoteRoots: z.array(path).max(50).optional()
   }),
-  'server:createPairingCode': none,
+  'server:createPairingCode': z
+    .object({ role: z.enum(DEVICE_ROLES).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
   'server:devices': none,
   'server:revokeDevice': z.object({ id }),
+  'server:setDeviceRole': z.object({ id, role: z.enum(DEVICE_ROLES) }),
 
   'ai:status': none,
   'ai:setKey': z.object({ key: z.string().min(1).max(500) }),
@@ -331,7 +389,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'permission:pending': none,
   'permission:respond': z.object({ id, decision: z.enum(['once', 'always', 'deny']) }),
   'permission:grants': none,
-  'permission:revoke': z.object({ agentId: id, toolName: id }),
+  'permission:revoke': z.object({ agentId: id, toolName: id, projectId: id.optional() }),
 
   'agents:detect': none,
   'agents:list': none,
@@ -434,7 +492,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
   'browser:findStop': z.object({ id }),
   'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff', 'shield']) }),
-  'browser:view': z.object({ bounds: viewBounds.nullable() }),
+  'browser:view': z.object({ bounds: viewBounds.nullable(), focused: z.boolean().optional() }),
   'browser:freeze': none,
   'browser:unfreeze': none,
   'browser:suggest': z.object({ text: text(2000) }),

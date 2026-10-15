@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
@@ -13,6 +14,7 @@ import { ServerController, lanAddresses } from '../../../electron/main/server/Se
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
 import { Router } from '../../../electron/ipc/router'
 import { parseRequest } from '@shared/ipc/schemas'
+import { eventsProtocols } from '@shared/ipc/transport'
 import { DEFAULT_SERVER_CONFIG } from '@shared/types/server'
 
 const servers: HttpServer[] = []
@@ -60,6 +62,37 @@ describe('AuthService', () => {
     if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
     expect(await auth.hasDevices()).toBe(true)
     expect(await auth.devices()).toEqual([result.device])
+  })
+
+  it('gives each device the role of its code; changes roles; keeps at most 20 open codes', async () => {
+    const { auth, file } = await setup()
+    const member = await auth.pair((await auth.createPairingCode()).code, 'phone')
+    expect(member.device.role).toBe('member') // the desktop is the admin: devices start restricted
+    const code = await auth.createPairingCode('admin')
+    expect(code.role).toBe('admin')
+    expect((await auth.pair(code.code, 'laptop')).device.role).toBe('admin')
+    expect((await auth.setRole(member.device.id, 'admin')).map((d) => d.role)).toEqual(['admin', 'admin'])
+    expect((await auth.verify(member.token))?.role).toBe('admin')
+    await expect(auth.setRole('nobody', 'member')).rejects.toMatchObject({ code: 'not-found' })
+    for (let i = 0; i < 25; i += 1) await auth.createPairingCode()
+    expect(JSON.parse(await readFile(file, 'utf8')).codes).toHaveLength(20)
+  })
+
+  it('a headless core makes its first device admin; devices from before roles get one', async () => {
+    const dir = await tempDir()
+    const headless = new AuthService(join(dir, 'devices.json'), Date.now, true)
+    expect((await headless.pair((await headless.createPairingCode()).code, 'first')).device.role).toBe('admin')
+    expect((await headless.pair((await headless.createPairingCode()).code, 'second')).device.role).toBe('member')
+
+    const legacy = { devices: [{ id: 'old', name: 'Old phone', createdAt: '', tokenHash: 'h' }], codes: [] }
+    await writeFile(join(dir, 'old-desktop.json'), JSON.stringify(legacy))
+    await writeFile(join(dir, 'old-server.json'), JSON.stringify(legacy))
+    expect((await new AuthService(join(dir, 'old-desktop.json')).devices())[0].role).toBe('member')
+    expect((await new AuthService(join(dir, 'old-server.json'), Date.now, true).devices())[0].role).toBe('admin')
+    // A code from before roles pairs a member.
+    const hash = createHash('sha256').update('ABCDEFGH').digest('hex')
+    await writeFile(join(dir, 'old-code.json'), JSON.stringify({ devices: legacy.devices, codes: [{ hash, expiresAt: new Date(Date.now() + 60_000).toISOString() }] }))
+    expect((await new AuthService(join(dir, 'old-code.json')).pair('ABCD-EFGH', 'x')).device.role).toBe('member')
   })
 
   it('verifies tokens, tracks lastSeen (persisted at most once a minute) and revokes', async () => {
@@ -176,6 +209,7 @@ async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onC
   const router = new Router({ remoteTerminal: () => terminal })
   router.register('projects:list', () => [{ id: 'p' }] as never)
   router.register('memory:read', ({ path }) => ({ path }) as never)
+  router.register('app:info', (_req, ctx) => ctx as never)
   const http = new HttpServer({
     router,
     hub,
@@ -201,9 +235,9 @@ const rpc = (base: string, channel: string, body?: unknown, token?: string) =>
     body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body)
   })
 
-function openSocket(url: string): Promise<{ ws: WebSocket; messages: unknown[] }> {
+function openSocket(url: string, protocols?: string[]): Promise<{ ws: WebSocket; messages: unknown[] }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url)
+    const ws = new WebSocket(url, protocols)
     const messages: unknown[] = []
     ws.on('message', (data) => messages.push(JSON.parse(String(data))))
     ws.once('open', () => resolve({ ws, messages }))
@@ -223,6 +257,8 @@ describe('HttpServer — API', () => {
     expect(wrongScheme.status).toBe(401)
 
     expect(await (await rpc(base, 'projects:list', undefined, token)).json()).toEqual({ ok: true, data: [{ id: 'p' }] })
+    // The handler learns who calls, with the device's role.
+    expect(await (await rpc(base, 'app:info', undefined, token)).json()).toEqual({ ok: true, data: { transport: 'remote', deviceId: expect.any(String), role: 'member' } })
     expect(await (await rpc(base, 'memory:read', { path: 'a.md' }, token)).json()).toEqual({ ok: true, data: { path: 'a.md' } })
     expect(await (await rpc(base, 'memory:read', { path: 1 }, token)).json()).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await (await rpc(base, 'system:subscribe', undefined, token)).json()).toEqual({ ok: true })
@@ -297,11 +333,16 @@ describe('HttpServer — events socket', () => {
     const { http, hub, base, token, device, setTerminal } = await startHttp({ onClients })
     const wsBase = base.replace('http', 'ws')
 
+    await expect(openSocket(`${wsBase}/api/events`)).rejects.toThrow('401')
+    await expect(openSocket(`${wsBase}/api/events`, eventsProtocols('wrong'))).rejects.toThrow('401')
     await expect(openSocket(`${wsBase}/api/events?token=wrong`)).rejects.toThrow('401')
-    await expect(openSocket(`${wsBase}/elsewhere?token=${token}`)).rejects.toThrow('401')
+    await expect(openSocket(`${wsBase}/elsewhere`, eventsProtocols(token))).rejects.toThrow('401')
+    // The token alone is no protocol to answer with: the client gives up.
+    await expect(openSocket(`${wsBase}/api/events`, [eventsProtocols(token)[1]])).rejects.toThrow('subprotocol')
 
     hub.publish('memory:changed', { paths: ['nobody-listens.md'] })
-    const { ws, messages } = await openSocket(`${wsBase}/api/events?token=${token}`)
+    const { ws, messages } = await openSocket(`${wsBase}/api/events`, eventsProtocols(token))
+    expect(ws.protocol).toBe('mindeck') // never the token
     await tick(20)
     expect(http.clientCount).toBe(1)
     expect(onClients).toHaveBeenLastCalledWith(1)
@@ -309,12 +350,19 @@ describe('HttpServer — events socket', () => {
     hub.publish('terminal:exit', { id: 't', exitCode: 0 })
     setTerminal(true)
     hub.publish('terminal:exit', { id: 't2', exitCode: 0 })
+    hub.publish('permission:request', { id: 'r1', allowAlways: true } as never)
+    hub.publish('browser:reveal', { tabId: 't' }) // the desktop window's own
     await tick(30)
     expect(messages).toEqual([
-      { channel: 'hello', payload: { deviceId: device.id } },
+      { channel: 'hello', payload: { deviceId: device.id, role: 'member' } },
       { channel: 'memory:changed', payload: { paths: ['a.md'] } },
-      { channel: 'terminal:exit', payload: { id: 't2', exitCode: 0 } }
+      { channel: 'terminal:exit', payload: { id: 't2', exitCode: 0 } },
+      // "Always allow" is the desktop's to give.
+      { channel: 'permission:request', payload: { id: 'r1', allowAlways: false } }
     ])
+    // App builds from before still pass the token in the query (deprecated).
+    const legacy = await openSocket(`${wsBase}/api/events?token=${token}`)
+    legacy.ws.close()
 
     const closed = new Promise<number>((r) => ws.once('close', (code) => r(code)))
     http.disconnectDevice('someone-else')
@@ -412,14 +460,19 @@ describe('ServerController', () => {
     await controller.start() // already running
     expect(created).toHaveLength(1)
 
-    status = await controller.configure({ remoteTerminal: true }) // no restart
+    status = await controller.configure({ remoteTerminal: true, remoteRoots: ['/srv/code'] }) // no restart
     expect(controller.remoteTerminal()).toBe(true)
+    expect(controller.remoteRoots()).toEqual(['/srv/code'])
+    expect(settings.get().server?.remoteRoots).toEqual(['/srv/code'])
     expect(created).toHaveLength(1)
 
     const code = await controller.createPairingCode()
+    expect(code).toMatchObject({ role: 'member' })
     expect(code.urls).toHaveLength(2)
     const paired = await deps.auth.pair(code.code, 'p')
     expect(await controller.devices()).toHaveLength(1)
+    expect(await controller.setDeviceRole(paired.device.id, 'admin')).toEqual([expect.objectContaining({ id: paired.device.id, role: 'admin' })])
+    expect((await controller.createPairingCode('admin')).role).toBe('admin')
     await controller.revoke(paired.device.id)
     expect(created[0].disconnectDevice).toHaveBeenCalledWith(paired.device.id)
     expect(await controller.devices()).toHaveLength(0)
@@ -434,7 +487,7 @@ describe('ServerController', () => {
 
   it('keeps a start error in the status; reads saved settings', async () => {
     const { settings, deps } = await base()
-    await settings.update({ server: { enabled: true, lan: false, port: 7999, remoteTerminal: false } })
+    await settings.update({ server: { enabled: true, lan: false, port: 7999, remoteTerminal: false, remoteRoots: [] } })
     const fake = { listen: vi.fn(async () => Promise.reject(new Error('EADDRINUSE'))), close: vi.fn(async () => {}) }
     const controller = new ServerController({ ...deps, settings, createServer: () => fake as never })
     await controller.start()
@@ -444,7 +497,7 @@ describe('ServerController', () => {
 
   it('standalone: fixed config, real server, not configurable', async () => {
     const { deps } = await base()
-    const controller = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: true, lan: false, port: 0, remoteTerminal: false } })
+    const controller = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: true, lan: false, port: 0, remoteTerminal: false, remoteRoots: [] } })
     await controller.start()
     expect(controller.status()).toMatchObject({ running: true, configurable: false })
     expect(controller.status().urls[0]).toMatch(/^http:\/\/127\.0\.0\.1:[1-9]\d*$/)
@@ -458,7 +511,7 @@ describe('ServerController', () => {
 
   it('LAN mode without injected addresses asks the OS', async () => {
     const { deps } = await base()
-    const c = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: false, lan: true, port: 7420, remoteTerminal: false } })
+    const c = new ServerController({ ...deps, mode: 'server', fixedConfig: { enabled: false, lan: true, port: 7420, remoteTerminal: false, remoteRoots: [] } })
     expect(c.status().urls[0]).toBe('http://127.0.0.1:7420')
   })
 

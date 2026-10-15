@@ -8,14 +8,18 @@ import { useCloud } from '@/features/cloud/store'
 
 /**
  * Left module rail. Collapses to icon-only on narrow widths (labels hidden via
- * the `xl:` breakpoint). The active item is marked in place — nothing slides
- * when you switch modules.
+ * the `xl:` breakpoint). The active item (the focused pane's module) is marked
+ * in place — nothing slides when you switch modules; modules in the other
+ * panes get a dot.
  */
 export function SideNavigation({
   active,
+  open = [],
   onSelect
 }: {
   active: ModuleId
+  /** Every module on screen. */
+  open?: ModuleId[]
   onSelect: (id: ModuleId) => void
 }) {
   const t = useT()
@@ -64,6 +68,9 @@ export function SideNavigation({
             <span className="relative z-10 hidden flex-1 items-center justify-between xl:flex">
               <span className="font-sans text-[13px] font-medium">{label}</span>
             </span>
+            {!isActive && open.includes(item.id) && (
+              <span data-testid={`open-${item.id}`} className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-cyan/70 xl:static xl:right-auto xl:top-auto" />
+            )}
           </button>
         )
       })}

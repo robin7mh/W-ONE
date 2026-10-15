@@ -5,6 +5,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
 import { renderMarkdown } from '../markdown'
+import { usePaneFocused } from '@/features/workspace/pane'
 
 interface Props {
   note: Note
@@ -71,8 +72,11 @@ export function NoteEditor(p: Props) {
   useEffect(() => setConfirmTrash(false), [note.path])
 
   // Obsidian shortcuts: ⌘/Ctrl+E toggles read/edit, ⌘/Ctrl+S saves now.
+  // Only while Memory's pane has the focus — next to the editor, ⌘S is the editor's.
   const { mode, onMode, onSave } = p
+  const focused = usePaneFocused()
   useEffect(() => {
+    if (!focused) return
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
@@ -86,7 +90,7 @@ export function NoteEditor(p: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, onMode, onSave])
+  }, [mode, onMode, onSave, focused])
 
   const onPreviewClick = (e: React.MouseEvent) => {
     const a = (e.target as HTMLElement).closest('a')

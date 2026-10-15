@@ -129,6 +129,38 @@ describe('ipc router', () => {
     expect(await defaults.dispatch('terminal:list', undefined, remoteCtx)).toMatchObject({ error: { code: 'remote-terminal-disabled' } })
   })
 
+  it('admin channels need the admin role remotely; the guard checks remote payloads only', async () => {
+    const guard = vi.fn((channel: string, payload: unknown) => {
+      if ((payload as { path?: string })?.path === '/etc') throw Object.assign(new Error('off-limits'), { code: 'remote-forbidden' })
+    })
+    const router = new Router({ remoteTerminal: () => false, guard })
+    router.register('server:createPairingCode', () => ({ code: 'X' }) as never)
+    router.register('projects:add', ({ path }) => ({ path }) as never)
+    expect(await router.dispatch('server:createPairingCode', undefined, ipcCtx)).toMatchObject({ ok: true })
+    expect(await router.dispatch('server:createPairingCode', undefined, remoteCtx)).toMatchObject({ ok: false, error: { code: 'admin-only' } })
+    expect(await router.dispatch('server:createPairingCode', undefined, { ...remoteCtx, role: 'member' })).toMatchObject({ error: { code: 'admin-only' } })
+    expect(await router.dispatch('server:createPairingCode', {}, { ...remoteCtx, role: 'admin' })).toEqual({ ok: true, data: { code: 'X' } })
+    expect(await router.dispatch('projects:add', { path: '/etc' }, ipcCtx)).toEqual({ ok: true, data: { path: '/etc' } })
+    expect(await router.dispatch('projects:add', { path: '/etc' }, remoteCtx)).toEqual({ ok: false, error: { code: 'remote-forbidden', message: 'off-limits' } })
+    expect(await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)).toMatchObject({ ok: true })
+    expect(guard).toHaveBeenCalledWith('projects:add', { path: '/srv/x' }, remoteCtx)
+    expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
+  })
+
+  it('paired devices list only the projects they may use, and add projects as remote ones', async () => {
+    const router = new Router({ remoteTerminal: () => false })
+    const service = { list: () => [{ id: 'a' }, { id: 'b' }], add: vi.fn(async (path: string) => ({ path })) }
+    const visible = vi.fn(async (list: { id: string }[]) => list.filter((p) => p.id === 'a'))
+    registerProjectIpc(router, service as never, { visible } as never)
+    expect(await router.dispatch('projects:list', undefined, ipcCtx)).toEqual({ ok: true, data: [{ id: 'a' }, { id: 'b' }] })
+    expect(await router.dispatch('projects:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'a' }] })
+    await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)
+    expect(service.add).toHaveBeenCalledWith('/srv/x', true)
+    const plain = new Router({ remoteTerminal: () => false })
+    registerProjectIpc(plain, service as never)
+    expect(await plain.dispatch('projects:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'a' }, { id: 'b' }] })
+  })
+
   it('binds every contract channel to the window IPC through the router', async () => {
     electron.handlers.clear()
     const router = new Router()
@@ -166,7 +198,7 @@ describe('ipc handler modules bind every channel to its service', () => {
       [
         ['projects:list', undefined, 'list', []],
         ['projects:pickFolder', undefined, 'pickFolder', []],
-        ['projects:add', { path: '/x' }, 'add', ['/x']],
+        ['projects:add', { path: '/x' }, 'add', ['/x', false]],
         ['projects:remove', { id: 'i' }, 'remove', ['i']],
         ['projects:refresh', { id: 'i' }, 'refresh', ['i']],
         ['projects:pull', { id: 'i' }, 'pull', ['i']],
@@ -224,7 +256,18 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['terminal:attach', { id: 'i' }, 'attach', ['i']],
         ['terminal:write', { id: 'i', data: 'ls' }, 'write', ['i', 'ls']],
         ['terminal:resize', { id: 'i', cols: 80, rows: 24 }, 'resize', ['i', 80, 24]],
-        ['terminal:kill', { id: 'i' }, 'kill', ['i']]
+        ['terminal:kill', { id: 'i' }, 'kill', ['i']],
+        ['terminal:create', { profileId: 'zsh' }, 'create', [{ profileId: 'zsh' }]],
+        ['terminal:shells', undefined, 'shells', []],
+        ['terminal:settings', undefined, 'settings', []],
+        ['terminal:configure', { fontSize: 14, profiles: [] }, 'configure', [{ fontSize: 14, profiles: [] }]],
+        [
+          'terminal:persist',
+          { layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' },
+          'persist',
+          [{ layout: 'single', active: 0, tabs: [{ title: '~', cwd: '/h', scrollback: '' }], savedAt: 'now' }]
+        ],
+        ['terminal:restore', undefined, 'restore', []]
       ]
     ],
     [
@@ -309,7 +352,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       registerToolsIpc,
       [
         ['tools:status', undefined, 'status', []],
-        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']]
+        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']],
+        ['tools:runtimes', undefined, 'runtimes', []]
       ]
     ],
     [
@@ -534,7 +578,8 @@ describe('preload bridge', () => {
     api.minimize()
     api.toggleMaximize()
     api.close()
-    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close'])
+    api.toggleFullScreen()
+    expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close', 'window:toggle-fullscreen'])
 
     await api.isMaximized()
     await api.isFullScreen()

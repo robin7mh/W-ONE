@@ -284,6 +284,19 @@ describe('ProjectService', () => {
     await expect(s.refresh('nope')).rejects.toThrow('Unknown project: nope')
   })
 
+  it('marks projects a paired device added — until the desktop adds them too', async () => {
+    const s = await setup()
+    proc.setResponder(() => new Error('no git'))
+    const dir = await tempDir('remote-')
+    const p = await s.add(dir, true)
+    expect(p.addedRemotely).toBe(true)
+    expect((await s.add(dir, true)).addedRemotely).toBe(true)
+    const desktop = await s.add(dir)
+    expect(desktop.id).toBe(p.id)
+    expect(desktop.addedRemotely).toBeUndefined()
+    expect((await s.add(await tempDir())).addedRemotely).toBeUndefined()
+  })
+
   it('rejects files and missing paths', async () => {
     const s = await setup()
     const dir = await tempDir()

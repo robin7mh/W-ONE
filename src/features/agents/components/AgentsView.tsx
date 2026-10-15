@@ -155,7 +155,7 @@ export function AgentsView({ onOpenNote, onOpenSettings }: { onOpenNote: (path: 
       {ag.view === 'session' && session ? (
         <SessionSide session={session} onOpenNote={onOpenNote} />
       ) : (
-        <aside className="hidden w-72 shrink-0 flex-col border-l border-hud/50 xl:flex">
+        <aside className="hidden w-72 shrink-0 flex-col border-l border-hud/50 pane-xl:flex">
           <div className="flex h-10 items-center border-b border-hud/50 px-3">
             <TechLabel className="text-text-secondary">{ag.view === 'assistant' && a.activeId ? t.agents.runActivity : t.agents.allActivity}</TechLabel>
           </div>

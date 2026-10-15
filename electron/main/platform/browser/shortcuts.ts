@@ -63,3 +63,13 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
   if (/^[1-8]$/.test(key)) return `tab${key}` as ShortcutAction
   return null
 }
+
+/**
+ * Full screen: ⌃⌘F on macOS, F11 elsewhere. Taken in the main process (from
+ * the Mindeck UI and from pages), so it toggles exactly once — never once by
+ * the page and again by the menu.
+ */
+export function isFullScreenKey(input: KeyInput, mac: boolean): boolean {
+  if (input.type !== 'keyDown' || input.alt || input.shift) return false
+  return mac ? input.control && input.meta && input.key.toLowerCase() === 'f' : !input.control && !input.meta && input.key === 'F11'
+}

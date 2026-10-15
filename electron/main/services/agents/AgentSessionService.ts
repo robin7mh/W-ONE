@@ -126,7 +126,7 @@ export interface AgentSessionDeps {
   server: Pick<LocalAgentServer, 'register' | 'unregister' | 'url'>
   permissions: {
     ask(input: Omit<PermissionRequest, 'id' | 'createdAt'>, signal: AbortSignal): { id: string; decision: Promise<ApprovalDecision> }
-    isGranted(agentId: string, toolName: string): Promise<boolean>
+    isGranted(agentId: string, toolName: string, projectId?: string): Promise<boolean>
   }
   events: Pick<EventBus, 'emit'>
   projects: (id: string) => { name: string; path: string } | undefined
@@ -480,7 +480,10 @@ export class AgentSessionService {
   /** An MCP message from the session's agent: Mindeck's memory, scoped to its project. */
   handleMcp(id: string, body: unknown): Promise<unknown> {
     const l = this.require(id)
-    return this.deps.mcp({ projectId: l.session.projectId, agent: AGENT_NAMES[l.session.kind], onCall: (tool, input) => this.usedNote(l, tool, input) }, body)
+    return this.deps.mcp(
+      { sessionId: id, agentId: l.session.kind, projectId: l.session.projectId, agent: AGENT_NAMES[l.session.kind], onCall: (tool, input) => this.usedNote(l, tool, input) },
+      body
+    )
   }
 
   /** App quit: stop every agent (their sessions can be resumed next time). */
@@ -681,7 +684,7 @@ export class AgentSessionService {
     const risk = kindRisk(kind)
     if (hit) hit.part.status = 'awaiting-approval'
     let decision: ApprovalDecision = 'once'
-    if (risk === 'execute' || !(await this.deps.permissions.isGranted(agent, key))) {
+    if (risk === 'execute' || !(await this.deps.permissions.isGranted(agent, key, l.session.projectId))) {
       const asked = this.deps.permissions.ask(
         {
           runId: l.session.id,
@@ -694,7 +697,8 @@ export class AgentSessionService {
           summary: name,
           reason: '',
           input: call.rawInput ?? {},
-          allowAlways: risk !== 'execute'
+          allowAlways: risk !== 'execute',
+          projectId: l.session.projectId
         },
         link.abort.signal
       )
@@ -719,7 +723,7 @@ export class AgentSessionService {
     const risk = toolRisk(name)
     const part = this.tool(l, e.tool_use_id)
     let decision: ApprovalDecision = 'once'
-    if (risk === 'execute' || !(await this.deps.permissions.isGranted('claude-code', name))) {
+    if (risk === 'execute' || !(await this.deps.permissions.isGranted('claude-code', name, l.session.projectId))) {
       const input = e.tool_input ?? {}
       const asked = this.deps.permissions.ask(
         {
@@ -733,8 +737,9 @@ export class AgentSessionService {
           summary: toolSummary(name, input),
           reason: '',
           input,
-          // Commands are asked every time; file and memory tools can be allowed for good.
-          allowAlways: risk !== 'execute'
+          // Commands are asked every time; file and memory tools can be allowed for good (in this project).
+          allowAlways: risk !== 'execute',
+          projectId: l.session.projectId
         },
         signal
       )

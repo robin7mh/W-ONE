@@ -49,7 +49,12 @@ Code bekommst du auf einem dieser Wege:
 
 Jeder Browser und jedes Handy bekommt ein eigenes Token; Geräte entziehst du in den Settings.
 Remote-Shells sind aus, solange du nicht `MINDECK_REMOTE_TERMINAL=1` (Server) setzt oder Settings →
-*Allow remote shells* (Desktop) einschaltest.
+*Allow remote shells* (Desktop) einschaltest. Ohne sie erreichen gekoppelte Geräte nur freigegebene
+Ordner (Desktop: Settings → *Shared folders* und die dort hinzugefügten Projekte; Server:
+`MINDECK_REMOTE_ROOTS`, Standard `/projects`) und geben nur Lesezugriffe frei. Gekoppelte Geräte
+sind *Mitglieder*; Geräte koppeln, den KI-Key setzen und das Konto an- oder abmelden dürfen nur der
+Desktop und *Admin*-Geräte (beim Koppeln vergeben, `npm run server:pair -- --admin`; beim Server
+ist das erste Gerät Admin).
 
 **Die Desktop-App kann die Web-UI auch selbst ausliefern:** Schalte Settings → Remote access →
 *Run the API server* ein, fürs Handy zusätzlich *Reachable on the local network*.
@@ -111,7 +116,7 @@ Weitere Skripte:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # die Web-UI → out/web
 npm run server:build  # der eigenständige Core → out/server/index.cjs
-npm run server        # ihn starten (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_HOME …)
+npm run server        # ihn starten (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
 npm run web:dev       # Web-UI mit HMR; leitet /api an einen Core auf :7420 weiter
 npm run typecheck     # tsc für node (electron + server), web (renderer) und die Tests
 ```
@@ -308,7 +313,11 @@ one of these ways:
 
 Each browser or phone gets its own token, and you can revoke devices in Settings. Remote shells
 stay off unless you set `MINDECK_REMOTE_TERMINAL=1` (server) or turn on Settings → *Allow remote
-shells* (desktop).
+shells* (desktop). Without them, paired devices reach only shared folders (desktop: Settings →
+*Shared folders* plus the projects added there; server: `MINDECK_REMOTE_ROOTS`, default `/projects`)
+and approve reads only. Paired devices are *members*; pairing devices, setting the AI key and signing
+the core in or out of the account are for the desktop and *admin* devices (chosen when pairing,
+`npm run server:pair -- --admin`; a server's first device is admin).
 
 **The desktop app can serve the web UI too:** turn on Settings → Remote access → *Run the API
 server*, and also *Reachable on the local network* for your phone.
@@ -365,7 +374,7 @@ Other scripts:
 npm run build         # Electron main / preload / renderer → out/
 npm run web:build     # the web UI → out/web
 npm run server:build  # the standalone core → out/server/index.cjs
-npm run server        # run it (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_HOME …)
+npm run server        # run it (MINDECK_PORT, MINDECK_LAN, MINDECK_REMOTE_TERMINAL, MINDECK_REMOTE_ROOTS, MINDECK_HOME …)
 npm run web:dev       # web UI with HMR; proxies /api to a core on :7420
 npm run typecheck     # tsc for node (electron + server), web (renderer) and the tests
 ```

@@ -13,6 +13,8 @@ export interface BrowserHandlers {
   sendToAgent(tab: BrowserTab): void
   /** Open the browser settings. */
   settings(): void
+  /** A page took the keyboard focus (the user clicked into it). */
+  focused?(): void
 }
 
 let handlers: BrowserHandlers | null = null
@@ -51,6 +53,7 @@ export const useBrowser = create<BrowserStore>((set, get) => {
     if (c === 'focusOmnibox') set((s) => ({ focusTick: s.focusTick + 1 }))
     else if (c === 'find') set({ findOpen: true })
     else if (c === 'settings') handlers?.settings()
+    else if (c === 'focused') handlers?.focused?.()
     else {
       const tab = activeTab(get().state)
       if (tab) handlers?.sendToAgent(tab)

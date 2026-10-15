@@ -66,7 +66,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
           <AskBar onNavigate={onNavigate} />
         </motion.div>
 
-        <motion.div {...rise(0.25)} className="grid w-full max-w-5xl grid-cols-1 gap-3 md:grid-cols-3">
+        <motion.div {...rise(0.25)} className="grid w-full max-w-5xl grid-cols-1 gap-3 pane-md:grid-cols-3">
           <ProjectsTile onNavigate={onNavigate} />
           <BrainTile onNavigate={onNavigate} />
           <SystemTile />

@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import { setTransport } from '@shared/ipc/client'
 import type { Transport } from '@shared/ipc/transport'
+import { DEFAULT_TERMINAL_SETTINGS } from '@shared/types/terminal'
 
 type Route = (payload: never) => unknown
 
@@ -19,7 +20,15 @@ export const OPEN_CLOUD = {
 }
 
 /** Answers every test bridge gives unless a test routes the channel itself. */
-const DEFAULT_ROUTES: Record<string, Route> = { 'cloud:status': () => OPEN_CLOUD, 'sftp:targets': () => [], 'remote:list': () => [] }
+const DEFAULT_ROUTES: Record<string, Route> = {
+  'cloud:status': () => OPEN_CLOUD,
+  'sftp:targets': () => [],
+  'remote:list': () => [],
+  // The Terminal: default settings, no shells found, nothing saved from a last run.
+  'terminal:settings': () => DEFAULT_TERMINAL_SETTINGS,
+  'terminal:shells': () => [],
+  'terminal:restore': () => null
+}
 
 /**
  * Installs a fake `window.mindeck` bridge. `routes` answer `invoke` per channel
