@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { detectAgents, loginShellProbe, type Probe } from '../../../electron/main/services/agents/detect'
-import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
+import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MCP_BROWSER_READ_TOOLS, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
 import { applyHook, toolRisk, toolSummary, toolTitle, type SessionState } from '../../../electron/main/services/agents/transcript'
 import type { ChatMessage, ToolCallPart } from '../../../src/shared/types/ai'
 import type { AgentSession } from '../../../src/shared/types/agents'
@@ -71,7 +71,8 @@ describe('Claude Code launch', () => {
       mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: 'Bearer tok' } } }
     })
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(SYSTEM_HINT)
-    expect(args.slice(args.indexOf('--allowedTools') + 1, -2)).toEqual(MEMORY_READ_TOOLS)
+    // reading memory and the browser's shared tabs runs unasked; everything else asks in Mindeck
+    expect(args.slice(args.indexOf('--allowedTools') + 1, -2)).toEqual([...MEMORY_READ_TOOLS, ...MCP_BROWSER_READ_TOOLS])
     expect(args.slice(-2)).toEqual(['--', '--looks like a flag'])
   })
 
@@ -192,6 +193,12 @@ describe('hook events → chat, status and plan', () => {
   })
 
   it('tool titles, risks and one-line summaries', () => {
+    // Mindeck's browser: reading shared tabs runs, acting asks; titled as the browser
+    expect(toolRisk('mcp__mindeck__browser_snapshot')).toBe('read')
+    expect(toolRisk('mcp__mindeck__browser_console')).toBe('read')
+    expect(toolRisk('mcp__mindeck__browser_click')).toBe('write')
+    expect(toolTitle('mcp__mindeck__browser_click')).toBe('Mindeck browser · click')
+    expect(toolTitle('mcp__mindeck__memory_read')).toBe('Mindeck memory · memory read')
     expect(['Read', 'Edit', 'Bash', 'mcp__mindeck__memory_search', 'mcp__mindeck__memory_append', 'mcp__github__create_pr', 'Whatever'].map(toolRisk)).toEqual([
       'read',
       'write',

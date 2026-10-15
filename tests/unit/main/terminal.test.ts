@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir, tick } from './helpers'
 
@@ -138,6 +138,19 @@ describe('TerminalService.create', () => {
     expect((await sub.create({ projectId: 'any' })).cwdLabel).toBe(join(homedir(), '..'))
     svc2.killAll()
     sub.killAll()
+  })
+
+  it('opens in any folder (from Files), named after it; the session is found by its id', async () => {
+    const folder = await tempDir()
+    const info = await svc.create({ cwd: folder })
+    expect(info).toMatchObject({ title: basename(folder), cwd: folder, projectId: undefined })
+    expect(svc.info(info.id)).toEqual(info)
+    expect(svc.info('nope')).toBeUndefined()
+    expect((await svc.create({ cwd: homedir() })).title).toBe('~')
+    expect((await svc.create({ cwd: '/' })).title).toBe('/')
+    await expect(svc.create({ cwd: 'relative/dir' })).rejects.toMatchObject({ code: 'bad-path' })
+    // a project wins over a folder
+    expect((await svc.create({ projectId: 'p1', cwd: folder })).cwd).toBe(projectDir)
   })
 
   it('rejects unknown projects, missing folders and too many sessions', async () => {

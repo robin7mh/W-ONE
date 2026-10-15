@@ -13,6 +13,7 @@ import { useAssistant } from '@/features/agents/store'
 import { useSession } from '@/features/session/store'
 import { codeFromHash, PairScreen } from '@/features/session/components/PairScreen'
 import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
+import { BrowserCard } from '@/features/settings/components/BrowserCard'
 import { surfaceTokens, useAppearance } from '@/lib/theme'
 
 const initialSettings = useSettings.getState()
@@ -562,5 +563,48 @@ describe('Appearance', () => {
 
     fireEvent.click(reset)
     expect({ ...root.dataset }).toEqual({ theme: 'dark', accent: 'cyan', surface: 'cyber' })
+  })
+})
+
+describe('BrowserCard', () => {
+  it('shows nothing outside the desktop app, or before the core answered', async () => {
+    const { container } = render(<BrowserCard />)
+    expect(container).toBeEmptyDOMElement()
+    installBridge({ 'browser:settings': () => fail('no core') })
+    render(<BrowserCard />)
+    await act(settle)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('picks the search engine and where links open, and clears the history', async () => {
+    let current = { searchEngine: 'google', openLinksInMindeck: true }
+    const configure = vi.fn((patch: Partial<typeof current>) => (current = { ...current, ...patch }))
+    let clearFails = true
+    installBridge({
+      'browser:settings': () => current,
+      'browser:configure': configure,
+      'browser:clearHistory': () => (clearFails ? fail('busy') : undefined)
+    })
+    render(<BrowserCard />)
+    await act(settle)
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('Google')
+    choose('Search engine', 'DuckDuckGo')
+    await act(settle)
+    expect(configure).toHaveBeenLastCalledWith({ searchEngine: 'duckduckgo' })
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('DuckDuckGo')
+    fireEvent.click(screen.getByRole('switch', { name: 'Open links in Mindeck' }))
+    await act(settle)
+    expect(configure).toHaveBeenLastCalledWith({ openLinksInMindeck: false })
+    expect(screen.getByRole('switch', { name: 'Open links in Mindeck' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear history' })) // fails: stays as it was
+    await act(settle)
+    clearFails = false
+    fireEvent.click(screen.getByRole('button', { name: 'Clear history' }))
+    await act(settle)
+    expect(screen.getByRole('button', { name: 'History cleared' })).toBeInTheDocument()
+    configure.mockImplementation(() => fail('bad engine'))
+    choose('Search engine', 'Kagi') // a refused change keeps the old value
+    await act(settle)
+    expect(screen.getByRole('combobox', { name: 'Search engine' })).toHaveTextContent('DuckDuckGo')
   })
 })

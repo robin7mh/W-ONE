@@ -384,7 +384,7 @@ export class AgentSessionService {
   /** An MCP message from the session's agent: Mindeck's memory, scoped to its project. */
   handleMcp(id: string, body: unknown): Promise<unknown> {
     const l = this.require(id)
-    return this.deps.mcp({ projectId: l.session.projectId, onCall: (tool, input) => this.usedNote(l, tool, input) }, body)
+    return this.deps.mcp({ projectId: l.session.projectId, agent: AGENT_NAMES[l.session.kind], onCall: (tool, input) => this.usedNote(l, tool, input) }, body)
   }
 
   /** App quit: stop every agent (their sessions can be resumed next time). */

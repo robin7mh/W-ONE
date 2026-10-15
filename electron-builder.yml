@@ -57,6 +57,9 @@ mac:
   minimumSystemVersion: '13.0'
   extendInfo:
     NSHumanReadableCopyright: © 2026 Robin Hinkelmann
+    # Asked once, when a website in Mindeck's browser wants them (and the user allowed that site).
+    NSCameraUsageDescription: A website open in Mindeck's browser wants to use the camera.
+    NSMicrophoneUsageDescription: A website open in Mindeck's browser wants to use the microphone.
 
 dmg:
   # Same name in every release: the website links releases/latest/download/Mindeck-<arch>.dmg

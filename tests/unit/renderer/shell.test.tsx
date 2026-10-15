@@ -501,3 +501,86 @@ describe('AppShell in a browser without remote shells', () => {
     vi.doUnmock('@/components/monitor/SystemMonitorPanel')
   })
 })
+
+describe('AppShell with the Browser and Files', () => {
+  it('keeps the browser mounted, follows what it asks for, shows Files — and lets the page show approvals itself', async () => {
+    vi.doMock('@/features/browser/components/BrowserView', () => ({ BrowserView: ({ active }: { active: boolean }) => <div>{active ? 'BROWSER ON' : 'BROWSER OFF'}</div> }))
+    vi.doMock('@/features/files/components/FilesView', () => ({
+      FilesView: ({ onNavigate }: { onNavigate: (id: string) => void }) => <button onClick={() => onNavigate('terminal')}>FILES</button>
+    }))
+    vi.doMock('@/features/terminal/components/TerminalView', () => ({ TerminalView: () => <div>TERMINAL</div> }))
+    vi.doMock('@/features/dashboard/components/Dashboard', () => ({ Dashboard: () => <div>DASHBOARD</div> }))
+    vi.doMock('@/components/monitor/SystemMonitorPanel', () => ({ SystemMonitorPanel: () => <div>MONITOR</div> }))
+    vi.doMock('@/components/dashboard/BottomDashboard', () => ({ BottomDashboard: () => null }))
+    vi.doMock('@/components/topbar/TopStatusBar', () => ({ TopStatusBar: () => null }))
+    vi.doMock('@/features/agents/components/AgentsView', () => ({ AgentsView: () => <div>AGENTS</div> }))
+    vi.doMock('@/features/settings/components/SettingsView', () => ({ SettingsView: () => <div>SETTINGS</div> }))
+    vi.resetModules()
+    installBridge() // the desktop app: the page covers toasts
+    const { AppShell } = await import('@/components/shell/AppShell')
+    const { useAssistant } = await import('@/features/agents/store')
+    const { useAgents } = await import('@/features/agents/sessions')
+    const { useBrowser } = await import('@/features/browser/store')
+    const { tab } = await import('./browserFixtures')
+    let handlers!: Parameters<ReturnType<typeof useBrowser.getState>['connect']>[0]
+    const disconnect = vi.fn()
+    useBrowser.setState({
+      connect: (h) => {
+        handlers = h
+        return disconnect
+      }
+    })
+    useAssistant.setState({ connect: () => () => {} })
+    const openDialog = vi.fn()
+    useAgents.setState({ connect: () => () => {}, openDialog })
+
+    vi.useFakeTimers()
+    const view = render(<AppShell />)
+    fireEvent.click(screen.getByText('click to skip'))
+    act(() => {
+      vi.advanceTimersByTime(BOOT_TOTAL_MS)
+    })
+    vi.useRealTimers()
+
+    fireEvent.click(screen.getByTitle('Files'))
+    fireEvent.click(screen.getByText('FILES')) // Files sends you on (a terminal in a folder, …)
+    expect(screen.getByText('TERMINAL').parentElement!.className).not.toContain('hidden')
+
+    expect(screen.queryByText(/BROWSER/)).toBeNull()
+    act(() => handlers.reveal()) // a link opened somewhere: show the browser
+    expect(screen.getByText('BROWSER ON').parentElement!.className).not.toContain('hidden')
+    act(() =>
+      useAssistant.setState({
+        pending: [{ id: 'p1', conversationId: 'c1', agentName: 'Assistant', toolTitle: 'Create note', risk: 'write', summary: 'Create X', reason: '', allowAlways: true } as never]
+      })
+    )
+    expect(screen.queryByRole('alertdialog')).toBeNull() // the browser shows approvals over the page itself
+
+    act(() => handlers.sendToAgent(tab('a', 'https://a.dev/')))
+    expect(screen.getByText('AGENTS')).toBeInTheDocument()
+    expect(openDialog).toHaveBeenCalledWith(en.browser.agentPrompt('https://a.dev/', 'https://a.dev/'))
+    expect(screen.getByText('BROWSER OFF').parentElement!.className).toBe('hidden') // still mounted
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    act(() => handlers.sendToAgent(tab('b', 'https://b.dev/', { title: 'Docs' })))
+    expect(openDialog).toHaveBeenLastCalledWith(en.browser.agentPrompt('Docs', 'https://b.dev/'))
+    act(() => handlers.settings())
+    expect(screen.getByText('SETTINGS')).toBeInTheDocument()
+    act(() => useAssistant.setState({ pending: [] }))
+    view.unmount()
+    expect(disconnect).toHaveBeenCalled()
+
+    for (const m of [
+      '@/features/browser/components/BrowserView',
+      '@/features/files/components/FilesView',
+      '@/features/terminal/components/TerminalView',
+      '@/features/dashboard/components/Dashboard',
+      '@/components/monitor/SystemMonitorPanel',
+      '@/components/dashboard/BottomDashboard',
+      '@/components/topbar/TopStatusBar',
+      '@/features/agents/components/AgentsView',
+      '@/features/settings/components/SettingsView'
+    ])
+      vi.doUnmock(m)
+    Reflect.deleteProperty(window, 'mindeck')
+  })
+})

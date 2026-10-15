@@ -4,11 +4,14 @@
 
 /** Read-only memory tools run without asking; writing to the vault still asks. */
 export const MEMORY_READ_TOOLS = ['mcp__mindeck__memory_search', 'mcp__mindeck__memory_read', 'mcp__mindeck__memory_list', 'mcp__mindeck__project_context']
+/** Reading the browser runs unasked too: agents only ever see tabs shared with them. */
+export const MCP_BROWSER_READ_TOOLS = ['mcp__mindeck__browser_tabs', 'mcp__mindeck__browser_snapshot', 'mcp__mindeck__browser_read', 'mcp__mindeck__browser_screenshot', 'mcp__mindeck__browser_console']
 
 export const SYSTEM_HINT =
   "You are running inside Mindeck, the user's workspace. Mindeck's memory (MCP server \"mindeck\") holds project knowledge, decisions " +
   'and journals of earlier agent sessions: search it (mcp__mindeck__memory_search) before larger changes, and record lasting ' +
-  'decisions with mcp__mindeck__memory_create_note or mcp__mindeck__memory_append.'
+  'decisions with mcp__mindeck__memory_create_note or mcp__mindeck__memory_append. Mindeck also has a browser (mcp__mindeck__browser_*): ' +
+  "it shows the user's local dev pages and tabs they share — after UI changes, check the page with browser_snapshot and browser_console."
 
 /**
  * For the two events HTTP hooks don't cover (SessionStart, Notification):
@@ -57,7 +60,8 @@ export function claudeArgs(input: LaunchInput): string[] {
     '--append-system-prompt',
     SYSTEM_HINT,
     '--allowedTools',
-    ...MEMORY_READ_TOOLS
+    ...MEMORY_READ_TOOLS,
+    ...MCP_BROWSER_READ_TOOLS
   ]
   // `--allowedTools` takes several values: the prompt must not be read as one more.
   if (input.prompt && !input.resume) args.push('--', input.prompt)

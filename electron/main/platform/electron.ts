@@ -14,6 +14,9 @@ export const electronPlatform: Platform = {
     const err = await shell.openPath(path)
     if (err) throw Object.assign(new Error(err), { code: 'open-failed' })
   },
+  revealPath(path) {
+    shell.showItemInFolder(path)
+  },
   async openExternal(url) {
     await shell.openExternal(url)
   },

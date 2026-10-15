@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Columns2, FolderGit2, Grid2x2, House, Plus, Rows2, Square, TerminalSquare, X } from 'lucide-react'
+import { AlertTriangle, Columns2, FolderGit2, Globe, Grid2x2, House, Plus, Rows2, Square, TerminalSquare, X } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
 import { Panel } from '@/components/ui/Panel'
@@ -8,6 +8,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { LAYOUT_GRID, tabLabels, useTerminals, type TerminalLayout } from '../store'
+import { useBrowser } from '@/features/browser/store'
 import { XtermPane } from './XtermPane'
 
 /** Split layouts; each label is `t.terminal[id]`. */
@@ -28,6 +29,7 @@ const LAYOUTS: { id: TerminalLayout; icon: typeof Square }[] = [
 export function TerminalView() {
   const tr = useT()
   const { tabs, activeId, layout, error, init, open, close, setActive, setLayout } = useTerminals()
+  const devServers = useBrowser((s) => s.state.devServers)
   const active = tabs.find((t) => t.id === activeId)
   const { cols, rows } = LAYOUT_GRID[layout]
   const split = layout !== 'single'
@@ -56,8 +58,24 @@ export function TerminalView() {
       bodyClassName="flex min-h-0 flex-col"
       headerRight={
         active && (
-          <span className="truncate font-mono text-[11px] text-text-muted">
-            {active.shell} · {active.cwdLabel}
+          <span className="flex min-w-0 items-center gap-2">
+            {/* A dev server started in this shell: one click to see it in the browser. */}
+            {devServers
+              .filter((d) => d.terminalId === active.id)
+              .map((d) => (
+                <button
+                  key={d.url}
+                  type="button"
+                  title={tr.browser.devServer(d.label)}
+                  onClick={() => void useBrowser.getState().show(d.url)}
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-cyan/40 bg-cyan/[0.06] px-1.5 py-0.5 font-mono text-[10.5px] text-cyan transition-colors hover:bg-cyan/[0.12]"
+                >
+                  <Globe size={11} /> {d.label}
+                </button>
+              ))}
+            <span className="truncate font-mono text-[11px] text-text-muted">
+              {active.shell} · {active.cwdLabel}
+            </span>
           </span>
         )
       }

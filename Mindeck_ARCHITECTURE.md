@@ -21,7 +21,7 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 
 | Layer | Choice |
 |---|---|
-| Shell | Electron 37 (31.7.7's notarization is revoked by Apple — Gatekeeper trashes it on macOS 27), frameless window, `contextIsolation: true`, `nodeIntegration: false` |
+| Shell | Electron 44 (Chromium 152, Node 24 — updated from 37 on 2026-10-15: a browser that loads foreign pages needs a supported Chromium), frameless window, `contextIsolation: true`, `nodeIntegration: false` |
 | Build | electron-vite 2 (CJS main/preload, Vite renderer), dual tsconfig (`typecheck:node` + `typecheck:web`) |
 | Renderer | React 18, TypeScript 5.5, Zustand (one store per feature), Framer Motion |
 | Design system | Tailwind driven by CSS custom properties (`src/index.css` + `tailwind.config.ts`); primitives `Panel`, `TechLabel`, `StatusDot`, `HudFrame`; Inter Variable + JetBrains Mono, bundled locally |
@@ -50,6 +50,8 @@ Guiding doctrine (unchanged from the masterplan, restated because everything bel
 | Agents | ✅ Cockpit (§12.6): the user's own coding agents — Claude Code (hooks, own plan), Codex and Gemini (ACP) — as chats with approvals, changes/diffs, plan and a journal in memory; plus the Mindeck Assistant on an API key (P6–P9, §12.4) |
 | Settings / System | ✅ AI key + model, remote access & devices (pairing, QR), permissions, vault, about · full telemetry view |
 | Network API | ✅ §12.4: the core as an HTTP + WebSocket service for the web UI and the mobile app (device pairing, bearer tokens) |
+| Browser | ✅ §12.9: real Chromium tabs (`WebContentsView`), address bar with history/search, downloads, permissions, find, zoom, DevTools; agents read and drive tabs the user shares |
+| Files | ✅ §12.9: Finder-like module — places, list/icons, search (Spotlight on macOS), previews (images, video, audio, Markdown, text, PDF), rename/move/copy/trash, Quick Look thumbnails |
 
 **Assessment: everything is kept.** The design system, IPC contract, service pattern, store pattern, and security baseline carry the target architecture without modification. Mock data in `src/data/` is deliberately isolated and gets replaced surgically, phase by phase.
 
@@ -123,7 +125,8 @@ Renderer → IPC handler → domain/application service
 | ~~Knowledge~~ | merged into Memory (§12.3) | — | — |
 | Memory | `features/memory` | VaultService, MemoryIndex; MemoryService pipeline later | vault ✅ / pipeline P5 |
 | Agents | `features/agents` | AgentRuntime, ToolRegistry, PolicyEngine | P7–P9 |
-| Files | `features/files` | FileService | P10 |
+| Files | `features/files` | FinderService (whole machine, writes confined to Home + drives) | done (§12.9) |
+| Browser | `features/browser` | BrowserService (core) + ElectronBrowserHost (`platform/browser`) | done (§12.9) |
 | Automations | `features/automations` | AutomationService | P11 |
 | System | `features/system` | SystemService | done |
 | Terminal | `features/terminal` | TerminalService (node-pty) | tabs + split layouts (side by side, stacked, 2×2) ✅ |
@@ -631,3 +634,24 @@ User decision: Mindeck is sold — a 7-hour trial (active use, per account) and 
 - **node-pty** uses its N-API prebuilds (no compiler, `npmRebuild: false`), unpacked from the asar; renderer-only packages (Monaco, React, xterm, …) are excluded from the app's `node_modules` — they are already in the Vite bundle.
 - **Updates:** `UpdateService` (electron-updater, packaged app only) checks GitHub Releases 15 s after start and every 4 h, downloads in the background and offers *Restart & update* (top bar chip, Profile → This core). `update:*` channels are desktop-only and license-free. On macOS this needs a signed app.
 - **Signing & notarization** come from environment variables at release time — see [`docs/RELEASE.md`](docs/RELEASE.md).
+
+### 12.9 Browser & Files (2026-10-15)
+
+User decision: Mindeck should be the one app for building things — after Editor, Terminal, Agents and Memory, the browser and the file manager were missing. Plan and reasoning: [`docs/WORKSPACE_PLAN.md`](docs/WORKSPACE_PLAN.md), the long-term picture: [`docs/BROWSER_PLAN.md`](docs/BROWSER_PLAN.md).
+
+**Browser**
+
+- **Split like the rest:** `BrowserService` (`electron/main/services/browser/`) is core — tabs, the active tab, closed tabs, per-site zoom/permissions, history, downloads, dev servers, the agent API. It never touches Electron. The desktop app attaches a `BrowserHost` (`electron/main/platform/browser/host.ts`): one `WebContentsView` per tab over the module's viewport, reporting back through `BrowserHostEvents`. A headless core has no host: `browser:*` channels are `desktop`, and its links open in the system browser.
+- **Isolation:** every tab runs in the session `persist:mindeck-browser` (its own cookies and storage, never the Mindeck window's), sandboxed, no preload, no Node. Only the Mindeck window may call the core (`bindIpc` checks the sender frame), and `will-navigate` keeps the window on Mindeck's page. The user agent is plain Chrome's (no `Electron`/`Mindeck` tokens) so sites don't serve fallbacks.
+- **Behaves like Chrome:** omnibox (history by frecency, open tabs, inline completion, search engine from Settings; `localhost:5173` and `host:port` load directly), tab strip (pin, mute, duplicate, drag to reorder, reopen closed ⌘⇧T), find in page, zoom per site, print, DevTools, native context menus (open link in new tab, copy, inspect, spelling), downloads with progress (macOS quarantine flag set), permission prompts per origin (camera, mic, notifications, geolocation, screen sharing via the system picker), OAuth popups as real windows, `target=_blank` as tabs, error and crash pages, light/dark following the UI. Shortcuts arrive via `before-input-event`, so they work while a page has focus.
+- **Overlays:** native views always draw above HTML. While a Mindeck overlay is open (`useOverlay` in `src/lib/overlay.ts`: selects, the omnibox suggestions, the license gate) the view is replaced by a frozen screenshot (`capturePage`) and restored afterwards; approvals show in a dock above the page instead of toasts.
+- **Persistence:** `~/Mindeck/data/browser/` — `session.json` (tabs, restored on start), `sites.json` (zoom, permission decisions), `history.jsonl` (append-only, compacted, capped at 10 000 entries). Cookies and site storage live in Chromium's partition under the app's `userData`.
+- **Dev servers:** the terminal's output is scanned for local URLs (`DevServerDetector`); the Terminal header and the new-tab page offer them as one-click chips. The Live Server and every link in chats, notes and Files open as Mindeck tabs (Settings → Browser can send them to the system browser instead).
+- **Agents:** `browser_tabs/open/navigate/snapshot/read/screenshot/console/click/type/press` (ToolRegistry, offered over MCP to Claude Code, Codex and Gemini). They see only tabs the user shared (the eye in the toolbar), tabs they opened themselves and local dev servers. A snapshot is the accessibility tree with refs (`snapshot.ts`) — clicks and typing go through CDP (`webContents.debugger`, attached lazily, detached after 60 s idle) on those refs; password fields are never read or typed into. Page text reaches the model wrapped as `<untrusted_web_content>`. Reading is pre-allowed; open/navigate/click/type/press ask for approval like file writes.
+
+**Files**
+
+- **`FinderService`** (`electron/main/services/finder/`): places (Home, Desktop, Documents, Downloads, Pictures, Movies, Music — each only if it exists), external drives (`/Volumes`, system volumes filtered), list (one folder at a time, capped, bundles like `.app` shown as files), search (Spotlight `mdfind` on macOS, a bounded walk elsewhere), preview (type by extension; the first 256 KB of text), mkdir/rename/move/copy (never overwrite: `name 2.ext`), trash (OS trash), open with the default app, reveal in Finder. Reading may go anywhere the OS allows; writing only inside Home and mounted drives (realpath of the parent checked). `finder:*` channels are `desktop`.
+- **Pictures without copies:** `mindeck-file://local/<path>` streams a file to the Mindeck window (Range requests, so videos seek; non-media served as `text/plain` + `nosniff`), `mindeck-file://thumb/<path>?size=` returns the OS thumbnail (Quick Look via `nativeImage.createThumbnailFromPath`). The CSP allows the scheme only for `img-src` and `media-src`.
+- **Renderer** (`features/files`): sidebar (favorites, Memory vault, projects, drives — drop targets, ⌥ copies), path bar (⌘⇧G / double-click: type a path, `~` works), list with sortable columns or an icon grid, preview pane (Markdown rendered, links open in the browser), context menus, Finder's keys (arrows, ⇧ range, ⌘A, Enter/⌘↓ open, F2 rename, ⌘⌫ trash, ⌘[ / ⌘] / ⌘↑, Space preview, ⌘⇧N). Opening decides: folders in place, text files of a registered project in the Editor, HTML/PDF in the Browser, the rest with its app; "Open Terminal here" (`terminal:create` with `cwd`) and "Ask an agent about it" connect it to the other modules.
+

@@ -5,6 +5,7 @@ import { tempDir } from './helpers'
 
 const h = vi.hoisted(() => ({
   ptyData: undefined as undefined | ((d: string) => void),
+  ptyExit: undefined as undefined | ((e: { exitCode: number }) => void),
   ptyEnv: undefined as undefined | Record<string, string>,
   ptyArgs: [] as string[]
 }))
@@ -13,7 +14,7 @@ vi.mock('node-pty', () => ({
     ...((h.ptyEnv = opts.env), (h.ptyArgs = args), {}),
     pid: 1,
     onData: (cb: (d: string) => void) => (h.ptyData = cb),
-    onExit: () => {},
+    onExit: (cb: (e: { exitCode: number }) => void) => (h.ptyExit = cb),
     write: () => {},
     resize: () => {},
     kill: () => {}
@@ -186,6 +187,51 @@ describe('createCore', () => {
     expect(await c.router.dispatch('remote:hasContainer', { projectId: 'none' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
     expect(await c.router.dispatch('remote:hasContainer', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: false })
     expect(await c.router.dispatch('cloud:adopt', { token: 'mindeck1.x.y.zzzz', account: { email: 'a@b', name: null } }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-follower' } })
+  })
+
+  it('wires the browser and Files: dev servers from terminals, the Live Server in a tab, the files under Home', async () => {
+    const home = await tempDir()
+    const savedHomeEnv = process.env.HOME
+    process.env.HOME = home // Files works under Home: a throwaway one
+    const realPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'linux' }) // no Spotlight here: Files walks
+    const openExternal = vi.fn(async () => {})
+    const c = await core({ mode: 'desktop', serverConfig: { enabled: false, lan: false, port: 0, remoteTerminal: false }, platform: { ...headlessPlatform, kind: 'desktop', openExternal } })
+    Object.defineProperty(process, 'platform', { value: realPlatform })
+    const pushed: string[] = []
+    c.hub.subscribe((channel) => pushed.push(channel))
+    const site = await tempDir()
+    await writeFile(join(site, 'index.html'), '<h1>site</h1>')
+    const { data: project } = (await c.router.dispatch('projects:add', { path: site }, { transport: 'ipc' })) as { data: { id: string } }
+
+    // a dev server announced in a project's terminal shows up in the browser — and goes with its terminal
+    await c.router.dispatch('terminal:create', { projectId: project.id }, { transport: 'ipc' })
+    h.ptyData!('  ➜  Local:   http://localhost:5173/\n')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(c.browser.state().devServers).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', projectId: project.id })])
+    h.ptyExit!({ exitCode: 0 })
+    expect(c.browser.state().devServers).toEqual([])
+
+    // without a window the Live Server opens in the system browser; with one, in a tab of Mindeck's
+    const served = await c.router.dispatch('liveServer:start', { projectId: project.id }, { transport: 'ipc' })
+    expect(served).toMatchObject({ ok: true })
+    expect(openExternal).toHaveBeenCalled()
+    await c.router.dispatch('liveServer:stop', { projectId: project.id }, { transport: 'ipc' })
+    const host = new Proxy({} as Record<string, ReturnType<typeof vi.fn>>, { get: (t, k: string) => (t[k] ??= vi.fn()) })
+    c.browser.attach(host as never)
+    await c.router.dispatch('liveServer:start', { projectId: project.id }, { transport: 'ipc' })
+    expect(c.browser.state().tabs.some((t) => t.url.startsWith('http://127.0.0.1:'))).toBe(true)
+    await c.router.dispatch('liveServer:stop', { projectId: project.id }, { transport: 'ipc' })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(pushed).toContain('browser:state')
+
+    // Files: the machine's files, deletes into a recoverable trash
+    await writeFile(join(home, 'old.txt'), 'x')
+    expect(await c.router.dispatch('finder:trash', { paths: [join(home, 'old.txt')] }, { transport: 'ipc' })).toEqual({ ok: true })
+    expect(await c.router.dispatch('finder:list', { path: home }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { entries: [] } })
+    expect(await c.router.dispatch('finder:list', { path: home, hidden: true }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { entries: [expect.objectContaining({ name: '.trash' })] } })
+    if (savedHomeEnv === undefined) delete process.env.HOME
+    else process.env.HOME = savedHomeEnv
   })
 
   it('desktop mode keeps the server config in settings; history is kept as files in the data folder', async () => {

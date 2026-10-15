@@ -8,6 +8,7 @@ import { AnthropicProvider, fromApiContent, toApiMessage } from '../../../electr
 import { SecretStore } from '../../../electron/main/services/ai/SecretStore'
 import { AiService } from '../../../electron/main/services/ai/AiService'
 import { ToolRegistry } from '../../../electron/main/services/ai/tools/registry'
+import { browserTools } from '../../../electron/main/services/ai/tools/browser'
 import { builtinTools, formatContext, runShell, truncate, type ToolDeps } from '../../../electron/main/services/ai/tools/builtin'
 import { confine } from '../../../electron/main/lib/confine'
 import { PermissionService } from '../../../electron/main/services/ai/PermissionService'
@@ -627,7 +628,7 @@ describe('ToolRegistry', () => {
 
 describe('agents', () => {
   it('are data with allowlists that exist; unknown ids fall back to the assistant', () => {
-    const tools = new Set(builtinTools(toolDeps()).map((t) => t.name))
+    const tools = new Set([...builtinTools(toolDeps()), ...browserTools({} as never)].map((t) => t.name))
     for (const a of AGENTS) for (const name of a.tools) expect(tools.has(name)).toBe(true)
     expect(agentById('coding').name).toBe('Coding')
     expect(agentById('nope').id).toBe('assistant')

@@ -68,3 +68,28 @@ describe('Mindeck MCP server', () => {
     expect(MEMORY_TOOLS).toContain('project_context')
   })
 })
+
+describe('Mindeck MCP server · pictures and who calls', () => {
+  it('passes the calling agent on and returns images where a tool has them', async () => {
+    const seen = vi.fn()
+    const shot = {
+      ...(tool('browser_screenshot', async () => 'text only') as object),
+      runContent: async (_input: unknown, ctx: { agent?: string }) => {
+        seen(ctx.agent)
+        return [
+          { type: 'text', text: 'Shop — http://localhost:5173/' },
+          { type: 'image', data: 'cG5n', mimeType: 'image/png' }
+        ]
+      }
+    } as unknown as ToolDefinition<never>
+    const handle = createMcpHandler(new ToolRegistry([shot]), '1.0.0', ['browser_screenshot'])
+    const res = await handle({ projectId: 'p1', agent: 'Claude Code' }, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'browser_screenshot', arguments: { q: '' } } })
+    expect(res).toEqual({
+      jsonrpc: '2.0',
+      id: 9,
+      result: { content: [{ type: 'text', text: 'Shop — http://localhost:5173/' }, { type: 'image', data: 'cG5n', mimeType: 'image/png' }] }
+    })
+    expect(seen).toHaveBeenCalledWith('Claude Code')
+  })
+})
+

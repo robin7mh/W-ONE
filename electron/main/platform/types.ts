@@ -10,6 +10,8 @@ export interface Platform {
   pickFolder?: (title: string) => Promise<string | null>
   /** Open a file or folder with the host's default app. Absent on a server. */
   openPath?: (path: string) => Promise<void>
+  /** Show a file or folder in the OS file manager (Finder), selected. Absent on a server. */
+  revealPath?: (path: string) => void
   /** Hand a link to the app registered for it (browser, GitHub Desktop, …). Absent on a server. */
   openExternal?: (url: string) => Promise<void>
   /** Name of the app that handles links like `url` (`scheme://`), '' if none. Absent on a server. */

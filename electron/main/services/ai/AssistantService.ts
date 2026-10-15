@@ -428,7 +428,7 @@ export class AssistantService {
     publish()
     event('tool.started', { summary })
     try {
-      const output = await tool.run(parsed.data, { projectId: conv.projectId, signal: r.controller.signal })
+      const output = await tool.run(parsed.data, { projectId: conv.projectId, signal: r.controller.signal, agent: agent.name })
       event('tool.completed', { summary, bytes: output.length })
       return finish('done', output, false)
     } catch (err) {

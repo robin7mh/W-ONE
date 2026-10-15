@@ -34,6 +34,8 @@ interface TerminalState {
   open: (projectId?: string) => Promise<void>
   /** From elsewhere in the app (e.g. a project): a shell in that folder, without the extra Home shell of a first visit. */
   openProject: (projectId: string) => Promise<void>
+  /** From Files: a shell in any folder (absolute path), likewise without the extra Home shell. */
+  openFolder: (cwd: string) => Promise<void>
   close: (id: string) => Promise<void>
   /** Replace an exited tab with a fresh shell in the same place. */
   restart: (id: string) => Promise<void>
@@ -92,6 +94,16 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     await get().open(projectId)
   },
 
+  openFolder: async (cwd) => {
+    await get().init(false)
+    try {
+      const info = await ipc('terminal:create', { cwd })
+      set((s) => ({ tabs: [...s.tabs, info], activeId: info.id, error: undefined }))
+    } catch (err) {
+      set({ error: errorMessage(err) })
+    }
+  },
+
   close: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
     if (tab && tab.exitCode === undefined) await ipc('terminal:kill', { id }).catch(() => {})
@@ -107,7 +119,8 @@ export const useTerminals = create<TerminalState>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab) return
     try {
-      const info = await ipc('terminal:create', { projectId: tab.projectId })
+      // Same place again: the project, or the folder it was opened in.
+      const info = await ipc('terminal:create', tab.projectId ? { projectId: tab.projectId } : { cwd: tab.cwd })
       set((s) => ({
         tabs: s.tabs.map((t) => (t.id === id ? info : t)),
         activeId: s.activeId === id ? info.id : s.activeId,

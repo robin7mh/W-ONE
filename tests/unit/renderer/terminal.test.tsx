@@ -76,6 +76,8 @@ vi.mock('@xterm/addon-web-links', () => ({
 import { TerminalView } from '@/features/terminal/components/TerminalView'
 import { XtermPane } from '@/features/terminal/components/XtermPane'
 import { useTerminals } from '@/features/terminal/store'
+import { useBrowser } from '@/features/browser/store'
+import { state } from './browserFixtures'
 
 const initial = useTerminals.getState()
 let n = 0
@@ -113,6 +115,21 @@ const sized = (w: number, h: number) => {
 }
 
 describe('TerminalView', () => {
+  it('offers the dev servers its shell started: one click shows them in the browser', async () => {
+    const created = info({ title: 'shop', cwdLabel: '~/shop' })
+    installBridge({ 'terminal:list': () => [created], 'terminal:attach': pending })
+    const initialBrowser = useBrowser.getState()
+    const show = vi.fn(async () => {})
+    const server = (terminalId: string, port: number) => ({ terminalId, url: `http://localhost:${port}/`, label: `localhost:${port}`, detectedAt: '' })
+    useBrowser.setState({ show, state: state([], { devServers: [server(created.id, 5173), server('other', 3000)] }) })
+    render(<TerminalView />)
+    await act(settle)
+    expect(screen.queryByTitle('Open localhost:3000')).toBeNull() // another shell's
+    fireEvent.click(screen.getByTitle('Open localhost:5173'))
+    expect(show).toHaveBeenCalledWith('http://localhost:5173/')
+    useBrowser.setState(initialBrowser, true)
+  })
+
   it('opens one shell on first mount, shows its header and the layout picker', async () => {
     const created = info({ title: 'demo', cwdLabel: '~/demo' })
     installBridge({ 'terminal:list': () => [], 'terminal:create': () => created, 'terminal:attach': pending })

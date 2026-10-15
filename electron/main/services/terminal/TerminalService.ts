@@ -2,7 +2,7 @@ import { spawn, type IPty } from 'node-pty'
 import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
-import { basename, sep } from 'node:path'
+import { basename, isAbsolute, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { TerminalAttach, TerminalData, TerminalExit, TerminalInfo } from '@shared/types/terminal'
 
@@ -98,12 +98,14 @@ export class TerminalService {
     }
   ) {}
 
-  async create(req: { projectId?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
+  async create(req: { projectId?: string; cwd?: string; cols?: number; rows?: number }): Promise<TerminalInfo> {
     const project = req?.projectId ? this.opts.resolveProject(req.projectId) : undefined
     if (req?.projectId && !project) throw coded('not-found', 'Project not found')
+    if (!project && req?.cwd && !isAbsolute(req.cwd)) throw coded('bad-path', 'cwd must be an absolute folder')
+    const cwd = project?.path ?? (req?.cwd ? resolve(req.cwd) : homedir())
     return this.start({
-      title: project?.name ?? '~',
-      cwd: project?.path ?? homedir(),
+      title: project?.name ?? (cwd === homedir() ? '~' : basename(cwd) || cwd),
+      cwd,
       command: shellCommand(),
       projectId: project ? req.projectId : undefined,
       cols: req?.cols,
@@ -185,6 +187,11 @@ export class TerminalService {
         const running = this.foreground(s)
         return running ? { ...s.info, running } : s.info
       })
+  }
+
+  /** A session's info (agent PTYs included), if it is still running. */
+  info(id: string): TerminalInfo | undefined {
+    return this.sessions.get(id)?.info
   }
 
   attach(id: string): TerminalAttach {

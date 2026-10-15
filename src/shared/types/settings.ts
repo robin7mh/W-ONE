@@ -5,6 +5,7 @@ import type { GraphStyle } from './memory'
 import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
 import type { EditorSettings } from './migrate'
+import type { BrowserSettings } from './browser'
 
 export interface AppSettings {
   /**
@@ -20,6 +21,8 @@ export interface AppSettings {
   ai?: AiSettings
   /** Editor preferences and keybindings (taken over from VS Code / Cursor, or set here). */
   editor?: EditorSettings
+  /** The Mindeck browser: search engine, where links from Mindeck open. */
+  browser?: Partial<BrowserSettings>
   /** Settings Sync: the account copy's version this core last saved or loaded. */
   sync?: { version: number; syncedAt: string }
 }

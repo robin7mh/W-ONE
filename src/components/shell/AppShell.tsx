@@ -19,7 +19,10 @@ import { useMemory } from '@/features/memory/store'
 import { SettingsView } from '@/features/settings/components/SettingsView'
 import { SystemView } from '@/features/system/components/SystemView'
 import { AccountView } from '@/features/account/components/AccountView'
-import { useT } from '@/lib/i18n'
+import { BrowserView } from '@/features/browser/components/BrowserView'
+import { useBrowser } from '@/features/browser/store'
+import { FilesView } from '@/features/files/components/FilesView'
+import { getT, useT } from '@/lib/i18n'
 import { useSession } from '@/features/session/store'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
@@ -61,20 +64,30 @@ export function AppShell() {
     if (booted) setBootedAt(Date.now())
   }, [booted])
 
-  // Terminal and Editor mount on first visit and then stay mounted (hidden), so
-  // running shells, open files and their undo history survive switching modules.
-  const [kept, setKept] = useState<{ terminal?: boolean; editor?: boolean }>({})
+  // Terminal, Editor and Browser mount on first visit and then stay mounted (hidden), so
+  // running shells, open files and their undo history, and the address bar survive switching modules.
+  const [kept, setKept] = useState<{ terminal?: boolean; editor?: boolean; browser?: boolean }>({})
   useEffect(() => {
-    if (active === 'terminal' || active === 'editor') setKept((k) => (k[active] ? k : { ...k, [active]: true }))
+    if (active === 'terminal' || active === 'editor' || active === 'browser') setKept((k) => (k[active] ? k : { ...k, [active]: true }))
   }, [active])
 
-  // Agents' push events (approvals, sessions, activity) matter in every module.
+  // Agents' push events (approvals, sessions, activity) matter in every module —
+  // and so does the browser: links from anywhere open in it.
   useEffect(() => {
     const offAssistant = useAssistant.getState().connect()
     const offAgents = useAgents.getState().connect()
+    const offBrowser = useBrowser.getState().connect({
+      reveal: () => setActive('browser'),
+      sendToAgent: (tab) => {
+        setActive('agents')
+        useAgents.getState().openDialog(getT().browser.agentPrompt(tab.title || tab.url, tab.url))
+      },
+      settings: () => setActive('settings')
+    })
     return () => {
       offAssistant()
       offAgents()
+      offBrowser()
     }
   }, [])
   // The chat open in the Agents module shows its approvals inline — no toast for it.
@@ -105,6 +118,8 @@ export function AppShell() {
     if (active === 'system') return <SystemView />
     if (active === 'settings') return <SettingsView />
     if (active === 'account') return <AccountView />
+    if (active === 'files') return <FilesView onNavigate={setActive} />
+    if (active === 'browser') return null
     if (active === 'terminal') return shellsOff ? <RemoteShellsOff /> : null
     if (active === 'editor') return null
     return <Dashboard onNavigate={setActive} />
@@ -142,6 +157,11 @@ export function AppShell() {
                 <EditorView active={active === 'editor'} onNavigate={setActive} />
               </div>
             )}
+            {kept.browser && (
+              <div className={active === 'browser' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+                <BrowserView active={active === 'browser'} />
+              </div>
+            )}
           </motion.div>
 
           {/* Monitor rail — Core only, hidden on small widths */}
@@ -161,8 +181,9 @@ export function AppShell() {
         <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
       </motion.div>
 
-      {/* Approvals float above every module (the open chat shows its own inline). */}
-      {booted && <ApprovalToasts hideConversation={active === 'agents' ? activeConversation : undefined} />}
+      {/* Approvals float above every module (the open chat shows its own inline; the
+          browser's page would cover them, so it shows them above the page). */}
+      {booted && !(active === 'browser' && isDesktop()) && <ApprovalToasts hideConversation={active === 'agents' ? activeConversation : undefined} />}
     </div>
   )
 }

@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
+import { DESKTOP_EVENTS, TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
 import type { CoreMode } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
@@ -276,7 +276,7 @@ export class HttpServer {
   }
 
   private push(channel: IpcEvent, payload: unknown): void {
-    if (!this.clients.size) return
+    if (!this.clients.size || DESKTOP_EVENTS.includes(channel)) return
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
     const message = JSON.stringify({ channel, payload })
     for (const client of this.clients) {

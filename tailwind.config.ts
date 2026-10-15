@@ -44,6 +44,11 @@ export default {
           '0%': { opacity: '0.55', transform: 'scale(1)' },
           '70%, 100%': { opacity: '0', transform: 'scale(2.25)' }
         },
+        // The browser's loading line: slides across while a page loads (transform only).
+        loadbar: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' }
+        },
         flicker: {
           '0%, 100%': { opacity: '1' },
           '92%': { opacity: '1' },
@@ -55,7 +60,8 @@ export default {
         // Stepped: a smooth infinite loop makes Chromium composite the whole
         // window at 60 fps (~20 % of a core in GPU + renderer); 8 steps ≈ 4 fps.
         'pulse-dot': 'pulseDot 2.2s steps(8, end) infinite',
-        flicker: 'flicker 6s linear infinite'
+        flicker: 'flicker 6s linear infinite',
+        loadbar: 'loadbar 1.1s ease-in-out infinite'
       }
     }
   },

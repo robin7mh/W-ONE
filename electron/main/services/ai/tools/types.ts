@@ -6,7 +6,12 @@ export interface ToolContext {
   /** Project the conversation is scoped to, if any. */
   projectId?: string
   signal: AbortSignal
+  /** Who calls (an agent's name, e.g. "Claude Code") — shown where the tool acts, like a browser tab. */
+  agent?: string
 }
+
+/** A result block for clients that take more than text (MCP: screenshots as images). */
+export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 
 /**
  * A tool the agents can call (architecture §8). Tools call existing services
@@ -24,4 +29,6 @@ export interface ToolDefinition<I = unknown> {
   /** Plain-words summary for the approval prompt and the activity log. */
   summarize(input: I): string
   run(input: I, ctx: ToolContext): Promise<string>
+  /** Text and images, where the client takes them (MCP). Without it, `run`'s text is the result. */
+  runContent?(input: I, ctx: ToolContext): Promise<ToolContent[]>
 }

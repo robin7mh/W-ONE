@@ -136,6 +136,18 @@ describe('ipc router', () => {
     expect([...electron.handlers.keys()].sort()).toEqual([...IPC_CHANNELS].sort())
     expect(await call('projects:list')).toEqual({ ok: true, data: ['p'] })
   })
+
+  it('answers Mindeck’s own page only — a web page in a frame gets nothing', async () => {
+    electron.handlers.clear()
+    const router = new Router()
+    router.register('projects:list', () => ['p'] as never)
+    bindIpc(router, (url) => url.startsWith('file:///app/'))
+    const handle = electron.handlers.get('projects:list')!
+    expect(await handle({ senderFrame: { url: 'file:///app/index.html' } }, undefined)).toEqual({ ok: true, data: ['p'] })
+    const forbidden = { ok: false, error: { code: 'forbidden', message: 'Only the Mindeck window may call the core' } }
+    expect(await handle({ senderFrame: { url: 'https://evil.example/' } }, undefined)).toEqual(forbidden)
+    expect(await handle({ senderFrame: null }, undefined)).toEqual(forbidden)
+  })
 })
 
 describe('ipc handler modules bind every channel to its service', () => {

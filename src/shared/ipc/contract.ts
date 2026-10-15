@@ -81,6 +81,19 @@ import type {
 } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
 import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
+import type {
+  BrowserCommand,
+  BrowserFind,
+  BrowserGo,
+  BrowserSettings,
+  BrowserState,
+  BrowserSuggestion,
+  BrowserTab,
+  BrowserTool,
+  HistoryEntry,
+  ViewBounds
+} from '@shared/types/browser'
+import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
 
 /** A position in a project file, for the lsp:* queries. */
 export interface LspAt {
@@ -139,7 +152,8 @@ export interface IpcChannels {
   'memory:link': { request: { from: string; to: string }; response: NoteMeta }
   'memory:unlink': { request: { from: string; to: string }; response: NoteMeta }
 
-  'terminal:create': { request: { projectId?: string; cols?: number; rows?: number }; response: TerminalInfo }
+  /** In a project, in `cwd` (an absolute folder, e.g. from Files), else in Home. */
+  'terminal:create': { request: { projectId?: string; cwd?: string; cols?: number; rows?: number }; response: TerminalInfo }
   'terminal:list': { request: void; response: TerminalInfo[] }
   'terminal:attach': { request: { id: string }; response: TerminalAttach }
   'terminal:write': { request: { id: string; data: string }; response: void }
@@ -354,6 +368,61 @@ export interface IpcChannels {
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
   'update:install': { request: void; response: void }
+
+  /** The Mindeck browser: tabs are web views in the desktop window (architecture §12.9). */
+  'browser:state': { request: void; response: BrowserState }
+  /** A new tab: `url` is what was typed (an address or search words); empty = the new-tab page. */
+  'browser:open': { request: { url?: string; background?: boolean }; response: BrowserTab }
+  'browser:close': { request: { id: string }; response: void }
+  'browser:activate': { request: { id: string }; response: void }
+  /** Load what was typed into the address bar (an address, or search words). */
+  'browser:navigate': { request: { id: string; input: string }; response: void }
+  'browser:go': { request: { id: string; action: BrowserGo }; response: void }
+  'browser:update': { request: { id: string; pinned?: boolean; muted?: boolean; shared?: boolean }; response: void }
+  'browser:move': { request: { id: string; index: number }; response: void }
+  'browser:duplicate': { request: { id: string }; response: BrowserTab }
+  /** Bring back the most recently closed tab. */
+  'browser:reopen': { request: void; response: BrowserTab | null }
+  'browser:zoom': { request: { id: string; zoom: 'in' | 'out' | 'reset' }; response: number }
+  'browser:find': { request: { id: string; text: string; forward?: boolean; next?: boolean }; response: void }
+  'browser:findStop': { request: { id: string }; response: void }
+  /** Native tab / page menu, DevTools, print, or hand the page to the system browser. */
+  'browser:tool': { request: { id: string; tool: BrowserTool }; response: void }
+  /** Where the web view sits in the window; null hides it (the module is not on screen). */
+  'browser:view': { request: { bounds: ViewBounds | null }; response: void }
+  /** A picture of the visible page while a menu or dialog covers it (the view itself hides); null if none. */
+  'browser:freeze': { request: void; response: string | null }
+  'browser:unfreeze': { request: void; response: void }
+  'browser:suggest': { request: { text: string }; response: BrowserSuggestion[] }
+  'browser:history': { request: { query?: string; limit?: number }; response: HistoryEntry[] }
+  'browser:clearHistory': { request: void; response: void }
+  'browser:download': { request: { id: string; action: 'open' | 'reveal' | 'cancel' | 'remove' }; response: void }
+  /** Answer a page's request (camera, notifications, …); `remember` keeps it for the site. */
+  'browser:permission': { request: { id: string; allow: boolean; remember?: boolean }; response: void }
+  'browser:settings': { request: void; response: BrowserSettings }
+  'browser:configure': { request: Partial<BrowserSettings>; response: BrowserSettings }
+  /** The UI's look and language: pages follow its light/dark mode, menus speak its language. */
+  'browser:ui': { request: { theme: 'dark' | 'light' | 'system'; locale: 'de' | 'en' }; response: void }
+
+  /** Files: the machine's files, like Finder (absolute paths; writes only under Home and /Volumes). */
+  'finder:places': { request: void; response: FinderPlaces }
+  /** A folder's entries; no `path` = Home. */
+  'finder:list': { request: { path?: string; hidden?: boolean }; response: FinderListing }
+  'finder:search': { request: { path: string; query: string }; response: FinderEntry[] }
+  'finder:preview': { request: { path: string }; response: FinderPreview }
+  /** Returns the new folder's path. */
+  'finder:mkdir': { request: { parent: string; name: string }; response: string }
+  /** Returns the new path. */
+  'finder:rename': { request: { path: string; name: string }; response: string }
+  /** Into the OS trash, never deleted outright. */
+  'finder:trash': { request: { paths: string[] }; response: void }
+  /** Returns the new paths. */
+  'finder:move': { request: { paths: string[]; dest: string }; response: string[] }
+  'finder:copy': { request: { paths: string[]; dest: string }; response: string[] }
+  /** With the app the OS opens it with. */
+  'finder:open': { request: { path: string }; response: void }
+  /** Show it in the OS file manager. */
+  'finder:reveal': { request: { path: string }; response: void }
 }
 
 export type IpcChannel = keyof IpcChannels
@@ -587,7 +656,45 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   // The desktop app updates itself; nothing a remote client should trigger.
   'update:status': 'desktop',
   'update:check': 'desktop',
-  'update:install': 'desktop'
+  'update:install': 'desktop',
+  // The browser lives in the desktop window — and its tabs are the user's private pages.
+  'browser:state': 'desktop',
+  'browser:open': 'desktop',
+  'browser:close': 'desktop',
+  'browser:activate': 'desktop',
+  'browser:navigate': 'desktop',
+  'browser:go': 'desktop',
+  'browser:update': 'desktop',
+  'browser:move': 'desktop',
+  'browser:duplicate': 'desktop',
+  'browser:reopen': 'desktop',
+  'browser:zoom': 'desktop',
+  'browser:find': 'desktop',
+  'browser:findStop': 'desktop',
+  'browser:tool': 'desktop',
+  'browser:view': 'desktop',
+  'browser:freeze': 'desktop',
+  'browser:unfreeze': 'desktop',
+  'browser:suggest': 'desktop',
+  'browser:history': 'desktop',
+  'browser:clearHistory': 'desktop',
+  'browser:download': 'desktop',
+  'browser:permission': 'desktop',
+  'browser:settings': 'desktop',
+  'browser:configure': 'desktop',
+  'browser:ui': 'desktop',
+  // The whole disk, beyond projects and the vault: the desktop app only.
+  'finder:places': 'desktop',
+  'finder:list': 'desktop',
+  'finder:search': 'desktop',
+  'finder:preview': 'desktop',
+  'finder:mkdir': 'desktop',
+  'finder:rename': 'desktop',
+  'finder:trash': 'desktop',
+  'finder:move': 'desktop',
+  'finder:copy': 'desktop',
+  'finder:open': 'desktop',
+  'finder:reveal': 'desktop'
 }
 
 /** Runtime allowlist — the preload rejects any channel not in this set. */
@@ -621,6 +728,12 @@ export interface IpcEvents {
   'remote:changed': RemoteConnection[]
   'tests:changed': TestRunState
   'notebook:event': NotebookEvent
+  'browser:state': BrowserState
+  'browser:find': BrowserFind
+  /** A shortcut or menu (maybe pressed while a page had the focus) for the Mindeck UI. */
+  'browser:command': { command: BrowserCommand }
+  /** Something opened a tab for the user (a link in a chat, the Live Server): show the browser. */
+  'browser:reveal': { tabId: string }
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -651,8 +764,15 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'sftp:progress',
   'remote:changed',
   'tests:changed',
-  'notebook:event'
+  'notebook:event',
+  'browser:state',
+  'browser:find',
+  'browser:command',
+  'browser:reveal'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
 export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'debug:session', 'debug:output', 'notebook:event']
+
+/** Push events that never leave the desktop window (the browser's tabs are private pages). */
+export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal']

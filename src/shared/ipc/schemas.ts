@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { EFFORTS } from '@shared/types/ai'
+import { SEARCH_ENGINES } from '@shared/types/browser'
 import type { IpcChannel, IpcChannels } from './contract'
 
 const id = z.string().min(1).max(200)
@@ -22,6 +23,13 @@ const pos = z.object({ line: z.number().int().min(1), offset: z.number().int().m
 const at = z.object({ projectId: id, path, line: z.number().int().min(1), offset: z.number().int().min(1) })
 
 const breakpoint = z.object({ path, line: z.number().int().min(1) })
+
+/** CSS pixels of the Mindeck window (the web view's place). */
+const px = z.number().finite().min(-100_000).max(100_000)
+const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) })
+/** One file or folder name — no separators, not `.` or `..` (the service checks again). */
+const fileName = z.string().trim().min(1).max(255)
+const paths = z.array(path).min(1).max(1000)
 
 type Schemas = { [K in IpcChannel]: z.ZodType<IpcChannels[K]['request']> }
 
@@ -69,7 +77,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'memory:setVault': z.object({ path }),
 
   'terminal:create': z
-    .object({ projectId: id.optional(), cols: z.number().optional(), rows: z.number().optional() })
+    .object({ projectId: id.optional(), cwd: path.optional(), cols: z.number().optional(), rows: z.number().optional() })
     .optional()
     .transform((v) => v ?? {}),
   'terminal:list': none,
@@ -326,6 +334,53 @@ export const REQUEST_SCHEMAS: Schemas = {
   'update:status': none,
   'update:check': none,
   'update:install': none,
+
+  'browser:state': none,
+  'browser:open': z
+    .object({ url: text(8192).optional(), background: z.boolean().optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'browser:close': z.object({ id }),
+  'browser:activate': z.object({ id }),
+  'browser:navigate': z.object({ id, input: text(8192) }),
+  'browser:go': z.object({ id, action: z.enum(['back', 'forward', 'reload', 'hardReload', 'stop']) }),
+  'browser:update': z.object({ id, pinned: z.boolean().optional(), muted: z.boolean().optional(), shared: z.boolean().optional() }),
+  'browser:move': z.object({ id, index: z.number().int().min(0).max(10_000) }),
+  'browser:duplicate': z.object({ id }),
+  'browser:reopen': none,
+  'browser:zoom': z.object({ id, zoom: z.enum(['in', 'out', 'reset']) }),
+  'browser:find': z.object({ id, text: text(1000), forward: z.boolean().optional(), next: z.boolean().optional() }),
+  'browser:findStop': z.object({ id }),
+  'browser:tool': z.object({ id, tool: z.enum(['tabMenu', 'pageMenu', 'devtools', 'print', 'handoff']) }),
+  'browser:view': z.object({ bounds: viewBounds.nullable() }),
+  'browser:freeze': none,
+  'browser:unfreeze': none,
+  'browser:suggest': z.object({ text: text(2000) }),
+  'browser:history': z
+    .object({ query: text(500).optional(), limit: z.number().int().min(1).max(500).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'browser:clearHistory': none,
+  'browser:download': z.object({ id, action: z.enum(['open', 'reveal', 'cancel', 'remove']) }),
+  'browser:permission': z.object({ id, allow: z.boolean(), remember: z.boolean().optional() }),
+  'browser:settings': none,
+  'browser:configure': z.object({ searchEngine: z.enum(SEARCH_ENGINES).optional(), openLinksInMindeck: z.boolean().optional() }),
+  'browser:ui': z.object({ theme: z.enum(['dark', 'light', 'system']), locale: z.enum(['de', 'en']) }),
+
+  'finder:places': none,
+  'finder:list': z
+    .object({ path: path.optional(), hidden: z.boolean().optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'finder:search': z.object({ path, query: z.string().trim().min(1).max(200) }),
+  'finder:preview': z.object({ path }),
+  'finder:mkdir': z.object({ parent: path, name: fileName }),
+  'finder:rename': z.object({ path, name: fileName }),
+  'finder:trash': z.object({ paths: paths }),
+  'finder:move': z.object({ paths: paths, dest: path }),
+  'finder:copy': z.object({ paths: paths, dest: path }),
+  'finder:open': z.object({ path }),
+  'finder:reveal': z.object({ path }),
 
   'events:recent': z
     .object({ limit: z.number().int().min(1).max(500).optional(), conversationId: id.optional() })

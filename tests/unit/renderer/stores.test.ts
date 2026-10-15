@@ -220,6 +220,25 @@ describe('terminal store', () => {
     await s().close(fresh.id) // kill fails silently
   })
 
+  it('openFolder: a shell in any folder — after re-attaching survivors, without opening Home first', async () => {
+    const created = info({ cwd: '/h/code', title: 'code' })
+    const asked: unknown[] = []
+    installBridge({
+      'terminal:list': () => [],
+      'terminal:create': (p: unknown) => {
+        asked.push(p)
+        return created
+      }
+    })
+    await useTerminals.getState().openFolder('/h/code')
+    expect(asked).toEqual([{ cwd: '/h/code' }])
+    expect(useTerminals.getState()).toMatchObject({ initialized: true, activeId: created.id, tabs: [created] })
+    installBridge({ 'terminal:create': () => fail('Not an absolute path', 'bad-path') })
+    await useTerminals.getState().openFolder('code')
+    expect(useTerminals.getState().error).toBe('Not an absolute path')
+    expect(useTerminals.getState().tabs).toHaveLength(1)
+  })
+
   it('layouts never reorder: new tabs append, picking a tab only focuses it', async () => {
     const queue: TerminalInfo[] = []
     installBridge({ 'terminal:create': () => queue.shift()!, 'terminal:kill': () => fail('x') })

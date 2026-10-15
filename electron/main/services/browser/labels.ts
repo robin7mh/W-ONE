@@ -1,0 +1,94 @@
+/** Words of the native menus the browser draws itself, in the UI's language. */
+const EN = {
+  reload: 'Reload',
+  duplicate: 'Duplicate',
+  pin: 'Pin Tab',
+  unpin: 'Unpin Tab',
+  mute: 'Mute Site',
+  unmute: 'Unmute Site',
+  share: 'Share with Agents',
+  unshare: 'Stop Sharing with Agents',
+  handoff: (app: string) => (app ? `Open in ${app}` : 'Open in System Browser'),
+  close: 'Close Tab',
+  closeOthers: 'Close Other Tabs',
+  newTab: 'New Tab',
+  reopen: 'Reopen Closed Tab',
+  find: 'Find…',
+  zoomIn: 'Zoom In',
+  zoomOut: 'Zoom Out',
+  zoomReset: (percent: number) => `Actual Size (${percent} %)`,
+  print: 'Print…',
+  devtools: 'Developer Tools',
+  sendToAgent: 'Send to Agent…',
+  settings: 'Browser Settings',
+  back: 'Back',
+  forward: 'Forward',
+  openLinkInTab: 'Open Link in New Tab',
+  copyLink: 'Copy Link Address',
+  openImageInTab: 'Open Image in New Tab',
+  saveImage: 'Save Image',
+  copyImage: 'Copy Image',
+  copyImageAddress: 'Copy Image Address',
+  cut: 'Cut',
+  copy: 'Copy',
+  paste: 'Paste',
+  selectAll: 'Select All',
+  searchFor: (engine: string, text: string) => `Search ${engine} for “${text.length > 24 ? `${text.slice(0, 24)}…` : text}”`,
+  addToDictionary: 'Add to Dictionary',
+  inspect: 'Inspect'
+}
+
+export type Labels = typeof EN
+
+const DE: Labels = {
+  reload: 'Neu laden',
+  duplicate: 'Duplizieren',
+  pin: 'Tab anheften',
+  unpin: 'Tab lösen',
+  mute: 'Ton aus',
+  unmute: 'Ton an',
+  share: 'Für Agents freigeben',
+  unshare: 'Freigabe für Agents beenden',
+  handoff: (app) => (app ? `In ${app} öffnen` : 'Im System-Browser öffnen'),
+  close: 'Tab schließen',
+  closeOthers: 'Andere Tabs schließen',
+  newTab: 'Neuer Tab',
+  reopen: 'Geschlossenen Tab wieder öffnen',
+  find: 'Suchen …',
+  zoomIn: 'Vergrößern',
+  zoomOut: 'Verkleinern',
+  zoomReset: (percent) => `Originalgröße (${percent} %)`,
+  print: 'Drucken …',
+  devtools: 'Entwicklertools',
+  sendToAgent: 'An Agent senden …',
+  settings: 'Browser-Einstellungen',
+  back: 'Zurück',
+  forward: 'Vorwärts',
+  openLinkInTab: 'Link in neuem Tab öffnen',
+  copyLink: 'Link-Adresse kopieren',
+  openImageInTab: 'Bild in neuem Tab öffnen',
+  saveImage: 'Bild speichern',
+  copyImage: 'Bild kopieren',
+  copyImageAddress: 'Bildadresse kopieren',
+  cut: 'Ausschneiden',
+  copy: 'Kopieren',
+  paste: 'Einsetzen',
+  selectAll: 'Alles auswählen',
+  searchFor: (engine, text) => `Mit ${engine} nach „${text.length > 24 ? `${text.slice(0, 24)}…` : text}“ suchen`,
+  addToDictionary: 'Zum Wörterbuch hinzufügen',
+  inspect: 'Untersuchen'
+}
+
+export function labels(locale: 'de' | 'en'): Labels {
+  return locale === 'de' ? DE : EN
+}
+
+/** How the search engines call themselves. */
+export const ENGINE_NAMES = {
+  google: 'Google',
+  duckduckgo: 'DuckDuckGo',
+  bing: 'Bing',
+  ecosia: 'Ecosia',
+  brave: 'Brave',
+  kagi: 'Kagi'
+} as const

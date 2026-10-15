@@ -35,12 +35,13 @@ const electron = vi.hoisted(() => ({
   openPath: vi.fn(async () => ''),
   openExternal: vi.fn(async () => {}),
   appForProtocol: vi.fn((_url: string) => ''),
+  reveal: vi.fn(),
   encryption: true
 }))
 vi.mock('electron', () => ({
   app: { getApplicationNameForProtocol: electron.appForProtocol },
   dialog: { showOpenDialog: electron.showOpenDialog },
-  shell: { openPath: electron.openPath, openExternal: electron.openExternal },
+  shell: { openPath: electron.openPath, openExternal: electron.openExternal, showItemInFolder: electron.reveal },
   safeStorage: {
     isEncryptionAvailable: () => electron.encryption,
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
@@ -212,6 +213,11 @@ describe('ProjectService', () => {
     electron.encryption = false
     expect(electronCipher()).toBeUndefined()
     electron.encryption = true
+  })
+
+  it('shows files in the OS file manager on the desktop', () => {
+    electronPlatform.revealPath!('/Users/me/report.pdf')
+    expect(electron.reveal).toHaveBeenCalledWith('/Users/me/report.pdf')
   })
 
   it('refuses the picker and opening files on a headless host', async () => {

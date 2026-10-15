@@ -20,6 +20,7 @@ import { LanguagesCard } from './LanguagesCard'
 import { MigrateCard } from './MigrateCard'
 import { EditorCard } from './EditorCard'
 import { AiCard } from './AiCard'
+import { BrowserCard } from './BrowserCard'
 import { Toggle } from './Toggle'
 
 const input =
@@ -315,6 +316,7 @@ export function SettingsView() {
           <p className="mt-2 font-sans text-[11.5px] text-text-muted">{t.account.languageHint}</p>
         </Card>
         <AgentsCard />
+        <BrowserCard />
         <EditorCard />
         <MigrateCard />
         <LanguagesCard />

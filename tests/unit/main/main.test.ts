@@ -26,7 +26,7 @@ class FakeWindow {
   unmaximize = vi.fn()
   close = vi.fn()
   loadURL = vi.fn(async () => {})
-  loadFile = vi.fn(async () => {})
+  loadFile = vi.fn(async (_file: string) => {})
   isMaximized = () => this.maximized
   isFullScreen = () => this.fullScreen
   constructor(opts: Record<string, unknown>) {
@@ -70,12 +70,19 @@ const h = vi.hoisted(() => ({
   coreOpts: undefined as undefined | Record<string, unknown>,
   hubListener: undefined as undefined | ((channel: string, payload: unknown) => void),
   bound: vi.fn(),
+  schemes: vi.fn(),
+  protocolHandler: undefined as undefined | ((request: unknown) => unknown),
+  serveFile: vi.fn(async (_request: unknown, deps: { thumbnail: (path: string, size: number) => Promise<unknown> }) => deps),
+  thumbnail: { empty: false },
+  host: { dispose: vi.fn() },
+  createHost: vi.fn(),
   core: {
     system: { setPaused: vi.fn() },
     terminal: { killAll: vi.fn() },
     server: { start: vi.fn(async () => {}) },
     dispose: vi.fn(async () => {}),
-    router: { id: 'router', register: vi.fn() }
+    router: { id: 'router', register: vi.fn() },
+    browser: { hostEvents: vi.fn(() => ({ events: true })), attach: vi.fn(), detach: vi.fn(), openFromApp: vi.fn((): boolean => true) }
   }
 }))
 vi.mock('electron', () => ({
@@ -100,6 +107,16 @@ vi.mock('electron', () => ({
     }
   },
   shell: { openExternal: h.openExternal },
+  protocol: {
+    registerSchemesAsPrivileged: (schemes: unknown) => h.schemes(schemes),
+    handle: (_scheme: string, fn: (request: unknown) => unknown) => (h.protocolHandler = fn)
+  },
+  nativeImage: {
+    createThumbnailFromPath: async (path: string, size: { width: number }) => ({
+      isEmpty: () => h.thumbnail.empty,
+      toPNG: () => `png:${path}:${size.width}`
+    })
+  },
   powerMonitor: { getSystemIdleTime: () => h.idleSeconds },
   dialog: { showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])) },
   Notification: class {
@@ -121,6 +138,8 @@ vi.mock('../../../electron/main/lib/paths', () => ({
 }))
 vi.mock('../../../electron/main/platform/electron', () => ({ electronPlatform: { kind: 'desktop' }, electronCipher: () => ({ kind: 'cipher' }) }))
 vi.mock('../../../electron/ipc/registry', () => ({ bindIpc: h.bound }))
+vi.mock('../../../electron/main/platform/browser/host', () => ({ createBrowserHost: (...a: unknown[]) => (h.createHost(...a), h.host) }))
+vi.mock('../../../electron/main/platform/fileProtocol', () => ({ FILE_SCHEME: 'mindeck-file', serveFile: h.serveFile }))
 vi.mock('../../../electron/main/core/createCore', () => ({
   createCore: vi.fn(async (opts: Record<string, unknown>) => {
     h.coreOpts = opts
@@ -169,6 +188,12 @@ beforeEach(() => {
   h.core.terminal.killAll.mockReset()
   h.core.server.start.mockReset().mockResolvedValue(undefined)
   h.core.dispose.mockReset().mockResolvedValue(undefined)
+  h.core.browser.attach.mockReset()
+  h.core.browser.detach.mockReset()
+  h.core.browser.openFromApp.mockReset().mockReturnValue(true)
+  h.host.dispose.mockReset()
+  h.createHost.mockReset()
+  h.openExternal.mockClear()
   h.quit.mockReset()
 })
 afterEach(() => {
@@ -181,8 +206,15 @@ describe('main process boot', () => {
     const win = await boot({ devUrl: 'http://localhost:5173' })
     expect(h.coreOpts).toMatchObject({ mode: 'desktop', version: '0.1.0', platform: { kind: 'desktop' }, cipher: { kind: 'cipher' } })
     expect(String(h.coreOpts!.webRoot)).toMatch(/renderer$/)
-    expect(h.bound).toHaveBeenCalledWith(h.core.router)
+    expect(h.bound).toHaveBeenCalledWith(h.core.router, expect.any(Function))
+    // IPC answers Mindeck's own page only
+    const trusted = h.bound.mock.calls[0][1] as (url: string) => boolean
+    expect(trusted('http://localhost:5173/')).toBe(true)
+    expect(trusted('https://evil.example/')).toBe(false)
     expect(h.core.server.start).toHaveBeenCalled()
+    // the browser's web views live in this window
+    expect(h.createHost).toHaveBeenCalledWith(win, { events: true })
+    expect(h.core.browser.attach).toHaveBeenCalledWith(h.host)
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
@@ -252,6 +284,10 @@ describe('main process boot', () => {
     const win = await boot({ platform: 'linux' })
     expect(win.opts).toMatchObject({ frame: false, backgroundColor: '#eef2f7' })
     expect(win.loadFile).toHaveBeenCalledWith(expect.stringMatching(/renderer[\\/]index\.html$/))
+    // packaged: only the bundled index.html is Mindeck's page
+    const trusted = h.bound.mock.calls[0][1] as (url: string) => boolean
+    expect(trusted(String(win.loadFile.mock.calls[0][0]).replace(/^/, 'file://').replace(/\\/g, '/'))).toBe(true)
+    expect(trusted('file:///etc/passwd')).toBe(false)
   })
 
   it('logs a successful legacy-data copy and survives a failing one', async () => {
@@ -291,11 +327,45 @@ describe('window wiring', () => {
       expect(system.setPaused).toHaveBeenLastCalledWith(paused)
     }
 
+    // links never open in this window: web pages go to Mindeck's browser …
     expect(win.openHandler!({ url: 'https://example.com' })).toEqual({ action: 'deny' })
-    expect(h.openExternal).toHaveBeenCalledWith('https://example.com')
+    expect(h.core.browser.openFromApp).toHaveBeenCalledWith('https://example.com')
+    expect(h.openExternal).not.toHaveBeenCalled()
+    // … or the system's when the user prefers it; mail goes to the mail app; anything else nowhere
+    h.core.browser.openFromApp.mockReturnValueOnce(false)
+    win.openHandler!({ url: 'http://example.com/a' })
+    expect(h.openExternal).toHaveBeenCalledWith('http://example.com/a')
+    win.openHandler!({ url: 'mailto:robin@example.com' })
+    expect(h.openExternal).toHaveBeenCalledWith('mailto:robin@example.com')
+    win.openHandler!({ url: 'file:///etc/passwd' })
+    win.openHandler!({ url: 'smb://server/share' })
+    expect(h.openExternal).toHaveBeenCalledTimes(2)
+
+    // and the window itself never navigates away from Mindeck
+    const navigate = win.contentsHandlers.get('will-navigate')!
+    const away = { preventDefault: vi.fn() }
+    navigate(away, 'https://evil.example/')
+    expect(away.preventDefault).toHaveBeenCalled()
+    expect(h.core.browser.openFromApp).toHaveBeenLastCalledWith('https://evil.example/')
+    const reload = { preventDefault: vi.fn() }
+    navigate(reload, String(win.loadFile.mock.calls[0][0]).replace(/^/, 'file://'))
+    expect(reload.preventDefault).not.toHaveBeenCalled()
 
     win.emit('closed')
     expect(h.core.terminal.killAll).toHaveBeenCalled()
+    expect(h.core.browser.detach).toHaveBeenCalled()
+    expect(h.host.dispose).toHaveBeenCalled()
+  })
+
+  it('serves local files to the Files module through its own scheme, with OS thumbnails', async () => {
+    await boot()
+    expect(h.schemes).toHaveBeenCalledWith([{ scheme: 'mindeck-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
+    const deps = (await h.protocolHandler!({ url: 'mindeck-file://local/x' })) as { thumbnail: (path: string, size: number) => Promise<unknown> }
+    expect(h.serveFile).toHaveBeenCalledWith({ url: 'mindeck-file://local/x' }, expect.any(Object))
+    expect(await deps.thumbnail('/a.pdf', 256)).toBe('png:/a.pdf:256')
+    h.thumbnail.empty = true
+    expect(await deps.thumbnail('/a.bin', 64)).toBeNull()
+    h.thumbnail.empty = false
   })
 
   it('asks before an unload the editor vetoed: Cancel keeps the window, Discard closes it', async () => {

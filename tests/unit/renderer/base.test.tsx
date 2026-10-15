@@ -10,7 +10,7 @@ import { useBoot } from '@/hooks/useBoot'
 import { NAV_ITEMS } from '@/data/navigation'
 import { BOOT_LINES } from '@/data/bootLines'
 import { errorMessage, ipc, IpcError, onEvent } from '@shared/ipc/client'
-import { IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/contract'
+import { CHANNEL_ACCESS, DESKTOP_EVENTS, IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/contract'
 import { DEFAULT_GRAPH_STYLE, GRAPH_COLORS } from '@shared/types/memory'
 import { EVENT_CATALOG } from '@shared/types/events'
 import { renderMarkdown } from '@/features/memory/markdown'
@@ -189,7 +189,7 @@ describe('hooks', () => {
 
 describe('data & shared constants', () => {
   it('navigation and boot lines', () => {
-    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings'])
+    expect(NAV_ITEMS.map((n) => n.id)).toEqual(['core', 'editor', 'terminal', 'browser', 'files', 'projects', 'memory', 'agents', 'system', 'settings'])
     expect(BOOT_LINES.length).toBeGreaterThan(3)
   })
 
@@ -221,8 +221,15 @@ describe('data & shared constants', () => {
       'sftp:progress',
       'remote:changed',
       'tests:changed',
-      'notebook:event'
+      'notebook:event',
+      'browser:state',
+      'browser:find',
+      'browser:command',
+      'browser:reveal'
     ])
+    // the browser's pages are private: none of its events reach remote clients, all its channels are desktop-only
+    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal'])
+    for (const channel of IPC_CHANNELS.filter((c) => c.startsWith('browser:') || c.startsWith('finder:'))) expect(CHANNEL_ACCESS[channel]).toBe('desktop')
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
     expect(EVENT_CATALOG['app.started']).toBe('activity')

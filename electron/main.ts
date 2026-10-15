@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerMonitor, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, protocol, shell } from 'electron'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { migrateLegacyData, mindeckPaths } from './main/lib/paths'
 import { electronCipher, electronPlatform } from './main/platform/electron'
 import { createCore, type Core } from './main/core/createCore'
@@ -7,6 +8,8 @@ import { bindIpc } from './ipc/registry'
 import { autoUpdater } from 'electron-updater'
 import { cloudConfig } from './main/services/cloud/config'
 import { UpdateService } from './main/services/update/UpdateService'
+import { createBrowserHost } from './main/platform/browser/host'
+import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
 const IDLE_SECONDS = 5 * 60
@@ -20,6 +23,27 @@ const DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 let mainWindow: BrowserWindow | null = null
 let core: Core | null = null
 let updates: UpdateService | null = null
+
+// Previews in the Files module (images, video, audio) come from local files through this scheme.
+protocol.registerSchemesAsPrivileged([{ scheme: FILE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
+
+/** Mindeck's own page — the only one its window ever shows, and the only one IPC answers. */
+function isAppUrl(url: string): boolean {
+  return DEV_SERVER_URL ? url.startsWith(DEV_SERVER_URL) : url.startsWith(pathToFileURL(join(__dirname, '../renderer/index.html')).href)
+}
+
+/**
+ * A link clicked in the UI (an agent's answer, a note): web addresses open in
+ * Mindeck's browser (or the system's, as the user prefers), mail in the mail
+ * app — and nothing else leaves the app.
+ */
+function openLink(url: string): void {
+  if (/^https?:\/\//i.test(url)) {
+    if (!core?.browser.openFromApp(url)) void shell.openExternal(url)
+  } else if (/^mailto:/i.test(url)) {
+    void shell.openExternal(url)
+  }
+}
 
 /** Broadcast a push event to every live renderer. */
 function broadcast(channel: string, payload: unknown): void {
@@ -52,10 +76,16 @@ function createWindow(): void {
   })
   mainWindow = win
 
+  // The browser's web views live in this window (the core starts before any window).
+  const browserHost = createBrowserHost(win, core!.browser.hostEvents())
+  core!.browser.attach(browserHost)
+
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     // No shell outlives its window (on macOS the app itself keeps running).
     core?.terminal.killAll()
+    core?.browser.detach()
+    browserHost.dispose()
     if (mainWindow === win) mainWindow = null
   })
 
@@ -88,10 +118,15 @@ function createWindow(): void {
     if (choice === 0) event.preventDefault()
   })
 
-  // Open external links in the OS browser, never in-app.
+  // The window never navigates away from Mindeck: links go to the browser (or their app) instead.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    openLink(url)
     return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    openLink(url)
   })
 
   if (DEV_SERVER_URL) {
@@ -159,11 +194,19 @@ async function startCore(): Promise<void> {
   core.router.register('update:install', () => u.install())
   u.start()
 
-  bindIpc(core.router)
+  bindIpc(core.router, isAppUrl)
   await core.server.start()
 }
 
 app.whenReady().then(async () => {
+  protocol.handle(FILE_SCHEME, (request) =>
+    serveFile(request, {
+      thumbnail: async (path, size) => {
+        const image = await nativeImage.createThumbnailFromPath(path, { width: size, height: size })
+        return image.isEmpty() ? null : image.toPNG()
+      }
+    })
+  )
   await startCore()
   createWindow()
   app.on('activate', () => {

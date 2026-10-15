@@ -1,7 +1,8 @@
 import { mkdir } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { AppInfo, CoreMode, ServerConfig } from '@shared/types/server'
+import type { TerminalData, TerminalExit } from '@shared/types/terminal'
 import type { MindeckPaths } from '../lib/paths'
 import type { Platform } from '../platform/types'
 import { openInVsCode } from '../lib/openInVsCode'
@@ -37,6 +38,11 @@ import { TestService } from '../services/tests/TestService'
 import { LiveServerService } from '../services/live/LiveServerService'
 import { SassService } from '../services/live/SassService'
 import { registerAgentsIpc } from '../../ipc/agents.ipc'
+import { registerBrowserIpc } from '../../ipc/browser.ipc'
+import { registerFinderIpc } from '../../ipc/finder.ipc'
+import { BrowserService } from '../services/browser/BrowserService'
+import { FinderService, macSpotlight } from '../services/finder/FinderService'
+import { BROWSER_TOOLS, browserTools } from '../services/ai/tools/browser'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
 import { ProjectService } from '../services/projects/ProjectService'
@@ -70,7 +76,7 @@ import { builtinTools } from '../services/ai/tools/builtin'
 import { GitService } from '../services/git/GitService'
 import { LocalAgentServer } from '../services/agents/LocalAgentServer'
 import { AgentSessionService } from '../services/agents/AgentSessionService'
-import { createMcpHandler } from '../services/agents/mcp'
+import { createMcpHandler, MEMORY_TOOLS } from '../services/agents/mcp'
 import { vaultJournal } from '../services/agents/journal'
 import { spawnAcp } from '../services/agents/acp'
 import { CloudService } from '../services/cloud/CloudService'
@@ -111,6 +117,8 @@ export interface Core {
   assistant: AssistantService
   agents: AgentSessionService
   cloud: CloudService
+  /** The browser's core; the desktop app attaches its web views (`browser.attach`). */
+  browser: BrowserService
   info(): AppInfo
   dispose(): Promise<void>
 }
@@ -157,9 +165,27 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     onChange: (change) => hub.publish('memory:changed', change)
   })
 
-  // Interactive shells for the user (phase PT) — not an agent tool (§8.1).
-  const terminal = new TerminalService({
-    emit: (channel, payload) => hub.publish(channel, payload as never),
+  // The browser (§12.9): tabs, history and sessions here; the desktop app attaches the web views.
+  const browser = new BrowserService({
+    dir: join(paths.dataDir, 'browser'),
+    settings,
+    publish: (channel, payload) => hub.publish(channel, payload),
+    openExternal: platform.openExternal,
+    appForUrl: platform.appForUrl,
+    openPath: platform.openPath,
+    revealPath: platform.revealPath
+  })
+  await browser.init()
+
+  // Interactive shells for the user (phase PT) — not an agent tool (§8.1). Their
+  // output also tells the browser which dev servers just started.
+  const terminal: TerminalService = new TerminalService({
+    emit: (channel, payload) => {
+      hub.publish(channel, payload as never)
+      if (channel === 'terminal:exit') return browser.devServers.exit((payload as TerminalExit).id)
+      const { id, data } = payload as TerminalData
+      browser.devServers.feed({ id, projectId: terminal.info(id)?.projectId }, data)
+    },
     resolveProject: (id) => projects.list().find((p) => p.id === id)
   })
 
@@ -252,7 +278,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     onRequest: (req) => hub.publish('permission:request', req),
     onResolved: (res) => hub.publish('permission:resolved', res)
   })
-  const tools = new ToolRegistry(builtinTools({ vault, projects, context, system }))
+  const tools = new ToolRegistry([...builtinTools({ vault, projects, context, system }), ...browserTools(browser)])
   const assistant = new AssistantService({
     ai,
     store: new ConversationStore(paths.dataDir),
@@ -288,7 +314,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     events,
     projects: (id) => projects.list().find((p) => p.id === id),
     publish: (channel, payload) => hub.publish(channel, payload),
-    mcp: createMcpHandler(tools, opts.version),
+    // The browser lives in the desktop window: only a desktop core offers it to agents.
+    mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS),
     journal: vaultJournal(vault),
     notify: opts.notify,
     spawnAcp,
@@ -312,7 +339,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const liveServer = new LiveServerService({
     resolveRoot: (id) => projects.getProjectPath(id),
     settings: () => editorSettings()?.liveServer,
-    open: platform.openExternal,
+    // Pages open in Mindeck's own browser (the system's when the user prefers it, or without a window).
+    open: async (url) => {
+      if (!browser.openFromApp(url)) await platform.openExternal?.(url)
+    },
     publish: hub.publish.bind(hub, 'liveServer:changed')
   })
   registerSftpIpc(router, new SftpService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'sftp:progress') }))
@@ -321,6 +351,17 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerMongoIpc(router, mongo)
   registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
   registerAgentsIpc(router, agents)
+  registerBrowserIpc(router, browser)
+  registerFinderIpc(
+    router,
+    new FinderService({
+      alsoWritable: [paths.homeDir],
+      openPath: platform.openPath,
+      revealPath: platform.revealPath,
+      trash: (path) => platform.trashItem(path, dirname(path)),
+      spotlight: process.platform === 'darwin' ? macSpotlight : undefined
+    })
+  )
   router.register('app:info', () => info())
   router.register('fs:dirs', ({ path }) => fs.dirs(path))
   router.register('server:status', () => controller.status())
@@ -402,6 +443,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     assistant,
     agents,
     cloud,
+    browser,
     info,
     async dispose() {
       cloud.dispose()
@@ -418,6 +460,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       lint.dispose()
       notebooks.dispose()
       terminal.killAll()
+      await browser.dispose()
       await controller.stop()
       await eventLog.flush()
     }
