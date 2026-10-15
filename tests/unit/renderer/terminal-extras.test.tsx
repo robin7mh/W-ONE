@@ -48,6 +48,25 @@ describe('terminal shortcuts', () => {
     expect(terminalAction(k({ key: 'f', ctrlKey: true, shiftKey: true, metaKey: true }), false)).toBeUndefined()
     expect(terminalAction(k({ key: 'f', ctrlKey: true, shiftKey: true }))).toBe('find') // this platform (not a Mac here)
 
+    // copy and paste: the Edit menu's ⌘C/⌘V on a Mac; Ctrl+Shift+C/V and Ctrl/Shift+Insert elsewhere
+    expect(terminalAction(k({ key: 'c', metaKey: true }), true)).toBeUndefined()
+    expect(terminalAction(k({ key: 'Insert', shiftKey: true }), true)).toBeUndefined()
+    expect(terminalAction(k({ key: 'C', ctrlKey: true, shiftKey: true }), false)).toBe('copy')
+    expect(terminalAction(k({ key: 'V', ctrlKey: true, shiftKey: true }), false)).toBe('paste')
+    expect(terminalAction(k({ key: 'c', ctrlKey: true }), false)).toBeUndefined() // the shell's interrupt
+    expect(terminalAction(k({ key: 'Insert', ctrlKey: true }), false)).toBe('copy')
+    expect(terminalAction(k({ key: 'Insert', shiftKey: true }), false)).toBe('paste')
+    expect(terminalAction(k({ key: 'Insert', ctrlKey: true, shiftKey: true }), false)).toBeUndefined()
+    expect(terminalAction(k({ key: 'Insert' }), false)).toBeUndefined()
+    expect(terminalAction(k({ key: 'Insert', ctrlKey: true, metaKey: true }), false)).toBeUndefined()
+    // ⌘W closes the tab on a Mac; Ctrl+W deletes a word in the shell elsewhere
+    expect(terminalAction(k({ key: 'w', metaKey: true }), true)).toBe('close')
+    expect(terminalAction(k({ key: 'w', ctrlKey: true }), false)).toBeUndefined()
+    expect(terminalAction(k({ key: 'W', ctrlKey: true, shiftKey: true }), false)).toBeUndefined() // the workspace's pane key
+    expect(shortcutLabel('close', true)).toBe('⌘W')
+    expect(shortcutLabel('copy', true)).toBe('⌘C')
+    expect(shortcutLabel('paste', false)).toBe('Ctrl+Shift+V')
+
     expect(shortcutLabel('find', true)).toBe('⌘F')
     expect(shortcutLabel('prevCommand', false)).toBe('Ctrl+Shift+↑')
     expect(shortcutLabel('nextCommand')).toBe('Ctrl+Shift+↓')

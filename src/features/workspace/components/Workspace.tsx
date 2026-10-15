@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn'
 import { useCoverWatch, useOverlay } from '@/lib/overlay'
 import { relayout } from '@/lib/relayout'
 import { perform, rememberFocus } from '../actions'
-import { macKeys, matchWorkspaceKey } from '../keys'
+import { isCloseKey, macKeys, matchWorkspaceKey } from '../keys'
 import { MODULES, dividers, fitSizes, focusedPane, slotRects, visiblePanes, type Pane, type Rect } from '../layout'
 import { PaneContext, type PaneInfo } from '../pane'
 import { paneSteps } from '../steps'
@@ -57,8 +57,17 @@ function useWorkspaceKeys(): void {
       e.stopPropagation()
       perform(action)
     }
+    // ⌘W after every module had its say (a module that closes its own tab prevents the default): else the pane.
+    const onClose = (e: KeyboardEvent) => {
+      if (e.isComposing || !isCloseKey(e, mac)) return
+      setTimeout(() => !e.defaultPrevented && perform({ type: 'close' }))
+    }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('keydown', onClose)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('keydown', onClose)
+    }
   }, [])
 }
 
