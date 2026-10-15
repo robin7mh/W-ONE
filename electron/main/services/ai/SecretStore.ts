@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 
 /** Encrypts values at rest (desktop: Electron safeStorage / OS keychain). */
@@ -41,12 +41,9 @@ export class SecretStore {
 
   private async load(): Promise<Record<string, string>> {
     if (this.cache) return this.cache
-    try {
-      const parsed = JSON.parse(await readFile(this.file, 'utf8'))
-      this.cache = parsed && typeof parsed.secrets === 'object' && parsed.secrets ? parsed.secrets : {}
-    } catch {
-      this.cache = {}
-    }
-    return this.cache!
+    // A damaged file is set aside (see readJson) — never overwritten with an empty store.
+    const parsed = await readJson<{ secrets?: Record<string, string> }>(this.file)
+    this.cache = parsed && typeof parsed.secrets === 'object' && parsed.secrets ? parsed.secrets : {}
+    return this.cache
   }
 }

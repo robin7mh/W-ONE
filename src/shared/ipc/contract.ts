@@ -40,15 +40,18 @@ import type { TestItem, TestRunState } from '@shared/types/tests'
 import type { MongoCollection, MongoConnection, MongoDatabase, MongoDocuments, MongoIndex, MongoQuery } from '@shared/types/mongo'
 import type { GitHubStatus, MergeMethod, PullCreate, PullDetail, PullFileDiff, PullFilter, PullListState, PullSummary, ReviewAction } from '@shared/types/github'
 import type { EditorSettings, MigrationResult, MigrationSource, Snippet } from '@shared/types/migrate'
-import type { ScmBranch, ScmCommit, ScmCommitDetail, ScmDiffTarget, ScmStatus, SearchResult } from '@shared/types/scm'
+import type { ScmBlame, ScmBranch, ScmCommit, ScmCommitDetail, ScmCommitFile, ScmDiffTarget, ScmStash, ScmStatus } from '@shared/types/scm'
+import type { SearchEngine, SearchProgress, TextSearchQuery } from '@shared/types/search'
 import type {
   AgentAvailability,
   AgentMessageUpdate,
   AgentSession,
   AgentSessionDetail,
+  AgentInput,
   CreateSessionRequest,
   FileChange,
   SessionBranch,
+  SessionConfigure,
   FileDiff
 } from '@shared/types/agents'
 import type {
@@ -80,7 +83,7 @@ import type {
   ToolInfo
 } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
-import type { CloudAccount, CloudStatus } from '@shared/types/cloud'
+import type { CloudAccount, CloudStatus, PushSettings } from '@shared/types/cloud'
 import type {
   BrowserCommand,
   BrowserFind,
@@ -94,6 +97,7 @@ import type {
   ViewBounds
 } from '@shared/types/browser'
 import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
+import type { CloseBehavior, DesktopStatus, RendererError } from '@shared/types/desktop'
 
 /** A position in a project file, for the lsp:* queries. */
 export interface LspAt {
@@ -192,7 +196,25 @@ export interface IpcChannels {
   'scm:original': { request: { projectId: string; path: string }; response: string | null }
   /** Every file of the project, for quick open (⌘P). */
   'scm:files': { request: { projectId: string }; response: string[] }
-  'scm:search': { request: { projectId: string; query: string; regex?: boolean; caseSensitive?: boolean }; response: SearchResult }
+  /** Give up the merge / rebase / cherry-pick / revert in progress. */
+  'scm:abort': { request: { projectId: string }; response: void }
+  /** Go on with it once the conflicts are resolved and staged. */
+  'scm:continue': { request: { projectId: string }; response: void }
+  'scm:stashes': { request: { projectId: string }; response: ScmStash[] }
+  'scm:stash': { request: { projectId: string; message?: string; untracked?: boolean }; response: void }
+  /** `pop`: drop the stash once applied. Stashes are named by hash (their positions shift). */
+  'scm:applyStash': { request: { projectId: string; hash: string; pop?: boolean }; response: void }
+  'scm:dropStash': { request: { projectId: string; hash: string }; response: void }
+  'scm:stashFiles': { request: { projectId: string; hash: string }; response: ScmCommitFile[] }
+  /** Who last changed each line; `text` = the editor's buffer (unsaved edits are uncommitted lines). */
+  'scm:blame': { request: { projectId: string; path: string; text?: string }; response: ScmBlame }
+
+  /**
+   * Project-wide search (⇧⌘F): results stream as `search:progress` events
+   * under the client's `id`; a new search or `search:cancel` stops it.
+   */
+  'search:start': { request: { id: string; projectId: string; query: TextSearchQuery }; response: { engine: SearchEngine } }
+  'search:cancel': { request: { id: string }; response: void }
 
   /** TypeScript intelligence (the project's tsserver). Positions are 1-based. */
   /** `language`: the file's language (registry id), whether or not its server runs. */
@@ -333,7 +355,10 @@ export interface IpcChannels {
   'agents:list': { request: void; response: AgentSession[] }
   'agents:get': { request: { id: string }; response: AgentSessionDetail }
   'agents:create': { request: CreateSessionRequest; response: AgentSession }
-  'agents:send': { request: { id: string; text: string }; response: void }
+  'agents:send': { request: AgentInput & { id: string }; response: void }
+  'agents:configure': { request: SessionConfigure & { id: string }; response: AgentSession }
+  'agents:pushSettings': { request: void; response: PushSettings }
+  'agents:setPushSettings': { request: { enabled: boolean }; response: PushSettings }
   'agents:interrupt': { request: { id: string }; response: void }
   'agents:stop': { request: { id: string }; response: void }
   'agents:resume': { request: { id: string }; response: AgentSession }
@@ -368,6 +393,15 @@ export interface IpcChannels {
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
   'update:install': { request: void; response: void }
+
+  /** The desktop app: logs, diagnostics, what closing the window does, the keychain. */
+  'desktop:status': { request: void; response: DesktopStatus }
+  'desktop:configure': { request: { closeBehavior: CloseBehavior }; response: DesktopStatus }
+  'desktop:openLogs': { request: void; response: void }
+  /** Version, OS and the latest errors as text for a bug report — no secrets or tokens. */
+  'desktop:diagnostics': { request: void; response: string }
+  /** The renderer reports an error it caught (an error boundary, an uncaught error) for the log. */
+  'desktop:reportError': { request: RendererError; response: void }
 
   /** The Mindeck browser: tabs are web views in the desktop window (architecture §12.9). */
   'browser:state': { request: void; response: BrowserState }
@@ -506,7 +540,17 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'scm:diff': 'any',
   'scm:original': 'any',
   'scm:files': 'any',
-  'scm:search': 'any',
+  'scm:abort': 'terminal',
+  'scm:continue': 'terminal',
+  'scm:stashes': 'any',
+  'scm:stash': 'terminal',
+  'scm:applyStash': 'terminal',
+  'scm:dropStash': 'terminal',
+  'scm:stashFiles': 'any',
+  'scm:blame': 'any',
+  // Reading project files, like files:read.
+  'search:start': 'any',
+  'search:cancel': 'any',
   // Starting tsserver runs the project's own TypeScript (and its tsconfig plugins): a shell's power.
   'lsp:open': 'terminal',
   'lsp:change': 'terminal',
@@ -628,6 +672,9 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:get': 'any',
   'agents:create': 'terminal',
   'agents:send': 'terminal',
+  'agents:configure': 'terminal',
+  'agents:pushSettings': 'any',
+  'agents:setPushSettings': 'any',
   'agents:interrupt': 'terminal',
   'agents:stop': 'terminal',
   'agents:resume': 'terminal',
@@ -657,6 +704,12 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'update:status': 'desktop',
   'update:check': 'desktop',
   'update:install': 'desktop',
+  // The desktop app around the core: its own window, logs and keychain.
+  'desktop:status': 'desktop',
+  'desktop:configure': 'desktop',
+  'desktop:openLogs': 'desktop',
+  'desktop:diagnostics': 'desktop',
+  'desktop:reportError': 'desktop',
   // The browser lives in the desktop window — and its tabs are the user's private pages.
   'browser:state': 'desktop',
   'browser:open': 'desktop',
@@ -727,6 +780,8 @@ export interface IpcEvents {
   'sftp:progress': SftpProgress
   'remote:changed': RemoteConnection[]
   'tests:changed': TestRunState
+  /** Results of a project-wide search, in batches. */
+  'search:progress': SearchProgress
   'notebook:event': NotebookEvent
   'browser:state': BrowserState
   'browser:find': BrowserFind
@@ -764,6 +819,7 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'sftp:progress',
   'remote:changed',
   'tests:changed',
+  'search:progress',
   'notebook:event',
   'browser:state',
   'browser:find',

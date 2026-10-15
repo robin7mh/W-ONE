@@ -14,6 +14,7 @@ import { registerMemoryIpc } from '../../ipc/memory.ipc'
 import { registerTerminalIpc } from '../../ipc/terminal.ipc'
 import { registerFilesIpc } from '../../ipc/files.ipc'
 import { registerScmIpc } from '../../ipc/scm.ipc'
+import { registerSearchIpc } from '../../ipc/search.ipc'
 import { registerLspIpc } from '../../ipc/lsp.ipc'
 import { registerDebugIpc } from '../../ipc/debug.ipc'
 import { registerToolsIpc } from '../../ipc/tools.ipc'
@@ -55,6 +56,7 @@ import { SettingsService } from '../services/settings/SettingsService'
 import { FsService } from '../services/fs/FsService'
 import { FilesService } from '../services/files/FilesService'
 import { ScmService } from '../services/scm/ScmService'
+import { SearchService } from '../services/search/SearchService'
 import { LspService } from '../services/lsp/LspService'
 import { DebugService } from '../services/debug/DebugService'
 import { ToolsService } from '../services/tools/ToolsService'
@@ -80,6 +82,7 @@ import { createMcpHandler, MEMORY_TOOLS } from '../services/agents/mcp'
 import { vaultJournal } from '../services/agents/journal'
 import { spawnAcp } from '../services/agents/acp'
 import { CloudService } from '../services/cloud/CloudService'
+import { PushService } from '../services/cloud/PushService'
 import { cloudConfig, type CloudConfig } from '../services/cloud/config'
 import { isLicenseFree } from '@shared/types/cloud'
 
@@ -100,6 +103,8 @@ export interface CoreOptions {
   notify?: (title: string, body: string) => void
   /** Mindeck Cloud: address, entitlement key, whether a license is required. Default: dev settings. */
   cloud?: CloudConfig & { fetch?: typeof fetch }
+  /** Someone looks at Mindeck (desktop: its window has focus) — then no push goes to the phone. */
+  isFocused?: () => boolean
   /** Someone is at this machine (desktop: not idle). Remote clients count as use, too. */
   isUserActive?: () => boolean
 }
@@ -131,7 +136,8 @@ export interface Core {
  */
 export async function createCore(opts: CoreOptions): Promise<Core> {
   const { paths, platform } = opts
-  await mkdir(paths.dataDir, { recursive: true })
+  // Only the user may look into Mindeck's data (transcripts, grants, tokens).
+  await mkdir(paths.dataDir, { recursive: true, mode: 0o700 })
 
   const settings = new SettingsService(paths.settingsFile)
   await settings.init()
@@ -300,6 +306,14 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   // The agent cockpit: the user's own coding agents (Claude Code), each in a
   // PTY, reporting back through hooks and reading Mindeck's memory over MCP —
   // both on a this-computer-only endpoint with a token per session.
+  // Pushes to the phone (Mindeck Cloud) when an agent needs the user and Mindeck is in the background.
+  const push = new PushService({
+    baseUrl: cloudCfg.url,
+    token: () => cloud.sessionToken(),
+    settings,
+    focused: opts.isFocused ?? (() => false),
+    fetch: cloudCfg.fetch
+  })
   const local: LocalAgentServer = new LocalAgentServer({
     hook: (id, body, signal) => agents.handleHook(id, body, signal),
     mcp: (id, body) => agents.handleMcp(id, body)
@@ -318,6 +332,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     mcp: createMcpHandler(tools, opts.version, opts.mode === 'desktop' ? [...MEMORY_TOOLS, ...BROWSER_TOOLS] : MEMORY_TOOLS),
     journal: vaultJournal(vault),
     notify: opts.notify,
+    push: (notice) => push.send(notice),
+    vaultRoot: async () => (await vault.status()).root,
     spawnAcp,
     claudeBin: process.env.MINDECK_CLAUDE_BIN || undefined,
     openFolder: (path) => openInVsCode(path, platform)
@@ -331,6 +347,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   registerTerminalIpc(router, terminal)
   registerFilesIpc(router, files)
   registerScmIpc(router, scm)
+  const search = new SearchService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'search:progress') })
+  registerSearchIpc(router, search)
   registerLspIpc(router, lsp)
   registerDebugIpc(router, debug)
   registerToolsIpc(router, devTools)
@@ -350,7 +368,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const mongo = new MongoService({ secrets })
   registerMongoIpc(router, mongo)
   registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
-  registerAgentsIpc(router, agents)
+  registerAgentsIpc(router, agents, push)
   registerBrowserIpc(router, browser)
   registerFinderIpc(
     router,
@@ -458,6 +476,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       await mongo.dispose()
       remote.dispose()
       lint.dispose()
+      search.dispose()
       notebooks.dispose()
       terminal.killAll()
       await browser.dispose()

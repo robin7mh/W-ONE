@@ -27,6 +27,7 @@ import { useSession } from '@/features/session/store'
 import { SystemMonitorPanel } from '@/components/monitor/SystemMonitorPanel'
 import { BottomDashboard } from '@/components/dashboard/BottomDashboard'
 import { BootSequence, BOOT_TOTAL_MS } from '@/components/boot/BootSequence'
+import { ModuleBoundary } from '@/components/shell/ErrorBoundary'
 import { useBoot } from '@/hooks/useBoot'
 import type { ModuleId } from '@/types'
 import { Workspace } from '@/features/workspace/components/Workspace'
@@ -66,6 +67,7 @@ const KEEP: ModuleId[] = ['terminal', 'editor', 'browser']
 const show = (id: ModuleId) => useWorkspace.getState().show(id)
 
 export function AppShell() {
+  const t = useT()
   const { booted, skip } = useBoot(BOOT_TOTAL_MS)
   // Session uptime counts from boot. Only the top bar's indicator ticks — a
   // per-second state here would re-render every module, editor included.
@@ -119,36 +121,45 @@ export function AppShell() {
   }
 
   // One module, drawn in its pane. `visible`: its pane is on screen (kept modules stay mounted while hidden).
-  const renderModule = useCallback(
-    (id: ModuleId, visible: boolean) => {
-      const openNote = (path: string) => {
-        show('memory')
-        void useMemory.getState().open(path)
-      }
-      if (id === 'projects') return <ProjectsView onNavigate={show} />
-      if (id === 'memory') return <MemoryView />
-      if (id === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => show('settings')} />
-      if (id === 'system') return <SystemView />
-      if (id === 'settings') return <SettingsView />
-      if (id === 'account') return <AccountView />
-      if (id === 'files') return <FilesView onNavigate={show} />
-      if (id === 'terminal') return shellsOff ? <RemoteShellsOff /> : <TerminalView />
-      if (id === 'editor') return <EditorView active={visible} onNavigate={show} />
-      // The page is a native view over the UI: not while the boot screen is up.
-      if (id === 'browser') return <BrowserView active={visible && booted} />
-      // The monitor rail belongs to the Core dashboard, when its pane is wide enough.
-      return (
-        <div className="flex min-h-0 min-w-0 flex-1 gap-2.5">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Dashboard onNavigate={show} />
-          </div>
-          <div className="hidden w-72 shrink-0 pane-lg:flex pane-2xl:w-80">
-            <SystemMonitorPanel />
-          </div>
+  const moduleView = (id: ModuleId, visible: boolean) => {
+    const openNote = (path: string) => {
+      show('memory')
+      void useMemory.getState().open(path)
+    }
+    if (id === 'projects') return <ProjectsView onNavigate={show} />
+    if (id === 'memory') return <MemoryView />
+    if (id === 'agents') return <AgentsView onOpenNote={openNote} onOpenSettings={() => show('settings')} />
+    if (id === 'system') return <SystemView />
+    if (id === 'settings') return <SettingsView />
+    if (id === 'account') return <AccountView />
+    if (id === 'files') return <FilesView onNavigate={show} />
+    if (id === 'terminal') return shellsOff ? <RemoteShellsOff /> : <TerminalView />
+    if (id === 'editor') return <EditorView active={visible} onNavigate={show} />
+    // The page is a native view over the UI: not while the boot screen is up.
+    if (id === 'browser') return <BrowserView active={visible && booted} />
+    // The monitor rail belongs to the Core dashboard, when its pane is wide enough.
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 gap-2.5">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Dashboard onNavigate={show} />
         </div>
-      )
-    },
-    [shellsOff, booted]
+        <div className="hidden w-72 shrink-0 pane-lg:flex pane-2xl:w-80">
+          <ModuleBoundary id="monitor" name={t.monitor.title}>
+            <SystemMonitorPanel />
+          </ModuleBoundary>
+        </div>
+      </div>
+    )
+  }
+  // Each pane's module in its own error boundary: one that crashes shows a panel there, the other panes keep running.
+  const renderModule = useCallback(
+    (id: ModuleId, visible: boolean) => (
+      <ModuleBoundary id={id} name={t.nav[id]}>
+        {moduleView(id, visible)}
+      </ModuleBoundary>
+    ),
+    // What moduleView reads beyond module-level functions.
+    [shellsOff, booted, t]
   )
 
   return (
@@ -185,7 +196,9 @@ export function AppShell() {
       {/* Bottom command deck (collapsible) */}
       {!zen && (
         <motion.div {...panelIn(0.3)}>
-          <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
+          <ModuleBoundary id="deck" name={t.deck.title}>
+            <BottomDashboard onOpenConversation={openConversation} onOpenSession={openSession} />
+          </ModuleBoundary>
         </motion.div>
       )}
 

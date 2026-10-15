@@ -15,6 +15,9 @@ import { FileTree } from './FileTree'
 import { EditorTabs } from './EditorTabs'
 import { DiffHeader, ScmPanel } from './ScmPanel'
 import { SearchPanel } from './SearchPanel'
+import { ConflictBar } from './ConflictBar'
+import { useSearch } from '../search'
+import { useBlame } from '../blame'
 import { QuickOpen } from './QuickOpen'
 import { buildCommands } from '../commands'
 import { projectProblems, useProblems } from '../problems'
@@ -343,6 +346,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const names = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects])
   const { pane, diff, quickOpen, quickQuery, pick, status, busy, error: scmError } = useScm()
   const ghError = useGitHub((s) => s.error)
+  const blameShown = useBlame((s) => s.shown)
   // A pull request takes the editor area while its pane is open.
   const pullOpen = useGitHub((s) => !!s.detail) && pane === 'prs'
   // So does a MongoDB collection while the databases pane is open.
@@ -413,6 +417,10 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       else if (key === 's') void useEditor.getState().save()
       else if (key === 'p') scm.setQuickOpen(true, e.shiftKey ? '>' : '')
       else if (key === 'f' && e.shiftKey) scm.setPane('search')
+      else if (key === 'h' && e.shiftKey) {
+        scm.setPane('search')
+        useSearch.getState().set({ showReplace: true })
+      }
       else if (key === 'g' && e.shiftKey) scm.setPane('scm')
       else if (key === '\\') {
         const editor = useEditor.getState()
@@ -434,6 +442,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
   // The debugger follows the core's session events while the editor is mounted.
   useEffect(() => useDebug.getState().connect(), [])
+  // Project search results stream in as events.
+  useEffect(() => useSearch.getState().connect(), [])
   // Live Server and the Sass watcher follow the core.
   useEffect(() => useLive.getState().connect(), [])
   // SFTP: the project's targets, upload on save.
@@ -524,9 +534,9 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
           </button>
         </div>
         {pane === 'search' ? (
-          <SearchPanel />
+          <SearchPanel readOnly={readOnly} />
         ) : pane === 'scm' || pane === 'graph' ? (
-          <ScmPanel />
+          <ScmPanel readOnly={readOnly} />
         ) : pane === 'remote' ? (
           <RemotePanel />
         ) : pane === 'prs' ? (
@@ -631,6 +641,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
               <AlertTriangle size={13} className="text-danger" /> {tab.error}
             </Banner>
           ) : null}
+          {focused?.content !== undefined && <ConflictBar tab={focused} readOnly={readOnly} />}
 
           <div className="flex min-h-0 flex-1">
             <div className={cn('relative min-h-0 min-w-0 flex-1', splitTab && 'border-r border-hud/60')} onMouseDown={() => useEditor.getState().focusGroup(false)}>
@@ -763,6 +774,11 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
                 </button>
               )}
               {cursor && <span>{cursor.language}</span>}
+              {status?.repo && (
+                <button type="button" aria-pressed={!!blameShown[focused.id]} title={t.blame.toggle} onClick={() => useBlame.getState().toggle(focused.id)} className={cn('hover:text-text-primary', blameShown[focused.id] && 'text-cyan')}>
+                  {t.blame.show}
+                </button>
+              )}
               <span className={cn(focused.dirty && 'text-amber')}>{focused.saving ? t.editor.saving : focused.dirty ? t.editor.unsaved : t.editor.saved}</span>
             </>
           )}

@@ -41,11 +41,25 @@ export interface BufferHost {
   prepare?(id: string): Promise<void>
   /** The file was renamed — carry the buffer (unsaved edits included) over to its new id. */
   rekey(id: string, next: { id: string; projectId: string; path: string }): void
+  /** Replace ranges of the buffer as one undoable edit (search & replace). Columns are 0-based. */
+  edit?(id: string, edits: { line: number; column: number; length: number; text: string }[]): void
 }
 
 let host: BufferHost | null = null
 export function setBufferHost(next: BufferHost | null): void {
   host = next
+}
+
+/** An open file's text as edited (unsaved edits included) — undefined when it has no buffer. */
+export function bufferText(id: string): string | undefined {
+  return host?.snapshot(id)?.text
+}
+
+/** Edit an open file's buffer (undoable in the editor); false when it has none. */
+export function editBuffer(id: string, edits: Parameters<NonNullable<BufferHost['edit']>>[1]): boolean {
+  if (!host?.edit || !host.snapshot(id)) return false
+  host.edit(id, edits)
+  return true
 }
 
 export const tabKey = (projectId: string, path: string): string => `${projectId}:${path}`
@@ -83,8 +97,8 @@ interface EditorState {
   focusRight: boolean
   /** Dirty tab waiting for "save before closing?". */
   closing?: string
-  /** A line to scroll to once its tab shows (search results); the view clears it. */
-  reveal?: { id: string; line: number }
+  /** A line to scroll to once its tab shows (search results); the view clears it. `match` (0-based column) is selected. */
+  reveal?: { id: string; line: number; match?: { column: number; length: number } }
   /** The explorer's focused entry — new files land in it (a folder) or next to it (a file). */
   selection?: { path: string; kind: FileEntry['kind'] }
   naming?: Naming
@@ -99,8 +113,8 @@ interface EditorState {
   /** Re-list the root and every open folder of the current project. */
   refreshTree: () => Promise<void>
   open: (path: string) => Promise<void>
-  /** Open a file and put the cursor on `line` (1-based). */
-  openAt: (path: string, line: number) => Promise<void>
+  /** Open a file and put the cursor on `line` (1-based) — or select a match there. */
+  openAt: (path: string, line: number, match?: { column: number; length: number }) => Promise<void>
   setActive: (id: string) => void
   /** Open a file in the right-hand editor (splitting, if it isn't yet). */
   openToSide: (path: string) => Promise<void>
@@ -222,9 +236,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     await get().reload(id)
   },
 
-  openAt: async (path, line) => {
+  openAt: async (path, line, match) => {
     await get().open(path)
-    set({ reveal: { id: tabKey(get().projectId!, path), line } })
+    set({ reveal: { id: tabKey(get().projectId!, path), line, match } })
   },
 
   setActive: (id) => set(get().focusRight && get().splitId ? { splitId: id } : { activeId: id }),
