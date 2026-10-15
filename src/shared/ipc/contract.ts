@@ -94,6 +94,7 @@ import type {
   ViewBounds
 } from '@shared/types/browser'
 import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
+import type { CloseBehavior, DesktopStatus, RendererError } from '@shared/types/desktop'
 
 /** A position in a project file, for the lsp:* queries. */
 export interface LspAt {
@@ -368,6 +369,15 @@ export interface IpcChannels {
   'update:status': { request: void; response: UpdateStatus }
   'update:check': { request: void; response: UpdateStatus }
   'update:install': { request: void; response: void }
+
+  /** The desktop app: logs, diagnostics, what closing the window does, the keychain. */
+  'desktop:status': { request: void; response: DesktopStatus }
+  'desktop:configure': { request: { closeBehavior: CloseBehavior }; response: DesktopStatus }
+  'desktop:openLogs': { request: void; response: void }
+  /** Version, OS and the latest errors as text for a bug report — no secrets or tokens. */
+  'desktop:diagnostics': { request: void; response: string }
+  /** The renderer reports an error it caught (an error boundary, an uncaught error) for the log. */
+  'desktop:reportError': { request: RendererError; response: void }
 
   /** The Mindeck browser: tabs are web views in the desktop window (architecture §12.9). */
   'browser:state': { request: void; response: BrowserState }
@@ -657,6 +667,12 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'update:status': 'desktop',
   'update:check': 'desktop',
   'update:install': 'desktop',
+  // The desktop app around the core: its own window, logs and keychain.
+  'desktop:status': 'desktop',
+  'desktop:configure': 'desktop',
+  'desktop:openLogs': 'desktop',
+  'desktop:diagnostics': 'desktop',
+  'desktop:reportError': 'desktop',
   // The browser lives in the desktop window — and its tabs are the user's private pages.
   'browser:state': 'desktop',
   'browser:open': 'desktop',

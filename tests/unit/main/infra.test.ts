@@ -469,7 +469,8 @@ describe('paths', () => {
         eventsFile: join(home, 'Mindeck', 'data', 'events.jsonl'),
         runsFile: join(home, 'Mindeck', 'data', 'runs.json'),
         agentsDir: join(home, 'Mindeck', 'data', 'agents'),
-        worktreesDir: join(home, 'Mindeck', 'worktrees')
+        worktreesDir: join(home, 'Mindeck', 'worktrees'),
+        logsDir: join(home, 'Mindeck', 'logs')
       })
       // Data from before the rename: used where it is.
       await mkdir(join(home, 'W-ONE'))
