@@ -140,6 +140,7 @@ export const de: Dict = {
     closeMac: 'Unter macOS läuft Mindeck nach dem Schließen des Fensters mit allem darin im Hintergrund weiter – das Dock-Symbol holt es zurück. Beenden mit ⌘Q.',
     logsHint: 'Logs und lokale Absturzberichte (es wird nichts verschickt). Die Diagnose enthält Version, System und die letzten Fehler – keine Schlüssel, Tokens oder Dateiinhalte.',
     openLogs: 'Logs-Ordner öffnen',
+    logsAt: (dir: string) => `Kein Dateimanager hat den Ordner geöffnet – die Logs liegen in ${dir}`,
     copyDiagnostics: 'Diagnose kopieren'
   },
 

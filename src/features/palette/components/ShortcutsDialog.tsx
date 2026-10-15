@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Keyboard, Search, X } from 'lucide-react'
 import { useT } from '@/lib/i18n'
 import { useOverlay } from '@/lib/overlay'
@@ -23,6 +23,14 @@ export function ShortcutsDialog() {
     usePalette.getState().close()
     if (before.current instanceof HTMLElement && before.current.isConnected) before.current.focus()
   }
+  // Escape closes it wherever the focus is (a click on the list leaves the search field).
+  const latest = useRef(close)
+  latest.current = close
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && latest.current()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const contextName = (c: ShortcutContext) => (c === 'global' ? s.global : t.nav[c])
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const rows = SHORTCUTS.map((sc) => ({ sc, keys: shortcutBindings(sc.id, mac).map((b) => formatBinding(b, mac)) }))
@@ -55,7 +63,6 @@ export function ShortcutsDialog() {
               placeholder={s.search}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && close()}
               className="min-w-0 flex-1 bg-transparent py-2.5 font-sans text-[13.5px] text-text-primary outline-none placeholder:text-text-muted"
             />
           </div>

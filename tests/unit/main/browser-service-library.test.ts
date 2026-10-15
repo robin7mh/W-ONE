@@ -202,6 +202,21 @@ describe('BrowserService · the session across restarts', () => {
     expect(next.host.create).toHaveBeenLastCalledWith(reopened.id, 'https://c.dev/', expect.objectContaining({ history: nav(['https://c.dev/', 'https://c.dev/2'], 0) }))
   })
 
+  it('the window closes before the quit: each tab keeps its back/forward list for the session', async () => {
+    const { b, host, dir } = await setupBrowser()
+    b.attach(host)
+    const a = b.open({ url: 'https://a.dev/' })
+    const unloaded = b.open({ url: 'https://u.dev/', background: true })
+    host.navigation.mockImplementation((id: string) => (id === a.id ? nav(['https://a.dev/', 'https://a.dev/2']) : undefined))
+    b.detach() // the views go with the window
+    host.navigation.mockReturnValue(undefined)
+    await b.dispose()
+    const saved = JSON.parse(await readFile(join(dir, 'session.json'), 'utf8'))
+    expect(saved.exit).toBe('clean')
+    expect(saved.tabs.find((t: { id: string }) => t.id === a.id).nav).toEqual(nav(['https://a.dev/', 'https://a.dev/2']))
+    expect(saved.tabs.find((t: { id: string }) => t.id === unloaded.id).nav).toBeUndefined()
+  })
+
   it('after a crash: starts with a new tab and offers the last session — restored or let go', async () => {
     const session = {
       exit: 'running',

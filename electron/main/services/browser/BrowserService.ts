@@ -346,8 +346,12 @@ export class BrowserService {
     this.changed()
   }
 
-  /** The window closed: its views are gone, and so are the requests of their pages. */
+  /**
+   * The window closed: its views are gone, and so are the requests of their pages.
+   * Their back/forward lists stay with the tabs — the quit that follows saves them.
+   */
   detach(): void {
+    for (const t of this.tabs) if (t.live) t.nav = this.navOf(t)
     this.host = null
     this.bounds = null
     this.panes = undefined

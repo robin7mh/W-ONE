@@ -157,7 +157,10 @@ npm run test:all         # Typecheck + Abdeckung + E2E: das, was CI bei einem Pu
     echte Shell, eine Vault-Notiz auf der Platte, ein Projekt, der Editor, der eingebettete
     API-Server. Dazu kommt eine Agent-Sitzung gegen einen Stellvertreter
     für Claude Code (`tests/e2e/fake-claude.mjs`, kein Konto nötig): Chat, Freigabe, Diff,
-    Umbenennen und Protokoll. Unter Linux ohne Bildschirm mit `xvfb-run -a` starten.
+    Umbenennen und Protokoll. Die Nutzerwege (`app-*.spec.ts`) gehen durch Workspace, Browser,
+    Files, Memory, Editor, Terminal, den Agent-Composer und die ganze Ersteinrichtung – einige über
+    einen echten Neustart der App (`restart()` in `fixtures.ts`). Unter Linux ohne Bildschirm mit
+    `xvfb-run -a` starten. Was die QA-Runde gefunden hat: [`docs/QA-2026-10.md`](docs/QA-2026-10.md).
   - *web*: die gebaute Web-UI in Chromium gegen den echten eigenständigen Core. Geprüft werden
     Kopplung, Live-Daten, der Ordner-Browser, die Zugriffsregeln und der Assistent von Anfang bis
     Ende (gestreamte Antwort, ein Werkzeugaufruf hinter einer Freigabe, die Notiz auf der Platte).
@@ -426,7 +429,9 @@ npm run test:all         # typecheck + coverage + e2e: what CI runs on a pull re
     shell, a vault note written to disk, a project, the editor, the embedded API server. It
     also runs a coding agent session against a stand-in for Claude Code
     (`tests/e2e/fake-claude.mjs`, no account needed): chat, approval, diff, rename and journal.
-    On Linux without a display, run it under `xvfb-run -a`.
+    The user journeys (`app-*.spec.ts`) go through the workspace, browser, files, memory, editor,
+    terminal, the agent composer and the whole first-start setup — some across a real restart of
+    the app (`restart()` in `fixtures.ts`). On Linux without a display, run it under `xvfb-run -a`.
   - *web*: the built web UI in Chromium against the real standalone core. It covers pairing, live
     data, the folder browser, the access rules, and the assistant end to end (streamed answer, a
     tool call behind an approval, the note on disk). The assistant talks to a local stand-in for

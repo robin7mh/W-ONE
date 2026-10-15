@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, basename } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -453,7 +453,22 @@ describe('TerminalService saves the tabs for the next start', () => {
     expect(await svc.restore()).toBeNull()
     expect((await readdir(dataDir)).some((name) => name.startsWith('terminals.corrupt-'))).toBe(true)
 
-    await svc.persist(snapshot)
+    // a quit waits for the save under way — a failing one too
+    const pending = svc.persist(snapshot)
+    let done = false
+    const quit = svc.saved().then(() => (done = true))
+    expect(done).toBe(false)
+    await pending
+    await quit
+    expect(done).toBe(true)
+    await svc.saved() // nothing under way: at once
+    await rm(join(dataDir, 'terminals.json'))
+    await mkdir(join(dataDir, 'terminals.json')) // a folder in the way: the save fails
+    const failing = svc.persist(snapshot)
+    failing.catch(() => {})
+    await svc.saved()
+    await expect(failing).rejects.toThrow()
+    await rm(join(dataDir, 'terminals.json'), { recursive: true })
     svc = service({ terminal: { restore: false } })
     expect(await svc.restore()).toBeNull()
     await svc.persist(snapshot)

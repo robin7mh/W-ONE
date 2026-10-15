@@ -9,10 +9,15 @@ export function rememberFocus(paneId: string, el: HTMLElement): void {
   lastFocus.set(paneId, el)
 }
 
-/** Put the keyboard focus into a pane: where it was last, else on the pane itself. */
+/**
+ * Put the keyboard focus into a pane: where it was last, else on the pane
+ * itself. Callers do it a frame later — a dialog that opened meanwhile (⌘/
+ * typed right after the palette) keeps the focus.
+ */
 export function focusInto(paneId: string): void {
   const host = document.querySelector<HTMLElement>(`[data-pane-id="${paneId}"]`)
   if (!host || host.contains(document.activeElement)) return
+  if (document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')) return
   const last = lastFocus.get(paneId)
   if (last?.isConnected && host.contains(last)) last.focus({ preventScroll: true })
   else host.focus({ preventScroll: true })
