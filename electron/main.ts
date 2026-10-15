@@ -176,6 +176,7 @@ async function startCore(): Promise<void> {
     // The embedded network API (opt-in) serves the packaged renderer as web UI.
     webRoot: join(__dirname, '../renderer'),
     notify,
+    isFocused: () => !!BrowserWindow.getFocusedWindow(),
     // The packaged app needs a license; `npm run dev` only with MINDECK_LICENSE=required.
     cloud: cloudConfig(app.isPackaged),
     isUserActive: () => powerMonitor.getSystemIdleTime() < IDLE_SECONDS

@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
 import { ndJsonStream, type Stream } from '@agentclientprotocol/sdk'
-import type { PermissionOption, SessionUpdate, ToolKind } from '@agentclientprotocol/sdk'
+import type { AvailableCommand, PermissionOption, SessionConfigOption, SessionModeState, SessionUpdate, ToolKind } from '@agentclientprotocol/sdk'
 import type { ApprovalDecision, ChatMessage, ToolCallPart, ToolCallStatus, ToolRisk } from '@shared/types/ai'
+import type { AgentCommand, AgentSession, SessionOption } from '@shared/types/agents'
 import { shellCommand, shellQuote } from '../terminal/TerminalService'
 import type { Applied, SessionState } from './transcript'
 
@@ -43,6 +44,88 @@ export function kindRisk(kind: ToolKind | null | undefined): ToolRisk {
   if (kind === 'read' || kind === 'search' || kind === 'think' || kind === 'fetch') return 'read'
   if (kind === 'edit' || kind === 'delete' || kind === 'move') return 'write'
   return 'execute'
+}
+
+/**
+ * What "always allow" is remembered by: the tool's kind (edit, read, …) —
+ * stable, unlike its title, which names the file or command each time.
+ */
+export function grantKey(kind: ToolKind | null | undefined): string {
+  return kind ?? 'other'
+}
+
+/** How a tool kind reads in an approval and a push (never the title: it can name files or commands). */
+export const KIND_TITLES: Record<string, string> = {
+  read: 'Read files',
+  edit: 'Edit files',
+  delete: 'Delete files',
+  move: 'Move files',
+  search: 'Search',
+  execute: 'Run command',
+  think: 'Think',
+  fetch: 'Fetch page',
+  switch_mode: 'Switch mode',
+  other: 'Tool'
+}
+
+/**
+ * The older, unstable way agents offered models (`session/set_model`): still
+ * what some ACP adapters send next to (or instead of) config options.
+ */
+export interface LegacyModels {
+  currentModelId: string
+  availableModels: { modelId: string; name: string; description?: string | null }[]
+}
+
+/** How the session's model and mode are switched: a config option, or the dedicated method. */
+export interface AcpControls {
+  model?: { configId: string } | { legacy: true }
+  mode?: { configId: string } | { legacy: true }
+}
+
+/** The agent's answer to `session/new` (and later updates): what it offers, and how to switch it. */
+export interface SessionSetup {
+  modes?: SessionModeState | null
+  configOptions?: SessionConfigOption[] | null
+  models?: LegacyModels | null
+}
+
+const option = (id: string, name: string, description?: string | null): SessionOption => (description ? { id, name, description } : { id, name })
+
+function selectOptions(o: SessionConfigOption & { type: 'select' }): SessionOption[] {
+  return o.options.flatMap((x) => ('group' in x ? x.options : [x])).map((x) => option(x.value, x.name, x.description))
+}
+
+/**
+ * Models and modes from a session setup: config options first (the current
+ * protocol), the session's modes and the legacy model list where they're missing.
+ */
+export function sessionControls(setup: SessionSetup): { patch: Partial<AgentSession>; controls: AcpControls } {
+  const patch: Partial<AgentSession> = {}
+  const controls: AcpControls = {}
+  const config = (category: string) => setup.configOptions?.find((o) => o.category === category)
+  const model = config('model')
+  if (model?.type === 'select') {
+    Object.assign(patch, { models: selectOptions(model), model: model.currentValue })
+    controls.model = { configId: model.id }
+  } else if (setup.models?.availableModels.length) {
+    Object.assign(patch, { models: setup.models.availableModels.map((m) => option(m.modelId, m.name, m.description)), model: setup.models.currentModelId })
+    controls.model = { legacy: true }
+  }
+  const mode = config('mode')
+  if (mode?.type === 'select') {
+    Object.assign(patch, { modes: selectOptions(mode), mode: mode.currentValue })
+    controls.mode = { configId: mode.id }
+  } else if (setup.modes?.availableModes.length) {
+    Object.assign(patch, { modes: setup.modes.availableModes.map((m) => option(m.id, m.name, m.description)), mode: setup.modes.currentModeId })
+    controls.mode = { legacy: true }
+  }
+  return { patch, controls }
+}
+
+/** The agent's slash commands, as the composer suggests them. */
+export function acpCommands(list: AvailableCommand[]): AgentCommand[] {
+  return list.map((c) => (c.input ? { name: c.name, description: c.description, hint: c.input.hint } : { name: c.name, description: c.description }))
 }
 
 const STATUS: Record<string, ToolCallStatus> = { pending: 'running', in_progress: 'running', completed: 'done', failed: 'error' }

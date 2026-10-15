@@ -260,11 +260,14 @@ describe('main process boot', () => {
   it('agents needing the user notify only while Mindeck is in the background; a click brings it up', async () => {
     const win = await boot()
     const notify = h.coreOpts!.notify as (title: string, body: string) => void
+    const isFocused = h.coreOpts!.isFocused as () => boolean
     h.notifications.length = 0
     h.focused = win
     notify('Claude Code · fix', 'Waiting for your approval')
     expect(h.notifications).toHaveLength(0) // looking at Mindeck already
+    expect(isFocused()).toBe(true) // no push to the phone either
     h.focused = null
+    expect(isFocused()).toBe(false)
     h.notifySupported = false
     notify('x', 'y')
     expect(h.notifications).toHaveLength(0)

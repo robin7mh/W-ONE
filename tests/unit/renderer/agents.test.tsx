@@ -457,7 +457,7 @@ describe('Composer', () => {
     expect(p.onSend).not.toHaveBeenCalled()
     fireEvent.keyDown(box, { key: 'Enter' })
     await act(settle)
-    expect(p.onSend).toHaveBeenCalledWith('Hi')
+    expect(p.onSend).toHaveBeenCalledWith('Hi', { refs: [], images: [] })
     expect(box).toHaveValue('')
 
     p.onSend.mockResolvedValueOnce(false)
