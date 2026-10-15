@@ -181,6 +181,8 @@ export class CloudService {
     }
     this.key = this.publicKey()
     this.claims = this.data.entitlement && this.key ? verifyEntitlement(this.data.entitlement, this.key) : null
+    // Saved before the device was remembered: the last lease names it (a lifetime license offline still starts).
+    this.data.deviceId ??= this.claims?.dev
     const cert = this.data.account ? await this.opts.secrets.get(OFFLINE_SECRET) : undefined
     this.offline = cert ? this.verifyOffline(cert) : null
     // A follower only ever hears from the desktop (cloud:adopt).

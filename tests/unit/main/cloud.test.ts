@@ -506,11 +506,12 @@ describe('CloudService', () => {
     const store = new SecretStore(join(other, 'secrets.json'))
     await store.set(OFFLINE_SECRET, genuine)
     await store.set(SESSION_SECRET, 'ws_secret')
-    await writeFile(join(other, 'cloud.json'), JSON.stringify({ ...saved, installId: 'another-install', deviceId: undefined }))
+    await writeFile(join(other, 'cloud.json'), JSON.stringify({ ...saved, installId: 'another-install', deviceId: undefined, entitlement: null }))
     const copied = await setup({ dir: other, secrets: store, offline: true })
     copied.advance(3 * 86_400)
     expect(copied.svc.status().state).toBe('offline')
-    // The installation it was issued to runs on it.
+    // The installation it was issued to runs on it — also when saved before the device id was (its last lease names it).
+    await writeFile(join(t.dir, 'cloud.json'), JSON.stringify({ ...saved, deviceId: undefined }))
     const original = await setup({ dir: t.dir, secrets: t.secrets, offline: true })
     original.advance(3 * 86_400)
     expect(original.svc.status().state).toBe('active')
