@@ -138,11 +138,14 @@ describe('a real first start', () => {
 })
 
 describe('the browser-import slot', () => {
-  it('shows only when the browser package filled it and the core has its channel', () => {
+  it("the browser's import panel by default; only when the core has its channel", async () => {
+    vi.resetModules()
+    const fresh = await import('@/features/onboarding/slots')
+    const { ImportStep } = await import('@/features/browser/components/ImportDialog')
+    expect(fresh.browserImportStep()).toBe(ImportStep) // this core has the channel
+    expect(fresh.browserImportStep(['x'])).toBeUndefined()
     const Step = (_: StepProps) => null
-    expect(browserImportStep()).toBeUndefined()
     fillBrowserImportSlot(Step)
-    expect(browserImportStep()).toBeUndefined() // this core has no such channel
     expect(browserImportStep(['x', BROWSER_IMPORT_CHANNEL])).toBe(Step)
   })
 })

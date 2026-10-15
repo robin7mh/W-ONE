@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { AlertTriangle, ArrowLeft, ArrowRight, Bot, Download, Eye, EyeOff, Globe, MoreHorizontal, RotateCw, X } from 'lucide-react'
 import { isDesktop } from '@shared/ipc/client'
+import { internalPage } from '@shared/types/browserData'
 import { cn } from '@/lib/cn'
 import { useLocale, useT } from '@/lib/i18n'
 import { useAppearance } from '@/lib/theme'
@@ -10,6 +11,11 @@ import { TabStrip } from './TabStrip'
 import { Viewport } from './Viewport'
 import { AgentBar, ApprovalDock, FindBar, PermissionBar } from './Bars'
 import { DownloadsPanel } from './DownloadsPanel'
+import { BookmarksBar } from './BookmarksBar'
+import { BookmarkEditor } from './BookmarkEditor'
+import { ImportDialog } from './ImportDialog'
+import { RestoreBar } from './RestoreBar'
+import { TabSearch } from './TabSearch'
 
 const tool =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text-primary disabled:pointer-events-none disabled:opacity-35'
@@ -41,6 +47,7 @@ export function BrowserView({ active }: { active: boolean }) {
   const downloadsOpen = useBrowser((s) => s.downloadsOpen)
   const downloading = useBrowser((s) => s.state.downloads.filter((d) => d.state === 'progressing').length)
   const error = useBrowser((s) => s.error)
+  const importOpen = useBrowser((s) => s.importOpen)
   const run = useBrowser((s) => s.run)
   const mode = useAppearance((s) => s.appearance.mode)
   const locale = useLocale((s) => s.locale)
@@ -59,7 +66,8 @@ export function BrowserView({ active }: { active: boolean }) {
   }
 
   const id = tab?.id ?? ''
-  const page = !!tab?.url
+  // A web page — not the new-tab page, not Mindeck's own history or bookmarks.
+  const page = !!tab?.url && !internalPage(tab.url)
   return (
     <section className="panel flex min-h-0 flex-1 flex-col overflow-hidden" aria-label={t.browser.title}>
       <TabStrip />
@@ -119,6 +127,7 @@ export function BrowserView({ active }: { active: boolean }) {
           <MoreHorizontal size={15} />
         </button>
       </div>
+      <BookmarksBar />
       {/* The loading line sits outside the page area: the web view would cover it. */}
       <div className="relative h-0.5 shrink-0 overflow-hidden">{tab?.loading && <div className="absolute inset-y-0 left-0 w-1/3 animate-loadbar bg-cyan" />}</div>
       {error && (
@@ -130,6 +139,7 @@ export function BrowserView({ active }: { active: boolean }) {
           </button>
         </div>
       )}
+      <RestoreBar />
       {findOpen && tab && page && <FindBar tab={tab} />}
       <PermissionBar tabId={tab?.id} />
       {active && <ApprovalDock />}
@@ -138,6 +148,9 @@ export function BrowserView({ active }: { active: boolean }) {
         <Viewport active={active} />
         {downloadsOpen && <DownloadsPanel />}
       </div>
+      <BookmarkEditor />
+      <TabSearch />
+      {importOpen && <ImportDialog onClose={() => useBrowser.getState().setImport(false)} />}
     </section>
   )
 }

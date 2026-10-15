@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { IPC_CHANNELS } from '@shared/ipc/contract'
+import { ImportStep } from '@/features/browser/components/ImportDialog'
 
 /** What a step's content gets from the setup around it. */
 export interface StepProps {
@@ -14,11 +15,11 @@ export interface StepProps {
  */
 export const BROWSER_IMPORT_CHANNEL = 'browser:importSources'
 
-const slots: { browserImport?: ComponentType<StepProps> } = {}
+const slots: { browserImport?: ComponentType<StepProps> } = { browserImport: ImportStep }
 
 /**
- * The browser package puts its "Import browser data" step into the setup
- * here (once, from its own module). Its title is `onboarding.steps.browserImport`.
+ * The "Import browser data" step (the browser's import panel by default;
+ * tests swap it). Its title is `onboarding.steps.browserImport`.
  */
 export function fillBrowserImportSlot(step: ComponentType<StepProps> | undefined): void {
   slots.browserImport = step

@@ -34,6 +34,8 @@ const viewBounds = z.object({ x: px, y: px, width: px.min(0), height: px.min(0) 
 /** One file or folder name — no separators, not `.` or `..` (the service checks again). */
 const fileName = z.string().trim().min(1).max(255)
 const paths = z.array(path).min(1).max(1000)
+/** A moment as ms since 1970. */
+const epochMs = z.number().finite().min(0).max(8.64e15)
 /** A stash, by its full commit hash. */
 const stashHash = z.string().regex(/^[0-9a-f]{40}$/i)
 /** Include / exclude globs of a project search. */
@@ -487,8 +489,31 @@ export const REQUEST_SCHEMAS: Schemas = {
   'browser:download': z.object({ id, action: z.enum(['open', 'reveal', 'cancel', 'remove']) }),
   'browser:permission': z.object({ id, allow: z.boolean(), remember: z.boolean().optional() }),
   'browser:settings': none,
-  'browser:configure': z.object({ searchEngine: z.enum(SEARCH_ENGINES).optional(), openLinksInMindeck: z.boolean().optional() }),
+  'browser:configure': z.object({
+    searchEngine: z.enum(SEARCH_ENGINES).optional(),
+    openLinksInMindeck: z.boolean().optional(),
+    searchSuggestions: z.boolean().optional(),
+    bookmarksBar: z.boolean().optional()
+  }),
   'browser:ui': z.object({ theme: z.enum(['dark', 'light', 'system']), locale: z.enum(['de', 'en']) }),
+  'browser:searchSuggest': z.object({ text: text(2000) }),
+  'browser:historyList': z
+    .object({ query: text(500).optional(), before: epochMs.optional(), limit: z.number().int().min(1).max(1000).optional() })
+    .optional()
+    .transform((v) => v ?? {}),
+  'browser:historyDelete': z
+    .object({ urls: z.array(text(8192)).max(10_000).optional(), from: epochMs.optional(), to: epochMs.optional() })
+    .refine((v) => !!v.urls?.length || v.from !== undefined || v.to !== undefined, 'Say which pages to forget'),
+  'browser:bookmarks': none,
+  'browser:bookmarkAdd': z.object({ parentId: id.optional(), index: z.number().int().min(0).max(100_000).optional(), title, url: text(8192).min(1).optional() }),
+  'browser:bookmarkUpdate': z.object({ id, title: title.optional(), url: text(8192).min(1).optional() }),
+  'browser:bookmarkMove': z.object({ id, parentId: id, index: z.number().int().min(0).max(100_000) }),
+  'browser:bookmarkRemove': z.object({ ids: z.array(id).min(1).max(10_000) }),
+  'browser:bookmarksExport': none,
+  'browser:bookmarksImport': z.object({ html: text(20_000_000) }),
+  'browser:importSources': none,
+  'browser:import': z.object({ sourceId: text(4096).min(1), kinds: z.array(z.enum(['bookmarks', 'history', 'settings'])).min(1).max(3) }),
+  'browser:restoreSession': z.object({ restore: z.boolean() }),
 
   'finder:places': none,
   'finder:list': z

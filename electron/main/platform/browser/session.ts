@@ -6,6 +6,7 @@ import { app, desktopCapturer, systemPreferences, type DownloadItem, type Sessio
 import type { BrowserDownload, BrowserPermissionKind } from '@shared/types/browser'
 import type { BrowserHostEvents } from '../../services/browser/types'
 import { isLoopbackHost, originOf } from '../../services/browser/url'
+import { configureClientHints, uaPlatform } from './clientHints'
 
 /** Web pages' own profile: cookies, cache and logins, apart from the Mindeck UI's. */
 export const BROWSER_PARTITION = 'persist:mindeck-browser'
@@ -97,6 +98,9 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
   if (configured.has(ses)) return
   configured.add(ses)
   ses.setUserAgent(chromeUserAgent(ses.getUserAgent()))
+  // Google, Microsoft, Apple and GitHub sign-ins check that the client hints and navigator.userAgentData agree with it.
+  configureClientHints(ses, process.versions.chrome, uaPlatform(process.platform))
+  ses.registerPreloadScript({ id: 'mindeck-browser-page', type: 'frame', filePath: join(__dirname, '../preload/browserPage.js') })
 
   ses.setPermissionRequestHandler((contents, permission, callback, details) => {
     const target = current()
