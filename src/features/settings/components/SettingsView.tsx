@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Check, Info, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
+import { AlertTriangle, Check, FolderPlus, Info, Languages, Laptop, QrCode, RefreshCw, ShieldCheck, Smartphone, TerminalSquare, Trash2, Wifi, X } from 'lucide-react'
 import { ipc, isDesktop } from '@shared/ipc/client'
 import type { VaultStatus } from '@shared/types/memory'
+import { ALL_PROJECTS, type PermissionGrant } from '@shared/types/ai'
+import { DEVICE_ROLES, type DeviceRole } from '@shared/types/server'
 import { Panel } from '@/components/ui/Panel'
 import { TechLabel } from '@/components/ui/TechLabel'
+import { Select } from '@/components/ui/Select'
 import { Card } from '@/components/ui/Card'
 import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
 import { useT } from '@/lib/i18n'
@@ -14,7 +17,7 @@ import { useSession } from '@/features/session/store'
 import { useAssistant } from '@/features/agents/store'
 import { useAgents } from '@/features/agents/sessions'
 import { relativeTime } from '@/features/agents/format'
-import { useSettings } from '../store'
+import { canManage, myDeviceId, useSettings } from '../store'
 import { AppearanceCard } from './AppearanceCard'
 import { LanguagesCard } from './LanguagesCard'
 import { MigrateCard } from './MigrateCard'
@@ -61,19 +64,61 @@ function AgentsCard() {
   )
 }
 
+/** The folders paired devices may reach without remote shells (besides the projects added here). */
+function SharedFolders({ roots, disabled, onChange }: { roots: string[]; disabled: boolean; onChange: (roots: string[]) => void }) {
+  const t = useT()
+  const [browsing, setBrowsing] = useState(false)
+  return (
+    <div className="mt-2 border-t border-hud/40 pt-2">
+      <div className="flex items-center justify-between">
+        <TechLabel className="text-text-muted">{t.settings.sharedFolders}</TechLabel>
+        <button type="button" className={button} disabled={disabled} onClick={() => setBrowsing(true)}>
+          <FolderPlus size={12} /> {t.settings.addSharedFolder}
+        </button>
+      </div>
+      <p className="mt-1 font-sans text-[11.5px] text-text-muted">{t.settings.sharedFoldersHint}</p>
+      <ul className="mt-1 space-y-0.5">
+        {roots.length === 0 && <li className="font-mono text-[11px] text-text-muted">{t.settings.noSharedFolders}</li>}
+        {roots.map((root) => (
+          <li key={root} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text-secondary">{root}</span>
+            <button
+              type="button"
+              aria-label={t.settings.stopSharing(root)}
+              disabled={disabled}
+              onClick={() => onChange(roots.filter((r) => r !== root))}
+              className="text-text-muted hover:text-danger disabled:opacity-40"
+            >
+              <Trash2 size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {browsing && (
+        <FolderPicker
+          title={t.settings.shareFolder}
+          confirmLabel={t.settings.share}
+          onClose={() => setBrowsing(false)}
+          onPick={(path) => {
+            setBrowsing(false)
+            if (!roots.includes(path)) onChange([...roots, path])
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 function RemoteCard() {
   const t = useT()
   const s = useSettings()
   const desktop = isDesktop()
   const cfg = s.server?.config
   const editable = desktop && !!s.server?.configurable
-  const myDevice = (() => {
-    try {
-      return localStorage.getItem('mindeck.deviceId')
-    } catch {
-      return null
-    }
-  })()
+  const myDevice = myDeviceId()
+  const manage = canManage(s.devices, desktop, myDevice)
+  const [adminCode, setAdminCode] = useState(false)
+  const roleOptions = DEVICE_ROLES.map((r) => ({ value: r, label: t.settings.roles[r] }))
 
   return (
     <Card icon={Wifi} title={t.settings.remoteCard} className="lg:row-span-2">
@@ -113,6 +158,7 @@ function RemoteCard() {
               className={cn(input, 'w-24')}
             />
           </label>
+          <SharedFolders roots={cfg.remoteRoots ?? []} disabled={s.busy} onChange={(remoteRoots) => void s.configureServer({ remoteRoots })} />
         </div>
       )}
       {cfg && !editable && (
@@ -124,10 +170,13 @@ function RemoteCard() {
       <div className="mt-3 border-t border-hud/40 pt-3">
         <div className="flex items-center justify-between">
           <TechLabel className="text-text-muted">{t.settings.pairedDevices}</TechLabel>
-          <button type="button" className={button} disabled={s.busy || !s.server?.running} onClick={() => void s.createPairing()}>
-            <QrCode size={13} /> {t.settings.pairDevice}
-          </button>
+          {manage && (
+            <button type="button" className={button} disabled={s.busy || !s.server?.running} onClick={() => void s.createPairing(adminCode ? 'admin' : 'member')}>
+              <QrCode size={13} /> {t.settings.pairDevice}
+            </button>
+          )}
         </div>
+        {manage && <Toggle label={t.settings.pairAsAdmin} hint={t.settings.pairAsAdminHint} checked={adminCode} disabled={s.busy} onChange={setAdminCode} />}
         {s.pairing && (
           <div className="mt-3 flex flex-col items-center gap-2 rounded-md border border-cyan/40 bg-cyan/[0.04] p-3 sm:flex-row sm:items-start">
             {s.pairing.reachable && (
@@ -135,6 +184,7 @@ function RemoteCard() {
             )}
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-mono text-[22px] tracking-[0.25em] text-text-primary">{s.pairing.code}</p>
+              {s.pairing.role === 'admin' && <p className="font-mono text-[10.5px] uppercase tracking-wider text-amber">{t.settings.adminCode}</p>}
               {s.pairing.reachable ? (
                 <>
                   <p className="font-sans text-[12px] text-text-secondary">{t.settings.pairingHint}</p>
@@ -166,9 +216,22 @@ function RemoteCard() {
                     {d.lastSeenAt ? t.settings.seen(relativeTime(d.lastSeenAt)) : ''}
                   </span>
                 </span>
-                <button type="button" aria-label={t.settings.revoke(d.name)} onClick={() => void s.revokeDevice(d.id)} className="text-text-muted hover:text-danger">
-                  <Trash2 size={12} />
-                </button>
+                {manage ? (
+                  <Select
+                    variant="quiet"
+                    label={t.settings.roleOf(d.name)}
+                    value={d.role}
+                    options={roleOptions}
+                    onChange={(role) => void s.setDeviceRole(d.id, role as DeviceRole)}
+                  />
+                ) : (
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">{t.settings.roles[d.role]}</span>
+                )}
+                {(manage || d.id === myDevice) && (
+                  <button type="button" aria-label={t.settings.revoke(d.name)} onClick={() => void s.revokeDevice(d.id)} className="text-text-muted hover:text-danger">
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </li>
             )
           })}
@@ -181,7 +244,16 @@ function RemoteCard() {
 function PermissionsCard() {
   const t = useT()
   const grants = useSettings((s) => s.grants)
+  const projects = useSettings((s) => s.projects)
+  const devices = useSettings((s) => s.devices)
   const revokeGrant = useSettings((s) => s.revokeGrant)
+  const manage = canManage(devices)
+  const where = (g: PermissionGrant) =>
+    g.projectId === ALL_PROJECTS
+      ? t.settings.allProjects
+      : g.projectId
+        ? (projects.find((p) => p.id === g.projectId)?.name ?? t.settings.removedProject)
+        : t.settings.noProject
   return (
     <Card icon={ShieldCheck} title={t.settings.permissionsCard}>
       <p className="font-sans text-[12px] text-text-secondary">
@@ -190,13 +262,18 @@ function PermissionsCard() {
       <ul className="mt-2 space-y-1">
         {grants.length === 0 && <li className="font-mono text-[11px] text-text-muted">{t.settings.noGrants}</li>}
         {grants.map((g) => (
-          <li key={`${g.agentId}:${g.toolName}`} className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-text-primary">
-              {g.agentId} → {g.toolName}
+          <li key={`${g.agentId}:${g.toolName}:${g.projectId ?? ''}`} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-[12px] text-text-primary">
+                {g.agentId} → {g.toolName}
+              </span>
+              <span className={cn('block truncate font-sans text-[11px]', g.projectId === ALL_PROJECTS ? 'text-amber' : 'text-text-muted')}>{where(g)}</span>
             </span>
-            <button type="button" aria-label={t.settings.revoke(`${g.agentId} ${g.toolName}`)} onClick={() => void revokeGrant(g.agentId, g.toolName)} className="text-text-muted hover:text-danger">
-              <Trash2 size={12} />
-            </button>
+            {manage && (
+              <button type="button" aria-label={t.settings.revoke(`${g.agentId} ${g.toolName} · ${where(g)}`)} onClick={() => void revokeGrant(g)} className="text-text-muted hover:text-danger">
+                <Trash2 size={12} />
+              </button>
+            )}
           </li>
         ))}
       </ul>

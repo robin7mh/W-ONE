@@ -14,9 +14,12 @@ import { startFakeAnthropic } from './fake-anthropic.mjs'
  */
 type Core = { url: string; home: string; code: () => Promise<string>; log: () => string }
 
-const test = base.extend<{ core: Core; paired: Page }>({
-  core: async ({}, use) => {
+const test = base.extend<{ core: Core; paired: Page; shells: boolean }>({
+  /** Remote shells on this core (off by default, like a real one). */
+  shells: [false, { option: true }],
+  core: async ({ shells }, use) => {
     const home = await mkdtemp(join(tmpdir(), 'mindeck-web-e2e-'))
+    await mkdir(join(home, 'code'))
     const port = 7600 + Math.floor(Math.random() * 300)
     const anthropic = await startFakeAnthropic()
     let log = ''
@@ -26,6 +29,9 @@ const test = base.extend<{ core: Core; paired: Page }>({
         MINDECK_HOME: home,
         MINDECK_PORT: String(port),
         MINDECK_WEB_ROOT: resolve('out/web'),
+        // the folders paired devices may add as projects
+        MINDECK_REMOTE_ROOTS: join(home, 'code'),
+        ...(shells ? { MINDECK_REMOTE_TERMINAL: '1' } : {}),
         // the assistant talks to a local stand-in for the Messages API
         ANTHROPIC_BASE_URL: anthropic.url,
         ANTHROPIC_API_KEY: 'sk-e2e-fake-key-000000'
@@ -107,28 +113,33 @@ test('remote shells stay off unless the core allows them', async ({ paired, core
   expect(res.status).toBe(401)
 })
 
-test('agents: streamed answer, a tool call behind an approval, the note lands in the vault', async ({ paired, core }) => {
-  await paired.getByTitle('Memory', { exact: true }).click()
-  await paired.getByText('Create Mindeck vault').click()
-  await expect(paired.getByText('Willkommen', { exact: true }).first()).toBeVisible()
+// A device approves changes only where it may run commands, too.
+test.describe('with remote shells', () => {
+  test.use({ shells: true })
 
-  // ask from the Core dashboard — it opens the Agents module
-  await paired.getByTitle('Core', { exact: true }).click()
-  await paired.getByLabel('Ask Mindeck').fill('Hallo Mindeck')
-  await paired.getByLabel('Ask Mindeck').press('Enter')
-  await expect(paired.getByRole('heading', { name: 'Hello from the assistant' })).toBeVisible()
-  await expect(paired.getByText('I can see your Mindeck context.')).toBeVisible()
-  await expect(paired.getByLabel('Send')).toBeVisible() // the run is over
+  test('agents: streamed answer, a tool call behind an approval, the note lands in the vault', async ({ paired, core }) => {
+    await paired.getByTitle('Memory', { exact: true }).click()
+    await paired.getByText('Create Mindeck vault').click()
+    await expect(paired.getByText('Willkommen', { exact: true }).first()).toBeVisible()
 
-  await paired.getByLabel('Message').fill('Bitte merk dir das als Notiz')
-  await paired.getByLabel('Message').press('Enter')
-  await expect(paired.getByText('Why: You asked me to remember this plan')).toBeVisible()
-  await paired.getByRole('button', { name: 'Allow once' }).first().click()
-  await expect(paired.getByText(/Saved — the note/)).toBeVisible()
-  await expect.poll(() => existsSync(join(core.home, 'vault', 'E2E Plan.md'))).toBe(true)
-  await expect(paired.getByText(/Run completed · 2 steps/).first()).toBeVisible()
+    // ask from the Core dashboard — it opens the Agents module
+    await paired.getByTitle('Core', { exact: true }).click()
+    await paired.getByLabel('Ask Mindeck').fill('Hallo Mindeck')
+    await paired.getByLabel('Ask Mindeck').press('Enter')
+    await expect(paired.getByRole('heading', { name: 'Hello from the assistant' })).toBeVisible()
+    await expect(paired.getByText('I can see your Mindeck context.')).toBeVisible()
+    await expect(paired.getByLabel('Send')).toBeVisible() // the run is over
 
-  // settings shows the key from the environment and the standing permissions
-  await paired.getByTitle('Settings', { exact: true }).click()
-  await expect(paired.getByText(/Anthropic key from the environment/)).toBeVisible()
+    await paired.getByLabel('Message').fill('Bitte merk dir das als Notiz')
+    await paired.getByLabel('Message').press('Enter')
+    await expect(paired.getByText('Why: You asked me to remember this plan')).toBeVisible()
+    await paired.getByRole('button', { name: 'Allow once' }).first().click()
+    await expect(paired.getByText(/Saved — the note/)).toBeVisible()
+    await expect.poll(() => existsSync(join(core.home, 'vault', 'E2E Plan.md'))).toBe(true)
+    await expect(paired.getByText(/Run completed · 2 steps/).first()).toBeVisible()
+
+    // settings shows the key from the environment and the standing permissions
+    await paired.getByTitle('Settings', { exact: true }).click()
+    await expect(paired.getByText(/Anthropic key from the environment/)).toBeVisible()
+  })
 })

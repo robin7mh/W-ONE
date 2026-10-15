@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import QRCode from 'qrcode'
 import { errorMessage, ipc, isDesktop } from '@shared/ipc/client'
-import type { Device, PairingCode, ServerConfig, ServerStatus } from '@shared/types/server'
+import type { Device, DeviceRole, PairingCode, ServerConfig, ServerStatus } from '@shared/types/server'
 import type { PermissionGrant } from '@shared/types/ai'
+import type { Project } from '@shared/types/project'
 
 /** An address only this computer can open — never a phone. */
 export const isLoopback = (url: string): boolean => /\/\/(127\.0\.0\.1|localhost|\[::1\])(?=[:/]|$)/.test(url)
@@ -38,19 +39,36 @@ async function pairingView(code: PairingCode, urls: string[]): Promise<Pairing> 
   return { ...code, urls, url, qr, reachable: pairingReachable(urls, location.origin, desktop) }
 }
 
+/** This browser's device id (saved when it paired), or null in the desktop window. */
+export function myDeviceId(): string | null {
+  try {
+    return localStorage.getItem('mindeck.deviceId')
+  } catch {
+    return null
+  }
+}
+
+/** Whether this client may manage devices, keys and grants: the desktop window, or an admin device. */
+export function canManage(devices: Device[], desktop = isDesktop(), me = myDeviceId()): boolean {
+  return desktop || devices.some((d) => d.id === me && d.role === 'admin')
+}
+
 interface SettingsState {
   server?: ServerStatus
   devices: Device[]
   grants: PermissionGrant[]
+  /** For the grants' project names. */
+  projects: Project[]
   pairing?: Pairing
   busy: boolean
   error?: string
   load: () => Promise<void>
   configureServer: (patch: Partial<ServerConfig>) => Promise<void>
-  createPairing: () => Promise<void>
+  createPairing: (role?: DeviceRole) => Promise<void>
   closePairing: () => void
   revokeDevice: (id: string) => Promise<void>
-  revokeGrant: (agentId: string, toolName: string) => Promise<void>
+  setDeviceRole: (id: string, role: DeviceRole) => Promise<void>
+  revokeGrant: (grant: PermissionGrant) => Promise<void>
   clearError: () => void
 }
 
@@ -59,12 +77,18 @@ export const useSettings = create<SettingsState>((set, get) => {
   return {
     devices: [],
     grants: [],
+    projects: [],
     busy: false,
 
     load: async () => {
       try {
-        const [server, devices, grants] = await Promise.all([ipc('server:status'), ipc('server:devices'), ipc('permission:grants')])
-        set({ server, devices, grants })
+        const [server, devices, grants, projects] = await Promise.all([
+          ipc('server:status'),
+          ipc('server:devices'),
+          ipc('permission:grants'),
+          ipc('projects:list').catch(() => [])
+        ])
+        set({ server, devices, grants, projects: projects ?? [] })
       } catch (err) {
         fail(err)
       }
@@ -87,10 +111,10 @@ export const useSettings = create<SettingsState>((set, get) => {
       }
     },
 
-    createPairing: async () => {
+    createPairing: async (role) => {
       set({ busy: true, error: undefined })
       try {
-        const code = await ipc('server:createPairingCode')
+        const code = await ipc('server:createPairingCode', role ? { role } : {})
         set({ pairing: await pairingView(code, code.urls), busy: false })
       } catch (err) {
         fail(err)
@@ -111,10 +135,19 @@ export const useSettings = create<SettingsState>((set, get) => {
       }
     },
 
-    revokeGrant: async (agentId, toolName) => {
+    setDeviceRole: async (id, role) => {
       try {
-        await ipc('permission:revoke', { agentId, toolName })
-        set({ grants: get().grants.filter((g) => !(g.agentId === agentId && g.toolName === toolName)) })
+        set({ devices: await ipc('server:setDeviceRole', { id, role }) })
+      } catch (err) {
+        fail(err)
+      }
+    },
+
+    revokeGrant: async (grant) => {
+      const { agentId, toolName, projectId } = grant
+      try {
+        await ipc('permission:revoke', { agentId, toolName, ...(projectId ? { projectId } : {}) })
+        set({ grants: get().grants.filter((g) => g !== grant) })
       } catch (err) {
         fail(err)
       }

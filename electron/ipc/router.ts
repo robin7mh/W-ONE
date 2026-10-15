@@ -5,11 +5,13 @@ import {
   type IpcResult
 } from '@shared/ipc/contract'
 import { parseRequest } from '@shared/ipc/schemas'
+import type { DeviceRole } from '@shared/types/server'
 
-/** Who is calling: the desktop window over IPC, or a paired remote client. */
+/** Who is calling: the desktop window over IPC, or a paired remote client (and its role). */
 export interface CallContext {
   transport: 'ipc' | 'remote'
   deviceId?: string
+  role?: DeviceRole
 }
 
 export type Handler<K extends IpcChannel> = (
@@ -27,14 +29,16 @@ function fail(code: string, message: string): IpcResult<never> {
  * The one dispatch point for every contract channel — used by the desktop IPC
  * bridge and by the HTTP API alike. Per call it checks, in order: the channel
  * exists, Mindeck is licensed (or the channel is license-free), the caller's
- * transport may use it (CHANNEL_ACCESS), the payload
- * matches its schema; then runs the handler and wraps the result in IpcResult.
- * Errors never escape as throws.
+ * transport and role may use it (CHANNEL_ACCESS), the payload matches its
+ * schema, a remote call passes the guard (shared folders); then runs the
+ * handler and wraps the result in IpcResult. Errors never escape as throws.
  */
 export interface RouterOptions {
   remoteTerminal: () => boolean
   /** License gate: false → the channel is refused until Mindeck is licensed. */
   licensed?: (channel: IpcChannel) => boolean
+  /** Checks a remote call's validated payload (throws a coded error to refuse it). */
+  guard?: (channel: IpcChannel, payload: unknown, ctx: CallContext) => Promise<void> | void
 }
 
 export class Router {
@@ -67,12 +71,16 @@ export class Router {
       if (access === 'terminal' && !this.opts.remoteTerminal()) {
         return fail('remote-terminal-disabled', 'Remote shells are disabled on this Mindeck core')
       }
+      if (access === 'admin' && ctx.role !== 'admin') {
+        return fail('admin-only', `${channel} needs a device with the admin role (or the Mindeck desktop app)`)
+      }
     }
 
     const parsed = parseRequest(key, payload)
     if (!parsed.ok) return fail('bad-request', parsed.message)
 
     try {
+      if (ctx.transport === 'remote') await this.opts.guard?.(key, parsed.data, ctx)
       return { ok: true, data: await handler(parsed.data, ctx) }
     } catch (err) {
       const e = err as { code?: string; message?: string }

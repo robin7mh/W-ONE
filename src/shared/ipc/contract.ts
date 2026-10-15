@@ -54,6 +54,7 @@ import type {
 import type {
   AppInfo,
   Device,
+  DeviceRole,
   DirListing,
   PairingCode,
   ServerConfig,
@@ -297,14 +298,18 @@ export interface IpcChannels {
   'remote:disconnect': { request: { id: string }; response: void }
 
   'app:info': { request: void; response: AppInfo }
+  /** Folders on the core's machine; paired devices see the shared folders only (no `path` = the first). */
   'fs:dirs': { request: { path?: string }; response: DirListing }
   'memory:setVault': { request: { path: string }; response: VaultStatus }
 
   'server:status': { request: void; response: ServerStatus }
   'server:configure': { request: Partial<ServerConfig>; response: ServerStatus }
-  'server:createPairingCode': { request: void; response: PairingCode }
+  /** A one-time code; the device that redeems it gets `role` (default `member`). */
+  'server:createPairingCode': { request: { role?: DeviceRole }; response: PairingCode }
   'server:devices': { request: void; response: Device[] }
+  /** Admins remove any device; every device may remove itself (unpair). */
   'server:revokeDevice': { request: { id: string }; response: void }
+  'server:setDeviceRole': { request: { id: string; role: DeviceRole }; response: Device[] }
 
   'ai:status': { request: void; response: AiStatus }
   'ai:setKey': { request: { key: string }; response: AiStatus }
@@ -325,7 +330,8 @@ export interface IpcChannels {
   'permission:pending': { request: void; response: PermissionRequest[] }
   'permission:respond': { request: { id: string; decision: ApprovalDecision }; response: void }
   'permission:grants': { request: void; response: PermissionGrant[] }
-  'permission:revoke': { request: { agentId: string; toolName: string }; response: void }
+  /** Exactly one grant: `projectId` as in `permission:grants` (none = outside projects). */
+  'permission:revoke': { request: { agentId: string; toolName: string; projectId?: string }; response: void }
 
   'events:recent': { request: { limit?: number; conversationId?: string }; response: MindeckEvent[] }
 
@@ -434,8 +440,13 @@ export type IpcChannel = keyof IpcChannels
  *                things on the host, and the server's own configuration
  * - `terminal` — desktop, or remote clients when remote shells are enabled
  *                (shells, and writing project files — both can run code)
+ * - `admin`    — desktop, or paired devices with the admin role: other
+ *                devices, the AI key, the Mindeck account
+ *
+ * Paired devices also only reach shared folders, and approve changes and
+ * commands only with remote shells (see RemoteAccess and PermissionService).
  */
-export type ChannelAccess = 'any' | 'desktop' | 'terminal'
+export type ChannelAccess = 'any' | 'desktop' | 'terminal' | 'admin'
 
 /** Every channel classified exactly once — a new channel without one is a type error. */
 export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
@@ -599,12 +610,14 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'fs:dirs': 'any',
   'server:status': 'any',
   'server:configure': 'desktop',
-  'server:createPairingCode': 'any',
+  // Pairing more devices and changing roles keeps a device in: admins only.
+  'server:createPairingCode': 'admin',
   'server:devices': 'any',
   'server:revokeDevice': 'any',
+  'server:setDeviceRole': 'admin',
   'ai:status': 'any',
-  'ai:setKey': 'any',
-  'ai:clearKey': 'any',
+  'ai:setKey': 'admin',
+  'ai:clearKey': 'admin',
   'ai:configure': 'any',
   'ai:agents': 'any',
   'ai:tools': 'any',
@@ -620,7 +633,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'permission:pending': 'any',
   'permission:respond': 'any',
   'permission:grants': 'any',
-  'permission:revoke': 'any',
+  'permission:revoke': 'admin',
   'events:recent': 'any',
   // Agents run programs on this machine: starting or driving them is a shell's power.
   'agents:detect': 'any',
@@ -640,16 +653,16 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'agents:rename': 'terminal',
   'agents:shell': 'terminal',
   'agents:openInEditor': 'desktop',
-  // The Mindeck account: a headless core is signed in from its web UI, so every client may.
+  // The Mindeck account: a headless core is signed in from its web UI (its first device is admin).
   'cloud:status': 'any',
-  'cloud:login': 'any',
-  'cloud:register': 'any',
-  'cloud:logout': 'any',
+  'cloud:login': 'admin',
+  'cloud:register': 'admin',
+  'cloud:logout': 'admin',
   'cloud:refresh': 'any',
   'cloud:resendVerification': 'any',
   'cloud:forgotPassword': 'any',
   'cloud:checkout': 'any',
-  'cloud:adopt': 'any',
+  'cloud:adopt': 'admin',
   'cloud:syncStatus': 'any',
   'cloud:syncPush': 'any',
   'cloud:syncPull': 'any',

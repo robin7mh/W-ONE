@@ -2,13 +2,15 @@
 // headless, reachable by the web UI and the mobile app over HTTP + WebSocket.
 //
 //   node out/server/index.cjs          start (see README → "Web UI & server")
-//   node out/server/index.cjs pair     print a one-time pairing code
+//   node out/server/index.cjs pair     print a one-time pairing code (`pair --admin`: for an admin device)
 //
 // Configuration (environment):
 //   MINDECK_HOME             data + vault root (default ~/Mindeck)
 //   MINDECK_PORT             port (default 7420)
 //   MINDECK_LAN=1            listen on all interfaces instead of 127.0.0.1
 //   MINDECK_REMOTE_TERMINAL=1  allow paired devices to open shells (off by default)
+//   MINDECK_REMOTE_ROOTS     folders devices may add as projects or vault, separated by
+//                            `:` (`;` on Windows); default /projects (the Docker mount)
 //   MINDECK_WEB_ROOT         built web UI to serve (default: next to this file)
 //   MINDECK_DB_URL           Postgres (default matches docker-compose.yml)
 //   NODE_ENV=production   requires a Mindeck license (the Docker image); otherwise
@@ -17,7 +19,7 @@
 //                         the desktop hands its entitlement over (cloud:adopt)
 //   MINDECK_EXIT_WITH_STDIN=1  stop when stdin closes (the desktop's ssh / docker exec ended)
 
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { DEFAULT_SERVER_CONFIG, type ServerConfig } from '@shared/types/server'
 import { mindeckPaths } from '../electron/main/lib/paths'
 import { headlessPlatform } from '../electron/main/platform/headless'
@@ -35,15 +37,16 @@ export function serverConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Serve
     enabled: true,
     lan: flag(env.MINDECK_LAN),
     port: env.MINDECK_PORT && Number.isInteger(port) && port >= 0 && port < 65536 ? port : DEFAULT_SERVER_CONFIG.port,
-    remoteTerminal: flag(env.MINDECK_REMOTE_TERMINAL)
+    remoteTerminal: flag(env.MINDECK_REMOTE_TERMINAL),
+    remoteRoots: env.MINDECK_REMOTE_ROOTS ? env.MINDECK_REMOTE_ROOTS.split(delimiter).filter(Boolean) : ['/projects']
   }
 }
 
-function banner(code: string, urls: string[]): string {
+function banner(code: string, urls: string[], admin = false): string {
   return [
     '',
     '  ┌─ Mindeck pairing ─────────────────────────────',
-    `  │  Code:  ${code}   (valid 10 minutes, one use)`,
+    `  │  Code:  ${code}   (valid 10 minutes, one use${admin ? ', admin device' : ''})`,
     ...urls.map((u) => `  │  Open:  ${u}`),
     '  └─────────────────────────────────────────────',
     ''
@@ -55,9 +58,11 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
   const version = typeof __MINDECK_VERSION__ === 'string' ? __MINDECK_VERSION__ : '0.0.0'
 
   if (argv[0] === 'pair') {
-    const { code } = await new AuthService(paths.devicesFile).createPairingCode()
+    // Whoever runs this has the machine's shell: they may hand out the admin role.
+    const admin = argv.includes('--admin')
+    const { code } = await new AuthService(paths.devicesFile, undefined, true).createPairingCode(admin ? 'admin' : 'member')
     const config = serverConfigFromEnv(env)
-    console.log(banner(code, [`http://127.0.0.1:${config.port}`]))
+    console.log(banner(code, [`http://127.0.0.1:${config.port}`], admin))
     return null
   }
 

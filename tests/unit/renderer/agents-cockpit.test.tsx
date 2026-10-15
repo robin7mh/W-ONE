@@ -452,6 +452,18 @@ describe('SessionPane', () => {
     void bridge
   })
 
+  it('an approval that belongs to no tool card (a Mindeck tool\'s own gate) shows at the end of the thread', () => {
+    installBridge({})
+    const respond = vi.fn(async () => {})
+    const gate = { id: 'gate1', conversationId: 's1', toolTitle: 'Append to note', risk: 'write', summary: 'Append to Plan.md', allowAlways: true } as PermissionRequest
+    useAssistant.setState({ pending: [gate, { ...gate, id: 'elsewhere', conversationId: 'x', summary: 'Not this session' }], respond })
+    pane(session({ status: 'working' }), [msg('u', 'user', 'note it')])
+    expect(screen.getByText('Append to Plan.md')).toBeInTheDocument()
+    expect(screen.queryByText('Not this session')).toBeNull()
+    fireEvent.click(screen.getByText('Allow once'))
+    expect(respond).toHaveBeenCalledWith('gate1', 'once')
+  })
+
   it('waiting: the terminal opens (even when it can\'t be measured yet); its end is noted', async () => {
     const bridge = installBridge({ 'terminal:attach': () => ({ buffer: '', end: 0 }) })
     x.fitThrows = true

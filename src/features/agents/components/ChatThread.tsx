@@ -161,13 +161,18 @@ export function interceptLinks(e: MouseEvent<HTMLElement>): void {
 export function ChatThread({
   messages,
   pending,
-  onRespond
+  onRespond,
+  conversationId
 }: {
   messages: ChatMessage[]
   pending: PermissionRequest[]
   onRespond: (id: string, d: ApprovalDecision) => void
+  /** Show this conversation's approvals that belong to no tool card (a Mindeck tool's own gate) at the end. */
+  conversationId?: string
 }) {
   const end = useRef<HTMLDivElement>(null)
+  const attached = new Set(messages.flatMap((m) => m.parts.flatMap((p) => (p.type === 'tool' && p.requestId ? [p.requestId] : []))))
+  const loose = conversationId ? pending.filter((p) => p.conversationId === conversationId && !attached.has(p.id)) : []
   const last = messages[messages.length - 1]
   const signature = `${messages.length}:${last?.parts.length ?? 0}:${last?.status ?? ''}:${JSON.stringify(last?.parts.at(-1) ?? '').length}`
   useEffect(() => {
@@ -178,6 +183,9 @@ export function ChatThread({
     <div className="space-y-4 px-4 py-4" onClick={interceptLinks}>
       {messages.map((m) => (
         <Message key={m.id} message={m} pending={pending} onRespond={onRespond} />
+      ))}
+      {loose.map((req) => (
+        <ApprovalCard key={req.id} request={req} onRespond={(d) => onRespond(req.id, d)} />
       ))}
       <div ref={end} />
     </div>

@@ -29,4 +29,6 @@ export interface Project {
   git?: GitInfo
   stack?: StackInfo
   pinned?: boolean
+  /** Added by a paired device: reachable remotely only inside the shared folders. */
+  addedRemotely?: boolean
 }
