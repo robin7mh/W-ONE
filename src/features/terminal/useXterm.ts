@@ -61,6 +61,9 @@ export interface XtermApi {
 /** Lines of a view kept for the next start. */
 const SAVED_LINES = 1000
 
+/** How long a view's size must hold still before the terminal (and its shell) takes it. */
+export const FIT_SETTLE_MS = 120
+
 /** Serialized output as plain text: colors and cursor moves dropped (a restored tab shows it greyed). */
 export function plainText(serialized: string): string {
   return serialized
@@ -241,16 +244,27 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
     })
 
     // Hidden module (display:none) has no size — fit only when measurable.
+    let sized = false
+    let settling = 0
     const doFit = () => {
+      window.clearTimeout(settling)
       if (el.clientWidth > 0 && el.clientHeight > 0) {
         try {
           fit.fit()
+          sized = true
         } catch {
           /* renderer not ready yet */
         }
       }
     }
-    const ro = new ResizeObserver(doFit)
+    // A divider being dragged resizes the view every frame; a fit each time makes the
+    // shell redraw its prompt each time (it flickers). Fit once the size has settled —
+    // at once while the view has never had a real size.
+    const ro = new ResizeObserver(() => {
+      if (!sized) return doFit()
+      window.clearTimeout(settling)
+      settling = window.setTimeout(doFit, FIT_SETTLE_MS)
+    })
     ro.observe(el)
     doFit()
 
@@ -278,6 +292,7 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
       unregister()
       commands.dispose()
       ro.disconnect()
+      window.clearTimeout(settling)
       mo.disconnect()
       term.dispose()
       termRef.current = null

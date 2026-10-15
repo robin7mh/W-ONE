@@ -229,9 +229,10 @@ describe('FilesView', () => {
     await settle()
     expect(sent('finder:list').at(-1)).toEqual({ path: '/home', hidden: true })
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
-    expect(screen.queryByText('Select a file to preview it')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
-    expect(screen.getByText('Select a file to preview it')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('complementary', { name: 'Preview' })).toBeNull() // nothing selected: no pane, the files get the room
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
     const name = screen.getByRole('textbox', { name: 'New folder' }) as HTMLInputElement
     expect(name.value).toBe('untitled folder')
@@ -690,7 +691,7 @@ describe('files building blocks', () => {
       act(() => useFiles.setState({ preview: p, selected: [p.entry.path] }))
     }
     const { container, rerender } = render(<PreviewPane actions={actions} editable={false} browsable={false} />)
-    expect(screen.getByText('Select a file to preview it')).toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement() // nothing selected: no pane
     view({ entry: entry('/a/photo.png'), type: 'image' })
     expect(container.querySelector('img[alt="photo.png"]')!.getAttribute('src')).toBe('mindeck-file://local/a/photo.png')
     view({ entry: entry('/a/clip.mp4'), type: 'video' })
@@ -727,6 +728,11 @@ describe('files building blocks', () => {
     rerender(<PreviewPane actions={actions} editable browsable />)
     expect(screen.queryByRole('button', { name: 'Open in Editor' })).toBeNull()
     act(() => useFiles.setState({ selected: ['/a', '/b'] }))
-    expect(screen.getByText('Select a file to preview it')).toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement() // several: no pane either
+    // × closes it: the selection goes, and with it the pane
+    view({ entry: entry('/a/blob.bin'), type: 'binary' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close the preview' }))
+    expect(useFiles.getState().selected).toEqual([])
+    expect(container).toBeEmptyDOMElement()
   })
 })

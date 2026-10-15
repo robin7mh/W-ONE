@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Code2, Cpu, FolderGit2, GitBranch, Play, Power, SlidersHorizontal, Square, TerminalSquare, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Cpu, FolderGit2, GitBranch, Play, Power, SlidersHorizontal, Square, TerminalSquare, X } from 'lucide-react'
 import type { ChatMessage } from '@shared/types/ai'
 import type { AgentSession, SessionOption, SessionStatus } from '@shared/types/agents'
-import { isDesktop } from '@shared/ipc/client'
 import { Select } from '@/components/ui/Select'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
@@ -156,7 +155,7 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
   const shownId = agentTerminal ? (terminal || needsTerminal ? agentTerminal : undefined) : terminal ? shellId : undefined
   const showTerminal = !!shownId
   const repo = session.repoUrl ? repoLink(session.repoUrl) : undefined
-  const { send, interrupt, stop, resume, clearError, rename, openShell, openInEditor } = useAgents.getState()
+  const { send, interrupt, stop, resume, clearError, rename, openShell } = useAgents.getState()
 
   const toggleTerminal = async () => {
     if (showTerminal) return setTerminal(false)
@@ -187,11 +186,6 @@ export function SessionPane({ session, messages }: { session: AgentSession; mess
             <a href={session.repoUrl} target="_blank" rel="noreferrer" className={iconButton} title={t.agents.openUrl(session.repoUrl!)}>
               <repo.Icon size={12} /> {repo.label}
             </a>
-          )}
-          {isDesktop() && (
-            <button type="button" className={iconButton} title={t.agents.openInVsCode(session.cwd)} onClick={() => void openInEditor(session.id)}>
-              <Code2 size={12} /> VS Code
-            </button>
           )}
           <button
             type="button"

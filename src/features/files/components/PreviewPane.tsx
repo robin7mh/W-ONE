@@ -1,5 +1,5 @@
 import { useMemo, useState, type MouseEvent } from 'react'
-import { Code2, ExternalLink, FolderSearch, Globe } from 'lucide-react'
+import { Code2, ExternalLink, FolderSearch, Globe, X } from 'lucide-react'
 import type { FinderPreview } from '@shared/types/finder'
 import { extOf } from '@shared/types/finder'
 import { TechLabel } from '@/components/ui/TechLabel'
@@ -85,13 +85,8 @@ export function PreviewPane({ actions, editable, browsable }: { actions: Preview
   const count = useFiles((s) => s.selected.length)
   const info = useFiles((s) => (s.info?.entry.path === s.preview?.entry.path ? s.info : undefined))
   const size = useFiles((s) => s.size)
-  if (!preview || count !== 1) {
-    return (
-      <aside className="flex w-80 shrink-0 items-center justify-center border-l border-hud/50 p-4">
-        <p className="text-center font-sans text-[12px] text-text-muted">{t.files.selectHint}</p>
-      </aside>
-    )
-  }
+  // Nothing selected (or several): no pane, the files get the room.
+  if (!preview || count !== 1) return null
   const { entry } = preview
   return (
     <aside aria-label={t.files.preview} className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-hud/50">
@@ -100,6 +95,15 @@ export function PreviewPane({ actions, editable, browsable }: { actions: Preview
         <span className="min-w-0 flex-1 truncate font-sans text-[13px] font-medium text-text-primary" title={entry.name}>
           {entry.name}
         </span>
+        <button
+          type="button"
+          aria-label={t.files.closePreview}
+          title={t.files.closePreview}
+          onClick={() => useFiles.getState().clearSelection()}
+          className="shrink-0 rounded p-0.5 text-text-muted transition-colors hover:bg-elevated hover:text-text-primary"
+        >
+          <X size={13} />
+        </button>
       </div>
       <div className="p-3">
         <Body preview={preview} />

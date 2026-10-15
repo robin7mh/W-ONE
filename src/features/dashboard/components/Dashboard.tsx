@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { motion } from 'framer-motion'
 import { ArrowUpRight, BrainCircuit, Cpu, FolderGit2, GitBranch, Send, Sparkles } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { Project } from '@shared/types/project'
@@ -18,12 +17,6 @@ import { slotColor } from '@/features/memory/components/GraphView'
 import { useT } from '@/lib/i18n'
 import { greeting, isoWeek, longDate } from '../i18n'
 import { HudClock } from './HudClock'
-
-const rise = (delay: number) => ({
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] as const }
-})
 
 /**
  * Core: the personal HUD. Greeting, date and a calm clock, plus three tiles
@@ -44,7 +37,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
   return (
     <Panel title={t.dashboard.panel} corners className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-col overflow-y-auto">
       <div className="flex min-h-full flex-col items-center justify-between gap-8 px-6 py-8">
-        <motion.header {...rise(0.05)} className="text-center">
+        <header className="text-center">
           <h1 className="font-sans text-[34px] font-semibold tracking-tight text-text-primary">
             {greeting(now, t)}
             {firstName && <span className="text-cyan text-glow-cyan">, {firstName}</span>}
@@ -56,21 +49,21 @@ export function Dashboard({ onNavigate }: { onNavigate: (id: ModuleId) => void }
               {t.dashboard.week} {isoWeek(now)}
             </span>
           </p>
-        </motion.header>
+        </header>
 
-        <motion.div {...rise(0.15)}>
+        <div>
           <HudClock now={now} />
-        </motion.div>
+        </div>
 
-        <motion.div {...rise(0.2)} className="w-full max-w-2xl">
+        <div className="w-full max-w-2xl">
           <AskBar onNavigate={onNavigate} />
-        </motion.div>
+        </div>
 
-        <motion.div {...rise(0.25)} className="grid w-full max-w-5xl grid-cols-1 gap-3 pane-md:grid-cols-3">
+        <div className="grid w-full max-w-5xl grid-cols-1 gap-3 pane-md:grid-cols-3">
           <ProjectsTile onNavigate={onNavigate} />
           <BrainTile onNavigate={onNavigate} />
           <SystemTile />
-        </motion.div>
+        </div>
       </div>
     </Panel>
   )

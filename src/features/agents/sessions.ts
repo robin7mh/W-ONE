@@ -43,7 +43,6 @@ interface AgentsState {
   rename: (id: string, title: string) => Promise<void>
   /** A shell in the session's folder (ACP agents have no terminal of their own). */
   openShell: (id: string) => Promise<string | undefined>
-  openInEditor: (id: string) => Promise<void>
   loadChanges: (id?: string) => Promise<void>
   loadBranch: (id?: string) => Promise<void>
   showDiff: (path: string) => Promise<void>
@@ -215,7 +214,6 @@ export const useAgents = create<AgentsState>((set, get) => {
       }
     },
 
-    openInEditor: (id) => act((x) => ipc('agents:openInEditor', { id: x }), id),
 
     loadChanges: (id) =>
       act(async (x) => {

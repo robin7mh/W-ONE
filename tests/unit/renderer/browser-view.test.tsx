@@ -151,6 +151,18 @@ describe('browser edges', () => {
 })
 
 describe('TabStrip', () => {
+  it('keeps the shown tab in sight: a new tab at the end scrolls the strip to it', () => {
+    bridge()
+    const scrolled = vi.mocked(Element.prototype.scrollIntoView)
+    scrolled.mockClear()
+    useBrowser.setState({ state: state([tab('a', 'https://a.dev/', { title: 'A' })], { activeId: 'a' }) })
+    render(<TabStrip />)
+    expect(scrolled.mock.contexts.at(-1)).toHaveTextContent('A')
+    show(state([tab('a', 'https://a.dev/', { title: 'A' }), tab('n', '')], { activeId: 'n' }))
+    expect(scrolled.mock.contexts.at(-1)).toHaveTextContent('New tab')
+    expect(scrolled).toHaveBeenLastCalledWith({ block: 'nearest', inline: 'nearest' })
+  })
+
   it('shows tabs with icons, sound and the agent’s mark — and switches, closes, mutes and reorders them', async () => {
     const { sent } = bridge()
     useBrowser.setState({

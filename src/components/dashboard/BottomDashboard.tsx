@@ -33,6 +33,7 @@ function writeOpen(open: boolean): void {
  * Collapsible Command Deck (P9): which agents are running (with stop), what
  * waits for approval, and the live activity stream. Collapsed by default so
  * the bottom of the shell stays calm; the header still shows live counts.
+ * Open, it floats over the workspace — the panes underneath keep their size.
  */
 export function BottomDashboard({
   onOpenConversation,
@@ -61,7 +62,7 @@ export function BottomDashboard({
   }
 
   return (
-    <section className="flex shrink-0 flex-col border-t border-hud/70 bg-surface/40 backdrop-blur-sm">
+    <section className="relative flex shrink-0 flex-col border-t border-hud/70 bg-surface/40 backdrop-blur-sm">
       <button
         type="button"
         onClick={toggle}
@@ -92,14 +93,17 @@ export function BottomDashboard({
 
       <AnimatePresence initial={false}>
         {open && (
+          // A dialog to the workspace: over the browser's page, the page shows as a still picture.
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+            role="dialog"
+            aria-label={t.deck.title}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-x-2.5 bottom-full z-40 rounded-t-lg border border-b-0 border-hud/70 bg-panel/95 shadow-2xl shadow-black/50 backdrop-blur-md"
           >
-            <div className="grid h-40 grid-cols-1 gap-2 px-3 pb-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="grid h-40 grid-cols-1 gap-2 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
               <div className="min-h-0 overflow-y-auto rounded-md border border-hud/50 bg-surface/40 p-2">
                 <TechLabel className="text-text-muted">{t.deck.agents}</TechLabel>
                 {running.length + live.length === 0 ? (
