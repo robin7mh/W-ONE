@@ -1,6 +1,10 @@
 // How Mindeck starts Claude Code: the unmodified binary, signed in with the
 // user's own account, with everything Mindeck needs passed per session on the
-// command line — the user's ~/.claude settings are never touched.
+// command line — the user's ~/.claude settings are never touched. The
+// session's token never is on it (`ps` shows a command line to every user of
+// the machine): hooks and the memory server come from files only the user
+// can read (`--settings <file>`, `--mcp-config <file>`), the relay hook reads
+// it from the environment.
 
 import type { AgentCommand } from '@shared/types/agents'
 
@@ -48,12 +52,18 @@ export function hookSettings(hookUrl: string, token: string) {
   return { hooks }
 }
 
+/** `--mcp-config`: Mindeck's memory server, with the session's token. */
+export function mcpConfig(mcpUrl: string, token: string) {
+  return { mcpServers: { mindeck: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${token}` } } } }
+}
+
 export interface LaunchInput {
   sessionId: string
   title: string
-  hookUrl: string
-  mcpUrl: string
-  token: string
+  /** hookSettings() as a file (0600): it holds the session's token. */
+  settingsFile: string
+  /** mcpConfig() as a file (0600): it holds the session's token. */
+  mcpFile: string
   /** Continue an earlier session (its transcript) instead of starting a new one. */
   resume?: boolean
   /** First message (new sessions only). */
@@ -65,15 +75,14 @@ export interface LaunchInput {
 }
 
 export function claudeArgs(input: LaunchInput): string[] {
-  const mcp = { mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: `Bearer ${input.token}` } } } }
   const args = [
     ...(input.resume ? ['--resume', input.sessionId] : ['--session-id', input.sessionId, '--name', input.title]),
     ...(input.model && input.model !== 'default' ? ['--model', input.model] : []),
     ...(input.mode && input.mode !== 'default' ? ['--permission-mode', input.mode] : []),
     '--settings',
-    JSON.stringify(hookSettings(input.hookUrl, input.token)),
+    input.settingsFile,
     '--mcp-config',
-    JSON.stringify(mcp),
+    input.mcpFile,
     '--append-system-prompt',
     SYSTEM_HINT,
     '--allowedTools',

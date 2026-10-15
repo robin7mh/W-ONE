@@ -356,6 +356,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
   const agents: AgentSessionService = new AgentSessionService({
     dir: paths.agentsDir,
+    // Pasted images in the data folder (0700), not in a /tmp other users share.
+    tempDir: join(paths.agentsDir, 'images'),
     worktreesDir: paths.worktreesDir,
     terminal,
     git: new GitService(),
