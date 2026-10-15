@@ -356,6 +356,26 @@ describe('standalone server entry', () => {
     await expect(call('agents:create', { kind: 'claude-code', projectId: 'nope' })).rejects.toThrow('Project not found')
     await call('agents:openInEditor', { id: session.id })
     expect(openInVsCode).toHaveBeenCalledWith(expect.any(String), expect.anything())
+
+    // A finished turn goes to the phone too — not here: no Mindeck account.
+    expect((await post(hookUrl, { hook_event_name: 'Stop', last_assistant_message: 'done' })).status).toBe(204)
+    expect(await call('agents:pushSettings')).toEqual({ enabled: true, signedIn: false })
+    // Notes are referenced in the vault (which doesn't exist yet).
+    await expect(call('agents:send', { id: session.id, text: 'x', refs: [{ kind: 'note', path: 'a.md' }] })).rejects.toThrow()
+  })
+
+  it('tells the phone nothing while Mindeck is in front', async () => {
+    const isFocused = vi.fn(() => true)
+    const c = await core({ mode: 'desktop', isFocused })
+    const call = async <T,>(channel: string, payload?: unknown) => {
+      const res = await c.router.dispatch(channel, payload, { transport: 'ipc' })
+      if (!res.ok) throw new Error(res.error.message)
+      return res.data as T
+    }
+    const project = await call<{ id: string }>('projects:add', { path: await tempDir() })
+    const session = await call<{ id: string }>('agents:create', { kind: 'claude-code', projectId: project.id })
+    await c.agents.handleHook(session.id, { hook_event_name: 'Stop' }, new AbortController().signal)
+    expect(isFocused).toHaveBeenCalled()
   })
 
   it('reads its config from the environment', () => {
@@ -390,6 +410,21 @@ describe('standalone server entry', () => {
     const again = (await run([], { MINDECK_PORT: '0' }))!
     cores.push(again)
     expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Mindeck pairing'))
+  })
+
+  it('needs a license when Mindeck Cloud is built in — never because of NODE_ENV at run time', async () => {
+    const open = (await run([], { MINDECK_PORT: '0', NODE_ENV: 'production' }))!
+    cores.push(open)
+    expect(open.cloud.status().enforced).toBe(false)
+    Object.assign(globalThis, { __MINDECK_CLOUD_URL__: 'http://127.0.0.1:9', __MINDECK_CLOUD_KEY__: 'KEY' })
+    try {
+      const release = (await run([], { MINDECK_PORT: '0', NODE_ENV: 'development', MINDECK_LICENSE: 'off' }))!
+      cores.push(release)
+      expect(release.cloud.status()).toMatchObject({ enforced: true, allowed: false })
+    } finally {
+      delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_URL__
+      delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_KEY__
+    }
   })
 
   it('fails loudly when the port is taken', async () => {

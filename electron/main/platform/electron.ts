@@ -52,6 +52,19 @@ export const electronPlatform: Platform = {
   }
 }
 
+/**
+ * Whether stored secrets are really protected by the OS keychain. On Linux
+ * without a keyring (no Secret Service, no KWallet) Electron falls back to a
+ * fixed built-in key (`basic_text`) — as good as plain text — or offers no
+ * encryption at all. Settings warns about that instead of keeping quiet.
+ */
+export function secretsProtected(platform: NodeJS.Platform = process.platform): boolean {
+  if (!safeStorage.isEncryptionAvailable()) return false
+  if (platform !== 'linux') return true
+  const backend = safeStorage.getSelectedStorageBackend()
+  return backend !== 'basic_text' && backend !== 'unknown'
+}
+
 /** OS-keychain encryption for stored secrets, when the OS offers it. */
 export function electronCipher(): Cipher | undefined {
   if (!safeStorage.isEncryptionAvailable()) return undefined

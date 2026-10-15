@@ -28,6 +28,8 @@ export interface MindeckPaths {
   agentsDir: string
   /** Isolated git worktrees for agents working in parallel — visible, so nothing hides. */
   worktreesDir: string
+  /** ~/Mindeck/logs — the desktop app's log files (rotated) and, under `crashes`, local crash reports. */
+  logsDir: string
 }
 
 /** The home before the app was called Mindeck — used as it is until ~/Mindeck exists (moving it over is up to the user). */
@@ -55,7 +57,8 @@ export function mindeckPaths(home = homedir()): MindeckPaths {
     eventsFile: join(dataDir, 'events.jsonl'),
     runsFile: join(dataDir, 'runs.json'),
     agentsDir: join(dataDir, 'agents'),
-    worktreesDir: join(homeDir, 'worktrees')
+    worktreesDir: join(homeDir, 'worktrees'),
+    logsDir: join(homeDir, 'logs')
   }
 }
 

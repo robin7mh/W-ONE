@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Check, FolderGit2, GitBranch, Loader2, Sparkles, TerminalSquare, X } from 'lucide-react'
+import { Check, Cpu, FolderGit2, GitBranch, Loader2, SlidersHorizontal, Sparkles, TerminalSquare, X } from 'lucide-react'
 import type { AgentAvailability, AgentKind } from '@shared/types/agents'
+import { CLAUDE_MODELS, CLAUDE_MODES } from '@shared/types/claude'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { Select } from '@/components/ui/Select'
@@ -48,6 +49,8 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
   const [projectId, setProjectId] = useState(() => useProjects.getState().selectedId ?? projects[0]?.id ?? '')
   const [isolated, setIsolated] = useState(false)
   const [prompt, setPrompt] = useState(initialPrompt)
+  const [model, setModel] = useState('default')
+  const [mode, setMode] = useState('default')
 
   // Default to the first agent that is ready (else the assistant).
   useEffect(() => {
@@ -75,7 +78,8 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
       return
     }
     if (!choice || !projectId) return
-    await create({ kind: choice, projectId, isolated, prompt: prompt.trim() || undefined })
+    const claude = choice === 'claude-code' ? { model, mode } : {}
+    await create({ kind: choice, projectId, isolated, prompt: prompt.trim() || undefined, ...claude })
   }
 
   return (
@@ -147,6 +151,31 @@ export function NewChatDialog({ prompt: initialPrompt = '', onOpenSettings }: { 
               </span>
             </span>
           </label>
+        )}
+
+        {choice === 'claude-code' && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <TechLabel className="text-text-muted">{t.agents.model}</TechLabel>
+              <Select
+                label={t.agents.model}
+                icon={Cpu}
+                value={model}
+                onChange={setModel}
+                options={CLAUDE_MODELS.map((o) => ({ value: o.id, label: o.id === 'default' ? t.agents.defaultModel : o.name }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <TechLabel className="text-text-muted">{t.agents.mode}</TechLabel>
+              <Select
+                label={t.agents.mode}
+                icon={SlidersHorizontal}
+                value={mode}
+                onChange={setMode}
+                options={CLAUDE_MODES.map((o) => ({ value: o.id, label: t.agents.claudeModes[o.id], hint: t.agents.claudeModeHints[o.id] }))}
+              />
+            </div>
+          </div>
         )}
 
         <textarea
