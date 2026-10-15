@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
 import type { IpcResult } from '@shared/ipc/contract'
 import type { BrowserState } from '@shared/types/browser'
 import { expect, test } from './fixtures'
+import { localSite } from './helpers'
 
 test('boots into the Command Center without any database; the activity log is a file', async ({ page, home }) => {
   await expect(page.getByText('Command Center').first()).toBeVisible()
@@ -193,20 +192,6 @@ test('agents: a coding agent session — chat, approval in Mindeck, the change a
   await page.getByLabel('End session').click()
   await expect(page.getByText('· Ended')).toBeVisible()
 })
-
-/** A local site for the browser: `/` and `/second`, each with its own title. */
-async function localSite() {
-  const server = createServer((req, res) => {
-    if (req.url === '/favicon.ico') {
-      res.statusCode = 404
-      return void res.end()
-    }
-    res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(req.url === '/second' ? '<!doctype html><title>Second page</title><h1>Second</h1>' : '<!doctype html><title>Mindeck E2E</title><h1>Hello from localhost</h1>')
-  })
-  await new Promise<void>((done) => server.listen(0, done))
-  return { port: (server.address() as AddressInfo).port, close: () => new Promise<void>((done) => server.close(() => done())) }
-}
 
 test('browser: a local page in a real Chromium tab — back and forth, kept across modules, remembered', async ({ page, home }) => {
   const site = await localSite()
