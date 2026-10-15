@@ -26,6 +26,8 @@ export interface AppSettings {
   browser?: Partial<BrowserSettings>
   /** Desktop (Windows/Linux): closing the window while agents or terminals run. Unset = ask. */
   closeBehavior?: CloseBehavior
+  /** The agent cockpit: push notifications to the phone (Mindeck Cloud; on by default while signed in). */
+  agents?: { pushToPhone?: boolean }
   /** Settings Sync: the account copy's version this core last saved or loaded. */
   sync?: { version: number; syncedAt: string }
 }
