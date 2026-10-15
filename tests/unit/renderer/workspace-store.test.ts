@@ -173,6 +173,12 @@ describe('workspace actions', () => {
     rememberFocus('p2', b) // remembered somewhere else: the pane itself
     focusInto('p2')
     expect(document.activeElement).toBe(document.querySelector('[data-pane-id="p2"]'))
+    // a dialog that opened in the meantime keeps the focus
+    document.body.insertAdjacentHTML('beforeend', '<div role="dialog"><input id="d" /></div>')
+    const d = document.getElementById('d') as HTMLInputElement
+    d.focus()
+    focusInto('p1')
+    expect(document.activeElement).toBe(d)
     document.body.innerHTML = ''
   })
 

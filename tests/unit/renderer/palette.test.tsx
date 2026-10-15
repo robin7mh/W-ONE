@@ -436,6 +436,11 @@ describe('the shortcut overview', () => {
     open()
     fireEvent.mouseDown(screen.getByRole('dialog').parentElement!)
     expect(usePalette.getState().view).toBeUndefined()
+    // Escape closes it with the focus anywhere
+    open()
+    document.body.focus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(usePalette.getState().view).toBeUndefined()
   })
 })
 
