@@ -1,22 +1,11 @@
 import { mkdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { userInfo } from 'node:os'
 import { basename, extname, join, sep } from 'node:path'
+import { coded, nodeTrashHost, trashGone, type RestorableTrash, type TrashHost } from './trashHost'
+import { macTrash } from './trashMac'
+import { windowsTrash } from './trashWindows'
 
-/**
- * The freedesktop.org trash (`~/.local/share/Trash`), the one GNOME and KDE
- * use — done by Mindeck itself on Linux, so it knows where each item went
- * and can put it back (⌘Z). macOS and Windows hide that from apps: there
- * the OS trash is used and trashing cannot be undone from Mindeck.
- */
-export interface RestorableTrash {
-  /** Moves `path` into the trash; returns where it now lies. Fails with EXDEV for other disks. */
-  trash(path: string): Promise<string>
-  /** Puts a trashed item back at `to` (which must be free). */
-  restore(trashed: string, to: string): Promise<void>
-}
-
-function coded(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code })
-}
+export type { RestorableTrash, TrashHost } from './trashHost'
 
 /** `YYYY-MM-DDThh:mm:ss` in local time, as the spec wants it. */
 function deletionDate(d: Date): string {
@@ -24,9 +13,24 @@ function deletionDate(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-/** The desktop's undoable trash: Linux has one Mindeck can use, macOS and Windows do not. */
-export function desktopTrash(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): RestorableTrash | undefined {
-  return platform === 'linux' ? freedesktopTrash(env.XDG_DATA_HOME || join(home, '.local', 'share')) : undefined
+export interface DesktopTrashOptions {
+  platform: NodeJS.Platform
+  env: NodeJS.ProcessEnv
+  home: string
+  /** The OS trash as Electron offers it (no way back) — where the restorable one cannot be used. */
+  trashItem: (path: string) => Promise<void>
+  host?: TrashHost
+  /** The user's id — macOS names its trash on other disks after it (default: this process's user). */
+  uid?: number
+}
+
+/** The desktop's undoable trash; undefined on systems without one. */
+export function desktopTrash(opts: DesktopTrashOptions): RestorableTrash | undefined {
+  const host = opts.host ?? nodeTrashHost
+  if (opts.platform === 'linux') return freedesktopTrash(opts.env.XDG_DATA_HOME || join(opts.home, '.local', 'share'))
+  if (opts.platform === 'darwin') return macTrash({ home: opts.home, uid: opts.uid ?? userInfo().uid, host, trashItem: opts.trashItem })
+  if (opts.platform === 'win32') return windowsTrash({ host, trashItem: opts.trashItem })
+  return undefined
 }
 
 export function freedesktopTrash(dataHome: string, now: () => Date = () => new Date()): RestorableTrash {
@@ -64,7 +68,7 @@ export function freedesktopTrash(dataHome: string, now: () => Date = () => new D
     async restore(trashed, to) {
       // Only what lies directly in this trash — never a path from elsewhere.
       const real = await realpath(trashed).catch(() => {
-        throw coded('not-found', 'It is no longer in the trash')
+        throw trashGone()
       })
       const realFiles = await realpath(files)
       const name = basename(real)

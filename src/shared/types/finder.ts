@@ -48,6 +48,12 @@ export interface TrashedItem {
   restore?: string
 }
 
+/** Undo of a trash: where each came back to (a taken name keeps both), and what had left the trash since. */
+export interface UntrashResult {
+  items: { path: string; to: string }[]
+  gone: string[]
+}
+
 export interface TransferResult {
   /** What went where. */
   items: { from: string; to: string }[]

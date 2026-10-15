@@ -495,6 +495,18 @@ describe('FilesView', () => {
       vi.advanceTimersByTime(3600)
     })
     expect(screen.queryByText('3 items moved to the Trash')).toBeNull()
+    act(() => useFiles.setState({ notice: { key: 'trashed', count: 3, noUndo: 1 } }))
+    expect(screen.getByText('3 items moved to the Trash · 1 of them cannot be put back with ⌘Z')).toBeInTheDocument()
+    // ⌘Z after the trash was emptied: what is lost, by name.
+    act(() => useFiles.setState({ error: 'a.txt, b.txt', errorCode: 'trash-gone' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('No longer in the Trash, so it cannot come back: a.txt, b.txt')
+    expect(screen.queryByRole('button', { name: 'Open System Settings' })).toBeNull()
+    // macOS without Full Disk Access: which switch, and a way there.
+    act(() => useFiles.setState({ error: 'EPERM', errorCode: 'full-disk-access' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('only with Full Disk Access')
+    fireEvent.click(screen.getByRole('button', { name: 'Open System Settings' }))
+    await settle()
+    expect(useFiles.getState().errorCode).toBe('full-disk-access')
     act(() => useFiles.setState({ listing: { path: '/home/shop/src', parent: '/home/shop', entries: [], total: 0, offset: 0 } }))
     expect(screen.getByText('This folder is empty')).toBeInTheDocument()
     act(() => useFiles.setState({ selected: ['/x'] }))

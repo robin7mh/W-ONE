@@ -101,6 +101,7 @@ describe('browser and files channels', () => {
       ['finder:open', { path: '/a.txt' }, 'open', ['/a.txt']],
       ['finder:reveal', { path: '/a.txt' }, 'reveal', ['/a.txt']],
       ['finder:untrash', { items: [{ path: '/a', restore: '/t/a' }] }, 'untrash', [[{ path: '/a', restore: '/t/a' }]]],
+      ['finder:privacySettings', undefined, 'privacySettings', []],
       ['finder:conflicts', { paths: ['/a'], dest: '/b' }, 'conflicts', [['/a'], '/b']],
       [
         'finder:transfer',
