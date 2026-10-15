@@ -33,6 +33,7 @@ describe('browser store', () => {
     expect(handlers.reveal).toHaveBeenCalled()
     bridge.emit('browser:command', { command: 'focused' }) // nobody asked to hear about page focus
     expect(handlers.sendToAgent).toHaveBeenCalledTimes(1)
+    bridge.emit('browser:command', { command: 'workspaceKey', key: { key: '\\', code: 'Backslash', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false } }) // nor about keys
 
     // no tab: nothing to send
     bridge.emit('browser:state', state([]))
@@ -56,6 +57,12 @@ describe('browser store', () => {
     expect(second.reveal).toHaveBeenCalled()
     bridge.emit('browser:command', { command: 'focused' }) // a click into the page
     expect(second.focused).toHaveBeenCalledTimes(1)
+    const key = { key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, ctrlKey: false, altKey: true, shiftKey: false }
+    const withKeys = { ...second, workspaceKey: vi.fn() }
+    useBrowser.getState().connect(withKeys)
+    bridge.emit('browser:command', { command: 'workspaceKey', key }) // a workspace key pressed in a page
+    expect(withKeys.workspaceKey).toHaveBeenCalledWith(key)
+    useBrowser.getState().connect(second)
     useBrowser.getState().connect(first)
     offSecond() // the first's listeners stay, without handlers
     offFirst()

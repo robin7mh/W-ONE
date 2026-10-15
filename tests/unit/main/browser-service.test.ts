@@ -568,6 +568,9 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     const active = () => b.state().activeId
     events.focused('x') // a click into a page: the UI moves its focus to the browser's pane
     expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'focused' } })
+    const wsKey = { key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true, ctrlKey: false, altKey: true, shiftKey: false }
+    events.workspaceKey(wsKey) // a pane key pressed in a page: the UI's workspace acts on it
+    expect(published.at(-1)).toEqual({ channel: 'browser:command', payload: { command: 'workspaceKey', key: wsKey } })
     events.shortcut('newTab')
     expect(b.state().tabs.at(-1)!.url).toBe('')
     expect(host.focusUi).toHaveBeenCalled()
@@ -605,7 +608,7 @@ describe('BrowserService · keys, commands and links from Mindeck', () => {
     events.shortcut('hardReload')
     await tick()
     const commands = published.filter((p) => p.channel === 'browser:command').map((p) => (p.payload as { command: string }).command)
-    expect(commands).toEqual(['focused', 'focusOmnibox', 'focusOmnibox', 'find'])
+    expect(commands).toEqual(['focused', 'workspaceKey', 'focusOmnibox', 'focusOmnibox', 'find'])
   })
 
   it('answers the page: search for a selection, send to an agent, find results, console', async () => {

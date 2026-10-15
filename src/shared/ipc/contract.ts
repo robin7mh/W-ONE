@@ -105,7 +105,8 @@ import type {
   BrowserTab,
   BrowserTool,
   HistoryEntry,
-  ViewBounds
+  ViewBounds,
+  WorkspaceKey
 } from '@shared/types/browser'
 import type {
   FinderEntry,
@@ -956,7 +957,7 @@ export interface IpcEvents {
   'browser:state': BrowserState
   'browser:find': BrowserFind
   /** A shortcut or menu (maybe pressed while a page had the focus) for the Mindeck UI. */
-  'browser:command': { command: BrowserCommand }
+  'browser:command': { command: BrowserCommand; key?: WorkspaceKey }
   /** Something opened a tab for the user (a link in a chat, the Live Server): show the browser. */
   'browser:reveal': { tabId: string }
   /** The bookmarks changed (the whole tree). */

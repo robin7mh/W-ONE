@@ -147,7 +147,8 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
     { useSystemPicker: true }
   )
 
-  ses.on('will-download', (_event, item) => track(item, current))
+  // A private tab's profile lives in memory: its downloads are listed, never written down.
+  ses.on('will-download', (_event, item) => track(item, current, !ses.isPersistent()))
 
   // Ads, trackers and malware: every request asks the blocker (pages and their frames; a popup counts for no tab).
   ses.webRequest.onBeforeRequest((details, callback) => {
@@ -170,7 +171,7 @@ export function configureBrowserSession(ses: Session, current: () => SessionTarg
  * user wants to be asked (or picked "Save … As"), where the save dialog says.
  * Its progress is reported at most ~4× a second.
  */
-function track(item: DownloadItem, current: () => SessionTarget | null): void {
+function track(item: DownloadItem, current: () => SessionTarget | null, inMemory: boolean): void {
   const target = current()
   const prefs = target?.events.downloadPrefs() ?? { ask: false, dir: '' }
   const dir = prefs.dir && existsSync(prefs.dir) ? prefs.dir : app.getPath('downloads')
@@ -187,7 +188,8 @@ function track(item: DownloadItem, current: () => SessionTarget | null): void {
     state: 'progressing',
     received: 0,
     total: item.getTotalBytes(),
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    ...(inMemory ? { private: true } : {})
   }
   target?.events.download(base, { cancel: () => item.cancel() })
   // Where it went: known once the save dialog closed.
