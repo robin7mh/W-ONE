@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // --- electron double -----------------------------------------------------------
@@ -85,6 +86,7 @@ const h = vi.hoisted(() => ({
   },
   packaged: false,
   dark: true,
+  fileIconFails: false,
   migrate: vi.fn((_legacy?: string): boolean => false),
   coreOpts: undefined as undefined | Record<string, unknown>,
   hubListener: undefined as undefined | ((channel: string, payload: unknown) => void),
@@ -121,7 +123,11 @@ vi.mock('electron', () => ({
     getLocale: () => 'de-DE',
     setPath: h.setPath,
     requestSingleInstanceLock: () => h.singleInstance,
-    quit: h.quit
+    quit: h.quit,
+    getFileIcon: async (path: string) => {
+      if (h.fileIconFails) throw new Error('no icon')
+      return `icon:${path}`
+    }
   },
   crashReporter: { start: h.crashStart },
   Menu: { buildFromTemplate: (items: unknown) => items },
@@ -159,6 +165,7 @@ vi.mock('electron', () => ({
     handle: (_scheme: string, fn: (request: unknown) => unknown) => (h.protocolHandler = fn)
   },
   nativeImage: {
+    createFromDataURL: (url: string) => `image:${url.slice(0, 22)}`,
     createFromPath: (path: string) => ({ resize: (size: { width: number }) => ({ path, size: size.width }) }),
     createThumbnailFromPath: async (path: string, size: { width: number }) => ({
       isEmpty: () => h.thumbnail.empty,
@@ -473,6 +480,28 @@ describe('window wiring', () => {
     const discard = { preventDefault: vi.fn() }
     veto(discard)
     expect(discard.preventDefault).toHaveBeenCalled() // ignore the veto → close
+  })
+
+  it('drags files out as an OS drag with their icon — only from Mindeck’s page, only real absolute paths', async () => {
+    await boot({ devUrl: 'http://localhost:5173' })
+    const startDrag = vi.fn()
+    const drag = (paths: unknown, frame: { url: string } | null = { url: 'http://localhost:5173/' }) =>
+      h.ipcOn.get('files:start-drag')!({ senderFrame: frame, sender: { startDrag } }, paths)
+    const file = join(process.cwd(), 'package.json')
+    drag([file, 'relative', '/no/such/file', 42])
+    await flush()
+    expect(startDrag).toHaveBeenLastCalledWith({ file, files: [file], icon: `icon:${file}` })
+    h.fileIconFails = true
+    drag([file])
+    await flush()
+    expect(startDrag).toHaveBeenLastCalledWith({ file, files: [file], icon: 'image:data:image/png;base64,' })
+    h.fileIconFails = false
+    drag([file], { url: 'https://evil.example/' })
+    drag([file], null)
+    drag('not a list')
+    drag(['/no/such/file'])
+    await flush()
+    expect(startDrag).toHaveBeenCalledTimes(2)
   })
 
   it('window-control IPC acts on the current window, and is safe without one', async () => {

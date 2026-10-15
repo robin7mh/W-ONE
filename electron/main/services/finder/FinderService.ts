@@ -1,12 +1,32 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { lstat, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
+import { homedir, userInfo } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
-import { fileType, type FinderEntry, type FinderListing, type FinderPlaceId, type FinderPlaces, type FinderPreview } from '@shared/types/finder'
+import {
+  fileType,
+  type FinderEntry,
+  type FinderInfo,
+  type FinderListing,
+  type FinderPlaceId,
+  type FinderPlaces,
+  type FinderPreview,
+  type FinderProgress,
+  type FolderSize,
+  type TransferRequest,
+  type TransferResult,
+  type TrashedItem
+} from '@shared/types/finder'
+import { Cancelled, copyTree, Job, measure } from './transfer'
+import { archiveKind, extract, zip } from './archive'
 
-/** Entries listed per folder (a folder with more says so). */
-const MAX_ENTRIES = 5000
+/** Entries per page of a folder: the first page shows at once, the rest follows. */
+const PAGE = 1000
+/** How long a big folder's names are kept for its next pages. */
+const LISTING_TTL_MS = 30_000
+/** Counting a folder's size stops after this long (and says so). */
+const SIZE_MS = 30_000
 const MAX_RESULTS = 300
 /** The beginning of a text file the preview shows. */
 const PREVIEW_BYTES = 256 * 1024
@@ -40,8 +60,14 @@ export interface FinderDeps {
   openPath?: (path: string) => Promise<void>
   revealPath?: (path: string) => void
   trash: (path: string) => Promise<void>
+  /** A trash Mindeck can put things back from (Linux) — makes trashing undoable. */
+  restorableTrash?: { trash(path: string): Promise<string>; restore(trashed: string, to: string): Promise<void> }
+  /** Files on the system clipboard (desktop only). */
+  clipboard?: { write(paths: string[], cut: boolean): Promise<void>; read(): Promise<string[]> }
   /** Spotlight: paths under `dir` whose name matches `query`. Absent where there is none. */
   spotlight?: (dir: string, query: string) => Promise<string[]>
+  /** Long operations report here (copies, archives, folder sizes). */
+  progress?: (p: FinderProgress) => void
 }
 
 function coded(code: string, message: string): Error {
@@ -76,7 +102,6 @@ export function checkName(name: string): string {
 
 /** `name 2.ext`, `name 3.ext`, … — the first that does not exist in `dir`. */
 export async function freeName(dir: string, name: string): Promise<string> {
-  const exists = (p: string) => lstat(p).then(() => true, () => false)
   if (!(await exists(join(dir, name)))) return join(dir, name)
   const ext = extname(name)
   const stem = name.slice(0, name.length - ext.length)
@@ -94,6 +119,10 @@ export async function freeName(dir: string, name: string): Promise<string> {
 export class FinderService {
   private readonly home: string
   private readonly roots: string[]
+  /** Running operations by id — the Stop button cancels them. */
+  private readonly jobs = new Map<string, Job>()
+  /** Big folders' sorted names, for their next pages. */
+  private listings = new Map<string, { at: number; dirents: Dirent[] }>()
 
   constructor(private readonly deps: FinderDeps) {
     this.home = deps.home ?? homedir()
@@ -123,17 +152,38 @@ export class FinderService {
     return { home: this.home, places, volumes }
   }
 
-  async list(path?: string, hidden = false): Promise<FinderListing> {
+  /**
+   * One page of a folder, `offset` on: folders first, then by name (the UI
+   * sorts again by its column). The first page reads the folder; for a big
+   * one the names are kept a while, so the next pages are quick and stable.
+   */
+  async list(path?: string, hidden = false, offset = 0): Promise<FinderListing> {
     const dir = this.absolute(path ?? this.home)
     if (!(await isDir(dir))) throw coded('not-found', `Folder not found: ${dir}`)
-    const dirents = await readdir(dir, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
-      throw coded(err.code === 'EACCES' || err.code === 'EPERM' ? 'no-access' : 'error', `Cannot read ${dir}: ${err.message}`)
-    })
-    const shown = dirents.filter((d) => hidden || !d.name.startsWith('.'))
-    const entries = await entriesOf(dir, shown.slice(0, MAX_ENTRIES))
-    entries.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : a.kind === 'dir' ? -1 : 1))
+    const key = `${hidden ? 'h' : 'v'}:${dir}`
+    const cached = this.listings.get(key)
+    let dirents = offset && cached && Date.now() - cached.at < LISTING_TTL_MS ? cached.dirents : undefined
+    if (!dirents) {
+      const all = await readdir(dir, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
+        throw coded(err.code === 'EACCES' || err.code === 'EPERM' ? 'no-access' : 'error', `Cannot read ${dir}: ${err.message}`)
+      })
+      const shown = all.filter((d) => hidden || !d.name.startsWith('.'))
+      // Links to folders sort with the folders: only links need a stat.
+      const folders = new Set(shown.filter((d) => d.isDirectory()).map((d) => d.name))
+      for (const d of shown.filter((x) => x.isSymbolicLink())) if (await isDir(join(dir, d.name))) folders.add(d.name)
+      dirents = shown.sort((a, b) => {
+        const fa = folders.has(a.name)
+        return fa === folders.has(b.name) ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : fa ? -1 : 1
+      })
+      if (dirents.length > PAGE) {
+        // A few folders at most — the ones being paged through right now.
+        this.listings = new Map([...this.listings].filter(([, l]) => Date.now() - l.at < LISTING_TTL_MS).slice(-3))
+        this.listings.set(key, { at: Date.now(), dirents })
+      }
+    }
+    const entries = await entriesOf(dir, dirents.slice(offset, offset + PAGE))
     const parent = dirname(dir)
-    return { path: dir, parent: parent === dir ? null : parent, entries, truncated: shown.length > MAX_ENTRIES }
+    return { path: dir, parent: parent === dir ? null : parent, entries, total: dirents.length, offset }
   }
 
   /** Files and folders under `path` whose name contains `query` — Spotlight where there is one, else a bounded walk. */
@@ -192,45 +242,188 @@ export class FinderService {
     return to
   }
 
-  async trash(paths: string[]): Promise<void> {
+  /** Into the trash — with where each went when Mindeck can put it back. */
+  async trash(paths: string[]): Promise<TrashedItem[]> {
     const targets = paths.map((p) => this.absolute(p))
     for (const t of targets) await this.assertWritable(t)
-    for (const t of targets) await this.deps.trash(t)
+    const out: TrashedItem[] = []
+    for (const t of targets) out.push(await this.trashOne(t))
+    return out
+  }
+
+  /** Undo for the trash: back to where they were (each place must still be free). */
+  async untrash(items: { path: string; restore: string }[]): Promise<void> {
+    const trash = this.deps.restorableTrash
+    if (!trash) throw coded('no-undo', 'This trash cannot be undone from Mindeck')
+    for (const item of items) {
+      const to = this.absolute(item.path)
+      await this.assertWritable(to)
+      await this.assertFree(to)
+      await trash.restore(this.absolute(item.restore), to)
+    }
   }
 
   /** Into `dest`; a name that is taken there gets a number (nothing is replaced). */
   async move(paths: string[], dest: string): Promise<string[]> {
-    const into = await this.destination(dest)
-    const moved: string[] = []
-    for (const p of paths.map((x) => this.absolute(x))) {
-      await this.assertWritable(p)
-      this.assertNotInside(into, p)
-      if (dirname(p) === into) {
-        moved.push(p)
-        continue
-      }
-      const target = await freeName(into, basename(p))
-      await rename(p, target).catch(async (err: NodeJS.ErrnoException) => {
-        if (err.code !== 'EXDEV') throw err
-        // Another disk: copy, then remove the original.
-        await cp(p, target, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true })
-        await rm(p, { recursive: true, force: true })
-      })
-      moved.push(target)
-    }
-    return moved
+    return (await this.transfer({ id: randomUUID(), paths, dest, mode: 'move' })).items.map((i) => i.to)
   }
 
   async copy(paths: string[], dest: string): Promise<string[]> {
-    const into = await this.destination(dest)
-    const copied: string[] = []
+    return (await this.transfer({ id: randomUUID(), paths, dest, mode: 'copy' })).items.map((i) => i.to)
+  }
+
+  /** Names of `paths` that are taken in `dest` already — what the conflict dialog asks about. */
+  async conflicts(paths: string[], dest: string): Promise<string[]> {
+    const into = this.absolute(dest)
+    const out: string[] = []
     for (const p of paths.map((x) => this.absolute(x))) {
-      this.assertNotInside(into, p)
-      const target = await freeName(into, basename(p))
-      await cp(p, target, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true })
-      copied.push(target)
+      if (dirname(p) !== into && (await exists(join(into, basename(p))))) out.push(basename(p))
     }
-    return copied
+    return out
+  }
+
+  /**
+   * Copy or move into `dest`, with progress and a way to stop. A taken name
+   * is decided per entry: keep both (the new one gets a number), skip, or
+   * replace — the one in the way goes to the trash, never deleted. Copying
+   * into the same folder duplicates; moving there changes nothing.
+   */
+  async transfer(req: TransferRequest): Promise<TransferResult> {
+    const into = await this.destination(req.dest)
+    const sources = req.paths.map((p) => this.absolute(p))
+    for (const p of sources) {
+      if (req.mode === 'move') await this.assertWritable(p)
+      this.assertNotInside(into, p)
+    }
+    const job = this.startJob(req.id, req.mode)
+    const result: TransferResult = { items: [], replaced: [], skipped: [] }
+    try {
+      // Moves on one disk are renames; copies (and moves to another disk) count bytes.
+      if (req.mode === 'copy') job.total = (await measure(sources)).bytes
+      for (const p of sources) {
+        job.check()
+        const name = basename(p)
+        let target = join(into, name)
+        if (dirname(p) === into) {
+          if (req.mode === 'move') continue
+          target = await freeName(into, name)
+        } else if (await exists(target)) {
+          const choice = req.choices?.[name] ?? 'keep'
+          if (choice === 'skip') {
+            result.skipped.push(p)
+            continue
+          }
+          if (choice === 'keep') target = await freeName(into, name)
+          else {
+            // Replacing the folder that holds what is being moved would throw that away too.
+            if (p.startsWith(target + sep)) throw coded('bad-move', `“${name}” cannot replace the folder it is in`)
+            result.replaced.push(await this.trashOne(target))
+          }
+        }
+        if (req.mode === 'move') await this.moveOne(p, target, job)
+        else await this.copyOne(p, target, job)
+        result.items.push({ from: p, to: target })
+      }
+    } catch (err) {
+      if (!(err instanceof Cancelled)) throw err
+      result.cancelled = true
+    } finally {
+      this.endJob(job)
+    }
+    return result
+  }
+
+  /** Stop a running copy, archive or count. */
+  cancel(id: string): void {
+    const job = this.jobs.get(id)
+    if (job) job.cancelled = true
+  }
+
+  /** Undo for rename and move: each `from` back to exactly `to` (which must be free). */
+  async restore(moves: { from: string; to: string }[]): Promise<void> {
+    const job = new Job(randomUUID(), 'move', () => {})
+    for (const m of moves) {
+      const from = this.absolute(m.from)
+      const to = this.absolute(m.to)
+      await this.assertWritable(from)
+      await this.assertWritable(to)
+      await this.assertFree(to)
+      await this.moveOne(from, to, job)
+    }
+  }
+
+  /** The Info panel: dates, permissions, owner — and whether Mindeck may change it. */
+  async info(path: string): Promise<FinderInfo> {
+    const abs = this.absolute(path)
+    const entry = await entryAt(abs)
+    if (!entry) throw coded('not-found', `Not found: ${abs}`)
+    const st = await stat(abs).catch(() => lstat(abs))
+    const me = process.getuid?.()
+    return {
+      entry,
+      createdMs: st.birthtimeMs,
+      accessedMs: st.atimeMs,
+      mode: st.mode & 0o7777,
+      owner: me !== undefined && st.uid === me ? userInfo().username : null,
+      writable: await this.assertWritable(abs).then(
+        () => true,
+        () => false
+      )
+    }
+  }
+
+  /** What a folder holds in all — counted for at most 30 s (then it says it is a minimum). */
+  async folderSize(path: string, id: string): Promise<FolderSize> {
+    const abs = this.absolute(path)
+    const job = this.startJob(id, 'size')
+    // Counting skips what it cannot read — only Stop ends it early.
+    const m = await measure([abs], job, Date.now() + SIZE_MS)
+      .catch(() => null)
+      .finally(() => this.endJob(job))
+    if (!m) return { bytes: job.done, files: 0, folders: 0, partial: true }
+    // The folder itself is not one of its folders.
+    return { bytes: m.bytes, files: m.files, folders: Math.max(0, m.dirs - 1), partial: m.partial }
+  }
+
+  /** The selection → a ZIP next to it ("name.zip" for one, "Archive.zip" for several). Returns its path. */
+  async compress(paths: string[], id: string): Promise<string> {
+    const sources = paths.map((p) => this.absolute(p))
+    const dir = dirname(sources[0])
+    const out = await freeName(dir, sources.length === 1 ? `${basename(sources[0])}.zip` : 'Archive.zip')
+    await this.assertWritable(out)
+    const job = this.startJob(id, 'zip')
+    try {
+      await zip(sources, out, job)
+      return out
+    } finally {
+      this.endJob(job)
+    }
+  }
+
+  /** A .zip, .tar, .tar.gz or .tgz → extracted next to it. Returns what it created. */
+  async extract(path: string, id: string): Promise<string> {
+    const archive = this.absolute(path)
+    if (!archiveKind(archive)) throw coded('not-archive', 'Mindeck extracts .zip, .tar, .tar.gz and .tgz archives')
+    await this.assertWritable(join(dirname(archive), '.probe'))
+    const job = this.startJob(id, 'unzip')
+    try {
+      return await extract(archive, job, freeName)
+    } finally {
+      this.endJob(job)
+    }
+  }
+
+  /** Paths onto the system clipboard, so Finder / Explorer can paste them. */
+  async clipboardWrite(paths: string[], cut: boolean): Promise<void> {
+    if (!this.deps.clipboard) throw coded('desktop-only', 'The clipboard is only available in the Mindeck desktop app')
+    await this.deps.clipboard.write(paths.map((p) => this.absolute(p)), cut)
+  }
+
+  /** Files copied in Finder / Explorer (those that exist). */
+  async clipboardRead(): Promise<string[]> {
+    const paths = ((await this.deps.clipboard?.read()) ?? []).filter((p) => isAbsolute(p))
+    const there = await Promise.all(paths.map((p) => exists(p)))
+    return paths.filter((_, i) => there[i])
   }
 
   async open(path: string): Promise<void> {
@@ -241,6 +434,55 @@ export class FinderService {
   reveal(path: string): void {
     if (!this.deps.revealPath) throw coded('desktop-only', 'Showing files is only available in the Mindeck desktop app')
     this.deps.revealPath(this.absolute(path))
+  }
+
+  private async trashOne(path: string): Promise<TrashedItem> {
+    const trash = this.deps.restorableTrash
+    if (trash) {
+      try {
+        return { path, restore: await trash.trash(path) }
+      } catch (err) {
+        // Another disk: its own trash, through the OS.
+        if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err
+      }
+    }
+    await this.deps.trash(path)
+    return { path }
+  }
+
+  private async copyOne(from: string, to: string, job: Job): Promise<void> {
+    try {
+      await copyTree(from, to, job)
+    } catch (err) {
+      // Never leave half a copy behind.
+      await rm(to, { recursive: true, force: true })
+      throw err
+    }
+  }
+
+  private async moveOne(from: string, to: string, job: Job): Promise<void> {
+    await rename(from, to).catch(async (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EXDEV') throw err
+      // Another disk: copy, then remove the original.
+      job.total += (await measure([from])).bytes
+      await this.copyOne(from, to, job)
+      await rm(from, { recursive: true, force: true })
+    })
+  }
+
+  private startJob(id: string, kind: FinderProgress['kind']): Job {
+    const job = new Job(id, kind, (p) => this.deps.progress?.(p))
+    this.jobs.set(id, job)
+    return job
+  }
+
+  private endJob(job: Job): void {
+    this.jobs.delete(job.id)
+    job.finish()
+  }
+
+  private async assertFree(path: string): Promise<void> {
+    if (await exists(path)) throw coded('exists', `“${basename(path)}” already exists`)
   }
 
   private absolute(path: string): string {
@@ -289,6 +531,8 @@ export class FinderService {
     return found.slice(0, MAX_RESULTS)
   }
 }
+
+const exists = (p: string) => lstat(p).then(() => true, () => false)
 
 async function isDir(path: string): Promise<boolean> {
   return stat(path).then((s) => s.isDirectory(), () => false)

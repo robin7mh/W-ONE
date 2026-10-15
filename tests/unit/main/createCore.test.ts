@@ -228,7 +228,7 @@ describe('createCore', () => {
 
     // Files: the machine's files, deletes into a recoverable trash
     await writeFile(join(home, 'old.txt'), 'x')
-    expect(await c.router.dispatch('finder:trash', { paths: [join(home, 'old.txt')] }, { transport: 'ipc' })).toEqual({ ok: true })
+    expect(await c.router.dispatch('finder:trash', { paths: [join(home, 'old.txt')] }, { transport: 'ipc' })).toEqual({ ok: true, data: [{ path: join(home, 'old.txt') }] })
     expect(await c.router.dispatch('finder:list', { path: home }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { entries: [] } })
     expect(await c.router.dispatch('finder:list', { path: home, hidden: true }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { entries: [expect.objectContaining({ name: '.trash' })] } })
     if (savedHomeEnv === undefined) delete process.env.HOME

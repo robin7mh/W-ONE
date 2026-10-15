@@ -882,7 +882,7 @@ describe('RunStore', () => {
 // --- context engine ---------------------------------------------------------------
 
 describe('ContextBuilder', () => {
-  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const } })
+  const vaultStatus = (exists: boolean) => ({ root: '/v', defaultRoot: '/v', name: 'Mindeck', isDefault: true, exists, noteCount: 4, graphStyle: { mode: 'colorful' as const, color: 'cyan' as const }, dailyNotes: { folder: 'Daily', template: '' } })
   const builder = (over: Partial<ConstructorParameters<typeof ContextBuilder>[0]> = {}) =>
     new ContextBuilder({
       user: async () => ({ name: 'Ada' }),

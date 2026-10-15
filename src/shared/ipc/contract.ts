@@ -8,12 +8,14 @@ import type { Project } from '@shared/types/project'
 import type { SystemSnapshot } from '@shared/types/system'
 import type { ProjectContext, ContextProgress } from '@shared/types/context'
 import type {
+  DailyNotesSettings,
   GraphStyle,
   MemoryChanged,
   MemoryGraph,
   Note,
   NoteMeta,
   SearchHit,
+  VaultAttachment,
   VaultStatus
 } from '@shared/types/memory'
 import type {
@@ -105,9 +107,20 @@ import type {
   HistoryEntry,
   ViewBounds
 } from '@shared/types/browser'
+import type {
+  FinderEntry,
+  FinderInfo,
+  FinderListing,
+  FinderPlaces,
+  FinderPreview,
+  FinderProgress,
+  FolderSize,
+  TransferRequest,
+  TransferResult,
+  TrashedItem
+} from '@shared/types/finder'
 import type { BookmarkFolder, BookmarkNode, ImportProgress, ImportRequest, ImportResult, ImportSource } from '@shared/types/browserData'
 import type { BrowserExtension, ChromiumProfile, ExtensionInstall, ExtensionUpdateReport } from '@shared/types/browserExtensions'
-import type { FinderEntry, FinderListing, FinderPlaces, FinderPreview } from '@shared/types/finder'
 import type { CloseBehavior, DesktopStatus, RendererError } from '@shared/types/desktop'
 
 /** A position in a project file, for the lsp:* queries. */
@@ -152,7 +165,8 @@ export interface IpcChannels {
   'memory:list': { request: void; response: NoteMeta[] }
   'memory:read': { request: { path: string }; response: Note }
   'memory:write': { request: { path: string; raw: string }; response: NoteMeta }
-  'memory:create': { request: { title: string; folder?: string }; response: NoteMeta }
+  /** `template`: a template note to start from; `now`: the UI's local time ("2026-10-15T09:30:00") for its dates. */
+  'memory:create': { request: { title: string; folder?: string; template?: string; now?: string }; response: NoteMeta }
   'memory:trash': { request: { path: string }; response: void }
   'memory:graph': { request: void; response: MemoryGraph }
   'memory:search': { request: { query: string }; response: SearchHit[] }
@@ -166,6 +180,15 @@ export interface IpcChannels {
   'memory:moveFolder': { request: { folder: string; into: string }; response: string }
   'memory:link': { request: { from: string; to: string }; response: NoteMeta }
   'memory:unlink': { request: { from: string; to: string }; response: NoteMeta }
+  /** Today's daily note — created from the daily template the first time. */
+  'memory:daily': { request: { now?: string }; response: NoteMeta }
+  'memory:setDailyNotes': { request: DailyNotesSettings; response: DailyNotesSettings }
+  /** A template's body filled in for `title` (for "Insert template"). */
+  'memory:renderTemplate': { request: { path: string; title: string; now?: string }; response: string }
+  /** Save a pasted/dropped picture (base64) under `attachments/`; `link` goes into `![[…]]`. */
+  'memory:attach': { request: { name: string; data: string }; response: { path: string; link: string } }
+  /** A picture a note shows, resolved like Obsidian (relative to `from`, the note) — from the vault only. */
+  'memory:attachment': { request: { target: string; from?: string }; response: VaultAttachment }
 
   /** In a project, in `cwd` (an absolute folder, e.g. from Files), else in Home. */
   /** A shell in a project, a folder or Home — with a profile (`terminal:shells` or the user's), else the default one. */
@@ -511,19 +534,39 @@ export interface IpcChannels {
 
   /** Files: the machine's files, like Finder (absolute paths; writes only under Home and /Volumes). */
   'finder:places': { request: void; response: FinderPlaces }
-  /** A folder's entries; no `path` = Home. */
-  'finder:list': { request: { path?: string; hidden?: boolean }; response: FinderListing }
+  /** A page of a folder's entries from `offset`; no `path` = Home. */
+  'finder:list': { request: { path?: string; hidden?: boolean; offset?: number }; response: FinderListing }
   'finder:search': { request: { path: string; query: string }; response: FinderEntry[] }
   'finder:preview': { request: { path: string }; response: FinderPreview }
   /** Returns the new folder's path. */
   'finder:mkdir': { request: { parent: string; name: string }; response: string }
   /** Returns the new path. */
   'finder:rename': { request: { path: string; name: string }; response: string }
-  /** Into the OS trash, never deleted outright. */
-  'finder:trash': { request: { paths: string[] }; response: void }
+  /** Into the trash, never deleted outright; `restore` set where Mindeck can undo it. */
+  'finder:trash': { request: { paths: string[] }; response: TrashedItem[] }
+  /** Undo a trash (only items with `restore`). */
+  'finder:untrash': { request: { items: { path: string; restore: string }[] }; response: void }
   /** Returns the new paths. */
   'finder:move': { request: { paths: string[]; dest: string }; response: string[] }
   'finder:copy': { request: { paths: string[]; dest: string }; response: string[] }
+  /** Names already taken in `dest` — the conflict dialog's questions. */
+  'finder:conflicts': { request: { paths: string[]; dest: string }; response: string[] }
+  /** Copy or move with conflict choices; progress via `finder:progress`. */
+  'finder:transfer': { request: TransferRequest; response: TransferResult }
+  /** Stop a running transfer, archive or size count. */
+  'finder:cancel': { request: { id: string }; response: void }
+  /** Undo for rename/move: each `from` back to exactly `to`. */
+  'finder:restore': { request: { moves: { from: string; to: string }[] }; response: void }
+  'finder:info': { request: { path: string }; response: FinderInfo }
+  'finder:folderSize': { request: { path: string; id: string }; response: FolderSize }
+  /** Returns the new archive's path. */
+  'finder:compress': { request: { paths: string[]; id: string }; response: string }
+  /** Returns what was extracted. */
+  'finder:extract': { request: { path: string; id: string }; response: string }
+  /** Files onto the system clipboard (Finder / Explorer can paste them). */
+  'finder:clipboardWrite': { request: { paths: string[]; cut: boolean }; response: void }
+  /** Files copied in Finder / Explorer. */
+  'finder:clipboardRead': { request: void; response: string[] }
   /** With the app the OS opens it with. */
   'finder:open': { request: { path: string }; response: void }
   /** Show it in the OS file manager. */
@@ -585,6 +628,11 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'memory:moveFolder': 'any',
   'memory:link': 'any',
   'memory:unlink': 'any',
+  'memory:daily': 'any',
+  'memory:setDailyNotes': 'any',
+  'memory:renderTemplate': 'any',
+  'memory:attach': 'any',
+  'memory:attachment': 'any',
   'memory:setVault': 'any',
   'terminal:create': 'terminal',
   'terminal:list': 'terminal',
@@ -855,6 +903,17 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'finder:trash': 'desktop',
   'finder:move': 'desktop',
   'finder:copy': 'desktop',
+  'finder:untrash': 'desktop',
+  'finder:conflicts': 'desktop',
+  'finder:transfer': 'desktop',
+  'finder:cancel': 'desktop',
+  'finder:restore': 'desktop',
+  'finder:info': 'desktop',
+  'finder:folderSize': 'desktop',
+  'finder:compress': 'desktop',
+  'finder:extract': 'desktop',
+  'finder:clipboardWrite': 'desktop',
+  'finder:clipboardRead': 'desktop',
   'finder:open': 'desktop',
   'finder:reveal': 'desktop'
 }
@@ -904,6 +963,8 @@ export interface IpcEvents {
   'browser:bookmarks': BookmarkFolder[]
   /** An import moved on to the next kind of data. */
   'browser:import': ImportProgress
+  /** A copy, archive or size count moving on. */
+  'finder:progress': FinderProgress
 }
 
 export type IpcEvent = keyof IpcEvents
@@ -942,11 +1003,12 @@ export const IPC_EVENTS: readonly IpcEvent[] = [
   'browser:command',
   'browser:reveal',
   'browser:bookmarks',
-  'browser:import'
+  'browser:import',
+  'finder:progress'
 ]
 
 /** Push events remote clients only receive when remote shells are enabled. */
 export const TERMINAL_EVENTS: readonly IpcEvent[] = ['terminal:data', 'terminal:exit', 'terminal:info', 'debug:session', 'debug:output', 'notebook:event']
 
 /** Push events that never leave the desktop window (the browser's tabs are private pages). */
-export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import']
+export const DESKTOP_EVENTS: readonly IpcEvent[] = ['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress']

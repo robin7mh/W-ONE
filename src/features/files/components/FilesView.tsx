@@ -5,6 +5,7 @@ import {
   ArrowRight,
   ArrowUp,
   ChevronRight,
+  Columns3,
   Eye,
   EyeOff,
   FolderOpen,
@@ -17,7 +18,7 @@ import {
   Search,
   X
 } from 'lucide-react'
-import { isDesktop } from '@shared/ipc/client'
+import { isDesktop, onEvent } from '@shared/ipc/client'
 import { extOf, fileType, type FinderEntry } from '@shared/types/finder'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
@@ -28,12 +29,15 @@ import { useEditor } from '@/features/editor/store'
 import { useBrowser } from '@/features/browser/store'
 import { useTerminals } from '@/features/terminal/store'
 import { useAgents } from '@/features/agents/sessions'
-import { baseName, fileHref } from '../kinds'
+import { baseName, fileHref, isArchive, pathChain } from '../kinds'
 import { useFiles, visibleEntries } from '../store'
 import { Sidebar } from './Sidebar'
-import { Entries, type EntryHandlers } from './Entries'
+import { Entries, LIST_TOP, ROW, TILE, type EntryHandlers } from './Entries'
 import { PreviewPane } from './PreviewPane'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { Columns } from './Columns'
+import { ConflictDialog, Jobs, Tabs } from './Panels'
+import { revealItem } from './Virtual'
 
 const tool =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-elevated hover:text-text-primary disabled:pointer-events-none disabled:opacity-35'
@@ -70,12 +74,8 @@ function PathInput({ path, onDone }: { path: string; onDone: () => void }) {
 function Crumbs({ path, onEdit }: { path: string; onEdit: () => void }) {
   const t = useT()
   const home = useFiles((s) => s.places?.home)
-  const sep = path.includes('\\') ? '\\' : '/'
-  const parts = path.split(/[\\/]/).filter(Boolean)
-  const crumbs = parts.map((name, i) => ({ name, path: (path.startsWith(sep) ? sep : '') + parts.slice(0, i + 1).join(sep) }))
   // Inside Home: start at Home ("~"), like the terminal does.
-  const inHome = home && (path === home || path.startsWith(home + sep))
-  const all = inHome ? [{ name: '~', path: home }, ...crumbs.filter((c) => c.path.length > home.length)] : [{ name: sep, path: sep }, ...crumbs]
+  const all = pathChain(path, home)
   // Deep paths: the start and the last three — the middle folds into "…".
   const shown = all.length > 5 ? [all[0], { name: '…', path: '' }, ...all.slice(-3)] : all
   return (
@@ -125,6 +125,7 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
 
   useEffect(() => {
     void useFiles.getState().init()
+    return onEvent('finder:progress', (p) => useFiles.getState().onProgress(p))
   }, [])
 
   // Typing in the search field searches after a short pause.
@@ -179,9 +180,12 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
   // Menus only open while a folder is shown (search hits come from one too).
   const menuItems = (entry?: FinderEntry): MenuItem[] => {
     const dir = s.listing!.path
+    const canPaste = !!s.clipboard
     if (!entry) {
       return [
         { label: t.files.newFolder, run: () => s.startCreate() },
+        { label: t.files.paste, run: () => void s.paste(dir), disabled: !canPaste },
+        { label: t.files.newTab, run: () => void s.newTab(dir) },
         { label: t.files.terminal, run: () => terminalHere(dir) },
         { label: t.files.reveal(isMac), run: () => void s.reveal(dir) },
         'separator',
@@ -190,19 +194,28 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
     }
     const many = s.selected.length > 1
     const folder = entry.kind === 'dir' && !entry.bundle
+    const pinned = s.favorites.includes(entry.path)
     return [
       { label: t.files.open, run: () => openEntry(entry), disabled: many },
+      ...(folder ? [{ label: t.files.openInNewTab, run: () => void s.newTab(entry.path), disabled: many }] : []),
       ...(editable(entry) ? [{ label: t.files.openInEditor, run: () => void openInEditor(entry.path) }] : []),
       ...(browsable(entry) ? [{ label: t.files.openInBrowser, run: () => openInBrowser(entry.path) }] : []),
       ...(!folder ? [{ label: t.files.openWithApp, run: () => void s.openWithApp(entry.path) }] : []),
       { label: t.files.reveal(isMac), run: () => void s.reveal(entry.path) },
       ...(folder ? [{ label: t.files.terminal, run: () => terminalHere(entry.path) }] : []),
       'separator',
+      { label: t.files.copy, run: () => void s.copy() },
+      { label: t.files.cut, run: () => void s.cut() },
+      ...(folder && canPaste ? [{ label: t.files.pasteInto(entry.name), run: () => void s.paste(entry.path), disabled: many }] : []),
+      { label: t.files.duplicate, run: () => void s.move(s.selected, dir, true) },
+      { label: t.files.compress(s.selected.length), run: () => void s.compress() },
+      ...(!folder && isArchive(entry.name) ? [{ label: t.files.extract, run: () => void s.extract(entry.path), disabled: many }] : []),
+      ...(folder ? [{ label: pinned ? t.files.removeFromSidebar : t.files.addToSidebar, run: () => s.toggleFavorite(entry.path), disabled: many }] : []),
+      'separator',
       { label: t.files.askAgent, run: () => askAgent(entry.path) },
       { label: t.files.copyPath, run: () => copyPath(entry.path) },
       'separator',
       { label: t.files.rename, run: () => s.startRename(entry.path), disabled: many },
-      { label: t.files.duplicate, run: () => void s.move(s.selected, dir, true) },
       { label: t.files.trash, run: () => void s.trash(), danger: true }
     ]
   }
@@ -210,25 +223,37 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
   const onKeyDown = (e: KeyboardEvent) => {
     if (s.renaming || s.creating) return
     const mod = e.metaKey || e.ctrlKey
+    const key = e.key.toLowerCase()
     const index = entries.findIndex((x) => x.path === s.selected[s.selected.length - 1])
     // In the icon grid ↑/↓ move a whole row: as many tiles as fit across.
-    const step = s.view === 'grid' ? Math.max(1, Math.floor(main.current!.clientWidth / 116)) : 1
+    const grid = s.view === 'grid'
+    const step = grid ? Math.max(1, Math.floor(main.current!.clientWidth / TILE.width)) : 1
     const pick = (i: number) => {
-      const target = entries[Math.max(0, Math.min(entries.length - 1, i))]
-      if (target) s.select(target.path, e.shiftKey ? 'range' : 'single')
+      const at = Math.max(0, Math.min(entries.length - 1, i))
+      const target = entries[at]
+      if (!target) return
+      s.select(target.path, e.shiftKey ? 'range' : 'single')
+      // Long folders are windowed: bring the row into view.
+      if (s.view !== 'columns') revealItem(main.current!, at, grid ? TILE.height : ROW, step, grid ? 8 : LIST_TOP)
     }
     if (mod && e.key === 'ArrowUp') void s.goUp()
     else if (mod && e.key === 'ArrowDown' && selectedEntries[0]) openEntry(selectedEntries[0])
     else if (mod && e.key === '[') void s.goBack()
     else if (mod && e.key === ']') void s.goForward()
     else if (mod && e.key === 'Backspace') void s.trash()
-    else if (mod && e.key.toLowerCase() === 'a') s.selectAll()
-    else if (mod && e.shiftKey && e.key.toLowerCase() === 'n') s.startCreate()
-    else if (mod && e.shiftKey && e.key.toLowerCase() === 'g') setGoTo(true)
+    else if (mod && key === 'a') s.selectAll()
+    else if (mod && e.shiftKey && key === 'n') s.startCreate()
+    else if (mod && e.shiftKey && key === 'g') setGoTo(true)
+    else if (mod && key === 'c') void s.copy()
+    else if (mod && key === 'x') void s.cut()
+    else if (mod && key === 'v') void s.paste()
+    else if (mod && key === 'z') void s.undoLast()
+    else if (mod && key === 't') void s.newTab()
+    else if (mod && key === 'w' && s.tabs.length > 1) void s.closeTab(s.activeTab)
     else if (e.key === 'ArrowDown') pick(index < 0 ? 0 : index + step)
     else if (e.key === 'ArrowUp') pick(index < 0 ? 0 : index - step)
-    else if (s.view === 'grid' && e.key === 'ArrowRight') pick(index + 1)
-    else if (s.view === 'grid' && e.key === 'ArrowLeft') pick(index - 1)
+    else if (grid && e.key === 'ArrowRight') pick(index + 1)
+    else if (grid && e.key === 'ArrowLeft') pick(index - 1)
     else if (e.key === 'Enter' && selectedEntries.length === 1) openEntry(selectedEntries[0])
     else if (e.key === 'F2' && selectedEntries.length === 1) s.startRename(selectedEntries[0].path)
     else if (e.key === ' ') s.togglePreview()
@@ -250,10 +275,27 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
 
   const searching = s.results !== undefined || s.searching
   const name = s.listing ? baseName(s.listing.path) : ''
-  const notice = s.notice?.key === 'copied' ? t.files.copied : s.notice ? t.files.trashed(s.notice.count) : null
+  const notice = !s.notice
+    ? null
+    : s.notice.key === 'copied'
+      ? t.files.copied
+      : s.notice.key === 'trashed'
+        ? t.files.trashed(s.notice.count)
+        : s.notice.key === 'clipboard'
+          ? t.files.onClipboard(s.notice.count, s.notice.cut)
+          : s.notice.key === 'undone'
+            ? t.files.undone
+            : t.files.stopped
+  const columns = s.view === 'columns' && !searching && !!s.listing
 
   return (
-    <section className="panel flex min-h-0 flex-1 flex-col overflow-hidden" aria-label={t.files.title}>
+    <section
+      className="panel flex min-h-0 flex-1 flex-col overflow-hidden"
+      aria-label={t.files.title}
+      // An OS drag of our own that ended outside Mindeck: the mouse moves again without a button.
+      onPointerMove={(e) => e.buttons === 0 && s.dragging && s.endDrag()}
+    >
+      <Tabs />
       <div className="flex shrink-0 items-center gap-1 border-b border-hud/50 bg-surface/30 px-2 py-1.5">
         <button type="button" aria-label={t.files.back} title={`${t.files.back} (⌘[)`} disabled={!s.back.length} onClick={() => void s.goBack()} className={tool}>
           <ArrowLeft size={15} />
@@ -297,8 +339,8 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
           )}
         </label>
         <div className="ml-1 flex shrink-0 rounded-md border border-hud/60 bg-surface/50 p-0.5">
-          {(['list', 'grid'] as const).map((v) => {
-            const Icon = v === 'list' ? List : LayoutGrid
+          {(['list', 'grid', 'columns'] as const).map((v) => {
+            const Icon = v === 'list' ? List : v === 'grid' ? LayoutGrid : Columns3
             return (
               <button
                 key={v}
@@ -339,7 +381,18 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
             e.preventDefault()
             if (!searching && s.listing) setMenu({ x: e.clientX, y: e.clientY })
           }}
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto outline-none"
+          // Files from Finder / Explorer dropped on the folder (not on a subfolder) are copied into it.
+          onDragOver={(e) => {
+            if (!s.listing || searching || !e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = s.dragging && !e.altKey ? 'move' : 'copy'
+          }}
+          onDrop={(e) => {
+            if (!s.listing || searching || !e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            void s.dropFiles([...e.dataTransfer.files], s.listing.path, e.altKey)
+          }}
+          className={cn('min-h-0 min-w-0 flex-1 outline-none', columns ? 'overflow-hidden' : 'overflow-y-auto')}
         >
           {s.error && (
             <div role="alert" className="m-2 flex items-start gap-2 rounded-md border border-danger/40 bg-danger/[0.06] px-2.5 py-2">
@@ -350,8 +403,10 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
               </button>
             </div>
           )}
-          {entries.length > 0 || s.creating ? (
-            <Entries entries={entries} handlers={handlers} />
+          {columns ? (
+            <Columns handlers={handlers} />
+          ) : entries.length > 0 || s.creating ? (
+            <Entries entries={entries} handlers={handlers} scroller={main} />
           ) : (
             !s.loading &&
             !s.searching && (
@@ -372,13 +427,17 @@ export function FilesView({ onNavigate }: { onNavigate: (module: ModuleId) => vo
       </div>
 
       <div className="flex h-7 shrink-0 items-center gap-3 border-t border-hud/50 px-3 font-mono text-[10.5px] text-text-muted">
-        <span>{searching ? (s.results ? t.files.results(s.results.length) : t.files.searching) : t.files.items(entries.length)}</span>
+        <span>{searching ? (s.results ? t.files.results(s.results.length) : t.files.searching) : t.files.items(s.listing?.total ?? entries.length)}</span>
         {s.selected.length > 0 && <span>{t.files.selected(s.selected.length, entries.length)}</span>}
-        {s.listing?.truncated && !searching && <span className="text-amber">{t.files.truncated(s.listing.entries.length)}</span>}
+        {s.listing && !searching && s.listing.entries.length < s.listing.total && (
+          <span className="text-amber">{t.files.loadingMore(s.listing.entries.length, s.listing.total)}</span>
+        )}
+        <Jobs />
         {notice && <span className="ml-auto text-cyan">{notice}</span>}
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} label={t.files.actions} items={menuItems(menu.entry)} onClose={() => setMenu(null)} />}
+      <ConflictDialog />
     </section>
   )
 }

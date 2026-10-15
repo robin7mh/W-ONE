@@ -399,7 +399,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       openPath: platform.openPath,
       revealPath: platform.revealPath,
       trash: (path) => platform.trashItem(path, dirname(path)),
-      spotlight: process.platform === 'darwin' ? macSpotlight : undefined
+      restorableTrash: platform.restorableTrash,
+      clipboard: platform.fileClipboard,
+      spotlight: process.platform === 'darwin' ? macSpotlight : undefined,
+      progress: hub.publish.bind(hub, 'finder:progress')
     })
   )
   router.register('app:info', () => info())

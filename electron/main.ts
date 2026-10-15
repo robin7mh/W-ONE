@@ -1,5 +1,6 @@
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, protocol, shell, Tray } from 'electron'
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 import { release, type } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { migrateLegacyData, mindeckPaths } from './main/lib/paths'
@@ -15,6 +16,9 @@ import { manualUpdateFile, UpdateService } from './main/services/update/UpdateSe
 import { createBrowserHost } from './main/platform/browser/host'
 import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
+
+/** A 1×1 picture for drags whose file has no icon. */
+const DRAG_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
 const IDLE_SECONDS = 5 * 60
@@ -232,6 +236,18 @@ ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.on('window:toggle-fullscreen', () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()))
 ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
 ipcMain.handle('window:is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
+
+// Files dragged out of the Files module: an OS drag, so Finder, mail or chat apps take them.
+ipcMain.on('files:start-drag', (event, paths: unknown) => {
+  if (!isAppUrl(event.senderFrame?.url ?? '')) return
+  const files = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string' && isAbsolute(p) && existsSync(p)).slice(0, 1000) : []
+  if (!files.length) return
+  void app
+    .getFileIcon(files[0], { size: 'normal' })
+    // macOS wants an icon, however small.
+    .catch(() => nativeImage.createFromDataURL(DRAG_ICON))
+    .then((icon) => event.sender.startDrag({ file: files[0], files, icon }))
+})
 
 /** An agent needs the user: tell them — unless they are looking at Mindeck already. */
 function notify(title: string, body: string): void {

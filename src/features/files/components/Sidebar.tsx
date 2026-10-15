@@ -1,11 +1,12 @@
 import { useEffect, useState, type DragEvent } from 'react'
-import { BrainCircuit, Download, FileText, Film, FolderGit2, HardDrive, House, Image, Monitor, Music, type LucideIcon } from 'lucide-react'
+import { BrainCircuit, Download, FileText, Film, Folder, FolderGit2, HardDrive, House, Image, Monitor, Music, X, type LucideIcon } from 'lucide-react'
 import { ipc } from '@shared/ipc/client'
 import type { FinderPlaceId } from '@shared/types/finder'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { useProjects } from '@/features/projects/store'
+import { baseName } from '../kinds'
 import { useFiles } from '../store'
 
 export const DRAG_FILES = 'application/x-mindeck-files'
@@ -20,30 +21,41 @@ const PLACE_ICONS: Record<FinderPlaceId, LucideIcon> = {
   music: Music
 }
 
-/** Dropping dragged entries on a folder: move them there (⌥ copies). */
+/** Files from the OS (Finder, Explorer, the desktop — or an OS drag of Mindeck's own). */
+const OS_FILES = 'Files'
+
+/**
+ * Dropping on a folder: Mindeck's own entries move there (⌥ copies); files
+ * from other apps are copied in.
+ */
 export function dropProps(dest: string, setOver: (over: boolean) => void) {
   return {
     onDragOver: (e: DragEvent) => {
-      if (!e.dataTransfer.types.includes(DRAG_FILES)) return
+      const types = e.dataTransfer.types
+      const os = types.includes(OS_FILES)
+      if (!types.includes(DRAG_FILES) && !os) return
       e.preventDefault()
-      e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move'
+      e.dataTransfer.dropEffect = e.altKey || (os && !useFiles.getState().dragging) ? 'copy' : 'move'
       setOver(true)
     },
     onDragLeave: () => setOver(false),
     onDrop: (e: DragEvent) => {
       e.preventDefault()
       setOver(false)
-      const paths = (JSON.parse(e.dataTransfer.getData(DRAG_FILES) || '[]') as string[]).filter((p) => p !== dest)
+      const own = e.dataTransfer.getData(DRAG_FILES)
+      if (!own) return void useFiles.getState().dropFiles([...e.dataTransfer.files], dest, e.altKey)
+      const paths = (JSON.parse(own) as string[]).filter((p) => p !== dest)
       if (paths.length) void useFiles.getState().move(paths, dest, e.altKey)
     }
   }
 }
 
-function Place({ icon: Icon, label, path, tone }: { icon: LucideIcon; label: string; path: string; tone?: string }) {
+function Place({ icon: Icon, label, path, tone, onRemove }: { icon: LucideIcon; label: string; path: string; tone?: string; onRemove?: () => void }) {
+  const t = useT()
   const current = useFiles((s) => s.listing?.path)
   const [over, setOver] = useState(false)
   const active = current === path
-  return (
+  const button = (
     <button
       type="button"
       title={path}
@@ -59,12 +71,29 @@ function Place({ icon: Icon, label, path, tone }: { icon: LucideIcon; label: str
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
   )
+  if (!onRemove) return button
+  // A pinned folder: removable from the sidebar.
+  return (
+    <div className="group relative">
+      {button}
+      <button
+        type="button"
+        aria-label={t.files.removeFromSidebar}
+        title={t.files.removeFromSidebar}
+        onClick={onRemove}
+        className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover:opacity-100"
+      >
+        <X size={11} />
+      </button>
+    </div>
+  )
 }
 
 /** Favorites, Mindeck's own places, the projects and external drives — like Finder's sidebar. */
 export function Sidebar() {
   const t = useT()
   const places = useFiles((s) => s.places)
+  const favorites = useFiles((s) => s.favorites)
   const projects = useProjects((s) => s.projects)
   const [vault, setVault] = useState<string>()
 
@@ -81,6 +110,9 @@ export function Sidebar() {
         <TechLabel className="mb-1 block px-2 text-text-muted">{t.files.favorites}</TechLabel>
         {places?.places.map((p) => <Place key={p.id} icon={PLACE_ICONS[p.id]} label={t.files.places[p.id]} path={p.path} />)}
         {vault && <Place icon={BrainCircuit} label={t.files.vault} path={vault} tone="text-purple" />}
+        {favorites.map((path) => (
+          <Place key={path} icon={Folder} label={baseName(path)} path={path} tone="text-cyan" onRemove={() => useFiles.getState().toggleFavorite(path)} />
+        ))}
       </div>
       {projects.length > 0 && (
         <div>

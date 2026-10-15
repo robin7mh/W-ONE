@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type RefObject } from 'react'
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react'
 import type { FinderEntry } from '@shared/types/finder'
 import { cn } from '@/lib/cn'
@@ -7,6 +7,13 @@ import { entryKind, formatBytes, formatModified } from '../kinds'
 import { useFiles, type SortKey } from '../store'
 import { FileIcon } from './FileIcon'
 import { DRAG_FILES, dropProps } from './Sidebar'
+import { useWindow } from './Virtual'
+
+/** A list row's height and the icon grid's tile size — fixed, so long folders can be windowed. */
+export const ROW = 28
+export const TILE = { width: 116, height: 128 }
+/** The list's header and padding above the first row. */
+export const LIST_TOP = 34
 
 /** A name being typed (rename, new folder): Enter or leaving the field commits, Escape cancels. */
 export function NameInput({ initial, label, onCommit, onCancel }: { initial: string; label: string; onCommit: (name: string) => void; onCancel: () => void }) {
@@ -70,6 +77,8 @@ function useEntry(entry: FinderEntry, handlers: EntryHandlers) {
       onDragStart: (e: DragEvent) => {
         const s = useFiles.getState()
         const paths = s.selected.includes(entry.path) ? s.selected : [entry.path]
+        // On the desktop an OS drag: Finder, mail or a chat take the files; back in Mindeck it moves them.
+        if (s.startDrag(paths)) return e.preventDefault()
         e.dataTransfer.setData(DRAG_FILES, JSON.stringify(paths))
         e.dataTransfer.effectAllowed = 'copyMove'
       },
@@ -87,7 +96,7 @@ function Row({ entry, handlers }: { entry: FinderEntry; handlers: EntryHandlers 
       role="row"
       {...props}
       className={cn(
-        'grid cursor-default grid-cols-[minmax(0,1fr)_150px_90px_120px] items-center gap-3 rounded-md px-2 py-[5px] transition-colors',
+        'grid h-7 cursor-default grid-cols-[minmax(0,1fr)_150px_90px_120px] items-center gap-3 rounded-md px-2 transition-colors',
         selected ? 'bg-cyan/[0.12] text-text-primary' : 'text-text-secondary hover:bg-elevated/40',
         over && 'ring-1 ring-cyan/60',
         entry.hidden && 'opacity-60'
@@ -129,7 +138,7 @@ function Tile({ entry, handlers }: { entry: FinderEntry; handlers: EntryHandlers
       {...props}
       title={entry.name}
       className={cn(
-        'flex w-[112px] cursor-default flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
+        'flex h-[124px] w-[112px] cursor-default flex-col items-center gap-1.5 rounded-lg p-2 transition-colors',
         selected ? 'bg-cyan/[0.12]' : 'hover:bg-elevated/40',
         over && 'ring-1 ring-cyan/60',
         entry.hidden && 'opacity-60'
@@ -157,7 +166,7 @@ function Tile({ entry, handlers }: { entry: FinderEntry; handlers: EntryHandlers
 function NewFolder() {
   const t = useT()
   return (
-    <div className="flex items-center gap-2 rounded-md bg-cyan/[0.08] px-2 py-[5px]">
+    <div className="flex h-7 items-center gap-2 rounded-md bg-cyan/[0.08] px-2">
       <Folder size={15} className="shrink-0 text-cyan" />
       <NameInput
         initial={t.files.untitledFolder}
@@ -186,18 +195,25 @@ function SortHeader({ k, label, className }: { k: SortKey; label: string; classN
   )
 }
 
-/** The folder (or the search hits) as a list with columns, or as icons. */
-export function Entries({ entries, handlers }: { entries: FinderEntry[]; handlers: EntryHandlers }) {
+/** The folder (or the search hits) as a list with columns, or as icons — only the visible part is rendered. */
+export function Entries({ entries, handlers, scroller }: { entries: FinderEntry[]; handlers: EntryHandlers; scroller: RefObject<HTMLElement> }) {
   const t = useT()
   const view = useFiles((s) => s.view)
   const creating = useFiles((s) => s.creating)
-  if (view === 'grid') {
+  const grid = view === 'grid'
+  const w = useWindow(scroller, entries.length, grid ? TILE.height : ROW, grid ? { itemWidth: TILE.width, offset: 8 } : { offset: LIST_TOP })
+  const shown = entries.slice(w.start, w.end)
+  if (grid) {
     return (
-      <div role="grid" aria-label={t.files.title} className="flex flex-wrap content-start gap-1 p-2">
+      <div role="grid" aria-label={t.files.title} className="p-2">
         {creating && <NewFolder />}
-        {entries.map((e) => (
-          <Tile key={e.path} entry={e} handlers={handlers} />
-        ))}
+        <div style={{ height: w.before }} />
+        <div className="flex flex-wrap content-start gap-1">
+          {shown.map((e) => (
+            <Tile key={e.path} entry={e} handlers={handlers} />
+          ))}
+        </div>
+        <div style={{ height: w.after }} />
       </div>
     )
   }
@@ -210,9 +226,11 @@ export function Entries({ entries, handlers }: { entries: FinderEntry[]; handler
         <SortHeader k="kind" label={t.files.kind} />
       </div>
       {creating && <NewFolder />}
-      {entries.map((e) => (
+      <div style={{ height: w.before }} />
+      {shown.map((e) => (
         <Row key={e.path} entry={e} handlers={handlers} />
       ))}
+      <div style={{ height: w.after }} />
     </div>
   )
 }

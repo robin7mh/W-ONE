@@ -38,6 +38,8 @@ vi.mock('electron', async () => {
   return {
     app: { getApplicationNameForProtocol: () => '' },
     BrowserWindow: FakeWindow,
+    clipboard: {},
+    ClipboardItem: class {},
     dialog: {},
     nativeTheme: {
       get shouldUseDarkColors() {

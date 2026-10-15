@@ -58,3 +58,26 @@ export function baseName(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/)
   return parts[parts.length - 1] || path
 }
+
+/** Unix permissions the way `ls -l` shows them: 0o754 → "rwxr-xr--". */
+export function formatMode(mode: number): string {
+  return [6, 3, 0].map((shift) => ['r', 'w', 'x'].map((c, i) => ((mode >> shift) & (4 >> i) ? c : '-')).join('')).join('')
+}
+
+/**
+ * The folders from the start of `path` to it — from Home ("~") when it is
+ * inside Home, else from the disk's root. Breadcrumbs and the column view
+ * walk this.
+ */
+export function pathChain(path: string, home?: string): { name: string; path: string }[] {
+  const sep = path.includes('\\') ? '\\' : '/'
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  const crumbs = parts.map((name, i) => ({ name, path: (path.startsWith(sep) ? sep : '') + parts.slice(0, i + 1).join(sep) }))
+  const inHome = home && (path === home || path.startsWith(home + sep))
+  return inHome ? [{ name: '~', path: home }, ...crumbs.filter((c) => c.path.length > home.length)] : [{ name: sep, path: sep }, ...crumbs]
+}
+
+/** Archives the Files module extracts. */
+export function isArchive(name: string): boolean {
+  return /\.(zip|tar|tgz|tar\.gz)$/i.test(name)
+}

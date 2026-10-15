@@ -13,7 +13,7 @@ const entry = (path: string, extra: Partial<FinderEntry> = {}): FinderEntry => (
   ...extra
 })
 
-const listing = (path: string, entries: FinderEntry[], extra: Partial<FinderListing> = {}): FinderListing => ({ path, parent: path === '/' ? null : '/', entries, truncated: false, ...extra })
+const listing = (path: string, entries: FinderEntry[], extra: Partial<FinderListing> = {}): FinderListing => ({ path, parent: path === '/' ? null : '/', entries, total: entries.length, offset: 0, ...extra })
 
 /** A disk the store can browse: folders by path, recording every call. */
 function disk(folders: Record<string, FinderEntry[]>, routes: Record<string, (p: never) => unknown> = {}) {
@@ -145,7 +145,7 @@ describe('files store', () => {
     expect(s().sort).toEqual({ key: 'size', desc: false })
     s().setSort('name')
     expect(s().sort).toEqual({ key: 'name', desc: false })
-    expect(JSON.parse(localStorage.getItem('mindeck.files')!)).toEqual({ view: 'grid', sort: { key: 'name', desc: false }, hidden: false, showPreview: true, path: '/' })
+    expect(JSON.parse(localStorage.getItem('mindeck.files')!)).toEqual({ view: 'grid', sort: { key: 'name', desc: false }, hidden: false, showPreview: true, favorites: [], path: '/' })
     await s().open('/nope')
     expect(s().error).toBe('Folder not found: /nope')
     s().clearError()
@@ -249,9 +249,9 @@ describe('files store', () => {
       {
         'finder:mkdir': ({ name }: { name: string }) => `/d/${name}`,
         'finder:rename': ({ name }: { name: string }) => `/d/${name}`,
-        'finder:trash': () => undefined,
-        'finder:move': () => ['/x/a.txt'],
-        'finder:copy': () => ['/d/a 2.txt'],
+        'finder:trash': () => [],
+        'finder:conflicts': () => [],
+        'finder:transfer': ({ paths, dest }: { paths: string[]; dest: string }) => ({ items: paths.map((p) => ({ from: p, to: `${dest}/x` })), replaced: [], skipped: [] }),
         'finder:open': () => undefined,
         'finder:reveal': () => undefined,
         'finder:search': () => [entry('/d/b.txt'), entry('/d/sub/deep.md')]
@@ -301,8 +301,11 @@ describe('files store', () => {
     await s().move([], '/x')
     await s().move(['/d/a.txt'], '/x')
     await s().move(['/d/a.txt'], '/d', true)
-    expect(sent('finder:move')).toEqual([{ paths: ['/d/a.txt'], dest: '/x' }])
-    expect(sent('finder:copy')).toEqual([{ paths: ['/d/a.txt'], dest: '/d' }])
+    expect(sent('finder:transfer').map((p) => (({ id: _id, ...rest }) => rest)(p as { id: string }))).toEqual([
+      { paths: ['/d/a.txt'], dest: '/x', mode: 'move', choices: {} },
+      { paths: ['/d/a.txt'], dest: '/d', mode: 'copy', choices: {} }
+    ])
+    expect(s().selected).toEqual(['/d/x']) // copied into the folder shown: picked
     await s().openWithApp('/d/a.txt')
     await s().reveal('/d/a.txt')
     expect(sent('finder:open')).toEqual([{ path: '/d/a.txt' }])
@@ -314,7 +317,7 @@ describe('files store', () => {
     const no = (message: string) => () => {
       throw new Error(message)
     }
-    disk({ '/d': [entry('/d/a.txt')] }, { 'finder:mkdir': no('exists'), 'finder:rename': no('taken'), 'finder:trash': no('read-only'), 'finder:move': no('busy'), 'finder:open': no('no app'), 'finder:reveal': no('no finder') })
+    disk({ '/d': [entry('/d/a.txt')] }, { 'finder:mkdir': no('exists'), 'finder:rename': no('taken'), 'finder:trash': no('read-only'), 'finder:conflicts': () => [], 'finder:transfer': no('busy'), 'finder:open': no('no app'), 'finder:reveal': no('no finder') })
     const s = () => useFiles.getState()
     await s().open('/d')
     for (const [run, message] of [

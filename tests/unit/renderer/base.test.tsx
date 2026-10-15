@@ -229,10 +229,11 @@ describe('data & shared constants', () => {
       'browser:command',
       'browser:reveal',
       'browser:bookmarks',
-      'browser:import'
+      'browser:import',
+      'finder:progress'
     ])
     // the browser's pages are private: none of its events reach remote clients, all its channels are desktop-only
-    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import'])
+    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress'])
     for (const channel of IPC_CHANNELS.filter((c) => c.startsWith('browser:') || c.startsWith('finder:'))) expect(CHANNEL_ACCESS[channel]).toBe('desktop')
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })
@@ -302,6 +303,16 @@ describe('markdown', () => {
     expect(html).not.toContain('#123</span>')
     expect(html).not.toContain('#sharp</span>')
     expect(html).not.toMatch(/<script|onerror/)
+  })
+
+  it('shows pictures only from the vault: embeds and sources move to data-embed, data: stays', () => {
+    const html = renderMarkdown('![[bild.png]] ![[w.jpg|300]] ![[Note]] ![alt](attachments/a%20b.png) ![remote](https://x.dev/p.png) ![inline](data:image/png;base64,AA)', {})
+    expect(html).toContain('<img class="embed" data-embed="bild.png" alt="bild.png">')
+    expect(html).toContain('<img class="embed" data-embed="w.jpg" alt="w.jpg" width="300">')
+    expect(html).toContain('data-target="Note">Note</a>')
+    expect(html).toContain('<img alt="alt" data-embed="attachments/a%20b.png">')
+    expect(html).toContain('<img alt="remote" data-embed="https://x.dev/p.png">')
+    expect(html).toContain('<img src="data:image/png;base64,AA" alt="inline">')
   })
 
   it('escapes HTML inside link labels and tags', () => {

@@ -1,7 +1,7 @@
 // App settings — persisted as JSON in the user data dir (architecture §11.1).
 // Pure module (no DOM/Node/Electron) so it compiles under both tsconfigs.
 
-import type { GraphStyle } from './memory'
+import type { DailyNotesSettings, GraphStyle } from './memory'
 import type { ServerConfig } from './server'
 import type { AiSettings } from './ai'
 import type { EditorSettings } from './migrate'
@@ -17,6 +17,8 @@ export interface AppSettings {
   vaultRoot?: string
   /** Memory graph coloring (colorful by folder, or one accent). */
   graphStyle?: GraphStyle
+  /** Memory: where daily notes go and which template starts them. */
+  dailyNotes?: DailyNotesSettings
   /** Desktop: the embedded network API (web UI / mobile app access). */
   server?: ServerConfig
   /** Assistant model + effort (the API key lives in the secret store). */

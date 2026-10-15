@@ -36,7 +36,8 @@ vi.mock('electron', () => ({
   ipcMain: electron.ipcMain,
   app: electron.app,
   contextBridge: electron.contextBridge,
-  ipcRenderer: electron.ipcRenderer
+  ipcRenderer: electron.ipcRenderer,
+  webUtils: { getPathForFile: (f: { name: string }) => `/dropped/${f.name}` }
 }))
 
 import { bindIpc } from '../../../electron/ipc/registry'
@@ -228,7 +229,8 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['memory:list', undefined, 'list', []],
         ['memory:read', { path: 'a.md' }, 'read', ['a.md']],
         ['memory:write', { path: 'a.md', raw: 'r' }, 'write', ['a.md', 'r']],
-        ['memory:create', { title: 't', folder: 'f' }, 'create', ['t', 'f']],
+        ['memory:create', { title: 't', folder: 'f' }, 'create', ['t', 'f', undefined, undefined]],
+        ['memory:create', { title: 't', template: 'T/x.md', now: '2026-10-15T09:00' }, 'create', ['t', undefined, 'T/x.md', '2026-10-15T09:00']],
         ['memory:trash', { path: 'a.md' }, 'trash', ['a.md']],
         ['memory:graph', undefined, 'graph', []],
         ['memory:search', { query: 'q' }, 'search', ['q']],
@@ -242,7 +244,13 @@ describe('ipc handler modules bind every channel to its service', () => {
         ['memory:moveFolder', { folder: 'f', into: 'g' }, 'moveFolder', ['f', 'g']],
         ['memory:link', { from: 'a.md', to: 'b.md' }, 'link', ['a.md', 'b.md']],
         ['memory:unlink', { from: 'a.md', to: 'b.md' }, 'unlink', ['a.md', 'b.md']],
-        ['memory:setVault', { path: '/v' }, 'setVault', ['/v']]
+        ['memory:setVault', { path: '/v' }, 'setVault', ['/v']],
+        ['memory:daily', { now: '2026-10-15' }, 'daily', ['2026-10-15']],
+        ['memory:daily', undefined, 'daily', [undefined]],
+        ['memory:setDailyNotes', { folder: 'Daily', template: '' }, 'setDailyNotes', [{ folder: 'Daily', template: '' }]],
+        ['memory:renderTemplate', { path: 'T/x.md', title: 't', now: '2026-10-15T09:00:00' }, 'renderTemplate', ['T/x.md', 't', '2026-10-15T09:00:00']],
+        ['memory:attach', { name: ' a.png ', data: 'AAAA' }, 'attach', ['a.png', 'AAAA']],
+        ['memory:attachment', { target: 'a.png', from: 'n.md' }, 'attachment', ['a.png', 'n.md']]
       ]
     ],
     [
@@ -580,6 +588,9 @@ describe('preload bridge', () => {
     api.close()
     api.toggleFullScreen()
     expect(electron.ipcRenderer.send.mock.calls.map((c) => c[0])).toEqual(['window:minimize', 'window:toggle-maximize', 'window:close', 'window:toggle-fullscreen'])
+    api.startDrag(['/a', '/b'])
+    expect(electron.ipcRenderer.send).toHaveBeenLastCalledWith('files:start-drag', ['/a', '/b'])
+    expect(api.pathForFile({ name: 'x.png' })).toBe('/dropped/x.png')
 
     await api.isMaximized()
     await api.isFullScreen()

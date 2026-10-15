@@ -17,13 +17,77 @@ export interface FinderEntry {
   bundle?: boolean
 }
 
+/** One page of a folder (huge folders come in pages, so the first ones show at once). */
 export interface FinderListing {
   path: string
   /** null at the root. */
   parent: string | null
   entries: FinderEntry[]
-  /** The folder holds more than Mindeck lists. */
-  truncated: boolean
+  /** Entries in the folder in all (shown ones — hidden files only when asked for). */
+  total: number
+  /** Where this page starts. */
+  offset: number
+}
+
+/** What happens to an entry whose name is taken where it goes. */
+export type ConflictChoice = 'replace' | 'keep' | 'skip'
+
+export interface TransferRequest {
+  /** Names the operation for `finder:progress` and `finder:cancel`. */
+  id: string
+  paths: string[]
+  dest: string
+  mode: 'copy' | 'move'
+  /** By name; unlisted conflicts keep both ("name 2"). */
+  choices?: Record<string, ConflictChoice>
+}
+
+/** Something moved to the trash; `restore` (where it lies) when Mindeck can put it back. */
+export interface TrashedItem {
+  path: string
+  restore?: string
+}
+
+export interface TransferResult {
+  /** What went where. */
+  items: { from: string; to: string }[]
+  /** Entries that were in the way ("Replace") — now in the trash. */
+  replaced: TrashedItem[]
+  skipped: string[]
+  /** Stopped by the user: `items` is what was done until then. */
+  cancelled?: boolean
+}
+
+/** A long operation running: bytes done of total (0 = not known yet). */
+export interface FinderProgress {
+  id: string
+  kind: 'copy' | 'move' | 'zip' | 'unzip' | 'size'
+  done: number
+  total: number
+  /** The file at hand. */
+  file?: string
+  finished?: boolean
+}
+
+/** The Info panel: everything about one entry. */
+export interface FinderInfo {
+  entry: FinderEntry
+  createdMs: number
+  accessedMs: number
+  /** Unix permission bits (e.g. 0o644). */
+  mode: number
+  /** The owner's name when it is the user; null when someone else (or unknown). */
+  owner: string | null
+  /** Mindeck may change it (inside Home or on an external drive). */
+  writable: boolean
+}
+
+export interface FolderSize {
+  bytes: number
+  files: number
+  folders: number
+  /** Counting stopped early (time limit or cancelled): the numbers are a minimum. */
+  partial: boolean
 }
 
 /** The usual places — each only when it exists. */

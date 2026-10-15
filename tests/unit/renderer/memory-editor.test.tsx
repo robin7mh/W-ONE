@@ -1,4 +1,5 @@
 import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
+import { EditorView } from '@codemirror/view'
 import { describe, expect, it, vi } from 'vitest'
 import type { Note, NoteMeta, SearchHit } from '@shared/types/memory'
 
@@ -131,11 +132,17 @@ describe('NoteList', () => {
         query="ide"
         hits={[
           { path: 'Ideen/A.md', title: 'A', snippet: 'aaa' },
-          { path: 'Root.md', title: 'Root', snippet: 'rrr' }
+          { path: 'Root.md', title: 'Root', snippet: 'rrr' },
+          { path: 'Ideen.md', title: 'Ideen', snippet: '', titleMatches: [[0, 3]] },
+          { path: 'Mark.md', title: 'Mark', snippet: 'one ide two ide', matches: [[4, 7], [12, 15]] }
         ]}
       />
     )
-    expect(screen.getByText('2 results')).toBeInTheDocument()
+    expect(screen.getByText('4 results')).toBeInTheDocument()
+    // Matches are marked, in titles and snippets; an empty snippet shows no line.
+    expect([...document.querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['Ide', 'ide', 'ide'])
+    expect(screen.getAllByRole('button').find((b) => b.textContent === 'Ideen')!.querySelectorAll(':scope > span').length).toBe(1)
+    expect(screen.getByText('two', { exact: false }).textContent).toBe('one ide two ide')
     expect(screen.getByText('aaa').closest('button')!.className).toContain('border-cyan/40')
     expect(screen.getByText('rrr').closest('button')!.className).toContain('border-transparent')
     fireEvent.click(screen.getByText('rrr'))
@@ -238,11 +245,17 @@ function editorProps(over: Partial<Parameters<typeof NoteEditor>[0]> = {}) {
   return {
     note,
     notes: [meta('Other.md'), meta('Ideen/Sub/Plan.md'), meta('Mindeck.md'), meta('Ideen für Mindeck.md'), meta('Projekte/Mindeck Pro.md')],
+    templates: [] as NoteMeta[],
     draft: note.body,
     mode: 'preview' as const,
+    source: false,
     saving: false,
     onDraft: vi.fn(),
     onMode: vi.fn(),
+    onSource: vi.fn(),
+    onInsertTemplate: vi.fn(async () => 'from template'),
+    onAttach: vi.fn(async () => null),
+    loadImage: vi.fn(async () => null),
     onSave: vi.fn(),
     onRename: vi.fn(),
     onOpen: vi.fn(),
@@ -303,11 +316,14 @@ describe('NoteEditor', () => {
     expect(screen.getByText(/Not connected yet/)).toBeInTheDocument()
   })
 
-  it('mode buttons, edit textarea and keyboard shortcuts', () => {
+  it('mode buttons (Live, Source, Read), the editor and keyboard shortcuts', () => {
     const p = editorProps()
-    const { rerender } = render(<NoteEditor {...p} />)
-    fireEvent.click(screen.getByTitle('Edit (⌘E)'))
-    expect(p.onMode).toHaveBeenLastCalledWith('edit')
+    const { rerender, container } = render(<NoteEditor {...p} />)
+    expect(screen.getByTitle('Read (⌘E)')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByTitle(/^Live Preview/))
+    expect(p.onSource).toHaveBeenLastCalledWith(false)
+    fireEvent.click(screen.getByTitle('Source — plain Markdown'))
+    expect(p.onSource).toHaveBeenLastCalledWith(true)
     fireEvent.click(screen.getByTitle('Read (⌘E)'))
     expect(p.onMode).toHaveBeenLastCalledWith('preview')
 
@@ -317,11 +333,19 @@ describe('NoteEditor', () => {
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
     expect(p.onSave).toHaveBeenCalledTimes(1)
     fireEvent.keyDown(window, { key: 'x', ctrlKey: true })
-    expect(p.onMode).toHaveBeenCalledTimes(3)
+    expect(p.onMode).toHaveBeenCalledTimes(2)
 
     rerender(<NoteEditor {...p} mode="edit" />)
+    expect(screen.getByTitle(/^Live Preview/)).toHaveAttribute('aria-pressed', 'true')
     fireEvent.keyDown(window, { key: 'e', ctrlKey: true })
     expect(p.onMode).toHaveBeenLastCalledWith('preview')
+    const view = EditorView.findFromDOM(container.querySelector('.cm-editor') as HTMLElement)!
+    expect(view.state.doc.toString()).toBe(p.draft)
+    act(() => view.dispatch({ changes: { from: 0, insert: 'typed ' } }))
+    expect(p.onDraft).toHaveBeenCalledWith(`typed ${p.draft}`)
+
+    rerender(<NoteEditor {...p} mode="edit" source />)
+    expect(screen.getByTitle('Source — plain Markdown')).toHaveAttribute('aria-pressed', 'true')
 
     // next to the editor, without the focus: ⌘S is the editor's
     const { unmount } = render(
@@ -333,9 +357,6 @@ describe('NoteEditor', () => {
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
     expect(p.onSave).toHaveBeenCalledTimes(1)
     unmount()
-    rerender(<NoteEditor {...p} mode="edit" />)
-    fireEvent.change(screen.getByRole('textbox', { name: '' }), { target: { value: 'typed' } })
-    expect(p.onDraft).toHaveBeenCalledWith('typed')
   })
 
   it('preview links: wikilinks, external, relative markdown and plain anchors', () => {
@@ -370,6 +391,73 @@ describe('NoteEditor', () => {
     fireEvent.click(screen.getByText('nohref'))
     fireEvent.click(screen.getByText(/plain/))
     expect(vi.mocked(p.onOpen).mock.calls.length + vi.mocked(p.onOpenOrCreate).mock.calls.length).toBe(calls)
+  })
+
+  it('read mode fills pictures from the vault; missing ones are marked', async () => {
+    const loadImage = vi.fn(async (t: string) => (t === 'ok.png' ? 'data:image/png;base64,AA' : null))
+    const p = editorProps({ note: baseNote({ body: '![[ok.png]] ![[gone.png]]' }), loadImage })
+    const { container, unmount } = render(<NoteEditor {...p} />)
+    await act(async () => {})
+    const imgs = container.querySelectorAll<HTMLImageElement>('.md-prose img')
+    expect(imgs[0].src).toBe('data:image/png;base64,AA')
+    expect(imgs[1].className).toContain('missing')
+    expect(loadImage.mock.calls.map((c) => c[0])).toEqual(['ok.png', 'gone.png'])
+
+    // Answers that arrive after leaving are dropped.
+    let late!: (url: string) => void
+    const slow = editorProps({ note: baseNote({ body: '![[late.png]]' }), loadImage: vi.fn(() => new Promise<string | null>((r) => (late = r))) })
+    unmount()
+    const second = render(<NoteEditor {...slow} />)
+    const img = second.container.querySelector<HTMLImageElement>('.md-prose img')!
+    second.rerender(<NoteEditor {...slow} mode="edit" />)
+    await act(async () => late('data:image/png;base64,BB'))
+    expect(img.getAttribute('src')).toBeNull()
+  })
+
+  it('edit mode: links in the editor open notes or pages; templates insert at the cursor', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const templates = [meta('Templates/Tag.md'), meta('Templates/Leer.md')]
+    const onInsertTemplate = vi.fn(async (path: string) => (path === 'Templates/Tag.md' ? '## Heute\n' : null))
+    const p = editorProps({ mode: 'edit', templates, onInsertTemplate, note: baseNote({ body: '[[Other]] [w](https://w.dev) [n](Neu.md) [o](Other.md)\n\nend', links: { Other: 'Other.md', 'Other.md': 'Other.md' } }) })
+    const { container } = render(<NoteEditor {...p} />)
+    const view = EditorView.findFromDOM(container.querySelector('.cm-editor') as HTMLElement)!
+    act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }))
+    const click = (el: Element) => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    click(container.querySelector('[data-target="Other"]')!)
+    expect(p.onOpenOrCreate).toHaveBeenLastCalledWith('Other')
+    const hrefs = container.querySelectorAll('[data-href]')
+    click(hrefs[0])
+    expect(open).toHaveBeenCalledWith('https://w.dev', '_blank')
+    click(hrefs[1])
+    expect(p.onOpenOrCreate).toHaveBeenLastCalledWith('Neu.md')
+    click(hrefs[2])
+    expect(p.onOpen).toHaveBeenLastCalledWith('Other.md')
+
+    // Insert template: a menu of the template notes.
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Insert template' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Insert template' }))
+    expect(screen.getAllByRole('menuitem').map((b) => b.textContent)).toEqual(['Tag', 'Leer'])
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Insert template' }))
+    fireEvent.mouseDown(screen.getByRole('menuitem', { name: 'Tag' }))
+    fireEvent.mouseDown(screen.getByRole('menu'))
+    await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: 'Tag' })))
+    expect(onInsertTemplate).toHaveBeenCalledWith('Templates/Tag.md')
+    expect(view.state.doc.toString().endsWith('end## Heute\n')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Insert template' }))
+    await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: 'Leer' })))
+    expect(view.state.doc.toString().endsWith('end## Heute\n')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Insert template' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Insert template' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('no template button without templates or while reading', () => {
+    const { rerender } = render(<NoteEditor {...editorProps({ mode: 'edit' })} />)
+    expect(screen.queryByLabelText('Insert template')).toBeNull()
+    rerender(<NoteEditor {...editorProps({ templates: [meta('Templates/T.md')] })} />)
+    expect(screen.queryByLabelText('Insert template')).toBeNull()
   })
 
   it('rename via the title input: Enter commits, Escape and blank/same revert', () => {

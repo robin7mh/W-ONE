@@ -169,8 +169,14 @@ export function NoteList(p: Props) {
                   h.path === p.activePath ? 'border-cyan/40 bg-cyan/[0.06]' : 'border-transparent hover:bg-elevated/50'
                 )}
               >
-                <span className="block truncate font-sans text-[12.5px] font-medium text-text-primary">{h.title}</span>
-                <span className="mt-0.5 line-clamp-2 font-sans text-[11px] text-text-muted">{h.snippet}</span>
+                <span className="block truncate font-sans text-[12.5px] font-medium text-text-primary">
+                  <Marked text={h.title} ranges={h.titleMatches} />
+                </span>
+                {h.snippet && (
+                  <span className="mt-0.5 line-clamp-3 font-sans text-[11px] text-text-muted">
+                    <Marked text={h.snippet} ranges={h.matches} />
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -251,6 +257,23 @@ export function NoteList(p: Props) {
       </div>
     </div>
   )
+}
+
+/** Text with the search matches marked. */
+function Marked({ text, ranges = [] }: { text: string; ranges?: [number, number][] }) {
+  const parts: React.ReactNode[] = []
+  let at = 0
+  for (const [from, to] of ranges) {
+    if (from > at) parts.push(text.slice(at, from))
+    parts.push(
+      <mark key={from} className="rounded-sm bg-amber/20 px-px text-text-primary">
+        {text.slice(from, to)}
+      </mark>
+    )
+    at = to
+  }
+  parts.push(text.slice(at))
+  return <>{parts}</>
 }
 
 /** Inline name input for a new note or folder; Enter creates, Esc/blur cancels. */

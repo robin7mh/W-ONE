@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir, tick } from './helpers'
@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   failWrite: null as string | null
 }))
 vi.mock('electron', () => ({
+  clipboard: {},
+  ClipboardItem: class {},
   dialog: { showOpenDialog: h.dialog },
   shell: {
     trashItem: async (p: string) => (await import('node:fs/promises')).rm(p, { recursive: true }),
@@ -429,5 +431,120 @@ describe('VaultService — picking before the default vault exists', () => {
     await mkdir(other)
     h.dialog.mockResolvedValueOnce({ canceled: false, filePaths: [other] })
     expect(await v.pickVault()).toMatchObject({ isDefault: false, name: 'elsewhere', noteCount: 0 })
+  })
+})
+
+describe('VaultService — daily notes, templates, pictures', () => {
+  it('reports and stores the daily-note settings (normalized, validated)', async () => {
+    const { v, settings } = await setup()
+    expect((await v.status()).dailyNotes).toEqual({ folder: 'Daily', template: '' })
+    expect(await v.setDailyNotes({ folder: '/Journal/Tage/', template: 'Templates\\Tag.md' })).toEqual({ folder: 'Journal/Tage', template: 'Templates/Tag.md' })
+    expect(settings.get().dailyNotes).toEqual({ folder: 'Journal/Tage', template: 'Templates/Tag.md' })
+    expect(await v.setDailyNotes({ folder: '', template: '' })).toEqual({ folder: '', template: '' })
+    await expect(v.setDailyNotes({ folder: '../out', template: '' })).rejects.toMatchObject({ code: 'bad-path' })
+    await expect(v.setDailyNotes({ folder: '', template: 'x.txt' })).rejects.toMatchObject({ code: 'bad-path' })
+  })
+
+  it("opens today's note, creating it from the daily template the first time", async () => {
+    const { v, read } = await setup()
+    await v.createFolder('', 'Templates')
+    await v.write('Templates/Tag.md', '---\ntags: [journal]\n---\n# {{title}}\nAngelegt {{time}}\n')
+    await v.setDailyNotes({ folder: 'Journal', template: 'Templates/Tag.md' })
+    const today = await v.daily('2026-10-15T08:05:00')
+    expect(today).toMatchObject({ path: 'Journal/2026-10-15.md', tags: ['journal'] })
+    expect(await read('Journal/2026-10-15.md')).toMatch(/^---\nid: .+\ncreated: .+\ntags:\n  - journal\n---\n# 2026-10-15\nAngelegt 08:05\n$/)
+    // The second time it is just opened.
+    await v.writeBody('Journal/2026-10-15.md', 'mine')
+    expect((await v.daily('2026-10-15T23:00')).path).toBe('Journal/2026-10-15.md')
+    expect(await read('Journal/2026-10-15.md')).toContain('mine')
+  })
+
+  it('starts the day without a template when there is none (or it is gone), in the root if asked', async () => {
+    const { v, read } = await setup()
+    expect((await v.daily('2026-01-02')).path).toBe('Daily/2026-01-02.md')
+    expect(await read('Daily/2026-01-02.md')).toMatch(/---\n$/)
+    await v.setDailyNotes({ folder: '', template: 'Templates/Weg.md' })
+    expect((await v.daily('2026-01-03')).path).toBe('2026-01-03.md')
+    expect((await v.daily()).path).toMatch(/^\d{4}-\d{2}-\d{2}\.md$/)
+  })
+
+  it('creates notes from a template and fills a template for the cursor', async () => {
+    const { v, read } = await setup()
+    await v.createFolder('', 'Templates')
+    await v.write('Templates/Projekt.md', '---\ntype: project\n---\n## {{title}}\nStart: {{date:DD.MM.YYYY}}\n')
+    const meta = await v.create('Neues Ding', 'Wissen', 'Templates/Projekt.md', '2026-03-04T10:00')
+    expect(meta).toMatchObject({ path: 'Wissen/Neues Ding.md', type: 'project' })
+    expect(await read(meta.path)).toContain('## Neues Ding\nStart: 04.03.2026\n')
+    expect(await v.renderTemplate('Templates/Projekt.md', 'Hier', '2026-03-04')).toBe('## Hier\nStart: 04.03.2026\n')
+    await expect(v.create('X', '', 'Templates/Fehlt.md')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(v.renderTemplate('Templates/Fehlt.md', 'X')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('saves pasted pictures under attachments/, numbered when the name is taken', async () => {
+    const { v, root } = await setup()
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
+    expect(await v.attach('Pasted image 20261015.PNG', png)).toEqual({ path: 'attachments/Pasted image 20261015.png', link: 'Pasted image 20261015.png' })
+    expect(await v.attach('Pasted image 20261015.png', png)).toEqual({ path: 'attachments/Pasted image 20261015 2.png', link: 'Pasted image 20261015 2.png' })
+    expect(await v.attach('../evil/:x.jpg', png)).toEqual({ path: 'attachments/x.jpg', link: 'x.jpg' })
+    expect([...(await readFile(join(root, 'attachments', 'x.jpg')))]).toEqual([0x89, 0x50, 0x4e, 0x47])
+    await expect(v.attach('notes.txt', png)).rejects.toMatchObject({ code: 'bad-type' })
+    await expect(v.attach('big.png', Buffer.alloc(20 * 1024 * 1024 + 1).toString('base64'))).rejects.toMatchObject({ code: 'too-large' })
+    h.failWrite = 'boom.png'
+    await expect(v.attach('boom.png', png)).rejects.toMatchObject({ code: 'EIO' })
+  })
+
+  it('gives up after 999 pictures with the same name', async () => {
+    const { v, root } = await setup()
+    await mkdir(join(root, 'attachments'))
+    await writeFile(join(root, 'attachments', 'busy.png'), '')
+    for (let n = 2; n < 1000; n += 1) await writeFile(join(root, 'attachments', `busy ${n}.png`), '')
+    await expect(v.attach('busy.png', '')).rejects.toMatchObject({ code: 'exists' })
+  })
+
+  it('finds pictures like Obsidian: next to the note, by vault path, in attachments/, then anywhere by name', async () => {
+    const { v, root, base } = await setup()
+    const put = async (rel: string, bytes = 'x') => {
+      await mkdir(join(root, rel, '..'), { recursive: true })
+      await writeFile(join(root, rel), bytes)
+    }
+    await put('Ich/foto.png', 'near')
+    await put('img/foto.png', 'path')
+    await put('attachments/foto.png', 'att')
+    await put('deep/er/elsewhere.webp', 'deep')
+    await put('b/elsewhere.webp', 'b')
+    await put('a/elsewhere.webp', 'short')
+    await put('.obsidian/hidden.png', 'hidden')
+    await put('Ich/scan.svg', '<svg/>')
+
+    const dataOf = (a: { dataUrl: string }) => Buffer.from(a.dataUrl.split(',')[1], 'base64').toString()
+    expect(dataOf(await v.attachment('foto.png', 'Ich/Über mich.md'))).toBe('near')
+    expect(dataOf(await v.attachment('./foto.png', 'Ich/Über mich.md'))).toBe('near')
+    expect(dataOf(await v.attachment('img/foto.png'))).toBe('path')
+    expect(dataOf(await v.attachment('foto.png'))).toBe('att')
+    expect(dataOf(await v.attachment('../img/foto.png', 'Ich/Über mich.md'))).toBe('path')
+    const far = await v.attachment('Elsewhere.webp', 'Willkommen.md')
+    expect(far).toMatchObject({ path: 'a/elsewhere.webp', mime: 'image/webp' })
+    expect(dataOf(far)).toBe('short')
+    expect((await v.attachment('scan.svg', 'Ich/Über mich.md')).dataUrl.startsWith('data:image/svg+xml;base64,')).toBe(true)
+
+    await expect(v.attachment('notes.md')).rejects.toMatchObject({ code: 'bad-type' })
+    await expect(v.attachment('missing.png')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(v.attachment('hidden.png')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(v.attachment('foto.png', '../out.md')).rejects.toMatchObject({ code: 'bad-path' })
+
+    // Never outside the vault: escapes, folders named like pictures, oversized files.
+    await writeFile(join(base, 'outside.png'), 'secret')
+    await expect(v.attachment('../outside.png')).rejects.toMatchObject({ code: 'not-found' })
+    await mkdir(join(root, 'attachments', 'dir.png'))
+    await expect(v.attachment('dir.png')).rejects.toMatchObject({ code: 'not-found' })
+    const huge = await open(join(root, 'huge.gif'), 'w')
+    await huge.truncate(20 * 1024 * 1024 + 1)
+    await huge.close()
+    await expect(v.attachment('huge.gif')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('finds no pictures before the vault exists', async () => {
+    const { v } = await setup({ create: false })
+    await expect(v.attachment('a.png')).rejects.toMatchObject({ code: 'not-found' })
   })
 })
