@@ -43,7 +43,7 @@ const initial = { onboarding: useOnboarding.getState(), agents: useAgents.getSta
 beforeEach(() => {
   localStorage.clear()
   act(() => useLocale.setState({ locale: 'en' }))
-  useOnboarding.setState({ ...initial.onboarding, open: true, done: false, step: 'welcome' })
+  useOnboarding.setState({ ...initial.onboarding, open: true, done: false, step: 'welcome', known: true })
   useAgents.setState(initial.agents, true)
   useProjects.setState(initial.projects, true)
   useTerminals.setState(initial.terminals, true)
@@ -60,13 +60,13 @@ const current = () => screen.getByRole('listitem', { current: 'step' })
 
 describe('onboarding store', () => {
   it('remembers per device whether it was finished, and where it stopped', () => {
-    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome' })
+    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome', known: false })
     localStorage.setItem(KEY, JSON.stringify({ done: true, step: 'project' }))
-    expect(loadOnboarding()).toEqual({ done: true, step: 'project' })
+    expect(loadOnboarding()).toEqual({ done: true, step: 'project', known: true })
     localStorage.setItem(KEY, JSON.stringify({ done: 'yes', step: 'nowhere' }))
-    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome' })
+    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome', known: true })
     localStorage.setItem(KEY, '{ broken')
-    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome' })
+    expect(loadOnboarding()).toEqual({ done: false, step: 'welcome', known: false })
 
     useOnboarding.getState().go('agents')
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ done: false, step: 'agents' })
@@ -83,6 +83,57 @@ describe('onboarding store', () => {
     useOnboarding.getState().go('done')
     expect(useOnboarding.getState().step).toBe('done')
     set.mockRestore()
+  })
+})
+
+describe('a real first start', () => {
+  const fresh = () => useOnboarding.setState({ open: false, done: false, step: 'welcome', known: false })
+
+  it('opens when this core has no projects, agent sessions or chats', async () => {
+    installBridge({ 'projects:list': () => [], 'agents:list': () => [], 'ai:conversations': () => fail('no assistant') })
+    fresh()
+    await useOnboarding.getState().firstStart()
+    expect(useOnboarding.getState()).toMatchObject({ open: true, known: true, done: false })
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ done: false, step: 'welcome' })
+  })
+
+  it('someone who used Mindeck before gets it marked done, silently', async () => {
+    for (const routes of [{ 'projects:list': () => [project('api')] }, { 'agents:list': () => [{ id: 's1' }] }, { 'ai:conversations': () => [{ id: 'c1' }] }]) {
+      localStorage.clear()
+      installBridge({ 'projects:list': () => [], 'agents:list': () => [], 'ai:conversations': () => [], ...routes })
+      fresh()
+      await useOnboarding.getState().firstStart()
+      expect(useOnboarding.getState()).toMatchObject({ open: false, done: true, known: true })
+      expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ done: true, step: 'welcome' })
+    }
+  })
+
+  it('asks nothing once decided — also when Settings starts it meanwhile', async () => {
+    const bridge = installBridge()
+    await useOnboarding.getState().firstStart() // known already
+    expect(bridge.invoke).not.toHaveBeenCalled()
+    let answer!: (projects: Project[]) => void
+    installBridge({ 'projects:list': () => new Promise<Project[]>((r) => (answer = r)), 'agents:list': () => [], 'ai:conversations': () => [] })
+    fresh()
+    const deciding = useOnboarding.getState().firstStart()
+    await settle()
+    useOnboarding.getState().restart()
+    answer([project('api')])
+    await deciding
+    expect(useOnboarding.getState()).toMatchObject({ open: true, done: false })
+  })
+
+  it('the desktop window decides on mount; a browser doesn’t', async () => {
+    installRemote()
+    fresh()
+    const { unmount } = render(<Onboarding />)
+    await settle()
+    expect(useOnboarding.getState().known).toBe(false)
+    unmount()
+    installBridge({ 'projects:list': () => [], 'agents:list': () => [], 'ai:conversations': () => [] })
+    render(<Onboarding />)
+    await settle()
+    expect(screen.getByRole('dialog', { name: 'Set up Mindeck' })).toBeInTheDocument()
   })
 })
 

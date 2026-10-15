@@ -189,10 +189,13 @@ function Wizard() {
 /**
  * The first-start setup, over the app (desktop window): language and look,
  * coding agents, a first project, moving over from VS Code / Cursor, three
- * tips. Skippable; Settings → Setup starts it again.
+ * tips — on a real first start only. Skippable; Settings → Setup starts it again.
  */
 export function Onboarding() {
   const open = useOnboarding((s) => s.open)
+  useEffect(() => {
+    if (isDesktop()) void useOnboarding.getState().firstStart()
+  }, [])
   if (!open || !isDesktop()) return null
   return <Wizard />
 }
