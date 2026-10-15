@@ -342,6 +342,12 @@ describe('starting debug adapters', () => {
     expect(out).toBe('yes')
     const plain = spawnInShell('true', [], await tempDir())
     await new Promise((r) => plain.on('exit', r))
+    // Windows: the program itself (lldb-dap.exe, dlv.exe, python) — PowerShell would mangle POSIX quoting.
+    const direct = spawnInShell(process.execPath, ['-e', 'process.stdout.write(process.env.MINDECK_X)'], await tempDir(), { MINDECK_X: 'win', ELECTRON_RUN_AS_NODE: '1' }, 'win32')
+    let got = ''
+    direct.stdout!.on('data', (d: Buffer) => (got += d.toString()))
+    await new Promise((r) => direct.on('exit', r))
+    expect(got).toBe('win')
     expect(typeof socketTransport).toBe('function')
     expect(typeof stdioTransport).toBe('function')
   }, 20_000)

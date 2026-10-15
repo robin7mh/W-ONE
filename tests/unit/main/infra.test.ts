@@ -341,7 +341,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       registerToolsIpc,
       [
         ['tools:status', undefined, 'status', []],
-        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']]
+        ['tools:install', { id: 'python', part: 'server' }, 'install', ['python', 'server']],
+        ['tools:runtimes', undefined, 'runtimes', []]
       ]
     ],
     [

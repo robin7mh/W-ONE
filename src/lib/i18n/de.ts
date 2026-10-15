@@ -45,6 +45,59 @@ export const de: Dict = {
     linking: 'Verbinde …'
   },
 
+  onboarding: {
+    title: 'Mindeck einrichten',
+    stepOf: (n, total) => `Schritt ${n} von ${total}`,
+    back: 'Zurück',
+    next: 'Weiter',
+    skip: 'Einrichtung überspringen',
+    close: 'Einrichtung schließen',
+    finish: 'Loslegen',
+    steps: {
+      welcome: 'Willkommen',
+      agents: 'Coding-Agenten',
+      project: 'Erstes Projekt',
+      import: 'VS Code / Cursor',
+      browserImport: 'Browser-Daten',
+      done: 'Fertig'
+    },
+    welcomeTitle: 'Willkommen bei Mindeck',
+    welcomeIntro: 'Agenten, Editor, Terminal, Browser, Dateien und Memory in einem Fenster. Erst ein paar Entscheidungen — alles lässt sich später in den Einstellungen ändern.',
+    language: 'Sprache',
+    agentsIntro: 'Mindeck nutzt die Coding-Agenten, die du schon verwendest, mit deinen eigenen Konten. Das hat dieser Computer:',
+    checkAgain: 'Erneut prüfen',
+    checking: 'Prüfe …',
+    installed: (version) => (version ? `Installiert · v${version}` : 'Installiert'),
+    notInstalled: 'Nicht installiert',
+    signedIn: (account) => (account ? `Angemeldet · ${account}` : 'Angemeldet'),
+    notSignedIn: 'Noch nicht angemeldet',
+    install: 'Installieren',
+    signIn: 'Anmelden',
+    copy: (command) => `Kopieren: ${command}`,
+    copied: 'Kopiert',
+    run: (command) => `Im Terminal ausführen: ${command}`,
+    runShort: 'Ausführen',
+    guide: 'Anleitung',
+    needsNode: 'braucht zuerst Node.js',
+    nodeHint: 'Codex und Gemini CLI werden mit npm installiert, das mit Node.js kommt.',
+    terminalHint: 'Läuft in einem Terminal (später auch unter Terminal) — folge den Schritten dort und prüfe dann erneut.',
+    projectIntro: 'Füge einen Ordner hinzu, in dem du arbeitest. Mindeck liest Git-Status, Sprachen und Skripte, und Agenten arbeiten darin.',
+    chooseFolder: 'Ordner wählen …',
+    yourProjects: 'Deine Projekte',
+    noProjects: 'Noch kein Projekt — du kannst auch später unter Projekte eins hinzufügen.',
+    importIntro: 'Nimm Editor-Einstellungen, Tastenkürzel und Snippets mit. VS Code und Cursor bleiben unverändert.',
+    doneTitle: 'Alles bereit',
+    doneIntro: 'Drei Dinge, die sich lohnen:',
+    tips: [
+      { title: 'Split-View', body: 'Zwei Dateien nebeneinander im Editor: ⌘\\ (Strg+\\ unter Windows und Linux) oder der Teilen-Knopf über dem Editor.' },
+      { title: 'Agenten', body: 'Agenten → Neuer Chat startet Claude Code, Codex oder Gemini in einem Projekt. Sie fragen, bevor sie etwas ändern.' },
+      { title: 'Command Deck', body: 'Die Leiste unten zeigt jeden laufenden Agenten und was auf deine Freigabe wartet — in jedem Modul.' }
+    ],
+    settingsCard: 'Einrichtung',
+    settingsHint: 'Sprache, Coding-Agenten, erstes Projekt und Umzug aus VS Code — Schritt für Schritt.',
+    restart: 'Einrichtung erneut starten'
+  },
+
   update: {
     label: 'Update',
     disabled: 'Automatisch in der installierten App',
@@ -55,7 +108,10 @@ export const de: Dict = {
     error: 'Update fehlgeschlagen',
     check: 'Nach Updates suchen',
     install: 'Neu starten & aktualisieren',
-    chip: (version) => `Update ${version} · neu starten`
+    chip: (version) => `Update ${version} · neu starten`,
+    available: (version) => `Version ${version} ist da — zum Aktualisieren herunterladen`,
+    download: 'Herunterladen',
+    chipAvailable: (version) => `Neue Version ${version} verfügbar · herunterladen`
   },
 
   stability: {

@@ -198,6 +198,7 @@ export const REQUEST_SCHEMAS: Schemas = {
 
   'tools:status': none,
   'tools:install': z.object({ id: z.string().min(1).max(50), part: z.enum(['server', 'debugger']) }),
+  'tools:runtimes': none,
 
   'migrate:scan': none,
   'migrate:apply': z.object({ app: z.string().min(1).max(50) }),

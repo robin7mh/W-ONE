@@ -30,7 +30,7 @@ import type {
   LspSignature
 } from '@shared/types/lsp'
 import type { DebugAction, DebugBreakpoint, DebugOutput, DebugSession, DebugVariable } from '@shared/types/debug'
-import type { LanguageStatus, ToolProgress } from '@shared/types/languages'
+import type { LanguageStatus, RuntimeInfo, ToolProgress } from '@shared/types/languages'
 import type { LiveServerStatus, SassResult } from '@shared/types/live'
 import type { SftpEntry, SftpProgress, SftpTarget } from '@shared/types/sftp'
 import type { SyncStatus, SyncUi } from '@shared/types/sync'
@@ -247,6 +247,8 @@ export interface IpcChannels {
   /** Language servers and debuggers on this machine (Settings → Languages). */
   'tools:status': { request: void; response: LanguageStatus[] }
   'tools:install': { request: { id: string; part: 'server' | 'debugger' }; response: LanguageStatus }
+  /** Node, npm and git on this machine (the onboarding's checklist). */
+  'tools:runtimes': { request: void; response: RuntimeInfo[] }
 
   /** Moving over from VS Code / Cursor: what's there (read only), and taking it over. */
   'migrate:scan': { request: void; response: MigrationSource[] }
@@ -586,6 +588,7 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'tools:status': 'any',
   // Installing runs package managers on the core's machine.
   'tools:install': 'terminal',
+  'tools:runtimes': 'any',
   // Reads the desktop user's own VS Code folders.
   'migrate:scan': 'desktop',
   'migrate:apply': 'desktop',

@@ -96,9 +96,10 @@ export interface DirListing {
 
 /**
  * App updates (desktop, packaged): GitHub Releases via electron-updater.
- * `disabled` in dev runs and anywhere the app cannot update itself.
+ * `disabled` in dev runs; `available` where the app can't replace itself
+ * (Linux .deb) — the new version is downloaded by the user (`downloadUrl`).
  */
-export type UpdateState = 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'error'
+export type UpdateState = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'
 
 export interface UpdateStatus {
   state: UpdateState
@@ -107,5 +108,7 @@ export interface UpdateStatus {
   version?: string
   /** Download progress, 0–100. */
   progress?: number
+  /** `available`: where the new version's installer is. */
+  downloadUrl?: string
   error?: string
 }

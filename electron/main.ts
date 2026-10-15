@@ -11,7 +11,7 @@ import { createCore, type Core } from './main/core/createCore'
 import { bindIpc } from './ipc/registry'
 import { autoUpdater } from 'electron-updater'
 import { cloudConfig } from './main/services/cloud/config'
-import { UpdateService } from './main/services/update/UpdateService'
+import { manualUpdateFile, UpdateService } from './main/services/update/UpdateService'
 import { createBrowserHost } from './main/platform/browser/host'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
 
@@ -264,7 +264,9 @@ async function startCore(): Promise<void> {
   updates = new UpdateService({
     updater: app.isPackaged ? autoUpdater : null,
     currentVersion: app.getVersion(),
-    onStatus: (status) => broadcast('update:status', status)
+    onStatus: (status) => broadcast('update:status', status),
+    // A .deb can't replace itself: the user downloads the new version.
+    manualDownload: manualUpdateFile(process.platform, process.arch, process.resourcesPath)
   })
   const u = updates
   core.router.register('update:status', () => u.status())

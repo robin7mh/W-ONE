@@ -28,6 +28,7 @@ import { AiCard } from './AiCard'
 import { BrowserCard } from './BrowserCard'
 import { DesktopCard } from './DesktopCard'
 import { Toggle } from './Toggle'
+import { OnboardingCard } from '@/features/onboarding/components/OnboardingCard'
 
 const input =
   'rounded-md border border-hud/70 bg-surface/70 px-2.5 py-1.5 font-mono text-[12px] text-text-primary outline-none focus:border-cyan/60'
@@ -435,6 +436,7 @@ export function SettingsView() {
         <PermissionsCard />
         <VaultCard />
         <DesktopCard />
+        <OnboardingCard />
         <AboutCard />
       </div>
     </Panel>
