@@ -148,6 +148,15 @@ describe('ipc router', () => {
     expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
   })
 
+  it('a remote call’s answer is shaped for the device (lists trimmed); the desktop’s never', async () => {
+    const shape = vi.fn(async (_channel: string, data: unknown) => (data as { id: string }[]).filter((s) => s.id !== 'private'))
+    const router = new Router({ remoteTerminal: () => false, shape })
+    router.register('agents:list', () => [{ id: 'private' }, { id: 'shared' }] as never)
+    expect(await router.dispatch('agents:list', undefined, ipcCtx)).toEqual({ ok: true, data: [{ id: 'private' }, { id: 'shared' }] })
+    expect(await router.dispatch('agents:list', undefined, remoteCtx)).toEqual({ ok: true, data: [{ id: 'shared' }] })
+    expect(shape).toHaveBeenCalledTimes(1)
+  })
+
   it('paired devices list only the projects they may use, and add projects as remote ones', async () => {
     const router = new Router({ remoteTerminal: () => false })
     const service = { list: () => [{ id: 'a' }, { id: 'b' }], add: vi.fn(async (path: string) => ({ path })) }
@@ -328,8 +337,8 @@ describe('ipc handler modules bind every channel to its service', () => {
       'search',
       registerSearchIpc,
       [
-        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }]],
-        ['search:cancel', { id: 'i' }, 'cancel', ['i']]
+        ['search:start', { id: 'i', projectId: 'p', query: { pattern: 'x', include: ['src'] } }, 'start', ['i', 'p', { pattern: 'x', include: ['src'] }, undefined]],
+        ['search:cancel', { id: 'i' }, 'cancel', ['i', undefined]]
       ]
     ],
     [
@@ -352,7 +361,8 @@ describe('ipc handler modules bind every channel to its service', () => {
           { projectId: 'p', path: 'a.ts', range: { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, errorCodes: [2304] },
           'codeFixes',
           ['p', 'a.ts', { start: { line: 1, offset: 1 }, end: { line: 1, offset: 2 } }, [2304]]
-        ]
+        ],
+        ['lsp:symbols', { projectId: 'p', path: 'a.py' }, 'symbols', ['p', 'a.py']]
       ]
     ],
     [
@@ -536,6 +546,7 @@ describe('paths', () => {
         settingsFile: join(home, 'Mindeck', 'data', 'settings.json'),
         defaultVaultRoot: join(home, 'Mindeck', 'vault'),
         devicesFile: join(home, 'Mindeck', 'data', 'devices.json'),
+        tlsDir: join(home, 'Mindeck', 'data', 'tls'),
         secretsFile: join(home, 'Mindeck', 'data', 'secrets.json'),
         cloudFile: join(home, 'Mindeck', 'data', 'cloud.json'),
         grantsFile: join(home, 'Mindeck', 'data', 'grants.json'),

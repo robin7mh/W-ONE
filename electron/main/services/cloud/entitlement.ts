@@ -14,6 +14,7 @@ export interface EntitlementClaims {
   reason: 'ok' | 'trial_expired' | 'email_unverified'
   /** Trial seconds left (0 for lifetime). */
   rem: number
+  /** The device it was issued to: Mindeck Cloud's id for the install (or its install id). */
   dev?: string
   /** A lifetime license's offline certificate: valid without the cloud for good (until refunded). */
   perpetual?: boolean

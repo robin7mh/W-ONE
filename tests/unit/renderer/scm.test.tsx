@@ -327,7 +327,7 @@ describe('quick open', () => {
   it('⌘P: type, move, open with Enter or a click; Escape and outside clicks close', async () => {
     installBridge({ 'scm:files': () => ['src/app.ts', 'src/util/apply.ts', 'README.md'], 'files:read': () => ({ path: 'x', content: 'x', mtimeMs: 1, size: 1 }) })
     useScm.setState({ files: ['src/app.ts', 'src/util/apply.ts', 'README.md'], quickOpen: true })
-    const { rerender } = render(<QuickOpen commands={[]} />)
+    const { rerender } = render(<QuickOpen />)
     const input = screen.getByLabelText('Go to file by name…', { selector: 'input' })
     fireEvent.change(input, { target: { value: 'ap' } })
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['app.tssrc/', 'apply.tssrc/util/'])
@@ -341,7 +341,7 @@ describe('quick open', () => {
     expect(useEditor.getState().activeId).toBe('p:src/util/apply.ts')
     expect(useScm.getState().quickOpen).toBe(false)
 
-    rerender(<QuickOpen commands={[]} />)
+    rerender(<QuickOpen />)
     fireEvent.change(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { target: { value: '' } })
     fireEvent.mouseEnter(screen.getAllByRole('option')[2])
     fireEvent.click(screen.getAllByRole('option')[2])
@@ -349,7 +349,7 @@ describe('quick open', () => {
     expect(useEditor.getState().activeId).toBe('p:README.md')
 
     act(() => useScm.setState({ quickOpen: true }))
-    rerender(<QuickOpen commands={[]} />)
+    rerender(<QuickOpen />)
     fireEvent.change(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { target: { value: 'zzz' } })
     expect(screen.getByText('No matching files')).toBeInTheDocument()
     fireEvent.keyDown(screen.getByLabelText('Go to file by name…', { selector: 'input' }), { key: 'Enter' }) // nothing to open
@@ -420,7 +420,7 @@ describe('EditorView with source control', () => {
       'projects:list': () => [{ id: 'p', name: 'Demo', path: '/x/p', addedAt: '', lastSeenAt: '' }],
       'files:list': () => [],
       'files:stat': () => [],
-      'scm:status': () => status({ ahead: 1, behind: 2, files: Array.from({ length: 120 }, (_, i) => ({ path: `f${i}.ts`, unstaged: 'modified' as const })) }),
+      'scm:status': () => status({ ahead: 1, behind: 2, files: Array.from({ length: 100 }, (_, i) => ({ path: `f${i}.ts`, unstaged: 'modified' as const })) }),
       'scm:branches': () => [],
       'scm:log': () => [commit('c1', [])],
       'scm:show': () => ({ hash: 'c1', author: 'Ada', email: 'a@a', date: 0, message: 'first', files: [] }),

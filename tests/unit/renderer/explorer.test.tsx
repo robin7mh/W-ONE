@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, settle } from './bridge'
 import { FileTree } from '@/features/editor/components/FileTree'
-import { setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
+import { oneGroup, setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
 import { useLive } from '@/features/editor/live'
 
 const flags = vi.hoisted(() => ({ mac: true }))
@@ -122,7 +122,7 @@ describe('explorer store', () => {
     setBufferHost(h)
     useEditor.setState({
       tabs: [tab('src/a.ts', { dirty: true }), tab('src/deep/b.ts'), tab('srcx.ts'), { ...tab('src/a.ts'), id: 'q:src/a.ts', projectId: 'q' }],
-      activeId: 'p:src/deep/b.ts',
+      ...oneGroup(['p:src/a.ts', 'p:src/deep/b.ts', 'p:srcx.ts'], 'p:src/deep/b.ts'),
       selection: { path: 'src', kind: 'dir' },
       naming: { mode: 'rename', dir: '', path: 'src' }
     })

@@ -201,6 +201,63 @@ export function split(layout: Layout): Layout {
   return { preset, panes, sizes: DEFAULT_SIZES[preset], focus: pane.id }
 }
 
+/** An edge of a pane, where a module dragged onto it opens in a new pane. */
+export type Side = 'left' | 'right' | 'top' | 'bottom'
+
+/**
+ * Where a new pane can open beside pane `paneId` — the edges whose split one
+ * of the arrangements draws as it looks: a single pane on any side, the right
+ * column of two (or of one large and two small) above or below, the large
+ * pane of three above or below. None while a pane is maximized.
+ */
+export function dropSides(layout: Layout, paneId: string): Side[] {
+  const index = layout.panes.findIndex((p) => p.id === paneId)
+  if (index < 0 || layout.maximized) return []
+  if (layout.preset === 'single') return ['left', 'right', 'top', 'bottom']
+  if ((layout.preset === 'columns' && index === 1) || (layout.preset === 'main' && index === 0)) return ['top', 'bottom']
+  return []
+}
+
+/** Slot order of the new layout, by where the new pane `n` goes beside pane `t` (`a`, `b`: the others in their slots). */
+const BESIDE: Record<'columns' | 'main', { preset: Preset; order: Partial<Record<Side, string>> }> = {
+  columns: { preset: 'main', order: { top: 'ant', bottom: 'atn' } },
+  main: { preset: 'grid', order: { top: 'natb', bottom: 'tanb' } }
+}
+
+/** Open `module` in a new pane on `side` of pane `paneId` (see `dropSides`); it gets the focus. */
+export function dropBeside(layout: Layout, paneId: string, side: Side, module: ModuleId): Layout {
+  if (!dropSides(layout, paneId).includes(side) || layout.panes.some((p) => p.module === module)) return layout
+  const pane: Pane = { id: nextId(layout.panes), module }
+  const target = layout.panes.find((p) => p.id === paneId)!
+  if (layout.preset === 'single') {
+    const preset: Preset = side === 'left' || side === 'right' ? 'columns' : 'rows'
+    const panes = side === 'left' || side === 'top' ? [pane, target] : [target, pane]
+    return { preset, panes, sizes: DEFAULT_SIZES[preset], focus: pane.id }
+  }
+  const { preset, order } = BESIDE[layout.preset as keyof typeof BESIDE]
+  const others = layout.panes.filter((p) => p !== target)
+  const slot: Record<string, Pane> = { n: pane, t: target, a: others[0], b: others[1] }
+  const panes = [...order[side]!].map((c) => slot[c])
+  // The left column keeps its width.
+  return { preset, panes, sizes: { ...DEFAULT_SIZES[preset], x: layout.sizes.x }, focus: pane.id }
+}
+
+/**
+ * Open `module` next to the focused pane — on its right where the
+ * arrangements allow, else below it, else as a further pane; with four
+ * panes, in the focused one. A module already on screen gets the focus.
+ */
+export function openBeside(layout: Layout, module: ModuleId): Layout {
+  const base: Layout = layout.maximized ? { ...layout, maximized: undefined } : layout
+  const there = base.panes.find((p) => p.module === module)
+  if (there) return there.id === base.focus ? base : { ...base, focus: there.id }
+  const target = focusedPane(base).id
+  const side = (['right', 'bottom'] as Side[]).find((s) => dropSides(base, target).includes(s))
+  if (side) return dropBeside(base, target, side, module)
+  const grown = split(base)
+  return place(grown, grown.focus, module)
+}
+
 /** Close a pane (the last one stays); the focus goes to its neighbour. */
 export function close(layout: Layout, paneId: string = layout.focus): Layout {
   const index = layout.panes.findIndex((p) => p.id === paneId)

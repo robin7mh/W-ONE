@@ -12,7 +12,8 @@ import { useContextStore } from '@/features/context/store'
 import { useAssistant } from '@/features/agents/store'
 import { useComposerPrefs } from '@/features/agents/composerPrefs'
 import { useSession } from '@/features/session/store'
-import { codeFromHash, PairScreen } from '@/features/session/components/PairScreen'
+import { linkFromHash, PairScreen } from '@/features/session/components/PairScreen'
+import { formatFingerprint, normalizeFingerprint, pairingLink, parsePairingLink } from '@shared/ipc/transport'
 import { AppearanceCard } from '@/features/settings/components/AppearanceCard'
 import { BrowserCard } from '@/features/settings/components/BrowserCard'
 import { surfaceTokens, useAppearance } from '@/lib/theme'
@@ -25,8 +26,11 @@ beforeEach(() => {
   useContextStore.setState({ byProject: {} })
 })
 
+const HEX = 'AB'.repeat(16) + 'CD'.repeat(16)
+const FP = formatFingerprint(HEX)
+
 const server = (over: Partial<ServerStatus> = {}): ServerStatus => ({
-  config: { enabled: true, lan: false, port: 7420, remoteTerminal: false, remoteRoots: [] },
+  config: { enabled: true, lan: false, tls: true, port: 7420, remoteTerminal: false, remoteRoots: [] },
   running: true,
   urls: ['http://127.0.0.1:7420'],
   configurable: true,
@@ -74,6 +78,11 @@ describe('settings store', () => {
     for (const origin of ['http://localhost:5173', 'http://127.0.0.1:7420', 'http://[::1]:7420']) {
       expect(pairingUrl('X', lan, origin)).toBe('http://192.168.1.9:7420/#pair=X')
     }
+    // Over HTTPS the link names the certificate; over HTTP there is none to name.
+    const tls = ['http://127.0.0.1:7420', 'https://192.168.1.9:7420']
+    expect(pairingUrl('X', tls, undefined, true, FP)).toBe(`https://192.168.1.9:7420/#pair=X&fp=${HEX.toLowerCase()}`)
+    expect(pairingUrl('X', tls, 'https://nas.local:7420', false, FP)).toBe(`https://nas.local:7420/#pair=X&fp=${HEX.toLowerCase()}`)
+    expect(pairingUrl('X', lan, undefined, true, FP)).toBe('http://192.168.1.9:7420/#pair=X')
   })
 
   it('knows when a phone could reach the core at all', () => {
@@ -275,6 +284,53 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByLabelText('Allow remote shells'))
     await act(settle)
     expect(useSettings.getState().pairing).toBeUndefined()
+  })
+
+  it('HTTPS on the network: the switch, the certificate, a warning without it; the pairing names the certificate', async () => {
+    const tls = { fingerprint: FP, expiresAt: '2028-10-14T12:00:00.000Z', selfSigned: true }
+    const status = (config: ServerStatus['config']) =>
+      server({ config, urls: ['http://127.0.0.1:7420', `${config.tls ? 'https' : 'http'}://192.168.1.9:7420`], ...(config.tls ? { tls } : {}) })
+    installBridge(
+      settingsCore({
+        'server:status': () => status({ ...server().config, lan: true }),
+        'server:createPairingCode': () => ({ code: 'WXYZ-2345', expiresAt: '', urls: ['http://127.0.0.1:7420', 'https://192.168.1.9:7420'], fingerprint: FP }),
+        'server:configure': (patch: Record<string, unknown>) => status({ ...server().config, lan: true, ...patch })
+      })
+    )
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText('Certificate (SHA-256)')).toBeInTheDocument()
+    expect(screen.getByText(FP)).toBeInTheDocument()
+    expect(screen.getByText(/Self-signed by this core · valid until/)).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Encrypted (HTTPS)' })).toBeEnabled()
+    expect(screen.queryByText(/Unencrypted:/)).toBeNull()
+
+    fireEvent.click(screen.getByText('Pair a device'))
+    await act(settle)
+    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}`)).toBeInTheDocument()
+    expect(screen.getByText(/Continue only if the certificate’s SHA-256 fingerprint is this one/)).toBeInTheDocument()
+    expect(screen.getAllByText(FP)).toHaveLength(2)
+
+    // Off: plain HTTP, a warning, and the open pairing follows (no certificate to name).
+    fireEvent.click(screen.getByRole('switch', { name: 'Encrypted (HTTPS)' }))
+    await act(settle)
+    expect(window.mindeck!.invoke).toHaveBeenLastCalledWith('server:configure', { tls: false })
+    expect(screen.getByText(/Unencrypted: pairing codes and device tokens cross the network in the clear/)).toBeInTheDocument()
+    expect(screen.queryByText('Certificate (SHA-256)')).toBeNull()
+    expect(screen.getByText('http://192.168.1.9:7420/#pair=WXYZ-2345')).toBeInTheDocument()
+    expect(screen.queryByText(/Continue only if/)).toBeNull()
+
+    // And on again: the link names the certificate once more.
+    fireEvent.click(screen.getByRole('switch', { name: 'Encrypted (HTTPS)' }))
+    await act(settle)
+    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}`)).toBeInTheDocument()
+  })
+
+  it('an own certificate from the environment is named as such', async () => {
+    installRemote(settingsCore({ 'server:status': () => server({ configurable: false, tls: { fingerprint: FP, expiresAt: '2027-01-01T00:00:00.000Z', selfSigned: false } }) }))
+    render(<SettingsView />)
+    await act(settle)
+    expect(screen.getByText(/Own certificate · valid until/)).toBeInTheDocument()
   })
 
   it('AI through the Mindeck account: credit, its model (Sonnet costs more), a key of one’s own wins; suggestions need one', async () => {
@@ -506,7 +562,7 @@ describe('SettingsView', () => {
   it('in a browser: server settings are read-only, vault via folder browser, errors show', async () => {
     installRemote(
       settingsCore({
-        'server:status': () => server({ configurable: false, running: false, error: 'EADDRINUSE', config: { enabled: true, lan: true, port: 7420, remoteTerminal: true, remoteRoots: [] } }),
+        'server:status': () => server({ configurable: false, running: false, error: 'EADDRINUSE', config: { enabled: true, lan: true, tls: true, port: 7420, remoteTerminal: true, remoteRoots: [] } }),
         'server:devices': () => [],
         'memory:setVault': () => fail('That folder does not exist')
       })
@@ -688,12 +744,46 @@ describe('ContextSection', () => {
 describe('pairing link from the QR code', () => {
   it('prefills the code from #pair= and removes it from the URL', () => {
     history.replaceState(null, '', '/#pair=abcd-efgh')
-    expect(codeFromHash()).toBe('ABCD-EFGH')
+    expect(linkFromHash()).toEqual({ code: 'ABCD-EFGH', fingerprint: null })
     expect(location.hash).toBe('')
-    expect(codeFromHash()).toBe('')
+    expect(linkFromHash()).toEqual({ code: '', fingerprint: null })
     history.replaceState(null, '', '/#pair=wxyz2345')
     render(<PairScreen />)
     expect(screen.getByLabelText('Pairing code')).toHaveValue('WXYZ-2345')
+    expect(screen.queryByText('Check the certificate')).toBeNull()
+  })
+
+  it('asks to compare the certificate the browser warned about with the fingerprint from the QR code', () => {
+    history.replaceState(null, '', `/#pair=wxyz2345&fp=${HEX.toLowerCase()}`)
+    render(<PairScreen />)
+    expect(location.hash).toBe('')
+    expect(screen.getByLabelText('Pairing code')).toHaveValue('WXYZ-2345')
+    expect(screen.getByText('Check the certificate')).toBeInTheDocument()
+    expect(screen.getByLabelText('Check the certificate')).toHaveTextContent(FP)
+    expect(screen.getByText(/compare its SHA-256 fingerprint/)).toBeInTheDocument()
+    // A damaged fingerprint is none.
+    history.replaceState(null, '', '/#pair=wxyz2345&fp=1234')
+    expect(linkFromHash()).toEqual({ code: 'WXYZ-2345', fingerprint: null })
+  })
+
+  it('links name the core, the code and the certificate — and can be taken apart again (native clients)', () => {
+    expect(normalizeFingerprint(FP)).toBe(HEX)
+    expect(normalizeFingerprint(HEX.toLowerCase().replace(/(..)/g, '$1 '))).toBe(HEX)
+    expect(normalizeFingerprint('AB:CD')).toBeNull()
+    expect(formatFingerprint(HEX.toLowerCase())).toBe(FP)
+    expect(FP).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    expect(formatFingerprint('nope')).toBe('')
+
+    expect(pairingLink('https://10.0.0.2:7420/', 'ABCD-EFGH', FP)).toBe(`https://10.0.0.2:7420/#pair=ABCD-EFGH&fp=${HEX.toLowerCase()}`)
+    expect(pairingLink('http://10.0.0.2:7420', 'ABCD-EFGH')).toBe('http://10.0.0.2:7420/#pair=ABCD-EFGH')
+    expect(pairingLink('http://10.0.0.2:7420', 'X', 'not a fingerprint')).toBe('http://10.0.0.2:7420/#pair=X')
+
+    expect(parsePairingLink(` https://10.0.0.2:7420/#pair=ABCD-EFGH&fp=${HEX.toLowerCase()} `)).toEqual({ baseUrl: 'https://10.0.0.2:7420', code: 'ABCD-EFGH', fingerprint: FP })
+    expect(parsePairingLink('http://nas.local:7420#pair=AB%20CD')).toEqual({ baseUrl: 'http://nas.local:7420', code: 'AB CD' })
+    expect(parsePairingLink('http://nas.local:7420/#pair=X&fp=zz')).toEqual({ baseUrl: 'http://nas.local:7420', code: 'X' })
+    expect(parsePairingLink('http://nas.local:7420/')).toBeNull()
+    expect(parsePairingLink('http://nas.local:7420/#fp=00')).toBeNull()
+    expect(parsePairingLink('ftp://x/#pair=X')).toBeNull()
   })
 })
 

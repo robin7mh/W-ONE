@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import QRCode from 'qrcode'
 import { errorMessage, ipc, isDesktop } from '@shared/ipc/client'
+import { pairingLink } from '@shared/ipc/transport'
 import type { Device, DeviceRole, PairingCode, ServerConfig, ServerStatus } from '@shared/types/server'
 import type { PermissionGrant } from '@shared/types/ai'
 import type { Project } from '@shared/types/project'
@@ -18,10 +19,14 @@ function phoneOrigin(origin: string | undefined, desktop: boolean): string | und
   return !desktop && origin && !/^file:|^app:/.test(origin) && !isLoopback(origin) ? origin : undefined
 }
 
-/** The URL a phone should open: a reachable page address, else the core's LAN address. */
-export function pairingUrl(code: string, urls: string[], origin?: string, desktop = false): string {
+/**
+ * The URL a phone should open: a reachable page address, else the core's LAN
+ * address — over HTTPS with the certificate's fingerprint (`&fp=`), so the
+ * person can check the certificate the browser warns about.
+ */
+export function pairingUrl(code: string, urls: string[], origin?: string, desktop = false, fingerprint?: string): string {
   const base = phoneOrigin(origin, desktop) ?? urls.find((u) => !isLoopback(u)) ?? urls[0]
-  return `${base.replace(/\/$/, '')}/#pair=${encodeURIComponent(code)}`
+  return pairingLink(base, code, base.startsWith('https:') ? fingerprint : undefined)
 }
 
 /** Whether any address a phone could open exists (else the core listens on this computer only). */
@@ -31,12 +36,12 @@ export function pairingReachable(urls: string[], origin?: string, desktop = fals
 
 type Pairing = PairingCode & { url: string; qr: string; reachable: boolean }
 
-/** QR code and link for a pairing code, from the core's current addresses. */
-async function pairingView(code: PairingCode, urls: string[]): Promise<Pairing> {
+/** QR code and link for a pairing code, from the core's current addresses and certificate. */
+async function pairingView(code: PairingCode, urls: string[], fingerprint: string | undefined): Promise<Pairing> {
   const desktop = isDesktop()
-  const url = pairingUrl(code.code, urls, location.origin, desktop)
+  const url = pairingUrl(code.code, urls, location.origin, desktop, fingerprint)
   const qr = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' })
-  return { ...code, urls, url, qr, reachable: pairingReachable(urls, location.origin, desktop) }
+  return { ...code, fingerprint, urls, url, qr, reachable: pairingReachable(urls, location.origin, desktop) }
 }
 
 /** This browser's device id (saved when it paired), or null in the desktop window. */
@@ -104,7 +109,7 @@ export const useSettings = create<SettingsState>((set, get) => {
         set({ server, busy: false })
         // An open pairing follows the new addresses (e.g. the LAN was just switched on).
         const open = get().pairing
-        if (open) set({ pairing: await pairingView(open, server.urls) })
+        if (open) set({ pairing: await pairingView(open, server.urls, server.tls?.fingerprint) })
       } catch (err) {
         set({ server: before })
         fail(err)
@@ -115,7 +120,7 @@ export const useSettings = create<SettingsState>((set, get) => {
       set({ busy: true, error: undefined })
       try {
         const code = await ipc('server:createPairingCode', role ? { role } : {})
-        set({ pairing: await pairingView(code, code.urls), busy: false })
+        set({ pairing: await pairingView(code, code.urls, code.fingerprint), busy: false })
       } catch (err) {
         fail(err)
       }

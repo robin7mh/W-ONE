@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { applyMonacoTheme, languageName, monaco, THEME } from '../monaco/setup'
 import { setBufferHost, useEditor, type EditorTab } from '../store'
 import { useScm } from '../scm'
-import { setEditorActions, type EditorActionHost } from '../actions'
+import { editorActions, setEditorActions, type EditorActionHost } from '../actions'
 import { attachGutter } from '../monaco/gutter'
 import { setupLsp } from '../monaco/lsp'
 import { attachBreakpoints } from '../monaco/breakpoints'
@@ -15,8 +15,10 @@ import { fixAll, setupLint } from '../monaco/lint'
 import { setupTestMarkers } from '../monaco/testMarkers'
 import { addInlineEdit, setupInlineAi } from '../monaco/inlineAi'
 import { attachVim } from '../monaco/vim'
+import { attachSymbols } from '../monaco/symbols'
 import { tidyBlankLines } from '../text'
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
+import { usePalette } from '@/features/palette/store'
 
 /** An editor action's id without the instance prefix Monaco gives actions added to one editor. */
 export const actionId = (id: string) => id.replace(/^vs\.editor\.ICodeEditor:\d+:/, '')
@@ -38,9 +40,11 @@ interface Buffer {
   clean: number
 }
 
-/** An editor on screen (one, or two side by side): what it shows, and how to let go of a file. */
+/** An editor on screen (one per editor group): what it shows, and how to let go of a file. */
 interface Viewer {
   editor: monaco.editor.IStandaloneCodeEditor
+  /** Its palette actions. */
+  actions: EditorActionHost
   shown: () => string | undefined
   /** The file closed: show nothing. */
   forget: () => void
@@ -49,13 +53,27 @@ interface Viewer {
 }
 
 /**
- * Every open file's buffer — one model per file, shared by both editors of a
- * split (edits show on both sides at once, undo and "unsaved" are the file's).
+ * Every open file's buffer — one model per file, shared by every group that
+ * shows it (edits show everywhere at once, undo and "unsaved" are the file's;
+ * scroll position and selection are each editor's own).
  */
 const buffers = new Map<string, Buffer>()
 const viewers = new Set<Viewer>()
-/** The left editor's palette actions, back in charge when the right one closes. */
-let primaryActions: EditorActionHost | null = null
+
+/**
+ * The last editor went away: the buffers go with it — unless another editor
+ * came in the same render (groups closing and opening, another project's
+ * layout), which takes them over.
+ */
+function release(): void {
+  queueMicrotask(() => {
+    if (viewers.size) return
+    setBufferHost(null)
+    setEditorActions(null)
+    buffers.forEach((b) => b.model.dispose())
+    buffers.clear()
+  })
+}
 
 /** The editor showing a file (for the formatter that needs one). */
 const showing = (id: string) => [...viewers].find((v) => v.shown() === id)?.editor
@@ -183,19 +201,19 @@ interface Props {
   tab?: EditorTab
   readOnly: boolean
   onCursor: (info: CursorInfo) => void
-  /** The right-hand editor of a split (the left one owns the buffers). */
-  secondary?: boolean
+  /** The editor group it is the editor of. */
+  group: string
 }
 
 /**
- * A Monaco editor; every open file is a model (its own text, undo history and
- * scroll position per editor) that is swapped in when its tab becomes active.
- * Edits stay in the model — the store only learns "dirty or not" (from
- * Monaco's version ids, so undoing back to the saved text is clean again) and
- * asks for the text when it saves. A split shows a second editor on the same
- * models.
+ * A Monaco editor — one per editor group; every open file is a model (its own
+ * text and undo history, a scroll position per editor) that is swapped in when
+ * its tab becomes active. Edits stay in the model — the store only learns
+ * "dirty or not" (from Monaco's version ids, so undoing back to the saved text
+ * is clean again) and asks for the text when it saves. All groups' editors
+ * share the models.
  */
-export default function CodeEditor({ tab, readOnly, onCursor, secondary = false }: Props) {
+export default function CodeEditor({ tab, readOnly, onCursor, group }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const vimRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -217,8 +235,8 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     }
     const subs = [editor.onDidChangeCursorPosition(report), editor.onDidChangeModel(report)]
 
-    // Mindeck's palette replaces Monaco's own (F1), and ⌃G goes through it, too.
-    editor.addCommand(monaco.KeyCode.F1, () => useScm.getState().setQuickOpen(true, '>'))
+    // Mindeck's palette replaces Monaco's own (F1), and ⌃G goes through quick open, too.
+    editor.addCommand(monaco.KeyCode.F1, () => usePalette.getState().show())
     editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KeyG, () => useScm.getState().setQuickOpen(true, ':'))
     setupLsp()
     setupUserPrefs()
@@ -240,6 +258,7 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     const detachConflicts = attachConflicts(editor, shownTab)
     const detachBlame = attachBlame(editor, shownTab)
     const detachVim = attachVim(editor, vimRef.current!)
+    const detachSymbols = attachSymbols(editor)
     const actionHost: EditorActionHost = {
       // Actions added to this editor carry an instance prefix ("vs.editor.ICodeEditor:4:mindeck.…"): the palette knows them by their own id.
       list: () => (editor.getModel() ? editor.getSupportedActions().map((a) => ({ id: actionId(a.id), label: a.label })) : []),
@@ -251,21 +270,27 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
           ?.run()
       }
     }
-    if (!secondary) {
-      primaryActions = actionHost
-      setEditorActions(actionHost)
-      registerBufferHost()
-    }
-    // The focused editor of a split gets the palette's editor commands, opens files and saves.
+    if (!viewers.size) registerBufferHost()
+    // The focused group's editor gets the palette's editor commands; opening files and saving go to its group.
     subs.push(
       editor.onDidFocusEditorText(() => {
         setEditorActions(actionHost)
-        useEditor.getState().focusGroup(secondary)
+        useEditor.getState().focusGroup(group)
         report()
       })
     )
+    const activate = () => {
+      setEditorActions(actionHost)
+      if (!editor.hasTextFocus()) editor.focus()
+    }
+    if (useEditor.getState().activeGroup === group || !editorActions()) setEditorActions(actionHost)
+    // Focused from outside (⌘1…⌘9, a click on its tabs): its editor takes the keyboard.
+    const unsubscribeGroup = useEditor.subscribe((s, prev) => {
+      if (s.activeGroup !== prev.activeGroup && s.activeGroup === group) activate()
+    })
     const viewer: Viewer = {
       editor,
+      actions: actionHost,
       shown: () => shown.current,
       forget: () => {
         editor.setModel(null)
@@ -289,31 +314,26 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
 
     return () => {
       viewers.delete(viewer)
-      if (secondary) setEditorActions(primaryActions)
-      else {
-        setBufferHost(null)
-        setEditorActions(null)
-        primaryActions = null
-      }
+      // Its palette actions were in charge: another group's editor takes over.
+      if (editorActions() === actionHost) setEditorActions([...viewers][0]?.actions ?? null)
+      if (!viewers.size) release()
+      unsubscribeGroup()
       actions.forEach((a) => a.dispose())
       detachGutter()
       detachBreakpoints()
       detachConflicts()
       detachBlame()
       detachVim()
+      detachSymbols()
       unsubscribePrefs()
       theme.disconnect()
       subs.forEach((s) => s.dispose())
       editor.dispose()
-      if (!secondary) {
-        buffers.forEach((b) => b.model.dispose())
-        buffers.clear()
-      }
       views.clear()
       shown.current = undefined
       editorRef.current = null
     }
-  }, [views, secondary])
+  }, [views, group])
 
   useEffect(() => {
     editorRef.current!.updateOptions({ readOnly })
@@ -337,13 +357,14 @@ export default function CodeEditor({ tab, readOnly, onCursor, secondary = false 
     }
     const view = views.get(tab.id)
     if (view) editor.restoreViewState(view)
-    if (switched) editor.focus()
+    // Only the focused group's editor takes the keyboard (a restored layout switches them all).
+    if (switched && useEditor.getState().activeGroup === group) editor.focus()
   }, [views, tab?.id, tab?.revision, text === undefined])
 
-  // A search result asked for a line: scroll there once its tab is on screen.
+  // A search result or a symbol asked for a line: scroll there once its tab is on screen (in its group).
   const reveal = useEditor((s) => s.reveal)
   useEffect(() => {
-    if (!reveal || reveal.id !== shown.current) return
+    if (!reveal || reveal.id !== shown.current || (reveal.group ?? useEditor.getState().activeGroup) !== group) return
     const editor = editorRef.current!
     editor.revealLineInCenter(reveal.line)
     const { match } = reveal

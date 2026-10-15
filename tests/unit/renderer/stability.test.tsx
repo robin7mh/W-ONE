@@ -191,13 +191,15 @@ describe('Settings → Desktop app', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Open logs folder/ }))
     expect(bridge.invoke).toHaveBeenCalledWith('desktop:openLogs', undefined)
+    await settle()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument() // opened: nothing to say
     fireEvent.click(screen.getByRole('button', { name: /Copy diagnostics/ }))
     await settle()
     expect(writeText).toHaveBeenCalledWith('Mindeck 1.0')
     expect(screen.getByRole('button', { name: /Copied/ })).toBeInTheDocument()
   })
 
-  it('macOS: explains the background instead; failures stay quiet', async () => {
+  it('macOS: explains the background instead; a logs folder no file manager opens is named; other failures stay quiet', async () => {
     installBridge({
       'desktop:status': () => status({ platform: 'darwin' }),
       'desktop:openLogs': () => Promise.reject(new Error('no')),
@@ -211,6 +213,7 @@ describe('Settings → Desktop app', () => {
     fireEvent.click(screen.getByRole('button', { name: /Copy diagnostics/ }))
     await settle()
     expect(screen.getByRole('button', { name: /Copy diagnostics/ })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No file manager opened the folder — the logs are in /home/me/Mindeck/logs')
   })
 
   it('a failing configure keeps the old choice; nothing shows outside the desktop app or without an answer', async () => {

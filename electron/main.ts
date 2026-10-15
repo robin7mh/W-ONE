@@ -16,12 +16,15 @@ import { manualUpdateFile, UpdateService } from './main/services/update/UpdateSe
 import { createBrowserHost } from './main/platform/browser/host'
 import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
+import { appMenuTemplate } from './main/platform/menu'
 
 /** A 1×1 picture for drags whose file has no icon. */
 const DRAG_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 /** After this long without keyboard or mouse, the trial clock pauses. */
 const IDLE_SECONDS = 5 * 60
+/** The longest a quit waits for the core to save and stop. */
+const DISPOSE_TIMEOUT_MS = 5000
 
 // ~/Mindeck/{data,vault,logs} holds everything — every location derives from paths.ts.
 const paths = mindeckPaths()
@@ -304,7 +307,7 @@ async function startCore(): Promise<void> {
     logger,
     settings: core.settings,
     secretsEncrypted: !!cipher && secretsProtected(),
-    openPath: shell.openPath,
+    openPath: (path) => shell.openPath(path),
     diagnostics: () => ({
       version: app.getVersion(),
       platform: process.platform,
@@ -334,6 +337,8 @@ app.whenReady().then(async () => {
       }
     })
   )
+  // Mindeck's own menu: Electron's default one would reload the UI on ⌘R and close the window on ⌘W.
+  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, !app.isPackaged)))
   await startCore()
   createWindow()
   // The Dock (macOS), or a second start: the window back — a new one if it really closed.
@@ -352,12 +357,24 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 // will-quit, not before-quit: closing the windows can still be cancelled (unsaved
-// editor changes), and the core must survive that.
-app.on('will-quit', () => {
+// editor changes), and the core must survive that. The quit waits (a while) for the
+// core to put its work on disk — the browser's session says it ended well, the
+// history and the logs get their last lines — then goes on.
+app.on('will-quit', (event) => {
   const stopping = core
+  if (!stopping) return
+  event.preventDefault()
   core = null
   updates?.dispose()
-  void stopping?.dispose().catch(() => {})
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<void>((done) => (timer = setTimeout(done, DISPOSE_TIMEOUT_MS)))
+  const disposed = stopping.dispose().catch((err) => console.error('[app] shutting the core down failed', err))
+  void Promise.race([disposed, deadline]).then(() => {
+    clearTimeout(timer)
+    // From a later task: Electron takes a new quit only once this will-quit has returned
+    // (a core with nothing to save is done before that).
+    setImmediate(() => app.quit())
+  })
 })
 
 app.on('window-all-closed', () => {

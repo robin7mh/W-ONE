@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as L from '@/features/workspace/layout'
-import { matchWorkspaceKey, keyLabel, workspaceKey, macKeys, type KeyLike } from '@/features/workspace/keys'
+import { isCloseKey, matchWorkspaceKey, keyLabel, workspaceKey, macKeys, type KeyLike } from '@/features/workspace/keys'
 import { PANE_STEPS, paneSteps } from '@/features/workspace/steps'
 
 const modules = (l: L.Layout) => l.panes.map((p) => p.module)
@@ -197,6 +197,81 @@ describe('workspace layout', () => {
   })
 })
 
+describe('opening beside a pane', () => {
+  const single = L.singleLayout('agents')
+
+  it('knows the edges a new pane can open on — where a layout draws that split', () => {
+    expect(L.dropSides(single, 'p1')).toEqual(['left', 'right', 'top', 'bottom'])
+    expect(L.dropSides(single, 'nope')).toEqual([])
+    const columns = L.makeLayout('columns', ['agents', 'browser'])
+    expect(L.dropSides(columns, 'p1')).toEqual([]) // no mirrored "one large, two small"
+    expect(L.dropSides(columns, 'p2')).toEqual(['top', 'bottom'])
+    expect(L.dropSides(L.makeLayout('rows', ['agents', 'browser']), 'p1')).toEqual([])
+    const main = L.makeLayout('main', ['agents', 'browser', 'editor'])
+    expect(L.dropSides(main, 'p1')).toEqual(['top', 'bottom'])
+    expect(L.dropSides(main, 'p2')).toEqual([])
+    expect(L.dropSides(L.makeLayout('grid', []), 'p1')).toEqual([])
+    expect(L.dropSides(L.toggleMaximize(columns, 'p2'), 'p2')).toEqual([]) // maximized: only into the pane
+  })
+
+  it('opens a module on any side of a single pane, focused', () => {
+    const at = (side: L.Side) => L.dropBeside(single, 'p1', side, 'browser')
+    expect(at('left')).toMatchObject({ preset: 'columns', panes: [{ id: 'p2', module: 'browser' }, { id: 'p1', module: 'agents' }], focus: 'p2' })
+    expect(modules(at('right'))).toEqual(['agents', 'browser'])
+    expect(at('top')).toMatchObject({ preset: 'rows' })
+    expect(modules(at('top'))).toEqual(['browser', 'agents'])
+    expect(modules(at('bottom'))).toEqual(['agents', 'browser'])
+    expect(at('bottom').sizes).toEqual(L.DEFAULT_SIZES.rows)
+  })
+
+  it('stacks into the right column, then into the large pane — the left column keeps its width', () => {
+    const columns = { ...L.makeLayout('columns', ['agents', 'browser']), sizes: { x: 0.4, y: 0.5 } }
+    const top = L.dropBeside(columns, 'p2', 'top', 'editor')
+    expect(top).toMatchObject({ preset: 'main', sizes: { x: 0.4, y: 0.5 }, focus: 'p3' })
+    expect(modules(top)).toEqual(['agents', 'editor', 'browser'])
+    expect(modules(L.dropBeside(columns, 'p2', 'bottom', 'editor'))).toEqual(['agents', 'browser', 'editor'])
+
+    const main = L.makeLayout('main', ['agents', 'browser', 'editor'])
+    const above = L.dropBeside(main, 'p1', 'top', 'terminal')
+    expect(above).toMatchObject({ preset: 'grid', focus: 'p4', sizes: { x: main.sizes.x, y: 0.5 } })
+    expect(modules(above)).toEqual(['terminal', 'browser', 'agents', 'editor'])
+    expect(modules(L.dropBeside(main, 'p1', 'bottom', 'terminal'))).toEqual(['agents', 'browser', 'terminal', 'editor'])
+  })
+
+  it('leaves the layout as it is where that side has no split, or the module is on screen already', () => {
+    const columns = L.makeLayout('columns', ['agents', 'browser'])
+    expect(L.dropBeside(columns, 'p1', 'top', 'editor')).toBe(columns)
+    expect(L.dropBeside(columns, 'p2', 'left', 'editor')).toBe(columns)
+    expect(L.dropBeside(single, 'p1', 'left', 'agents')).toBe(single)
+  })
+
+  it('opens a module next to the focused pane: right, else below, else as a further pane, else in it', () => {
+    expect(modules(L.openBeside(single, 'browser'))).toEqual(['agents', 'browser'])
+    expect(L.openBeside(single, 'browser').preset).toBe('columns')
+    const columns = L.makeLayout('columns', ['agents', 'browser'])
+    const below = L.openBeside(L.focus(columns, 'p2'), 'editor')
+    expect(below.preset).toBe('main')
+    expect(modules(below)).toEqual(['agents', 'browser', 'editor'])
+    // The left pane of two has no split of its own: a further pane, after it.
+    const further = L.openBeside(columns, 'editor')
+    expect(further).toMatchObject({ preset: 'main', focus: 'p3' })
+    expect(modules(further)).toEqual(['agents', 'editor', 'browser'])
+    // Four panes: the focused one shows it.
+    const grid = L.makeLayout('grid', ['agents', 'browser', 'editor', 'files'])
+    expect(modules(L.openBeside(grid, 'memory'))).toEqual(['memory', 'browser', 'editor', 'files'])
+  })
+
+  it('focuses a module that is on screen already — a maximized pane steps back first', () => {
+    const columns = L.makeLayout('columns', ['agents', 'browser'])
+    expect(L.openBeside(columns, 'agents')).toBe(columns)
+    expect(L.openBeside(columns, 'browser')).toMatchObject({ focus: 'p2', panes: columns.panes })
+    const maximized = L.toggleMaximize(columns, 'p1')
+    expect(L.openBeside(maximized, 'browser')).toMatchObject({ focus: 'p2', maximized: undefined })
+    expect(L.openBeside(maximized, 'agents')).toMatchObject({ focus: 'p1', maximized: undefined })
+    expect(modules(L.openBeside(maximized, 'editor'))).toEqual(['agents', 'editor', 'browser'])
+  })
+})
+
 describe('workspace keys', () => {
   const key = (k: Partial<KeyLike>): KeyLike => ({ key: '', code: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...k })
 
@@ -221,6 +296,11 @@ describe('workspace keys', () => {
   })
 
   it('elsewhere reads Ctrl, and never a key AltGr types', () => {
+    expect(isCloseKey(key({ key: 'w', metaKey: true }), true)).toBe(true)
+    expect(isCloseKey(key({ key: 'w', ctrlKey: true }), true)).toBe(false)
+    expect(isCloseKey(key({ key: 'W', ctrlKey: true }), false)).toBe(true)
+    expect(isCloseKey(key({ key: 'w', ctrlKey: true, shiftKey: true }), false)).toBe(false) // the pane key ⇧
+    expect(isCloseKey(key({ key: 'q', ctrlKey: true }), false)).toBe(false)
     const pc = (k: Partial<KeyLike>) => matchWorkspaceKey(key(k), false)
     expect(pc({ key: 'F11' })).toBeNull() // full screen: the main process's, or the browser's
     expect(pc({ key: 'ArrowUp', ctrlKey: true, altKey: true })).toEqual({ type: 'focus', dir: 'up' })

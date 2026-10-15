@@ -98,6 +98,17 @@ describe('workspace store', () => {
     expect(() => s().split()).not.toThrow()
   })
 
+  it('opens modules beside a pane — dropped on its edge, or next to the focused one', async () => {
+    vi.resetModules()
+    const { useWorkspace } = await import('@/features/workspace/store')
+    const s = () => useWorkspace.getState()
+    s().dropBeside('p1', 'left', 'browser')
+    expect(s().layout.panes.map((p) => p.module)).toEqual(['browser', 'core'])
+    s().openBeside('terminal')
+    expect(s().layout.panes.map((p) => p.module)).toEqual(['browser', 'terminal', 'core'])
+    expect(JSON.parse(localStorage.getItem('mindeck.workspace')!).layout.preset).toBe('main')
+  })
+
   it('saves, updates, renames, removes and switches named workspaces', async () => {
     const ws = await fresh()
     const s = () => ws.getState()
@@ -162,6 +173,12 @@ describe('workspace actions', () => {
     rememberFocus('p2', b) // remembered somewhere else: the pane itself
     focusInto('p2')
     expect(document.activeElement).toBe(document.querySelector('[data-pane-id="p2"]'))
+    // a dialog that opened in the meantime keeps the focus
+    document.body.insertAdjacentHTML('beforeend', '<div role="dialog"><input id="d" /></div>')
+    const d = document.getElementById('d') as HTMLInputElement
+    d.focus()
+    focusInto('p1')
+    expect(document.activeElement).toBe(d)
     document.body.innerHTML = ''
   })
 
@@ -223,42 +240,48 @@ describe('workspace actions', () => {
     document.body.innerHTML = ''
   })
 
-  it('lists the workspace in the command palette', async () => {
+  it('lists the workspace in the command palette — what the layout on screen allows', async () => {
     vi.resetModules()
     const { workspaceCommands } = await import('@/features/workspace/commands')
     const { useWorkspace } = await import('@/features/workspace/store')
-    const items = workspaceCommands(en)
-    expect(items.map((i) => i.label)).toEqual([
+    const labels = () => workspaceCommands(en).map((i) => i.label)
+    const run = (id: string) => workspaceCommands(en).find((i) => i.id === id)!.run()
+    expect(labels()).toEqual([
+      'Split pane',
       'Layout: One pane',
       'Layout: Side by side',
       'Layout: Stacked',
       'Layout: One large, two small',
       'Layout: 2 × 2',
-      'Workspace: Coding',
-      'Workspace: Review',
-      'Workspace: Split pane',
-      'Workspace: Close pane',
-      'Workspace: Maximize pane',
-      'Workspace: Zen mode',
-      'Workspace: Full screen'
+      'Switch to Coding',
+      'Switch to Review',
+      'Zen mode',
+      'Full screen'
     ])
-    const run = (id: string) => items.find((i) => i.id === id)!.run()
+    expect(workspaceCommands(en).every((c) => c.group === 'Workspace' && c.icon)).toBe(true)
     run('layout.grid')
     expect(useWorkspace.getState().layout.preset).toBe('grid')
+    expect(labels()).not.toContain('Split pane') // four panes: no more
+    expect(labels().slice(0, 6)).toEqual(['Close pane', 'Maximize pane', 'Focus the pane on the left', 'Focus the pane on the right', 'Focus the pane above', 'Focus the pane below'])
+    run('workspace.focus.right')
+    expect(useWorkspace.getState().layout.focus).toBe('p2')
     run('workspace.close')
     expect(useWorkspace.getState().layout.preset).toBe('main')
     run('workspace.maximize')
     expect(useWorkspace.getState().layout.maximized).toBeDefined()
+    expect(labels()).toContain('Restore panes')
     run('workspace.w2')
     expect(useWorkspace.getState().current).toBe('w2')
     run('workspace.split')
     expect(useWorkspace.getState().layout.panes).toHaveLength(3)
     run('workspace.zen')
     expect(useWorkspace.getState().zen).toBe(true)
+    expect(labels()).toContain('Leave zen mode')
     const toggle = vi.fn()
     ;(window as unknown as { mindeck: object }).mindeck = { platform: 'linux', toggleFullScreen: toggle }
     run('workspace.fullscreen')
     expect(toggle).toHaveBeenCalled()
-    expect(items.find((i) => i.id === 'workspace.w1')!.keys).toBeTruthy()
+    expect(workspaceCommands(en).find((i) => i.id === 'workspace.w1')!.keys).toBe('Ctrl+Alt+1')
+    expect(workspaceCommands(en).find((i) => i.id === 'workspace.focus.left')!.keys).toBe('Ctrl+Alt+←')
   })
 })

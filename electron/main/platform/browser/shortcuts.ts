@@ -1,3 +1,4 @@
+import type { WorkspaceKey } from '@shared/types/browser'
 import type { ShortcutAction } from '../../services/browser/types'
 
 /** The fields of Electron's `before-input-event` input that decide a shortcut. */
@@ -8,6 +9,8 @@ export interface KeyInput {
   control: boolean
   alt: boolean
   shift: boolean
+  /** The physical key (`KeyZ`, `Digit1`) — a Mac's ⌥ changes `key`, not this. */
+  code?: string
 }
 
 /**
@@ -29,8 +32,7 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
   }
   if (!mod) return null
   if (input.alt) {
-    if (key === 'ArrowRight') return 'nextTab'
-    if (key === 'ArrowLeft') return 'prevTab'
+    // ⌘⌥←/→ (Ctrl+Alt+←/→) move the focus between the workspace's panes — the tabs have Ctrl+Tab and ⌘⇧[ / ].
     if (mac && (key === 'i' || input.key === 'ˆ')) return 'devtools'
     // ⌥ turns letters into symbols on a Mac keyboard: ⌘⌥B arrives as "∫".
     if (mac && (key === 'b' || input.key === '∫')) return 'bookmarkManager'
@@ -41,7 +43,13 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     if (key === 'n') return 'newPrivateTab'
     if (key === 'r') return 'hardReload'
     if (key === 'a') return 'tabSearch'
+    // Mindeck's command palette — also while a page has the keyboard (⌘K stays the page's own).
+    if (key === 'p') return 'palette'
     if (key === 'b') return 'bookmarksBar'
+    if (key === 'g') return 'newGroup'
+    if (key === 'd') return 'split'
+    // Edge's key for vertical tabs: ⌘⇧, — whatever ⇧ makes of the comma key on this layout.
+    if (input.code === 'Comma' || key === ',' || key === '<') return 'verticalTabs'
     if (!mac && key === 'o') return 'bookmarkManager'
     if (!mac && key === 'i') return 'devtools'
     if (key === '+' || key === '=') return 'zoomIn'
@@ -80,4 +88,29 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
 export function isFullScreenKey(input: KeyInput, mac: boolean): boolean {
   if (input.type !== 'keyDown' || input.alt || input.shift) return false
   return mac ? input.control && input.meta && input.key.toLowerCase() === 'f' : !input.control && !input.meta && input.key === 'F11'
+}
+
+const ARROWS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
+
+/**
+ * The workspace's keys (src/features/workspace/keys.ts: ⌘⌥ arrows and digits,
+ * ⌘⌥Z, ⌘⇧W, ⌘⇧↵, ⌘\ — Ctrl instead of ⌘ elsewhere). A page that has the
+ * keyboard would swallow them; its view hands them to the Mindeck UI instead
+ * (null: not one of them).
+ */
+export function workspaceKey(input: KeyInput, mac: boolean): WorkspaceKey | null {
+  if (input.type !== 'keyDown') return null
+  const mod = mac ? input.meta && !input.control : input.control && !input.meta
+  if (!mod) return null
+  // As in the UI: on a Mac letters and digits go by their place (⌥ changes the key), elsewhere by the key.
+  const letter = (l: string) => (mac ? input.code === `Key${l.toUpperCase()}` : input.key.toLowerCase() === l)
+  const digit = mac ? /^Digit[1-9]$/.test(input.code ?? '') : /^[1-9]$/.test(input.key)
+  const hit =
+    input.alt && !input.shift
+      ? ARROWS.has(input.key) || digit || letter('z')
+      : input.shift && !input.alt
+        ? input.key === 'Enter' || letter('w')
+        : !input.alt && !input.shift && input.key === '\\'
+  if (!hit) return null
+  return { key: input.key, code: input.code ?? '', metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift }
 }

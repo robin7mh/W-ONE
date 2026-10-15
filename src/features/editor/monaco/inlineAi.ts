@@ -4,6 +4,7 @@ import { getT } from '@/lib/i18n'
 import { useAssistant } from '@/features/agents/store'
 import { monaco } from './setup'
 import { fileOf } from './uri'
+import { useEditor } from '../store'
 
 type Editor = monaco.editor.IStandaloneCodeEditor
 type Model = monaco.editor.ITextModel
@@ -285,7 +286,12 @@ export function startInlineEdit(editor: Editor): void {
   })
   input.addEventListener('keydown', (e) => {
     e.stopPropagation()
-    if (e.key === 'Enter' && !e.isComposing) {
+    // ⌘K starts VS Code's ⌘K ⌘\ too: that second key, before anything was typed, splits the editor down instead.
+    if ((e.metaKey || e.ctrlKey) && e.key === '\\' && !input.value && s.phase === 'ask') {
+      e.preventDefault()
+      close(s)
+      useEditor.getState().split('down')
+    } else if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault()
       void write(s)
     } else if (e.key === 'Escape') {

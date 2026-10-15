@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDir } from './helpers'
 import { detectAgents, loginShellProbe, type Probe } from '../../../electron/main/services/agents/detect'
-import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MCP_BROWSER_READ_TOOLS, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
+import { claudeArgs, claudeEnv, HOOK_RELAY, hookSettings, MCP_BROWSER_READ_TOOLS, mcpConfig, MEMORY_READ_TOOLS, SYSTEM_HINT } from '../../../electron/main/services/agents/claudeLaunch'
 import { applyHook, toolRisk, toolSummary, toolTitle, type SessionState } from '../../../electron/main/services/agents/transcript'
 import type { ChatMessage, ToolCallPart } from '../../../src/shared/types/ai'
 import type { AgentSession } from '../../../src/shared/types/agents'
@@ -76,14 +76,16 @@ describe('detectAgents', () => {
 })
 
 describe('Claude Code launch', () => {
-  const input = { sessionId: 's1', title: 'Fix login', hookUrl: 'http://127.0.0.1:9/hooks/s1', mcpUrl: 'http://127.0.0.1:9/mcp/s1', token: 'tok' }
+  const input = { sessionId: 's1', title: 'Fix login', settingsFile: '/data/agents/launch/s1/settings.json', mcpFile: '/data/agents/launch/s1/mcp.json' }
 
   it('new sessions: id, name, hooks, memory server, hint, read tools allowed, first prompt after --', () => {
     const args = claudeArgs({ ...input, prompt: '--looks like a flag' })
     expect(args.slice(0, 4)).toEqual(['--session-id', 's1', '--name', 'Fix login'])
-    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual(hookSettings(input.hookUrl, 'tok'))
-    expect(JSON.parse(args[args.indexOf('--mcp-config') + 1])).toEqual({
-      mcpServers: { mindeck: { type: 'http', url: input.mcpUrl, headers: { Authorization: 'Bearer tok' } } }
+    // Hooks and memory server come from files: the token they carry never is on the command line.
+    expect(args[args.indexOf('--settings') + 1]).toBe(input.settingsFile)
+    expect(args[args.indexOf('--mcp-config') + 1]).toBe(input.mcpFile)
+    expect(mcpConfig('http://127.0.0.1:9/mcp/s1', 'tok')).toEqual({
+      mcpServers: { mindeck: { type: 'http', url: 'http://127.0.0.1:9/mcp/s1', headers: { Authorization: 'Bearer tok' } } }
     })
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(SYSTEM_HINT)
     // reading memory and the browser's shared tabs runs unasked; everything else asks in Mindeck

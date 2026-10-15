@@ -21,6 +21,12 @@ export interface ServerConfig {
   enabled: boolean
   /** Listen on all interfaces (LAN/phone) instead of 127.0.0.1 only. */
   lan: boolean
+  /**
+   * Encrypt the network: with `lan`, other devices reach the core over HTTPS
+   * (and WSS) only — a self-signed certificate, trusted by its fingerprint.
+   * The core's own computer may still use plain HTTP on 127.0.0.1.
+   */
+  tls: boolean
   port: number
   /** Remote clients may open real shells. Off by default. */
   remoteTerminal: boolean
@@ -35,6 +41,7 @@ export interface ServerConfig {
 export const DEFAULT_SERVER_CONFIG: ServerConfig = {
   enabled: false,
   lan: false,
+  tls: true,
   port: 7420,
   remoteTerminal: false,
   remoteRoots: []
@@ -49,6 +56,17 @@ export interface ServerStatus {
   error?: string
   /** False when the settings come from the environment (standalone server). */
   configurable: boolean
+  /** The certificate the running server presents (only while it speaks HTTPS). */
+  tls?: TlsInfo
+}
+
+/** The certificate of a core that speaks HTTPS. */
+export interface TlsInfo {
+  /** SHA-256 of the certificate, `AB:CD:…` — what a browser's certificate viewer shows. */
+  fingerprint: string
+  expiresAt: string
+  /** Made by the core itself (trusted by comparing the fingerprint), or one set in the environment. */
+  selfSigned: boolean
 }
 
 export interface PairingCode {
@@ -58,6 +76,8 @@ export interface PairingCode {
   role: DeviceRole
   expiresAt: string
   urls: string[]
+  /** The certificate's SHA-256 when the core speaks HTTPS: goes into the pairing link (`&fp=`). */
+  fingerprint?: string
 }
 
 /**
@@ -82,6 +102,11 @@ export interface Device {
 export interface PairResult {
   token: string
   device: Device
+  /**
+   * Paired over HTTPS: the SHA-256 of the certificate the core presents. A
+   * native client pins it (and compares it with the `fp` of the pairing link).
+   */
+  fingerprint?: string
 }
 
 /** One level of the server-side folder browser (web/mobile folder picker). */

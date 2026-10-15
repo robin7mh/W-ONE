@@ -1,4 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
+import { createServer as createNetServer, type Server as NetServer, type Socket } from 'node:net'
+import type { TLSSocket } from 'node:tls'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
 import type { Duplex } from 'node:stream'
@@ -10,11 +13,18 @@ import type { CoreMode } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
+import type { TlsCredentials } from './Certificates'
 
 const MAX_BODY = 8 * 1024 * 1024
 const PAIR_WINDOW_MS = 10 * 60_000
 const PAIR_MAX_FAILURES = 10
 const HEARTBEAT_MS = 30_000
+/** The first byte of a TLS handshake: the connection speaks HTTPS. */
+const TLS_HANDSHAKE = 0x16
+/** A connection that sends nothing is dropped after this long. */
+const FIRST_BYTE_MS = 10_000
+/** A Host header fit for a redirect (name or IP, optional port). */
+const HOST = /^([a-z0-9.-]+|\[[0-9a-f:.]+\])(:\d{1,5})?$/i
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -55,7 +65,12 @@ export interface HttpServerOptions {
   remoteTerminal: () => boolean
   /** Connected WebSocket clients changed (drives remote telemetry sampling). */
   onClients?: (count: number) => void
+  /** A push event as devices may see it (RemoteScope): itself, trimmed, or null — none of theirs. */
+  scope?: (channel: IpcEvent, payload: unknown) => Promise<unknown>
 }
+
+/** Events meant for one device only (`device`): search results and inline edits are its own. */
+const TARGETED: readonly IpcEvent[] = ['search:progress', 'ai:inlineDelta']
 
 interface Client {
   ws: WebSocket
@@ -106,6 +121,13 @@ function clientIp(req: IncomingMessage): string {
   return String(req.socket.remoteAddress)
 }
 
+/** This computer itself (IPv4, IPv6 or IPv4-mapped loopback). */
+export function isLoopbackAddress(ip: string): boolean {
+  return /^(127\.|::ffff:127\.)/.test(ip) || ip === '::1'
+}
+
+const encrypted = (req: IncomingMessage) => (req.socket as TLSSocket).encrypted === true
+
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
   let size = 0
@@ -136,9 +158,19 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
  *
  * No cookies and no CORS: credentials are explicit headers, so cross-site
  * requests cannot ride on a session.
+ *
+ * With TLS credentials, one port speaks both: HTTPS (and WSS) for everyone,
+ * plain HTTP only for this computer itself (127.0.0.1 — the local web UI,
+ * health checks). The network gets no answer in the clear: a page request is
+ * sent to the HTTPS address, anything else (a token, a pairing code) is refused.
  */
 export class HttpServer {
-  private server?: Server
+  /** The listening socket; it hands each connection to `web` or `secure`. */
+  private server?: NetServer
+  private web?: Server
+  private secure?: HttpsServer
+  private tls?: TlsCredentials
+  private readonly sockets = new Set<Socket>()
   private readonly wss = new WebSocketServer({
     noServer: true,
     maxPayload: 64 * 1024,
@@ -148,6 +180,8 @@ export class HttpServer {
   private readonly clients = new Set<Client>()
   private readonly pairFailures = new Map<string, number[]>()
   private heartbeat?: NodeJS.Timeout
+  /** Scoped events leave in the order they came (a slow check never lets a later one overtake). */
+  private outbox: Promise<void> = Promise.resolve()
   private unsubscribe?: () => void
 
   constructor(private readonly opts: HttpServerOptions) {}
@@ -156,9 +190,16 @@ export class HttpServer {
     return this.clients.size
   }
 
-  async listen(host: string, port: number): Promise<void> {
-    const server = createServer((req, res) => void this.handle(req, res))
-    server.on('upgrade', (req, socket, head) => void this.upgrade(req, socket, head))
+  /** Listen on `host:port` — with `tls`, HTTPS (and HTTP for this computer only). */
+  async listen(host: string, port: number, tls?: TlsCredentials): Promise<void> {
+    const serve = <T extends Server | HttpsServer>(server: T): T => {
+      server.on('request', (req, res) => void this.handle(req, res))
+      server.on('upgrade', (req, socket, head) => void this.upgrade(req, socket, head))
+      return server
+    }
+    const web = serve(createServer())
+    const secure = tls ? serve(createHttpsServer({ cert: tls.cert, key: tls.key, minVersion: 'TLSv1.2' })) : undefined
+    const server = createNetServer((socket) => this.accept(socket, web, secure))
     await new Promise<void>((resolveListen, reject) => {
       server.once('error', reject)
       server.listen(port, host, () => {
@@ -166,7 +207,9 @@ export class HttpServer {
         resolveListen()
       })
     })
-    this.server = server
+    // They never listen themselves: this starts their request and header timeouts all the same.
+    for (const s of [web, secure]) s?.emit('listening')
+    Object.assign(this, { server, web, secure, tls })
     this.unsubscribe = this.opts.hub.subscribe((channel, payload) => this.push(channel, payload))
     this.heartbeat = setInterval(() => this.sweep(), HEARTBEAT_MS)
   }
@@ -175,6 +218,13 @@ export class HttpServer {
   get port(): number {
     const addr = this.server?.address()
     return addr && typeof addr === 'object' ? addr.port : 0
+  }
+
+  /** A renewed certificate: new connections get it, open ones keep theirs. */
+  setTls(tls: TlsCredentials): void {
+    if (!this.secure) return
+    this.secure.setSecureContext({ cert: tls.cert, key: tls.key, minVersion: 'TLSv1.2' })
+    this.tls = tls
   }
 
   async close(): Promise<void> {
@@ -188,8 +238,32 @@ export class HttpServer {
     const server = this.server
     this.server = undefined
     if (!server) return
-    server.closeAllConnections()
+    for (const socket of this.sockets) socket.destroy()
+    this.sockets.clear()
+    for (const s of [this.web, this.secure]) s?.close()
+    this.web = this.secure = this.tls = undefined
     await new Promise<void>((r) => server.close(() => r()))
+  }
+
+  /** A new connection: HTTPS when it opens with a TLS handshake, else plain HTTP. */
+  private accept(socket: Socket, web: Server, secure?: HttpsServer): void {
+    this.sockets.add(socket)
+    socket.once('close', () => this.sockets.delete(socket))
+    socket.on('error', () => socket.destroy())
+    if (!secure) return void web.emit('connection', socket)
+    socket.setTimeout(FIRST_BYTE_MS, () => socket.destroy())
+    socket.once('data', (chunk: Buffer) => {
+      socket.setTimeout(0)
+      socket.pause()
+      socket.unshift(chunk)
+      ;(chunk[0] === TLS_HANDSHAKE ? secure : web).emit('connection', socket)
+      process.nextTick(() => socket.resume())
+    })
+  }
+
+  /** Plain HTTP while the server speaks HTTPS: only this computer may use it. */
+  private refusesPlain(req: IncomingMessage): boolean {
+    return !!this.secure && !encrypted(req) && !isLoopbackAddress(clientIp(req))
   }
 
   /** Drop every live connection of a revoked device. */
@@ -202,6 +276,10 @@ export class HttpServer {
   // --- HTTP ---
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (this.refusesPlain(req)) return this.toHttps(req, res)
+    // HSTS only for a certificate a browser trusts: with a self-signed one it would turn the
+    // warning a person can click through (after comparing the fingerprint) into a dead end.
+    if (encrypted(req) && this.tls && !this.tls.selfSigned) res.setHeader('Strict-Transport-Security', 'max-age=31536000')
     try {
       const url = new URL(req.url as string, 'http://local')
       const path = url.pathname
@@ -219,6 +297,16 @@ export class HttpServer {
     }
   }
 
+  /** A page goes to its HTTPS address; a call (with a token or a code) is refused, never answered in the clear. */
+  private toHttps(req: IncomingMessage, res: ServerResponse): void {
+    const host = String(req.headers.host ?? '')
+    if ((req.method === 'GET' || req.method === 'HEAD') && HOST.test(host)) {
+      res.writeHead(308, { ...SECURITY_HEADERS, Location: `https://${host}${req.url}`, 'Cache-Control': 'no-store' })
+      return void res.end()
+    }
+    send(res, 403, { ok: false, error: { code: 'https-required', message: 'This Mindeck core accepts the network over HTTPS only — use https://' } })
+  }
+
   private async pair(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const ip = clientIp(req)
     const now = Date.now()
@@ -230,7 +318,9 @@ export class HttpServer {
     try {
       const result = await this.opts.auth.pair(String(body?.code ?? ''), String(body?.name ?? ''))
       this.pairFailures.delete(ip)
-      send(res, 200, { ok: true, data: result })
+      // Over HTTPS the device learns the certificate to pin from here on.
+      const fingerprint = encrypted(req) ? this.tls?.fingerprint : undefined
+      send(res, 200, { ok: true, data: fingerprint ? { ...result, fingerprint } : result })
     } catch (err) {
       this.pairFailures.set(ip, [...recent, now])
       throw new HttpError(401, 'bad-code', (err as Error).message)
@@ -276,6 +366,11 @@ export class HttpServer {
   // --- WebSocket ---
 
   private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    if (this.refusesPlain(req)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
     const url = new URL(req.url as string, 'http://local')
     const device = url.pathname === '/api/events' ? await this.opts.auth.verify(socketToken(req, url)) : null
     if (!device) {
@@ -299,10 +394,27 @@ export class HttpServer {
   private push(channel: IpcEvent, payload: unknown): void {
     if (!this.clients.size || DESKTOP_EVENTS.includes(channel)) return
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
+    const scope = this.opts.scope
+    if (!scope) return this.deliver(channel, payload)
+    this.outbox = this.outbox.then(async () => {
+      try {
+        const shown = await scope(channel, payload)
+        if (shown !== null) this.deliver(channel, shown)
+      } catch (err) {
+        // What can't be checked is not sent.
+        console.error(`[server] not sending ${channel}:`, err)
+      }
+    })
+  }
+
+  private deliver(channel: IpcEvent, payload: unknown): void {
     // "Always allow" is only ever given at the desktop: devices are not offered it.
     const shown = channel === 'permission:request' ? { ...(payload as PermissionRequest), allowAlways: false } : payload
+    // Search results (file contents) and inline edits go only to the device that asked (the desktop's to none).
+    const only = TARGETED.includes(channel) ? ((payload as { device?: string }).device ?? null) : undefined
     const message = JSON.stringify({ channel, payload: shown })
     for (const client of this.clients) {
+      if (only !== undefined && client.deviceId !== only) continue
       if (client.ws.readyState === client.ws.OPEN) client.ws.send(message)
     }
   }

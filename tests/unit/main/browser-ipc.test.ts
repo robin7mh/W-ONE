@@ -27,16 +27,24 @@ describe('browser and files channels', () => {
       ['browser:navigate', { id: 't', input: 'react hooks' }, 'navigate', ['t', 'react hooks']],
       ['browser:go', { id: 't', action: 'back' }, 'go', ['t', 'back']],
       ['browser:update', { id: 't', pinned: true, shared: false }, 'update', ['t', { pinned: true, shared: false }]],
-      ['browser:move', { id: 't', index: 2 }, 'move', ['t', 2]],
+      ['browser:move', { id: 't', index: 2 }, 'move', ['t', 2, undefined]],
+      ['browser:move', { id: 't', index: 2, groupId: null }, 'move', ['t', 2, null]],
+      ['browser:move', { id: 't', index: 0, groupId: 'g' }, 'move', ['t', 0, 'g']],
       ['browser:duplicate', { id: 't' }, 'duplicate', ['t']],
       ['browser:reopen', undefined, 'reopen', []],
       ['browser:zoom', { id: 't', zoom: 'in' }, 'zoom', ['t', 'in']],
       ['browser:find', { id: 't', text: 'x', next: true }, 'find', ['t', 'x', undefined, true]],
       ['browser:findStop', { id: 't' }, 'findStop', ['t']],
       ['browser:tool', { id: 't', tool: 'devtools' }, 'tool', ['t', 'devtools']],
-      ['browser:view', { bounds: { x: 1, y: 2, width: 3, height: 4 } }, 'setView', [{ x: 1, y: 2, width: 3, height: 4 }, undefined]],
-      ['browser:view', { bounds: null }, 'setView', [null, undefined]],
-      ['browser:view', { bounds: null, focused: false }, 'setView', [null, false]],
+      ['browser:view', { bounds: { x: 1, y: 2, width: 3, height: 4 } }, 'setView', [{ x: 1, y: 2, width: 3, height: 4 }, undefined, undefined]],
+      ['browser:view', { bounds: null }, 'setView', [null, undefined, undefined]],
+      ['browser:view', { bounds: null, focused: false }, 'setView', [null, false, undefined]],
+      [
+        'browser:view',
+        { bounds: { x: 0, y: 0, width: 10, height: 4 }, panes: [{ id: 'a', bounds: { x: 0, y: 0, width: 4, height: 4 } }] },
+        'setView',
+        [{ x: 0, y: 0, width: 10, height: 4 }, undefined, [{ id: 'a', bounds: { x: 0, y: 0, width: 4, height: 4 } }]]
+      ],
       ['browser:freeze', undefined, 'freeze', []],
       ['browser:unfreeze', undefined, 'unfreeze', []],
       ['browser:suggest', { text: 'gi' }, 'suggest', ['gi']],
@@ -64,7 +72,17 @@ describe('browser and files channels', () => {
       ['browser:bookmarksImport', { html: '<DL>' }, 'importBookmarksHtml', ['<DL>']],
       ['browser:importSources', undefined, 'importSources', []],
       ['browser:import', { sourceId: 'chrome:/p', kinds: ['bookmarks'] }, 'importFrom', [{ sourceId: 'chrome:/p', kinds: ['bookmarks'] }]],
-      ['browser:restoreSession', { restore: true }, 'restoreSession', [true]]
+      ['browser:restoreSession', { restore: true }, 'restoreSession', [true]],
+      ['browser:configure', { verticalTabs: true, verticalTabsWidth: 300, verticalTabsCollapsed: false }, 'configure', [{ verticalTabs: true, verticalTabsWidth: 300, verticalTabsCollapsed: false }]],
+      ['browser:group', { ids: ['t', 'u'], title: 'Work', color: 'green' }, 'group', [['t', 'u'], { title: 'Work', color: 'green' }]],
+      ['browser:group', { ids: ['t'] }, 'group', [['t'], {}]],
+      ['browser:groupUpdate', { id: 'g', collapsed: true }, 'updateGroup', ['g', { collapsed: true }]],
+      ['browser:ungroup', { id: 'g' }, 'ungroup', ['g']],
+      ['browser:groupClose', { id: 'g' }, 'closeGroup', ['g']],
+      ['browser:split', { id: 't', with: 'u', vertical: true }, 'split', ['t', 'u', true]],
+      ['browser:split', { id: 't' }, 'split', ['t', undefined, undefined]],
+      ['browser:splitUpdate', { id: 's', ratio: 0.3, swap: true }, 'updateSplit', ['s', { ratio: 0.3, swap: true }]],
+      ['browser:unsplit', { id: 's' }, 'unsplit', ['s']]
     ]
     for (const [channel, payload, method, args] of calls) {
       const res = await router.dispatch(channel, payload, ipc)
@@ -78,6 +96,10 @@ describe('browser and files channels', () => {
     expect(await router.dispatch('browser:historyDelete', { urls: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('browser:import', { sourceId: 'x', kinds: ['cookies'] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await router.dispatch('browser:bookmarkRemove', { ids: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:group', { ids: ['t'], color: '#ff0000' }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:group', { ids: [] }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:configure', { verticalTabsWidth: 20 }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
+    expect(await router.dispatch('browser:splitUpdate', { id: 's', ratio: 2 }, ipc)).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     // a paired phone or browser never reaches the user's tabs
     expect(await router.dispatch('browser:state', undefined, { transport: 'remote' })).toMatchObject({ ok: false, error: { code: 'desktop-only' } })
   })
@@ -101,6 +123,7 @@ describe('browser and files channels', () => {
       ['finder:open', { path: '/a.txt' }, 'open', ['/a.txt']],
       ['finder:reveal', { path: '/a.txt' }, 'reveal', ['/a.txt']],
       ['finder:untrash', { items: [{ path: '/a', restore: '/t/a' }] }, 'untrash', [[{ path: '/a', restore: '/t/a' }]]],
+      ['finder:privacySettings', undefined, 'privacySettings', []],
       ['finder:conflicts', { paths: ['/a'], dest: '/b' }, 'conflicts', [['/a'], '/b']],
       [
         'finder:transfer',

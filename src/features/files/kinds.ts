@@ -71,10 +71,14 @@ export function formatMode(mode: number): string {
  */
 export function pathChain(path: string, home?: string): { name: string; path: string }[] {
   const sep = path.includes('\\') ? '\\' : '/'
-  const parts = path.split(/[\\/]/).filter(Boolean)
-  const crumbs = parts.map((name, i) => ({ name, path: (path.startsWith(sep) ? sep : '') + parts.slice(0, i + 1).join(sep) }))
+  // Windows: the drive is the root — `C:\`; a bare `C:` would be that drive's current folder, not its root.
+  const drive = /^[A-Za-z]:/.exec(path)?.[0] ?? ''
+  const root = drive ? { name: drive, path: drive + sep } : { name: sep, path: sep }
+  const parts = path.slice(drive.length).split(/[\\/]/).filter(Boolean)
+  const start = drive || path.startsWith(sep) ? root.path : ''
+  const crumbs = parts.map((name, i) => ({ name, path: start + parts.slice(0, i + 1).join(sep) }))
   const inHome = home && (path === home || path.startsWith(home + sep))
-  return inHome ? [{ name: '~', path: home }, ...crumbs.filter((c) => c.path.length > home.length)] : [{ name: sep, path: sep }, ...crumbs]
+  return inHome ? [{ name: '~', path: home }, ...crumbs.filter((c) => c.path.length > home.length)] : [root, ...crumbs]
 }
 
 /** Archives the Files module extracts. */

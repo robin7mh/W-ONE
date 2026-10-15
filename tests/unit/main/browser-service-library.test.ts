@@ -202,6 +202,21 @@ describe('BrowserService · the session across restarts', () => {
     expect(next.host.create).toHaveBeenLastCalledWith(reopened.id, 'https://c.dev/', expect.objectContaining({ history: nav(['https://c.dev/', 'https://c.dev/2'], 0) }))
   })
 
+  it('the window closes before the quit: each tab keeps its back/forward list for the session', async () => {
+    const { b, host, dir } = await setupBrowser()
+    b.attach(host)
+    const a = b.open({ url: 'https://a.dev/' })
+    const unloaded = b.open({ url: 'https://u.dev/', background: true })
+    host.navigation.mockImplementation((id: string) => (id === a.id ? nav(['https://a.dev/', 'https://a.dev/2']) : undefined))
+    b.detach() // the views go with the window
+    host.navigation.mockReturnValue(undefined)
+    await b.dispose()
+    const saved = JSON.parse(await readFile(join(dir, 'session.json'), 'utf8'))
+    expect(saved.exit).toBe('clean')
+    expect(saved.tabs.find((t: { id: string }) => t.id === a.id).nav).toEqual(nav(['https://a.dev/', 'https://a.dev/2']))
+    expect(saved.tabs.find((t: { id: string }) => t.id === unloaded.id).nav).toBeUndefined()
+  })
+
   it('after a crash: starts with a new tab and offers the last session — restored or let go', async () => {
     const session = {
       exit: 'running',
@@ -282,6 +297,8 @@ describe('BrowserService · keys and menu for the library', () => {
     expect(host.focusUi).toHaveBeenCalledTimes(2)
     events.shortcut('bookmarksBar') // the UI shows or hides the bar (and remembers it)
     expect(host.focusUi).toHaveBeenCalledTimes(2)
+    events.shortcut('palette') // Mindeck's command palette takes the keyboard from the page
+    expect(host.focusUi).toHaveBeenCalledTimes(3)
     await b.configure({ bookmarksBar: false })
     events.shortcut('history')
     expect(b.state().tabs.find((t) => t.id === b.state().activeId)!.url).toBe('mindeck://history')
@@ -294,7 +311,7 @@ describe('BrowserService · keys and menu for the library', () => {
     expect(menuEntry(m, 'Show Bookmarks Bar').checked).toBe(false)
     for (const label of ['Search Tabs…', 'Bookmark This Page…', 'Show Bookmarks Bar', 'Import Bookmarks and History…', 'History', 'Bookmark Manager']) menuEntry(m, label).run()
     await tick()
-    expect((sent('browser:command') as { command: string }[]).map((c) => c.command)).toEqual(['bookmark', 'tabSearch', 'bookmarksBar', 'tabSearch', 'bookmark', 'bookmarksBar', 'import'])
+    expect((sent('browser:command') as { command: string }[]).map((c) => c.command)).toEqual(['bookmark', 'tabSearch', 'bookmarksBar', 'palette', 'tabSearch', 'bookmark', 'bookmarksBar', 'import'])
     // on an internal page there is nothing to bookmark
     b.tool(b.state().activeId!, 'pageMenu')
     expect(menuEntry(lastMenu(host), 'Bookmark This Page…').enabled).toBe(false)

@@ -46,6 +46,7 @@ ENV NODE_ENV=production \
   SHELL=/bin/bash
 EXPOSE 7420
 VOLUME ["/data"]
+# Plain HTTP is fine here: inside the container 127.0.0.1 is the core's own loopback.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
   CMD node -e "fetch('http://127.0.0.1:7420/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 CMD ["node", "out/server/index.cjs"]

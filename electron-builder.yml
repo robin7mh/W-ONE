@@ -32,6 +32,21 @@ files:
   # The editor's TypeScript service needs its standard library declarations.
   - node_modules/typescript/lib/*.d.ts
 
+# Electron's fuses, flipped in the binary before signing. Mindeck's main process can't be
+# started as plain Node with NODE_OPTIONS or --inspect, its code only comes from app.asar
+# and only as signed (the integrity is checked at start on macOS and Windows), and the
+# browser's cookies are encrypted with the OS keychain like Chrome's (a one-way switch).
+# RunAsNode stays on: tsserver, the lint worker, the PHP debug adapter and the Dev
+# Containers CLI run as Node in Mindeck's own binary (ELECTRON_RUN_AS_NODE) — moving them
+# to utilityProcess would let it go.
+electronFuses:
+  runAsNode: true
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
 # node-pty ships N-API prebuilds for macOS and Windows (stable across Electron versions): nothing
 # to compile. Linux has none: `npm ci` builds it there (node-gyp), and N-API keeps that build valid
 # for Electron. Each platform keeps only its own prebuilds (build/afterPack.cjs).
@@ -61,7 +76,7 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
   minimumSystemVersion: '13.0'
   # The ZIPs the auto-updater downloads (latest-mac.yml lists both architectures).
   artifactName: ${productName}-mac-${arch}.${ext}

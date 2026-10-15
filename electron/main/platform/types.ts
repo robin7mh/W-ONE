@@ -20,7 +20,7 @@ export interface Platform {
   appForUrl?: (url: string) => string
   /** Move a file to a recoverable trash. `root` is the vault it belongs to. */
   trashItem: (path: string, root: string) => Promise<void>
-  /** A trash Mindeck can also put things back from (Linux desktop) — Files' ⌘Z after trashing. */
+  /** A trash Mindeck can also put things back from (the desktop app) — Files' ⌘Z after trashing. */
   restorableTrash?: RestorableTrash
   /** Files on the system clipboard (Finder / Explorer copy and paste). Absent on a server. */
   fileClipboard?: { write(paths: string[], cut: boolean): Promise<void>; read(): Promise<string[]> }

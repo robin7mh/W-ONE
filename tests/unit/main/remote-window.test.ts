@@ -15,8 +15,10 @@ vi.mock('electron', async () => {
     scripts: string[] = []
     destroyed = false
     openHandler?: (d: { url: string }) => unknown
+    navigate?: (e: { preventDefault: () => void }, url: string) => void
     webContents = {
       setWindowOpenHandler: (fn: (d: { url: string }) => unknown) => (this.openHandler = fn),
+      on: (_event: 'will-navigate', fn: (e: { preventDefault: () => void }, url: string) => void) => (this.navigate = fn),
       executeJavaScript: async (code: string) => void this.scripts.push(code)
     }
     constructor(public opts: Record<string, unknown>) {
@@ -51,15 +53,28 @@ vi.mock('electron', async () => {
   }
 })
 
-import { electronPlatform } from '../../../electron/main/platform/electron'
+import { electronPlatform, REMOTE_PARTITION, safeExternal } from '../../../electron/main/platform/electron'
 
-type Win = EventEmitter & { opts: Record<string, unknown>; loaded: string[]; scripts: string[]; destroyed: boolean; openHandler: (d: { url: string }) => unknown; close: () => void }
+type Win = EventEmitter & {
+  opts: Record<string, unknown>
+  loaded: string[]
+  scripts: string[]
+  destroyed: boolean
+  openHandler: (d: { url: string }) => unknown
+  navigate: (e: { preventDefault: () => void }, url: string) => void
+  close: () => void
+}
 
 describe('remote windows', () => {
   it('a window on the remote core’s web UI, signed in as this desktop; links go to the browser; closing resolves', async () => {
     const remote = electronPlatform.openRemoteWindow!({ title: 'SSH: box', url: 'http://127.0.0.1:5000', token: 'tok', deviceId: 'dev' })
     const win = h.windows.at(-1) as Win
-    expect(win.opts).toMatchObject({ title: 'SSH: box', backgroundColor: '#04060b', webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    expect(win.opts).toMatchObject({
+      title: 'SSH: box',
+      backgroundColor: '#04060b',
+      // Its own profile: the Mindeck UI's session serves mindeck-file:// (local files).
+      webPreferences: { partition: REMOTE_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
+    })
     expect(win.opts.webPreferences).not.toHaveProperty('preload')
     await new Promise((r) => setTimeout(r, 0))
     expect(win.loaded).toEqual(['http://127.0.0.1:5000/api/health', 'http://127.0.0.1:5000'])
@@ -70,10 +85,36 @@ describe('remote windows', () => {
     expect(title.preventDefault).toHaveBeenCalled()
     expect(win.openHandler({ url: 'https://docs' })).toEqual({ action: 'deny' })
     expect(h.openExternal).toHaveBeenCalledWith('https://docs')
+    // Another machine's page never hands the OS a file, a share or another app's link.
+    h.openExternal.mockClear()
+    for (const link of ['file:///C:/Windows/System32/calc.exe', 'smb://evil/share/x.exe', 'ms-msdt:/id', 'javascript:alert(1)']) {
+      expect(win.openHandler({ url: link })).toEqual({ action: 'deny' })
+    }
+    expect(h.openExternal).not.toHaveBeenCalled()
+    // It stays on its core: its own pages load, web links elsewhere go to the system browser, the rest nowhere.
+    const nav = (url: string) => {
+      const e = { preventDefault: vi.fn() }
+      win.navigate(e, url)
+      return e.preventDefault.mock.calls.length > 0
+    }
+    expect(nav('http://127.0.0.1:5000/projects')).toBe(false)
+    expect(nav('http://127.0.0.1:50001/')).toBe(true)
+    expect(nav('mailto:a@b.c')).toBe(true)
+    expect(nav('file:///etc/passwd')).toBe(true)
+    expect(h.openExternal.mock.calls).toEqual([['http://127.0.0.1:50001/'], ['mailto:a@b.c']])
     remote.close()
     await remote.closed
     remote.close() // already gone
     expect(win.destroyed).toBe(true)
+  })
+
+  it('only web and mail links leave for the OS', () => {
+    expect(safeExternal('https://mindeck.de')).toBe(true)
+    expect(safeExternal('HTTP://x')).toBe(true)
+    expect(safeExternal('mailto:a@b.c')).toBe(true)
+    expect(safeExternal('file:///etc/passwd')).toBe(false)
+    expect(safeExternal('\\\\evil\\share')).toBe(false)
+    expect(safeExternal('vscode://x')).toBe(false)
   })
 
   it('light mode; a core that doesn’t answer leaves the window as it is', async () => {

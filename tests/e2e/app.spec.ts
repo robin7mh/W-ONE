@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
 import type { IpcResult } from '@shared/ipc/contract'
 import type { BrowserState } from '@shared/types/browser'
 import { expect, test } from './fixtures'
+import { localSite } from './helpers'
 
 test('boots into the Command Center without any database; the activity log is a file', async ({ page, home }) => {
   await expect(page.getByText('Command Center').first()).toBeVisible()
@@ -81,6 +80,32 @@ test('the terminal runs a real shell, keeps it across modules and splits panes',
   await expect(page.locator('.xterm-rows')).toHaveCount(2)
 })
 
+test('split screen from the top bar; the command palette brings a module into the focused pane', async ({ page }) => {
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+  await page.getByTitle('Agents', { exact: true }).click()
+  await page.getByRole('button', { name: 'Split screen' }).click()
+  await expect(page.getByTestId('pane-head-agents')).toBeVisible()
+  await expect(page.getByTestId('pane-head-terminal')).toBeVisible() // the new pane, with the focus
+
+  await page.keyboard.press(`${mod}+Shift+P`)
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+  await palette.getByRole('combobox').fill('browser')
+  await expect(palette.getByRole('option').first()).toHaveText(/^Browser\s*Open$/)
+  await page.keyboard.press('Enter')
+  await expect(palette).toBeHidden()
+  await expect(page.getByTestId('pane-head-agents')).toBeVisible()
+  await expect(page.getByTestId('pane-head-browser')).toBeVisible()
+  await expect(page.getByTestId('pane-head-terminal')).toHaveCount(0)
+
+  // Every shortcut, from one list.
+  await page.keyboard.press(`${mod}+/`)
+  const overview = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(overview.getByText('Split the screen (a new pane)')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(overview).toBeHidden()
+})
+
 test('memory: creates the starter vault, writes a note to disk and links it', async ({ page, home }) => {
   await page.getByTitle('Memory', { exact: true }).click()
   await page.getByText('Create Mindeck vault').click()
@@ -147,6 +172,52 @@ test('editor: opens a project file in Monaco, saves it with ⌘S and follows cha
   await expect(lines).toContainText('changed outside')
 })
 
+test('editor: three editor groups — split right and down, one file edited in all of them, an outline from the language service', async ({ page, home }) => {
+  const root = join(home, 'groups')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src', 'shared.ts'), 'export function greet(name: string) {\n  return `hi ${name}`\n}\n')
+  writeFileSync(join(root, 'src', 'other.ts'), 'export const other = 1\n')
+  const added = await page.evaluate((path) => window.mindeck!.invoke('projects:add', { path }), root)
+  expect(added).toMatchObject({ ok: true })
+
+  await page.getByTitle('Editor', { exact: true }).click()
+  await page.getByRole('treeitem', { name: 'src' }).click()
+  await page.getByRole('treeitem', { name: 'shared.ts' }).click()
+  const group = (n: number) => page.getByRole('region', { name: `Editor group ${n}` })
+  await expect(group(1).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+
+  // ⌘\ splits right, ⌘K ⌘\ splits the new group down — each new group shows the file too.
+  await group(1).locator('.monaco-editor .view-lines').click()
+  await page.keyboard.press('ControlOrMeta+Backslash')
+  await expect(group(2).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.keyboard.press('ControlOrMeta+Backslash')
+  await expect(page.getByRole('region', { name: /^Editor group \d$/ })).toHaveCount(3)
+  await expect(group(3).locator('.monaco-editor .view-lines')).toContainText('export function greet')
+
+  // An edit in the third group shows in all three (one buffer), unsaved until ⌘S.
+  await page.keyboard.press('ControlOrMeta+End')
+  await page.keyboard.type('// edited in group 3')
+  for (const n of [1, 2, 3]) await expect(group(n).locator('.monaco-editor .view-lines')).toContainText('edited in group 3')
+  await expect(page.getByText('Unsaved', { exact: true })).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  expect(readFileSync(join(root, 'src', 'shared.ts'), 'utf8')).toContain('// edited in group 3')
+
+  // ⌘1 focuses the first group; a file opened now opens there, the others keep theirs.
+  await page.keyboard.press('ControlOrMeta+1')
+  await page.getByRole('treeitem', { name: 'other.ts' }).click()
+  await expect(group(1).locator('.monaco-editor .view-lines')).toContainText('export const other')
+  await expect(group(2).locator('.monaco-editor .view-lines')).toContainText('edited in group 3')
+
+  // The outline and the breadcrumbs know the file's symbols (Monaco's TypeScript service).
+  await group(2).getByRole('tab', { name: /shared\.ts/ }).click()
+  await page.getByRole('navigation', { name: 'Editor' }).getByRole('button', { name: 'Outline' }).click()
+  await expect(page.getByRole('tree', { name: 'Outline' }).getByRole('treeitem', { name: /greet/ })).toBeVisible()
+  await page.getByRole('tree', { name: 'Outline' }).getByRole('treeitem', { name: /greet/ }).click()
+  await expect(group(2).getByRole('navigation', { name: 'Breadcrumbs' })).toContainText('greet')
+})
+
 test('agents: a coding agent session — chat, approval in Mindeck, the change as a diff, a journal in memory', async ({ page, home }) => {
   const root = join(home, 'agent-demo')
   mkdirSync(root)
@@ -194,20 +265,6 @@ test('agents: a coding agent session — chat, approval in Mindeck, the change a
   await expect(page.getByText('· Ended')).toBeVisible()
 })
 
-/** A local site for the browser: `/` and `/second`, each with its own title. */
-async function localSite() {
-  const server = createServer((req, res) => {
-    if (req.url === '/favicon.ico') {
-      res.statusCode = 404
-      return void res.end()
-    }
-    res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(req.url === '/second' ? '<!doctype html><title>Second page</title><h1>Second</h1>' : '<!doctype html><title>Mindeck E2E</title><h1>Hello from localhost</h1>')
-  })
-  await new Promise<void>((done) => server.listen(0, done))
-  return { port: (server.address() as AddressInfo).port, close: () => new Promise<void>((done) => server.close(() => done())) }
-}
-
 test('browser: a local page in a real Chromium tab — back and forth, kept across modules, remembered', async ({ page, home }) => {
   const site = await localSite()
   try {
@@ -248,6 +305,99 @@ test('browser: a local page in a real Chromium tab — back and forth, kept acro
 
     // the history is a file in Mindeck's folder
     await expect.poll(() => readFileSync(join(home, 'data', 'browser', 'history.jsonl'), 'utf8')).toContain(`http://localhost:${site.port}/second`)
+  } finally {
+    await site.close()
+  }
+})
+
+test('browser: two local pages side by side in a split view, a tab group, vertical tabs — kept in the session', async ({ app, page, home }) => {
+  const site = await localSite()
+  try {
+    await page.getByTitle('Browser', { exact: true }).click()
+    const address = page.getByRole('textbox', { name: 'Address or search' })
+    await address.fill(`localhost:${site.port}`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Mindeck E2E/ })).toBeVisible()
+
+    // split with a new tab: two panes, the new one's address bar ready to type
+    await page.getByRole('button', { name: 'Split with a new tab (⌘⇧D)' }).click()
+    await expect(page.getByTestId('browser-pane')).toHaveCount(2)
+    await expect(address).toBeFocused()
+    await address.fill(`localhost:${site.port}/second`)
+    await address.press('Enter')
+    await expect(page.getByRole('tab', { name: /Second page/ })).toBeVisible()
+    const browser = async () => {
+      const res = (await page.evaluate(() => window.mindeck!.invoke('browser:state'))) as IpcResult<BrowserState>
+      if (!res.ok) throw new Error(res.error.message)
+      const title = (id: string) => res.data.tabs.find((t) => t.id === id)?.title
+      return { ...res.data, title, splitTitles: res.data.splits.map((s) => s.tabs.map(title)) }
+    }
+    await expect.poll(async () => (await browser()).splitTitles).toEqual([['Mindeck E2E', 'Second page']])
+    // The browser's keys are taken in the main process (before-input-event), which keys typed by
+    // Playwright (CDP) skip: these go in as real input events of the window.
+    const shortcut = (keyCode: string) =>
+      app.evaluate(({ BrowserWindow }, keyCode) => {
+        const wc = BrowserWindow.getAllWindows()[0].webContents
+        wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers: [process.platform === 'darwin' ? 'meta' : 'control', 'shift'] })
+        wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers: [process.platform === 'darwin' ? 'meta' : 'control', 'shift'] })
+      }, keyCode)
+    // the omnibox shows the focused side
+    await expect(address).toHaveValue(`localhost:${site.port}/second`)
+
+    // both pages are real web views on screen, side by side in their panes
+    const views = () =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]
+          .contentView.children.filter((v) => v.getVisible())
+          .map((v) => v.getBounds())
+          .sort((a, b) => a.x - b.x)
+      )
+    await expect
+      .poll(async () => {
+        const v = await views()
+        return v.length === 2 && v[0].y === v[1].y && v[0].height === v[1].height && v[0].x + v[0].width < v[1].x
+      })
+      .toBe(true)
+    // swapped, then stacked: one above the other
+    await page.getByRole('button', { name: 'Swap sides' }).click()
+    await expect.poll(async () => (await browser()).splitTitles).toEqual([['Second page', 'Mindeck E2E']])
+    await page.getByRole('button', { name: 'Stack top and bottom' }).click()
+    await expect
+      .poll(async () => {
+        const v = (await views()).sort((a, b) => a.y - b.y)
+        return v.length === 2 && v[0].x === v[1].x && v[0].y + v[0].height < v[1].y
+      })
+      .toBe(true)
+
+    // the focused tab into a new group (⌘⇧G / Ctrl+Shift+G), named in the editor
+    await shortcut('G')
+    const editor = page.getByRole('dialog', { name: 'Edit group' })
+    await expect(editor).toBeVisible()
+    await editor.getByRole('textbox', { name: 'Group name' }).fill('Research')
+    await editor.getByRole('textbox', { name: 'Group name' }).press('Enter')
+    await expect(editor).toBeHidden()
+    const chip = page.getByRole('button', { name: 'Fold Research' })
+    await expect(chip).toBeVisible()
+    await expect.poll(async () => (await browser()).groups.map((g) => g.title)).toEqual(['Research'])
+    await expect.poll(async () => {
+      const b = await browser()
+      return b.tabs.filter((t) => t.groupId === b.groups[0]?.id).map((t) => t.title)
+    }).toEqual(['Second page'])
+
+    // vertical tabs (⌘⇧, / Ctrl+Shift+,): the sidebar instead of the strip — the group and both tabs in it
+    await page.getByRole('button', { name: 'Close split view' }).click()
+    await expect(page.getByTestId('browser-pane')).toHaveCount(0)
+    await shortcut(',')
+    const sidebar = page.getByRole('complementary', { name: 'Tabs' })
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Fold Research' })).toBeVisible()
+    await expect(sidebar.getByRole('tab')).toHaveCount(2)
+
+    // the session file keeps the group (written shortly after a change)
+    const session = join(home, 'data', 'browser', 'session.json')
+    await expect
+      .poll(() => (existsSync(session) ? (JSON.parse(readFileSync(session, 'utf8')) as { groups?: { title: string }[] }).groups?.map((g) => g.title) : null))
+      .toEqual(['Research'])
   } finally {
     await site.close()
   }

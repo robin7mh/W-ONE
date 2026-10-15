@@ -7,7 +7,8 @@ import type {
   LspLocation,
   LspRange,
   LspRename,
-  LspSignature
+  LspSignature,
+  LspSymbol
 } from '@shared/types/lsp'
 import { isTypeScriptFile, languageOf } from '@shared/types/languages'
 import { TsBackend, type TsOptions } from './TsBackend'
@@ -95,6 +96,11 @@ export class LspService {
   /** Quick fixes: TypeScript's for these error codes, a language server's for the diagnostics in the range. */
   codeFixes(projectId: string, path: string, at: LspRange, errorCodes: number[]): Promise<LspCodeFix[]> {
     return isTypeScriptFile(path) ? this.ts.codeFixes(projectId, path, at, errorCodes) : this.generic.codeFixes(projectId, path, at)
+  }
+
+  /** A file's symbols (the outline) — TypeScript's come from Monaco's own service in the editor. */
+  async symbols(projectId: string, path: string): Promise<LspSymbol[]> {
+    return isTypeScriptFile(path) ? [] : this.generic.symbols(projectId, path)
   }
 
   dispose(): void {

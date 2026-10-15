@@ -13,6 +13,7 @@ import type {
   LspRange,
   LspRename,
   LspSignature,
+  LspSymbol,
   LspTextEdit
 } from '@shared/types/lsp'
 import { LANGUAGES, languageOf, type LanguageInfo } from '@shared/types/languages'
@@ -35,6 +36,8 @@ type TextEdit = { range: Range; newText: string }
 type Location = { uri: string; range: Range } | { targetUri: string; targetRange: Range; targetSelectionRange?: Range }
 type Markup = string | { kind: string; value: string } | { language: string; value: string }
 type WorkspaceEdit = { changes?: Record<string, TextEdit[]>; documentChanges?: ({ textDocument: { uri: string }; edits: TextEdit[] } | { kind: string })[] }
+type DocumentSymbol = { name: string; detail?: string; kind: number; range: Range; selectionRange: Range; children?: DocumentSymbol[] }
+type SymbolInformation = { name: string; kind: number; location: { uri: string; range: Range } }
 type RawDiagnostic = { range: Range; message: string; severity?: number; code?: number | string; source?: string; tags?: number[] }
 type Item = {
   label: string
@@ -114,6 +117,7 @@ const CAPABILITIES = {
     hover: { contentFormat: ['markdown', 'plaintext'] },
     signatureHelp: { signatureInformation: { documentationFormat: ['markdown', 'plaintext'], parameterInformation: { labelOffsetSupport: true }, activeParameterSupport: true } },
     definition: { linkSupport: true },
+    documentSymbol: { hierarchicalDocumentSymbolSupport: true },
     references: {},
     rename: { prepareSupport: false },
     codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] } } },
@@ -302,6 +306,16 @@ export class GenericBackend {
       active,
       activeParameter: result.signatures[active]?.activeParameter ?? result.activeParameter ?? 0
     }
+  }
+
+  /** The file's symbols — nested (DocumentSymbol), or flat as older servers send them (SymbolInformation). */
+  async symbols(projectId: string, path: string): Promise<LspSymbol[]> {
+    const result = await this.ask<(DocumentSymbol | SymbolInformation)[]>(projectId, path, 'textDocument/documentSymbol', (doc) => ({ textDocument: { uri: doc } }))
+    const convert = (s: DocumentSymbol | SymbolInformation): LspSymbol =>
+      'location' in s
+        ? { name: s.name, kind: s.kind, range: fromRange(s.location.range), selection: fromRange(s.location.range), children: [] }
+        : { name: s.name, detail: s.detail || undefined, kind: s.kind, range: fromRange(s.range), selection: fromRange(s.selectionRange), children: (s.children ?? []).map(convert) }
+    return (result ?? []).map(convert)
   }
 
   /** Quick fixes the server offers for the diagnostics in a range. */

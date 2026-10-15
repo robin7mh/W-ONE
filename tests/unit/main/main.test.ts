@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // --- electron double -----------------------------------------------------------
@@ -85,6 +86,7 @@ const h = vi.hoisted(() => ({
     quitAndInstall: vi.fn()
   },
   packaged: false,
+  appMenu: undefined as unknown,
   dark: true,
   fileIconFails: false,
   migrate: vi.fn((_legacy?: string): boolean => false),
@@ -130,7 +132,7 @@ vi.mock('electron', () => ({
     }
   },
   crashReporter: { start: h.crashStart },
-  Menu: { buildFromTemplate: (items: unknown) => items },
+  Menu: { buildFromTemplate: (items: unknown) => items, setApplicationMenu: (menu: unknown) => (h.appMenu = menu) },
   Tray: class {
     tooltip?: string
     menu?: { label?: string; click?: () => void }[]
@@ -210,10 +212,15 @@ vi.mock('../../../electron/main/lib/log', () => ({
   redact: (text: string) => text,
   rendererErrors: (logger: { error: (...a: unknown[]) => void }) => (r: { message: string }) => logger.error('renderer', r.message)
 }))
-vi.mock('../../../electron/main/lib/paths', () => ({
-  mindeckPaths: () => ({ homeDir: '/h', dataDir: '/h/data', logsDir: '/h/logs' }),
-  migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
-}))
+// The logs folder is real (opening it creates it): a temp folder, not one at the root.
+vi.mock('../../../electron/main/lib/paths', async () => {
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  return {
+    mindeckPaths: () => ({ homeDir: '/h', dataDir: '/h/data', logsDir: join(tmpdir(), 'mindeck-main-test', 'logs') }),
+    migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
+  }
+})
 vi.mock('../../../electron/main/platform/electron', () => ({
   electronPlatform: { kind: 'desktop' },
   electronCipher: () => ({ kind: 'cipher' }),
@@ -307,6 +314,11 @@ describe('main process boot', () => {
     expect(win.opts).toMatchObject({ titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 17 }, backgroundColor: '#04060b' })
     expect(win.opts).not.toHaveProperty('frame')
     expect(win.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+    // its own application menu: no reload on ⌘R, no window closing on ⌘W (development keeps reload and DevTools)
+    const roles = JSON.stringify(h.appMenu)
+    expect(roles).toContain('"editMenu"')
+    expect(roles).toContain('"toggleDevTools"')
+    expect(roles).not.toContain('"close"')
   })
 
   it('updates itself only when packaged, through desktop channels on the core router', async () => {
@@ -562,7 +574,7 @@ describe('stability', () => {
     await boot()
     expect(h.log.captured).toHaveBeenCalled()
     expect(h.log.crashes).toHaveBeenCalled()
-    expect(h.setPath).toHaveBeenCalledWith('crashDumps', expect.stringMatching(/[\\/]h[\\/]logs[\\/]crashes$/))
+    expect(h.setPath).toHaveBeenCalledWith('crashDumps', join(tmpdir(), 'mindeck-main-test', 'logs', 'crashes'))
     expect(h.crashStart).toHaveBeenCalledWith({ uploadToServer: false })
   })
 
@@ -673,7 +685,7 @@ describe('stability', () => {
     win.emit('responsive')
 
     // crashing twice in a row asks (in English once the core is gone)
-    h.appHandlers.get('will-quit')!()
+    h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
     win.contentsHandlers.get('render-process-gone')!({}, { reason: 'crashed', exitCode: 11 })
     await flush()
     expect(h.asked[1].options.message).toBe('Mindeck’s window crashed again')
@@ -709,7 +721,11 @@ describe('stability', () => {
     h.core.router.register.mockClear()
     await boot()
     const on = new Map(h.core.router.register.mock.calls.map(([channel, fn]) => [channel as string, fn as (req?: unknown) => unknown]))
-    expect(on.get('desktop:status')!()).toMatchObject({ logsDir: '/h/logs', secretsEncrypted: true, closeBehavior: 'ask' })
+    const logsDir = join(tmpdir(), 'mindeck-main-test', 'logs')
+    expect(on.get('desktop:status')!()).toMatchObject({ logsDir, secretsEncrypted: true, closeBehavior: 'ask' })
+    // the logs folder goes to the system's file manager, looked up when asked (tests swap it in a running app)
+    await on.get('desktop:openLogs')!()
+    expect(h.openPath).toHaveBeenCalledWith(logsDir)
     const text = on.get('desktop:diagnostics')!() as string
     expect(text).toContain('Mindeck 0.1.0 (dev)')
     expect(text).toContain('Locale: de-DE')
@@ -731,24 +747,59 @@ describe('core push events', () => {
 })
 
 describe('app lifecycle', () => {
-  it('disposes the core once before quitting', async () => {
+  it('waits for the core to save and stop, then quits — once', async () => {
     await boot()
-    h.appHandlers.get('will-quit')!()
+    let finish!: () => void
+    h.core.dispose.mockImplementation(() => new Promise<void>((done) => (finish = done)))
+    const quit = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(quit)
+    expect(quit.preventDefault).toHaveBeenCalled() // held until the core is down
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
-    h.appHandlers.get('will-quit')!() // second quit: core already released
+    await flush()
+    expect(h.quit).not.toHaveBeenCalled()
+    finish()
+    await flush()
+    expect(h.quit).not.toHaveBeenCalled() // not inside this will-quit: Electron would ignore it
+    await new Promise((done) => setImmediate(done))
+    expect(h.quit).toHaveBeenCalledTimes(1)
+    const again = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(again) // the quit goes on: core already released
+    expect(again.preventDefault).not.toHaveBeenCalled()
     expect(h.core.dispose).toHaveBeenCalledTimes(1)
   })
 
-  it('quit before anything started is harmless; a failing dispose is swallowed', async () => {
+  it('a core that does not stop in time does not keep Mindeck from quitting', async () => {
+    await boot()
+    vi.useFakeTimers()
+    try {
+      h.core.dispose.mockImplementation(() => new Promise<void>(() => {}))
+      h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
+      await vi.advanceTimersByTimeAsync(4999)
+      expect(h.quit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      await vi.runOnlyPendingTimersAsync() // the quit's own next task
+      expect(h.quit).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('quit before anything started is harmless; a failing dispose is logged and the quit goes on', async () => {
     await boot({ ready: false })
     const early = { preventDefault: vi.fn() }
     h.appHandlers.get('before-quit')!(early) // nothing runs yet
     expect(early.preventDefault).not.toHaveBeenCalled()
-    expect(() => h.appHandlers.get('will-quit')!()).not.toThrow()
+    const nothing = { preventDefault: vi.fn() }
+    h.appHandlers.get('will-quit')!(nothing)
+    expect(nothing.preventDefault).not.toHaveBeenCalled()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     h.core.dispose.mockRejectedValue(new Error('pool gone'))
     await boot()
-    h.appHandlers.get('will-quit')!()
+    h.appHandlers.get('will-quit')!({ preventDefault: vi.fn() })
     await flush()
+    await new Promise((done) => setImmediate(done))
+    expect(error).toHaveBeenCalledWith('[app] shutting the core down failed', expect.any(Error))
+    expect(h.quit).toHaveBeenCalledTimes(1)
   })
 
   it('quits when all windows close, except on macOS', async () => {

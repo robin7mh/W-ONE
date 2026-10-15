@@ -119,6 +119,14 @@ const mon = vi.hoisted(() => {
       return this.cursor.event(fn)
     }
     focusText = new Emitter()
+    textFocus = false
+    hasTextFocus() {
+      return this.textFocus
+    }
+    contentChange = new Emitter()
+    onDidChangeModelContent(fn: Fn) {
+      return this.contentChange.event(fn)
+    }
     onDidFocusEditorText(fn: Fn) {
       return this.focusText.event(fn)
     }
@@ -203,6 +211,7 @@ vi.mock('@/features/editor/monaco/lint', () => ({ setupLint: () => {}, fixAll: a
 vi.mock('@/features/editor/monaco/testMarkers', () => ({ setupTestMarkers: () => {} }))
 vi.mock('@/features/editor/monaco/inlineAi', () => ({ setupInlineAi: () => {}, addInlineEdit: () => [] }))
 vi.mock('@/features/editor/monaco/vim', () => ({ attachVim: () => () => {} }))
+vi.mock('@/features/editor/monaco/symbols', () => ({ attachSymbols: () => () => (features.detached += 1) }))
 vi.mock('@/features/editor/monaco/extras', () => ({
   setupExtras: () => {},
   // Prettier isn't there: the editor's own formatter, for the file on screen.
@@ -218,12 +227,13 @@ vi.mock('monaco-editor/language/css/css.worker.js?worker', () => ({ default: cla
 vi.mock('monaco-editor/language/html/html.worker.js?worker', () => ({ default: class { kind = 'html' } }))
 vi.mock('monaco-editor/language/typescript/ts.worker.js?worker', () => ({ default: class { kind = 'ts' } }))
 
-import { bufferText, editBuffer, setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
+import { bufferText, editBuffer, oneGroup, setBufferHost, tabKey, useEditor, type BufferHost, type EditorTab } from '@/features/editor/store'
 import { applyMonacoTheme, languageName } from '@/features/editor/monaco/setup'
 import { monacoTheme } from '@/features/editor/monaco/theme'
 import CodeEditor from '@/features/editor/components/CodeEditor'
 import { editorActions } from '@/features/editor/actions'
 import { useScm } from '@/features/editor/scm'
+import { usePalette } from '@/features/palette/store'
 import { useEditorPrefs } from '@/features/editor/prefs'
 
 const initial = useEditor.getState()
@@ -432,7 +442,7 @@ describe('editor store: tabs', () => {
     installBridge({ 'files:write': () => (ok ? { mtimeMs: 2, size: 1 } : fail('disk full')) })
     const host = fakeHost()
     setBufferHost(host)
-    useEditor.setState({ tabs: [tab('a.ts'), tab('b.ts', { dirty: true }), tab('c.ts')], activeId: 'p:b.ts' })
+    useEditor.setState({ tabs: [tab('a.ts'), tab('b.ts', { dirty: true }), tab('c.ts')], ...oneGroup(['p:a.ts', 'p:b.ts', 'p:c.ts'], 'p:b.ts') })
 
     e().requestClose('p:b.ts')
     expect(e().closing).toBe('p:b.ts')
@@ -456,7 +466,7 @@ describe('editor store: tabs', () => {
     expect(e().tabs).toEqual([])
     expect(e().activeId).toBeUndefined()
 
-    useEditor.setState({ tabs: [tab('a.ts'), tab('b.ts')], activeId: 'p:b.ts' })
+    useEditor.setState({ tabs: [tab('a.ts'), tab('b.ts')], ...oneGroup(['p:a.ts', 'p:b.ts'], 'p:b.ts') })
     e().close('p:b.ts') // rightmost → left neighbour
     expect(e().activeId).toBe('p:a.ts')
   })
@@ -574,7 +584,7 @@ describe('CodeEditor (Monaco view)', () => {
   it('one editor for all tabs: a model per file, view state per tab, dirty from version ids', async () => {
     const onCursor = vi.fn()
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.md', { content: 'B' }), tab('c.ts', { content: undefined, loading: true })] })
-    const view = (t?: EditorTab, readOnly = false) => <CodeEditor tab={t} readOnly={readOnly} onCursor={onCursor} />
+    const view = (t?: EditorTab, readOnly = false) => <CodeEditor group="g1" tab={t} readOnly={readOnly} onCursor={onCursor} />
     const { rerender, unmount } = render(view())
     expect(editor().options).toMatchObject({ model: null, theme: 'mindeck', automaticLayout: true, readOnly: false })
     expect(mon.state.themes).toHaveLength(1)
@@ -633,6 +643,7 @@ describe('CodeEditor (Monaco view)', () => {
 
     unmount()
     expect(editor().disposed).toBe(true)
+    await act(() => settle(1)) // the buffers go once no other editor took over
     expect(mon.state.models.every((m) => m.disposed)).toBe(true)
     expect(await e().save('p:a.ts')).toBe(false) // the buffer host is gone
   })
@@ -640,7 +651,7 @@ describe('CodeEditor (Monaco view)', () => {
   it('serves the store: snapshots, marks saved versions clean, applies disk reloads, frees closed tabs', async () => {
     installBridge({ 'files:write': () => ({ mtimeMs: 5, size: 2 }) })
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })], activeId: 'p:a.ts' })
-    const view = (t: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const view = (t: EditorTab) => <CodeEditor group="g1" tab={t} readOnly={false} onCursor={() => {}} />
     // once the bundled font is in, Monaco measures again
     Object.defineProperty(document, 'fonts', { value: { ready: Promise.resolve() }, configurable: true })
     const { rerender } = render(view(e().tabs[0]))
@@ -690,7 +701,7 @@ describe('CodeEditor (Monaco view)', () => {
 
   it('F1 and ⌃G open Mindeck’s palette; Monaco’s actions reach the palette; features see the shown tab', async () => {
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' })] })
-    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const view = (t?: EditorTab) => <CodeEditor group="g1" tab={t} readOnly={false} onCursor={() => {}} />
     const { rerender, unmount } = render(view())
     expect(features.lsp).toBeGreaterThan(0)
     expect(features.gutter.at(-1)!()).toBeUndefined() // nothing shown yet
@@ -701,7 +712,8 @@ describe('CodeEditor (Monaco view)', () => {
     const [f1, ctrlG] = editor().commands
     expect([f1.keys, ctrlG.keys]).toEqual([59, 256 | 37])
     act(() => f1.run())
-    expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: '>' })
+    expect(usePalette.getState().view).toBe('commands')
+    act(() => usePalette.getState().close())
     act(() => ctrlG.run())
     expect(useScm.getState()).toMatchObject({ quickOpen: true, quickQuery: ':' })
 
@@ -719,13 +731,13 @@ describe('CodeEditor (Monaco view)', () => {
 
     const detachedBefore = features.detached
     unmount()
-    expect(features.detached).toBe(detachedBefore + 2)
+    expect(features.detached).toBe(detachedBefore + 3)
     expect(editorActions()).toBeNull()
   })
 
   it('a renamed file keeps its buffer: unsaved edits move along, the shown one stays on screen', async () => {
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })] })
-    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const view = (t?: EditorTab) => <CodeEditor group="g1" tab={t} readOnly={false} onCursor={() => {}} />
     const { rerender } = render(view(e().tabs[1]))
     rerender(view(e().tabs[0]))
     act(() => model('a.ts').type('!'))
@@ -766,52 +778,77 @@ describe('CodeEditor (Monaco view)', () => {
     expect(mon.state.models.filter((m) => !m.disposed)).toHaveLength(2)
   })
 
-  it('a split: the right editor shows the same models; focus moves the palette and the store; closing and renaming follow on both sides', async () => {
-    useEditor.setState({ projectId: 'p', tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })], activeId: 'p:a.ts' })
+  it('editor groups: one model, an editor per group; focus moves the palette and the store; closing and renaming follow everywhere', async () => {
+    useEditor.setState({ projectId: 'p', tabs: [tab('a.ts', { content: 'A' }), tab('b.ts', { content: 'B' })], ...oneGroup(['p:a.ts', 'p:b.ts'], 'p:a.ts') })
+    useEditor.setState((s) => ({
+      groups: [...s.groups, { id: 'g2', tabs: ['p:a.ts', 'p:b.ts'], activeId: 'p:a.ts' }],
+      grid: { orientation: 'row', children: [{ group: 'g1' }, { group: 'g2' }], sizes: [0.5, 0.5] }
+    }))
     const both = (left?: EditorTab, right?: EditorTab, split = true) => (
       <>
-        <CodeEditor tab={left} readOnly={false} onCursor={() => {}} />
-        {split && <CodeEditor secondary tab={right} readOnly={false} onCursor={() => {}} />}
+        <CodeEditor group="g1" tab={left} readOnly={false} onCursor={() => {}} />
+        {split && <CodeEditor group="g2" tab={right} readOnly={false} onCursor={() => {}} />}
       </>
     )
-    const { rerender } = render(both(e().tabs[0], e().tabs[0]))
+    const { rerender, unmount } = render(both(e().tabs[0], e().tabs[0]))
     const [left, right] = mon.state.editors.slice(-2)
     expect(left.model).toBe(model('a.ts'))
     expect(right.model).toBe(model('a.ts')) // one model, two editors
+    expect(left.focus).toHaveBeenCalledTimes(1) // only the focused group's editor takes the keyboard
+    expect(right.focus).not.toHaveBeenCalled()
     act(() => model('a.ts').type('!'))
     expect(e().tabs[0].dirty).toBe(true)
-    // The right editor gets the focus: palette commands and saving go there.
-    useEditor.setState({ splitId: 'p:a.ts' })
+    // The right editor gets the focus: palette commands and saving go to its group.
+    right.textFocus = left.textFocus = true // a click into the text
     act(() => right.focusText.fire())
-    expect(e().focusRight).toBe(true)
+    expect(e().activeGroup).toBe('g2')
     expect(editorActions()!.list().map((a) => a.id)).toContain('mindeck.formatDocument')
     act(() => left.focusText.fire())
-    expect(e().focusRight).toBe(false)
+    expect(e().activeGroup).toBe('g1')
+    expect(right.focus).not.toHaveBeenCalled()
+    // Focused from outside (⌘2): its editor takes the keyboard — unless it has it already.
+    right.textFocus = false
+    act(() => e().focusGroup('g2'))
+    expect(right.focus).toHaveBeenCalledTimes(1)
+    right.textFocus = true
+    act(() => e().focusGroup('g1'))
+    act(() => e().focusGroup('g2'))
+    expect(right.focus).toHaveBeenCalledTimes(1)
+    // A line asked for in one group scrolls that group's editor only.
+    act(() => useEditor.setState({ reveal: { id: 'p:a.ts', line: 7, group: 'g1' } }))
+    expect(left.revealLineInCenter).toHaveBeenCalledWith(7)
+    expect(right.revealLineInCenter).not.toHaveBeenCalled()
     rerender(both(e().tabs[0], e().tabs[1]))
     expect(right.model).toBe(model('b.ts'))
     rerender(both(e().tabs[0], e().tabs[0]))
-    // Renaming the file on both sides: both move to the new model.
+    // Renaming the file shown in both: both move to the new model.
     installBridge({ 'files:rename': () => undefined, 'files:list': () => [] })
     useEditor.setState({ naming: { mode: 'rename', dir: '', path: 'a.ts' }, selection: { path: 'a.ts', kind: 'file' } })
     await act(() => e().submitName('z.ts'))
     expect(left.model).toBe(model('z.ts'))
     expect(right.model).toBe(model('z.ts'))
-    expect(e().splitId).toBe('p:z.ts')
+    expect(e().groups.map((g) => g.activeId)).toEqual(['p:z.ts', 'p:z.ts'])
     // Closing it: both let go.
     act(() => e().close('p:z.ts'))
     expect(left.model).toBeNull()
     expect(right.model).toBeNull()
-    // The right editor closes: the left one's commands are back in the palette.
+    // The focused group's editor goes: another one's commands are in the palette.
     act(() => right.focusText.fire())
     rerender(both(e().tabs[0], undefined, false))
     expect(right.disposed).toBe(true)
     expect(editorActions()).not.toBeNull()
+    // The last editor makes way for another in the same render (another project's layout): the buffers stay.
+    rerender(<CodeEditor key="other" group="g3" tab={e().tabs[0]} readOnly={false} onCursor={() => {}} />)
+    await act(() => settle(1))
+    expect(model('b.ts').disposed).toBe(false)
+    expect(bufferText('p:b.ts')).toBe('B')
+    unmount()
   })
 
   it('a model already there (a peeked definition) becomes the tab’s buffer', () => {
     const peeked = mon.monaco.editor.createModel('old', undefined, { path: '/p/a.ts' })
     useEditor.setState({ tabs: [tab('a.ts', { content: 'DISK' })] })
-    render(<CodeEditor tab={e().tabs[0]} readOnly={false} onCursor={() => {}} />)
+    render(<CodeEditor group="g1" tab={e().tabs[0]} readOnly={false} onCursor={() => {}} />)
     expect(editor().model).toBe(peeked)
     expect(peeked.getValue()).toBe('DISK')
     expect(e().tabs[0].dirty).toBe(false)
@@ -820,7 +857,7 @@ describe('CodeEditor (Monaco view)', () => {
 
   it('the user’s editor settings (from VS Code) apply on start and when they change', () => {
     useEditorPrefs.setState({ settings: { fontSize: 20, minimap: false }, snippets: [] })
-    const { unmount } = render(<CodeEditor readOnly={false} onCursor={() => {}} />)
+    const { unmount } = render(<CodeEditor group="g1" readOnly={false} onCursor={() => {}} />)
     expect(features.prefs).toBeGreaterThan(0)
     expect(editor().options).toMatchObject({ fontSize: 20, minimap: { enabled: false } })
     act(() => useEditorPrefs.setState({ settings: { fontSize: 12 } }))
@@ -837,7 +874,7 @@ describe('CodeEditor (Monaco view)', () => {
     installBridge({ 'files:write': (req: { content: string }) => (writes.push(req.content), { mtimeMs: 2, size: 1 }) })
     useEditorPrefs.setState({ settings: { blankLines: { onSave: true, keepOne: true }, languages: { typescript: { formatOnSave: true, tabSize: 2 } } }, snippets: [] })
     useEditor.setState({ tabs: [tab('a.ts', { content: 'A' }), tab('b.md', { content: 'B' })], activeId: 'p:a.ts' })
-    const view = (t?: EditorTab) => <CodeEditor tab={t} readOnly={false} onCursor={() => {}} />
+    const view = (t?: EditorTab) => <CodeEditor group="g1" tab={t} readOnly={false} onCursor={() => {}} />
     const { rerender } = render(view(e().tabs[1]))
     expect(editor().options.tabSize).toBe(4) // Markdown: Mindeck's default
     rerender(view(e().tabs[0]))

@@ -181,7 +181,7 @@ describe('search store', () => {
     useScm.setState({ diff: { path: 'x', original: '', modified: '', title: 'x' } })
     await q().open('a.ts', match(4, 2, 'abc'))
     expect(useScm.getState().diff).toBeUndefined()
-    expect(useEditor.getState().reveal).toEqual({ id: 'p:a.ts', line: 4, match: { column: 2, length: 3 } })
+    expect(useEditor.getState().reveal).toEqual({ id: 'p:a.ts', line: 4, match: { column: 2, length: 3 }, group: 'g1' })
   })
 
   /** A finished search for `(n)eedle` → `$1EEDLE!` over a buffer and two files on disk. */
@@ -619,7 +619,7 @@ describe('palette and editor view', () => {
     const update = vi.fn(async () => {})
     useScm.setState({ stash, status: status() })
     useEditorPrefs.setState({ update })
-    const items = buildCommands(en, { onNavigate: vi.fn(), readOnly: false })
+    const items = buildCommands(en, { readOnly: false })
     const run = (id: string) => items.find((i) => i.id === id)!.run()
     run('git.stash')
     await useScm.getState().pick!.onText!('one')

@@ -19,7 +19,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: [
-    { name: 'electron', testMatch: 'app.spec.ts' },
+    { name: 'electron', testMatch: 'app*.spec.ts' },
     {
       name: 'web',
       testMatch: 'web.spec.ts',

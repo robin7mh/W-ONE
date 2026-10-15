@@ -68,6 +68,7 @@ const mon = vi.hoisted(() => {
 })
 vi.mock('@/features/editor/monaco/setup', () => ({ monaco: mon.monaco }))
 
+import { useEditor } from '@/features/editor/store'
 import { acceptInlineEdit, addInlineEdit, inlineCompletions, rejectInlineEdit, setupInlineAi, startInlineEdit, suggesting } from '@/features/editor/monaco/inlineAi'
 import { useAssistant } from '@/features/agents/store'
 
@@ -264,6 +265,20 @@ describe('⌘K: edit with AI', () => {
     expect(input()).toBeNull()
     expect(model.value).toBe('var x = 1\nvar y = 2\nlog(x)\n')
     expect(e.zones).toEqual([])
+    // ⌘K ⌘\ is VS Code's “split down”: as the prompt's first key it closes the prompt and splits.
+    const split = vi.spyOn(useEditor.getState(), 'split').mockImplementation(() => {})
+    startInlineEdit(ed(e))
+    press('\\') // without ⌘: a character
+    input()!.value = 'make it \\'
+    press('\\', { metaKey: true }) // something typed already: part of the prompt
+    expect(split).not.toHaveBeenCalled()
+    input()!.value = ''
+    press('\\', { ctrlKey: true })
+    expect(input()).toBeNull()
+    expect(split).toHaveBeenCalledWith('down')
+    startInlineEdit(ed(e))
+    press('\\', { metaKey: true })
+    expect(split).toHaveBeenCalledTimes(2)
   })
 
   it('writes as asked (progress shows), then accept or reject; the edit is one step', async () => {

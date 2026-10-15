@@ -29,7 +29,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...real, readdir: wrap(real.readdir as never), stat: wrap(real.stat as never) }
 })
 
-import { findRipgrep, ripgrepArgs, SEARCH_LIMITS, SearchService } from '../../../electron/main/services/search/SearchService'
+import { findRipgrep, rgPath, ripgrepArgs, SEARCH_LIMITS, SearchService } from '../../../electron/main/services/search/SearchService'
+import { registerSearchIpc } from '../../../electron/ipc/search.ipc'
+import { Router } from '../../../electron/ipc/router'
 
 const q = (pattern: string, more: Partial<TextSearchQuery> = {}): TextSearchQuery => ({ pattern, ...more })
 
@@ -135,6 +137,14 @@ describe('finding ripgrep', () => {
     } finally {
       process.env.PATH = path
     }
+  })
+
+  it('its paths, relative and with / — also from the Windows build (.\\src\\a.ts)', () => {
+    expect(rgPath('./src/a.ts', false)).toBe('src/a.ts')
+    expect(rgPath('.\\src\\a.ts', true)).toBe('src/a.ts')
+    expect(rgPath('src\\a.ts', true)).toBe('src/a.ts')
+    expect(rgPath('odd\\name.ts', false)).toBe('odd\\name.ts') // a backslash is part of a POSIX file name
+    expect(rgPath('./a.ts')).toBe('a.ts') // this platform's default
   })
 
   it('its command line', () => {
@@ -401,5 +411,44 @@ describe('SearchService: ripgrep', () => {
     const root = await project()
     const rg = (await findRipgrep())!
     expect((await harness(root, { ripgrep: rg }).search(q('needle'))).files).toEqual((await harness(root).search(q('needle'))).files)
+  })
+})
+
+describe('SearchService: paired devices', () => {
+  it('a device’s search leaves out its deny list and is addressed to it; ids are per caller', async () => {
+    const root = await project()
+    await writeFile(join(root, '.npmrc'), '//registry/:_authToken=needle\n')
+    await mkdir(join(root, 'certs'))
+    await writeFile(join(root, 'certs', 'server.pem'), 'needle\n')
+    const { service, events, done } = harness(root)
+    const router = new Router({ remoteTerminal: () => false })
+    registerSearchIpc(router, service, { denied: (path) => /(^|\/)(\.npmrc|[^/]+\.pem)$/.exec(path)?.[2] })
+
+    const remote = { transport: 'remote' as const, deviceId: 'phone', role: 'member' as const }
+    expect(await router.dispatch('search:start', { id: 's', projectId: 'p', query: q('needle') }, remote)).toMatchObject({ ok: true })
+    const phone = await done('s')
+    expect(Object.keys(phone.files)).toEqual(['.config/x.json', 'src/a.ts', 'src/deep/b.md', 'src/keep.log'])
+    expect(events.filter((e) => e.id === 's').every((e) => e.device === 'phone')).toBe(true)
+
+    // The desktop sees everything, addressed to no device.
+    events.length = 0
+    await router.dispatch('search:start', { id: 's', projectId: 'p', query: q('needle') }, { transport: 'ipc' })
+    const desk = await done('s')
+    expect(Object.keys(desk.files)).toEqual(['.config/x.json', '.npmrc', 'certs/server.pem', 'src/a.ts', 'src/deep/b.md', 'src/keep.log'])
+    expect(events.some((e) => 'device' in e)).toBe(false)
+
+    // A device can't stop the desktop's search (nor another device's) by reusing its id.
+    const stop = vi.spyOn(SearchService.prototype as unknown as { stop(key: string): void }, 'stop')
+    await router.dispatch('search:cancel', { id: 's' }, remote)
+    await router.dispatch('search:cancel', { id: 's' }, { transport: 'remote' })
+    await router.dispatch('search:cancel', { id: 's' }, { transport: 'ipc' })
+    expect(stop.mock.calls).toEqual([['device:phone:s'], ['device::s'], ['desktop:s']])
+    stop.mockRestore()
+
+    // A remote call without a device id still never reaches the desktop's searches, nor any device.
+    events.length = 0
+    await service.start('t', 'p', q('needle'), { hidden: () => false })
+    expect((await done('t')).last).not.toHaveProperty('device')
+    service.dispose()
   })
 })

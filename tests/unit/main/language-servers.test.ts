@@ -443,6 +443,39 @@ describe('GenericBackend', () => {
     expect(await backend.codeFixes('p', 'src/b.py', range(1, 1, 1, 2))).toEqual([])
   })
 
+  it('symbols: nested (DocumentSymbol) or flat (SymbolInformation); none when the server has none', async () => {
+    let answer: unknown = [
+      {
+        name: 'Server',
+        detail: '',
+        kind: 5,
+        range: lsRange(0, 0, 9, 1),
+        selectionRange: lsRange(0, 6, 0, 12),
+        children: [{ name: 'run', detail: '() -> None', kind: 6, range: lsRange(1, 2, 3, 0), selectionRange: lsRange(1, 6, 1, 9) }]
+      }
+    ]
+    const { backend, servers, uri } = await setup({ 'textDocument/documentSymbol': () => answer })
+    await expect(backend.symbols('p', 'src/a.py')).rejects.toMatchObject({ code: 'lsp-unavailable' }) // no server yet
+    await backend.open('p', 'src/a.py', '')
+    expect(await backend.symbols('p', 'src/a.py')).toEqual([
+      {
+        name: 'Server',
+        detail: undefined,
+        kind: 5,
+        range: range(1, 1, 10, 2),
+        selection: range(1, 7, 1, 13),
+        children: [{ name: 'run', detail: '() -> None', kind: 6, range: range(2, 3, 4, 1), selection: range(2, 7, 2, 10), children: [] }]
+      }
+    ])
+    expect(servers[0].received.find((m) => m.method === 'textDocument/documentSymbol')!.params).toEqual({ textDocument: { uri: uri('src/a.py') } })
+    const init = servers[0].received.find((m) => m.method === 'initialize')!.params as { capabilities: { textDocument: Record<string, unknown> } }
+    expect(init.capabilities.textDocument.documentSymbol).toEqual({ hierarchicalDocumentSymbolSupport: true })
+    answer = [{ name: 'f', kind: 12, location: { uri: uri('src/a.py'), range: lsRange(4, 0, 6, 0) } }]
+    expect(await backend.symbols('p', 'src/a.py')).toEqual([{ name: 'f', kind: 12, range: range(5, 1, 7, 1), selection: range(5, 1, 7, 1), children: [] }])
+    answer = null
+    expect(await backend.symbols('p', 'src/a.py')).toEqual([])
+  })
+
   it('a real server process through the user’s shell: it starts, publishes, shuts down', async () => {
     const root = await tempDir('mindeck-ls-real-')
     await writeFile(join(root, 'a.py'), '')
@@ -525,7 +558,8 @@ describe('LspService routes each file to its backend', () => {
             'textDocument/references': () => [],
             'textDocument/rename': () => null,
             'textDocument/signatureHelp': () => null,
-            'textDocument/codeAction': () => []
+            'textDocument/codeAction': () => [],
+            'textDocument/documentSymbol': () => []
           })
           servers.push(s)
           return s as unknown as RpcProcess
@@ -547,6 +581,8 @@ describe('LspService routes each file to its backend', () => {
     expect(await lsp.signature('p', 'src/a.py', 1, 1)).toBeNull()
     expect(await lsp.codeFixes('p', 'src/a.py', range(1, 1, 1, 1), [])).toEqual([])
     expect(await lsp.codeFixes('p', 'a.ts', range(1, 1, 1, 1), [1])).toEqual([])
+    expect(await lsp.symbols('p', 'src/a.py')).toEqual([])
+    expect(await lsp.symbols('p', 'a.ts')).toEqual([]) // TypeScript's come from Monaco
     expect(await lsp.executeCommand('p', 'python', 'x', [])).toBeNull()
     await lsp.close('p', 'src/a.py')
     await lsp.close('p', 'a.ts')

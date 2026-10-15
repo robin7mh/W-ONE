@@ -225,7 +225,9 @@ describe('Onboarding', () => {
 
     next()
     expect(current()).toHaveTextContent('Done')
-    expect(screen.getByText('Split view')).toBeInTheDocument()
+    expect(screen.getByText('Split screen')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Animation: one module, then a second one next to it' })).toBeInTheDocument()
+    expect(screen.getByText('Command palette')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
     expect(screen.getByText('Command Deck')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Skip setup' })).not.toBeInTheDocument()

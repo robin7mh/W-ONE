@@ -1,6 +1,6 @@
 import { spawn, type IPty } from 'node-pty'
 import { existsSync } from 'node:fs'
-import { readFile, rm, stat } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -16,6 +16,7 @@ import {
   type TerminalShell,
   type TerminalSnapshot
 } from '@shared/types/terminal'
+import { readJson } from '../../lib/jsonFile'
 import { writeAtomic } from '../../lib/writeAtomic'
 import { integrate, scanCwd, shellKind, writeScripts, type ShellLaunch } from './integration'
 import { detectShells } from './shells'
@@ -123,6 +124,8 @@ export class TerminalService {
   private limit: number
   /** The integration scripts are written once per run; false: they couldn't be. */
   private scripts?: Promise<boolean>
+  /** Saves of the tabs still being written (the window's last one arrives while Mindeck quits). */
+  private readonly writing = new Set<Promise<unknown>>()
 
   constructor(
     private readonly opts: {
@@ -215,22 +218,32 @@ export class TerminalService {
     return integrate(command, dir, { ...shellEnv(), ...env })
   }
 
-  /** Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off). */
+  /**
+   * Saves the renderer's tabs for the next start (nothing — and nothing kept — when restoring is off).
+   * Scrollback holds whatever the shells printed (tokens, keys): for the user's eyes only (0600).
+   */
   async persist(snapshot: TerminalSnapshot): Promise<void> {
     const file = join(this.opts.dir, 'terminals.json')
-    if (!this.settings().restore) return rm(file, { force: true })
-    await writeAtomic(file, JSON.stringify(snapshot))
+    const write = this.settings().restore ? writeAtomic(file, JSON.stringify(snapshot), 0o600) : rm(file, { force: true })
+    this.writing.add(write)
+    try {
+      await write
+    } finally {
+      this.writing.delete(write)
+    }
+  }
+
+  /** Once the saves under way are on disk (or failed — persist's caller hears of that): a quit waits for them. */
+  async saved(): Promise<void> {
+    await Promise.allSettled([...this.writing])
   }
 
   /** The tabs saved last time, unless restoring is off or the file is missing or damaged. */
   async restore(): Promise<TerminalSnapshot | null> {
     if (!this.settings().restore) return null
-    try {
-      const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(JSON.parse(await readFile(join(this.opts.dir, 'terminals.json'), 'utf8')))
-      return parsed.success ? parsed.data : null
-    } catch {
-      return null
-    }
+    // A damaged file is set aside (readJson) rather than overwritten by the next save.
+    const parsed = REQUEST_SCHEMAS['terminal:persist'].safeParse(await readJson(join(this.opts.dir, 'terminals.json')))
+    return parsed.success ? parsed.data : null
   }
 
   /**
