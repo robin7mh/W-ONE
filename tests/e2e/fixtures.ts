@@ -74,7 +74,12 @@ async function mainWindow(app: ElectronApplication): Promise<Page> {
 async function kill(app: ElectronApplication): Promise<void> {
   // Shells or agents still running make a quit ask first (no one answers here): exit outright.
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
-  await app.close().catch(() => {})
+  // A program the app started (a file manager, a browser) can hold its output open: don't wait on it for ever.
+  const closed = app.close().then(
+    () => true,
+    () => true
+  )
+  if (!(await Promise.race([closed, new Promise<false>((r) => setTimeout(() => r(false), 10_000))]))) app.process().kill('SIGKILL')
 }
 
 export const test = base.extend<Fixtures>({

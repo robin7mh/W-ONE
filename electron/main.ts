@@ -307,7 +307,7 @@ async function startCore(): Promise<void> {
     logger,
     settings: core.settings,
     secretsEncrypted: !!cipher && secretsProtected(),
-    openPath: shell.openPath,
+    openPath: (path) => shell.openPath(path),
     diagnostics: () => ({
       version: app.getVersion(),
       platform: process.platform,

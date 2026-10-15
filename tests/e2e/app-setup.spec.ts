@@ -64,9 +64,19 @@ test('first start: the whole setup, step by step — then Settings: diagnostics 
   expect(copied).toContain('Mindeck ')
   expect(copied).toContain(join(home, 'logs'))
 
-  // the logs folder: handed to the system's file manager — and if there is none, Mindeck says so and keeps running
-  const opens = ((await page.evaluate(() => window.mindeck!.invoke('desktop:openLogs'))) as { ok: boolean }).ok
+  // the logs folder: handed to the system's file manager (stubbed — a real one would outlive the app and hold up
+  // its exit) — and if there is none, Mindeck says so and keeps running
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = []
+    ;(globalThis as { opened?: string[] }).opened = opened
+    shell.openPath = async (path: string) => (opened.push(path), '')
+  })
   await page.getByRole('button', { name: 'Open logs folder' }).click()
-  if (!opens) await expect(page.getByRole('status').filter({ hasText: 'No file manager opened the folder' })).toContainText(join(home, 'logs'))
+  await expect.poll(() => app.evaluate(() => (globalThis as { opened?: string[] }).opened)).toEqual([join(home, 'logs')])
+  await app.evaluate(({ shell }) => {
+    shell.openPath = async () => 'no application to open it'
+  })
+  await page.getByRole('button', { name: 'Open logs folder' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'No file manager opened the folder' })).toContainText(join(home, 'logs'))
   expect(await page.evaluate(() => window.mindeck!.invoke('desktop:status'))).toMatchObject({ ok: true }) // the core is still there
 })

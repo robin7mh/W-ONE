@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // --- electron double -----------------------------------------------------------
@@ -211,10 +212,15 @@ vi.mock('../../../electron/main/lib/log', () => ({
   redact: (text: string) => text,
   rendererErrors: (logger: { error: (...a: unknown[]) => void }) => (r: { message: string }) => logger.error('renderer', r.message)
 }))
-vi.mock('../../../electron/main/lib/paths', () => ({
-  mindeckPaths: () => ({ homeDir: '/h', dataDir: '/h/data', logsDir: '/h/logs' }),
-  migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
-}))
+// The logs folder is real (opening it creates it): a temp folder, not one at the root.
+vi.mock('../../../electron/main/lib/paths', async () => {
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  return {
+    mindeckPaths: () => ({ homeDir: '/h', dataDir: '/h/data', logsDir: join(tmpdir(), 'mindeck-main-test', 'logs') }),
+    migrateLegacyData: (_paths: unknown, legacy: string) => h.migrate(legacy)
+  }
+})
 vi.mock('../../../electron/main/platform/electron', () => ({
   electronPlatform: { kind: 'desktop' },
   electronCipher: () => ({ kind: 'cipher' }),
@@ -568,7 +574,7 @@ describe('stability', () => {
     await boot()
     expect(h.log.captured).toHaveBeenCalled()
     expect(h.log.crashes).toHaveBeenCalled()
-    expect(h.setPath).toHaveBeenCalledWith('crashDumps', expect.stringMatching(/[\\/]h[\\/]logs[\\/]crashes$/))
+    expect(h.setPath).toHaveBeenCalledWith('crashDumps', join(tmpdir(), 'mindeck-main-test', 'logs', 'crashes'))
     expect(h.crashStart).toHaveBeenCalledWith({ uploadToServer: false })
   })
 
@@ -715,7 +721,11 @@ describe('stability', () => {
     h.core.router.register.mockClear()
     await boot()
     const on = new Map(h.core.router.register.mock.calls.map(([channel, fn]) => [channel as string, fn as (req?: unknown) => unknown]))
-    expect(on.get('desktop:status')!()).toMatchObject({ logsDir: '/h/logs', secretsEncrypted: true, closeBehavior: 'ask' })
+    const logsDir = join(tmpdir(), 'mindeck-main-test', 'logs')
+    expect(on.get('desktop:status')!()).toMatchObject({ logsDir, secretsEncrypted: true, closeBehavior: 'ask' })
+    // the logs folder goes to the system's file manager, looked up when asked (tests swap it in a running app)
+    await on.get('desktop:openLogs')!()
+    expect(h.openPath).toHaveBeenCalledWith(logsDir)
     const text = on.get('desktop:diagnostics')!() as string
     expect(text).toContain('Mindeck 0.1.0 (dev)')
     expect(text).toContain('Locale: de-DE')

@@ -71,7 +71,8 @@ test('editor: search and replace across the project (⇧⌘F), and a merge confl
   await page.getByRole('textbox', { name: 'Replace', exact: true }).fill('teal')
   await page.getByRole('button', { name: 'Replace all' }).click()
   await expect.poll(() => readFileSync(join(root, 'src', 'theme.ts'), 'utf8')).toBe('export const accent = "teal"\n')
-  expect(readFileSync(join(root, 'src', 'button.ts'), 'utf8')).toBe('export const border = "teal"\nexport const text = "black"\n')
+  // the files are written one after the other: wait for the second as well
+  await expect.poll(() => readFileSync(join(root, 'src', 'button.ts'), 'utf8')).toBe('export const border = "teal"\nexport const text = "black"\n')
   await expect(page.getByText('No results.')).toBeVisible()
 
   // the conflicted file: both sides marked, Accept Incoming takes theirs, then it is staged
