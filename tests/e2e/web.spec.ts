@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { test as base, expect, type Page } from '@playwright/test'
+import { dismissTips } from './fixtures'
 // @ts-expect-error — plain ESM helper without type declarations
 import { startFakeAnthropic } from './fake-anthropic.mjs'
 
@@ -58,6 +59,7 @@ const test = base.extend<{ core: Core; paired: Page; shells: boolean }>({
     await page.getByRole('button', { name: 'Pair device' }).click()
     await page.getByText('click to skip').click()
     await page.getByText('click to skip').waitFor({ state: 'detached' })
+    await dismissTips(page)
     await use(page)
   }
 })

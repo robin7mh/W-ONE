@@ -17,7 +17,9 @@ if (args[0] === 'auth' && args[1] === 'status') {
 }
 
 const flag = (name) => args[args.indexOf(name) + 1]
-const settings = JSON.parse(flag('--settings'))
+// --settings: a file (it holds the session's token), or inline JSON as older Mindecks passed it.
+const rawSettings = flag('--settings')
+const settings = JSON.parse(rawSettings.trimStart().startsWith('{') ? rawSettings : readFileSync(rawSettings, 'utf8'))
 const http = settings.hooks.Stop[0].hooks[0]
 const sessionId = flag('--session-id') ?? flag('--resume')
 const hook = async (event, extra = {}) => {

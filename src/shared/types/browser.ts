@@ -289,3 +289,4 @@ export type BrowserCommand =
   | 'workspaceKey'
   | 'verticalTabs'
   | 'editGroup'
+  | 'palette'

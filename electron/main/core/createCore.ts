@@ -67,6 +67,7 @@ import { EventLog } from '../services/events/EventLog'
 import { ServerController } from '../server/ServerController'
 import { Certificates } from '../server/Certificates'
 import { RemoteAccess } from '../server/RemoteAccess'
+import { RemoteScope } from '../server/RemoteScope'
 import { SecretStore, type Cipher } from '../services/ai/SecretStore'
 import { AiService, type ProviderFactory } from '../services/ai/AiService'
 import { InlineService } from '../services/ai/InlineService'
@@ -234,10 +235,28 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   // The router asks the server controller whether remote shells are allowed,
   // the cloud whether Mindeck is licensed, and RemoteAccess what a device may
   // reach (only ever called per request, after all of them exist).
+  // What paired devices may reach: the shared folders and the desktop's projects, never keys or system folders.
+  const remoteAccess = new RemoteAccess({
+    roots: () => controller.remoteRoots(),
+    projects: () => projects.list(),
+    remoteShell: () => controller.remoteTerminal(),
+    dirs: (path) => fs.dirs(path),
+    protectedDirs: [paths.dataDir]
+  })
+  // …and what they see of the core's activity: sessions, conversations, approvals and events of those projects only.
+  const conversations = new ConversationStore(paths.dataDir)
+  const remoteScope = new RemoteScope({
+    access: remoteAccess,
+    sessionProject: (id) => agents.projectOf(id),
+    conversationProject: (id) => conversations.projectOf(id),
+    pending: () => permissions.list()
+  })
+
   const router = new Router({
     remoteTerminal: () => controller.remoteTerminal(),
     licensed: (channel) => isLicenseFree(channel) || cloud.allowed(),
-    guard: (channel, payload) => remoteAccess.check(channel, payload)
+    guard: (channel, payload) => remoteScope.guard(channel, payload),
+    shape: (channel, data) => remoteScope.result(channel, data)
   })
 
   const controller: ServerController = new ServerController({
@@ -253,16 +272,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     onClients: (count) => {
       system.setRemoteClients(count)
       cloud.setRemoteClients(count)
-    }
-  })
-
-  // What paired devices may reach: the shared folders and the desktop's projects, never keys or system folders.
-  const remoteAccess = new RemoteAccess({
-    roots: () => controller.remoteRoots(),
-    projects: () => projects.list(),
-    remoteShell: () => controller.remoteTerminal(),
-    dirs: (path) => fs.dirs(path),
-    protectedDirs: [paths.dataDir]
+    },
+    scope: remoteScope.event.bind(remoteScope)
   })
 
   const info = (): AppInfo => ({
@@ -311,7 +322,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const tools = new ToolRegistry([...builtinTools({ vault, projects, context, system }), ...browserTools(browser)])
   const assistant = new AssistantService({
     ai,
-    store: new ConversationStore(paths.dataDir),
+    store: conversations,
     runs,
     tools,
     permissions,
@@ -345,6 +356,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
   const agents: AgentSessionService = new AgentSessionService({
     dir: paths.agentsDir,
+    // Pasted images in the data folder (0700), not in a /tmp other users share.
+    tempDir: join(paths.agentsDir, 'images'),
     worktreesDir: paths.worktreesDir,
     terminal,
     git: new GitService(),
@@ -440,7 +453,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('ai:runs', ({ limit }) => assistant.runs(limit))
   const inline = new InlineService({ ai, publish: hub.publish.bind(hub, 'ai:inlineDelta') })
   router.register('ai:inlineComplete', (req) => inline.complete(req))
-  router.register('ai:inlineEdit', (req) => inline.edit(req))
+  router.register('ai:inlineEdit', (req, ctx) => inline.edit(req, ctx))
   router.register('ai:inlineCancel', ({ requestId }) => inline.cancel(requestId))
   // "Always allow" is the desktop's to give: devices are not offered it.
   router.register('permission:pending', (_req, ctx) => permissions.list().map((r) => (ctx.transport === 'remote' ? { ...r, allowAlways: false } : r)))

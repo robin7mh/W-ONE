@@ -1,5 +1,4 @@
 import type { Dict } from '@/lib/i18n/en'
-import type { ModuleId } from '@/types'
 import { useEditor } from './store'
 import { useScm, type PickItem } from './scm'
 import { useGitHub } from './github'
@@ -26,10 +25,7 @@ const CURATED: [id: string, key: keyof Dict['palette']['editor'], keys?: string]
 /** Monaco actions the palette leaves out: its own palette, and duplicates of ours. */
 const HIDDEN = new Set(['editor.action.quickCommand', 'editor.action.gotoLine', 'editor.action.formatDocument', ...CURATED.map(([id]) => id)])
 
-const MODULES: Exclude<ModuleId, 'editor' | 'account'>[] = ['core', 'terminal', 'projects', 'memory', 'agents', 'system', 'settings']
-
 export interface CommandContext {
-  onNavigate: (id: ModuleId) => void
   readOnly: boolean
   /** Extra commands from other parts of the editor (the debugger). */
   extra?: PickItem[]
@@ -41,11 +37,11 @@ function focusLater(label: string): void {
 }
 
 /**
- * Everything the command palette (⇧⌘P / F1) offers: files, views, git, the
- * other modules, and Monaco's own editor actions. Writing commands are left
- * out where the core is read-only.
+ * What the editor adds to the command palette (⇧⌘P / F1 — features/palette):
+ * files, views, git, and Monaco's own editor actions. Writing commands are
+ * left out where the core is read-only.
  */
-export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: CommandContext): PickItem[] {
+export function buildCommands(t: Dict, { readOnly, extra = [] }: CommandContext): PickItem[] {
   const p = t.palette
   const editor = () => useEditor.getState()
   const scm = () => useScm.getState()
@@ -143,7 +139,6 @@ export function buildCommands(t: Dict, { onNavigate, readOnly, extra = [] }: Com
     pane('scm', t.scm.panes.scm, '⇧⌘G'),
     ...git,
     ...extra,
-    ...editorItems,
-    ...MODULES.map((id) => ({ id: `module.${id}`, label: `${p.module}: ${t.nav[id]}`, run: () => onNavigate(id) }))
+    ...editorItems
   ]
 }

@@ -31,7 +31,8 @@ function fail(code: string, message: string): IpcResult<never> {
  * exists, Mindeck is licensed (or the channel is license-free), the caller's
  * transport and role may use it (CHANNEL_ACCESS), the payload matches its
  * schema, a remote call passes the guard (shared folders); then runs the
- * handler and wraps the result in IpcResult. Errors never escape as throws.
+ * handler (a remote call's answer trimmed to what the device may see) and
+ * wraps the result in IpcResult. Errors never escape as throws.
  */
 export interface RouterOptions {
   remoteTerminal: () => boolean
@@ -39,6 +40,8 @@ export interface RouterOptions {
   licensed?: (channel: IpcChannel) => boolean
   /** Checks a remote call's validated payload (throws a coded error to refuse it). */
   guard?: (channel: IpcChannel, payload: unknown, ctx: CallContext) => Promise<void> | void
+  /** A remote call's answer as the device may see it (lists trimmed to its projects). */
+  shape?: (channel: IpcChannel, data: unknown, ctx: CallContext) => Promise<unknown> | unknown
 }
 
 export class Router {
@@ -80,8 +83,10 @@ export class Router {
     if (!parsed.ok) return fail('bad-request', parsed.message)
 
     try {
-      if (ctx.transport === 'remote') await this.opts.guard?.(key, parsed.data, ctx)
-      return { ok: true, data: await handler(parsed.data, ctx) }
+      if (ctx.transport !== 'remote') return { ok: true, data: await handler(parsed.data, ctx) }
+      await this.opts.guard?.(key, parsed.data, ctx)
+      const data = await handler(parsed.data, ctx)
+      return { ok: true, data: this.opts.shape ? await this.opts.shape(key, data, ctx) : data }
     } catch (err) {
       const e = err as { code?: string; message?: string }
       return fail(e?.code ?? 'error', e?.message ?? String(err))

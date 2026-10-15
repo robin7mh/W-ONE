@@ -297,6 +297,8 @@ describe('BrowserService · keys and menu for the library', () => {
     expect(host.focusUi).toHaveBeenCalledTimes(2)
     events.shortcut('bookmarksBar') // the UI shows or hides the bar (and remembers it)
     expect(host.focusUi).toHaveBeenCalledTimes(2)
+    events.shortcut('palette') // Mindeck's command palette takes the keyboard from the page
+    expect(host.focusUi).toHaveBeenCalledTimes(3)
     await b.configure({ bookmarksBar: false })
     events.shortcut('history')
     expect(b.state().tabs.find((t) => t.id === b.state().activeId)!.url).toBe('mindeck://history')
@@ -309,7 +311,7 @@ describe('BrowserService · keys and menu for the library', () => {
     expect(menuEntry(m, 'Show Bookmarks Bar').checked).toBe(false)
     for (const label of ['Search Tabs…', 'Bookmark This Page…', 'Show Bookmarks Bar', 'Import Bookmarks and History…', 'History', 'Bookmark Manager']) menuEntry(m, label).run()
     await tick()
-    expect((sent('browser:command') as { command: string }[]).map((c) => c.command)).toEqual(['bookmark', 'tabSearch', 'bookmarksBar', 'tabSearch', 'bookmark', 'bookmarksBar', 'import'])
+    expect((sent('browser:command') as { command: string }[]).map((c) => c.command)).toEqual(['bookmark', 'tabSearch', 'bookmarksBar', 'palette', 'tabSearch', 'bookmark', 'bookmarksBar', 'import'])
     // on an internal page there is nothing to bookmark
     b.tool(b.state().activeId!, 'pageMenu')
     expect(menuEntry(lastMenu(host), 'Bookmark This Page…').enabled).toBe(false)

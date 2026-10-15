@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onCleanup, tempDir, tick } from './helpers'
 import { AgentSessionService, type AgentSessionDeps } from '../../../electron/main/services/agents/AgentSessionService'
 import { GitService } from '../../../electron/main/services/git/GitService'
+import { hookSettings, mcpConfig } from '../../../electron/main/services/agents/claudeLaunch'
 import type { ApprovalDecision } from '../../../src/shared/types/ai'
 import { CLAUDE_MODELS, CLAUDE_MODES } from '../../../src/shared/types/claude'
 
@@ -106,14 +107,44 @@ describe('AgentSessionService: sessions', () => {
     expect(req).toMatchObject({ cwd: t.projectPath, command: { file: 'claude' }, env: { MINDECK_TOKEN: 'tok', MINDECK_HOOK_URL: `http://127.0.0.1:1/hooks/${s.id}` }, projectId: 'p1' })
     expect(req.command.args.slice(0, 2)).toEqual(['--session-id', s.id])
     expect(req.command.args.slice(-2)).toEqual(['--', 'Fix the login bug\nand add a test'])
+    // The session's token stays off the command line: in files only the user can read.
+    expect(req.command.args.join(' ')).not.toContain('tok')
+    const launch = join(t.deps.dir, 'launch', s.id, '1')
+    expect(req.command.args[req.command.args.indexOf('--settings') + 1]).toBe(join(launch, 'settings.json'))
+    expect(JSON.parse(await readFile(join(launch, 'settings.json'), 'utf8'))).toEqual(hookSettings(`http://127.0.0.1:1/hooks/${s.id}`, 'tok'))
+    expect(JSON.parse(await readFile(join(launch, 'mcp.json'), 'utf8'))).toEqual(mcpConfig(`http://127.0.0.1:1/mcp/${s.id}`, 'tok'))
+    expect((await stat(join(launch, 'mcp.json'))).mode & 0o777).toBe(0o600)
+    expect((await stat(launch)).mode & 0o777).toBe(0o700)
+    expect((await stat(join(t.deps.dir, 'launch'))).mode & 0o777).toBe(0o700)
     expect(t.deps.events.emit).toHaveBeenCalledWith('session.started', expect.objectContaining({ conversationId: s.id }))
     expect(t.svc.list()).toHaveLength(1)
     expect(t.svc.get(s.id)).toMatchObject({ id: s.id, messages: [] })
+    expect([t.svc.projectOf(s.id), t.svc.projectOf('nope')]).toEqual(['p1', undefined])
 
     expect((await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: '  Named  ' })).title).toBe('Named')
     expect((await t.svc.create({ kind: 'claude-code', projectId: 'p1', title: 'x'.repeat(120) })).title).toHaveLength(80)
     await expect(t.svc.create({ kind: 'claude-code', projectId: 'nope' })).rejects.toMatchObject({ code: 'not-found' })
     expect(() => t.svc.get('nope')).toThrow(expect.objectContaining({ code: 'not-found' }))
+  })
+
+  it('the launch files (they hold the token) go when the agent ends, the session is removed, or Mindeck starts again', async () => {
+    const a = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    const launch = (id: string) => join(t.deps.dir, 'launch', id)
+    expect(existsSync(join(launch(a.id), '1'))).toBe(true)
+    t.terminal.kill('pty-1')
+    for (let i = 0; i < 50 && existsSync(join(launch(a.id), '1')); i += 1) await tick(5)
+    expect(existsSync(join(launch(a.id), '1'))).toBe(false)
+    // Resumed right away: the new run's files are its own, the old run's cleanup can't take them.
+    await t.svc.resume(a.id)
+    expect(existsSync(join(launch(a.id), '2', 'settings.json'))).toBe(true)
+    const b = await t.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    await t.svc.remove(b.id)
+    expect(existsSync(launch(b.id))).toBe(false)
+    // Left over from a run that crashed: its tokens are dead, the files go at the next start.
+    await mkdir(launch('stale'), { recursive: true })
+    await writeFile(join(launch('stale'), 'mcp.json'), '{}')
+    await track(new AgentSessionService(t.deps)).init()
+    expect(existsSync(join(t.deps.dir, 'launch'))).toBe(false)
   })
 
   it('types messages into the agent (pastes multi-line), interrupts, stops and resumes', async () => {
@@ -315,7 +346,8 @@ describe('AgentSessionService: sessions', () => {
         await rm(bad.deps.dir, { recursive: true })
         await writeFile(bad.deps.dir, 'not a folder')
       })
-    await bad.svc.create({ kind: 'claude-code', projectId: 'p1' })
+    // Nor can the agent start: its launch files (the token) have nowhere to go.
+    await expect(bad.svc.create({ kind: 'claude-code', projectId: 'p1' })).rejects.toThrow()
     await bad.svc.dispose()
     expect(warn).toHaveBeenCalledWith('[agents] could not save sessions:', expect.any(String))
   })

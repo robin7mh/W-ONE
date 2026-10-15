@@ -757,6 +757,8 @@ describe('ConversationStore', () => {
     await store.save(conv('b', { updatedAt: '2026-10-02T00:00:00.000Z', projectId: 'p' }))
     expect((await store.list()).map((c) => c.id)).toEqual(['b', 'a'])
     expect(await store.get('b')).toMatchObject({ projectId: 'p', transcript: [] })
+    // Whose project, from the index (what paired devices may see is decided by it).
+    expect([await store.projectOf('b'), await store.projectOf('a'), await store.projectOf('missing')]).toEqual(['p', undefined, undefined])
     expect(await store.get('../etc')).toBeNull()
     expect(await store.get('missing')).toBeNull()
     await expect(store.save(conv('../x'))).rejects.toMatchObject({ code: 'bad-id' })

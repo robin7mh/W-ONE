@@ -43,6 +43,8 @@ export function matchShortcut(input: KeyInput, mac: boolean): ShortcutAction | n
     if (key === 'n') return 'newPrivateTab'
     if (key === 'r') return 'hardReload'
     if (key === 'a') return 'tabSearch'
+    // Mindeck's command palette — also while a page has the keyboard (⌘K stays the page's own).
+    if (key === 'p') return 'palette'
     if (key === 'b') return 'bookmarksBar'
     if (key === 'g') return 'newGroup'
     if (key === 'd') return 'split'

@@ -233,7 +233,7 @@ describe('data & shared constants', () => {
       'finder:progress'
     ])
     // the browser's pages are private: none of its events reach remote clients, all its channels are desktop-only
-    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress'])
+    expect(DESKTOP_EVENTS).toEqual(['browser:state', 'browser:find', 'browser:command', 'browser:reveal', 'browser:bookmarks', 'browser:import', 'finder:progress', 'remote:changed'])
     for (const channel of IPC_CHANNELS.filter((c) => c.startsWith('browser:') || c.startsWith('finder:'))) expect(CHANNEL_ACCESS[channel]).toBe('desktop')
     expect(GRAPH_COLORS).toHaveLength(8)
     expect(DEFAULT_GRAPH_STYLE).toEqual({ mode: 'colorful', color: 'cyan' })

@@ -69,6 +69,8 @@ export interface InlineEditRequest {
 export interface InlineDelta {
   requestId: string
   text: string
+  /** The paired device that asked: only it hears the edit (none: the desktop's, for no device). */
+  device?: string
 }
 
 /** The AI credit through Mindeck Cloud (euro cents). */

@@ -1047,6 +1047,7 @@ describe('the browser keys', () => {
       [k('y', cmd), 'history'],
       [k('h', cmd), null],
       [k('A', { meta: true, shift: true }), 'tabSearch'],
+      [k('P', { meta: true, shift: true }), 'palette'],
       [k('B', { meta: true, shift: true }), 'bookmarksBar'],
       [k('o', { meta: true, shift: true }), null],
       [k('G', { meta: true, shift: true }), 'newGroup'],
@@ -1088,6 +1089,7 @@ describe('the browser keys', () => {
     expect(match(k('a', { control: true, shift: true }), false)).toBe('tabSearch')
     expect(match(k('G', { control: true, shift: true }), false)).toBe('newGroup')
     expect(match({ ...k('<', { control: true, shift: true }), code: 'Comma' }, false)).toBe('verticalTabs')
+    expect(match(k('P', { control: true, shift: true }), false)).toBe('palette')
   })
 })
 

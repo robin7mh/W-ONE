@@ -80,6 +80,32 @@ test('the terminal runs a real shell, keeps it across modules and splits panes',
   await expect(page.locator('.xterm-rows')).toHaveCount(2)
 })
 
+test('split screen from the top bar; the command palette brings a module into the focused pane', async ({ page }) => {
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
+  await page.getByTitle('Agents', { exact: true }).click()
+  await page.getByRole('button', { name: 'Split screen' }).click()
+  await expect(page.getByTestId('pane-head-agents')).toBeVisible()
+  await expect(page.getByTestId('pane-head-terminal')).toBeVisible() // the new pane, with the focus
+
+  await page.keyboard.press(`${mod}+Shift+P`)
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+  await palette.getByRole('combobox').fill('browser')
+  await expect(palette.getByRole('option').first()).toHaveText(/^Browser\s*Open$/)
+  await page.keyboard.press('Enter')
+  await expect(palette).toBeHidden()
+  await expect(page.getByTestId('pane-head-agents')).toBeVisible()
+  await expect(page.getByTestId('pane-head-browser')).toBeVisible()
+  await expect(page.getByTestId('pane-head-terminal')).toHaveCount(0)
+
+  // Every shortcut, from one list.
+  await page.keyboard.press(`${mod}+/`)
+  const overview = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(overview.getByText('Split the screen (a new pane)')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(overview).toBeHidden()
+})
+
 test('memory: creates the starter vault, writes a note to disk and links it', async ({ page, home }) => {
   await page.getByTitle('Memory', { exact: true }).click()
   await page.getByText('Create Mindeck vault').click()

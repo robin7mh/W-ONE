@@ -34,6 +34,15 @@ export async function skipSetup(page: Page): Promise<void> {
   if (!decided.done) await page.getByRole('dialog', { name: 'Set up Mindeck' }).getByRole('button', { name: 'Skip setup' }).click()
 }
 
+/**
+ * A fresh profile shows the split screen's tip under the top bar's Split
+ * button; tests that don't need it put it away, so it covers nothing.
+ */
+export async function dismissTips(page: Page): Promise<void> {
+  const tip = page.getByRole('dialog', { name: 'Split screen' })
+  if (await tip.isVisible()) await tip.getByRole('button', { name: 'Dismiss' }).click()
+}
+
 /** The real, built app on `home` — with its own window storage there too. */
 function launch(home: string, extra: Record<string, string>, switches: string[]): Promise<ElectronApplication> {
   // MINDECK_CLAUDE_BIN: agent sessions run a stand-in for Claude Code (no account, no model).
@@ -57,6 +66,7 @@ async function mainWindow(app: ElectronApplication): Promise<Page> {
   const boot = page.getByText('click to skip')
   if (await boot.isVisible()) await boot.click()
   await boot.waitFor({ state: 'detached' })
+  await dismissTips(page)
   return page
 }
 

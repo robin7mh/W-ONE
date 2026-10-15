@@ -37,6 +37,11 @@ export class ConversationStore {
     return [...(await this.loadIndex()).values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
+  /** The project a conversation belongs to (undefined: none, or no such conversation) — from the index, no file read. */
+  async projectOf(id: string): Promise<string | undefined> {
+    return (await this.loadIndex()).get(id)?.projectId
+  }
+
   async get(id: string): Promise<StoredConversation | null> {
     if (!SAFE_ID.test(id)) return null
     try {

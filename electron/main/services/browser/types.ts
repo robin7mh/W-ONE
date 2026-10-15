@@ -48,6 +48,7 @@ export type ShortcutAction =
   | 'verticalTabs'
   | 'newGroup'
   | 'split'
+  | 'palette'
 
 export interface ConsoleEntry {
   level: 'debug' | 'info' | 'warning' | 'error'

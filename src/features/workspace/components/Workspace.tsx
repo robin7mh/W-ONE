@@ -11,6 +11,7 @@ import { PaneContext, type PaneInfo } from '../pane'
 import { paneSteps } from '../steps'
 import { useWorkspace } from '../store'
 import { DividerHandle, GAP } from './DividerHandle'
+import { DropZones } from './DropZones'
 import { PaneHeader } from './PaneHeader'
 
 /** Height of a pane's head, in CSS px. */
@@ -183,6 +184,8 @@ export function Workspace({ render, keep }: WorkspaceProps) {
         dividers(layout.preset, fitSizes(layout.sizes, size.w, size.h)).map((d) => (
           <DividerHandle key={d.key} divider={d} stage={stage} onDrag={setDragging} />
         ))}
+      {/* A module dragged from the side navigation: where it can go. */}
+      <DropZones panes={visible} rectOf={rectOf} />
       {/* While dragging, nothing below takes the pointer (an editor would select text, a page would scroll). */}
       {dragging && <div className={cn('absolute inset-0 z-30', dragging === 'x' ? 'cursor-col-resize' : 'cursor-row-resize')} data-testid="drag-shield" />}
     </div>
