@@ -49,6 +49,10 @@ export interface FileProtocolDeps {
 
 const text = (status: number, body = '', headers: Record<string, string> = {}) => new Response(body, { status, headers })
 
+/** A served file never runs as a page: no scripts, nothing loaded from elsewhere, its own opaque origin. */
+const SANDBOX = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
+
+
 /** The absolute path a protocol URL stands for (null when it is none). */
 export function pathOf(url: URL, platform: NodeJS.Platform = process.platform): string | null {
   let path: string
@@ -77,9 +81,10 @@ export async function serveFile(request: Request, deps: FileProtocolDeps = {}): 
 
   const info = await stat(path).catch(() => null)
   if (!info?.isFile()) return text(404, 'Not found')
-  // Only media is served as itself — anything else as plain text, so nothing runs here.
+  // Only media is served as itself — anything else as plain text, so nothing runs here. Should a
+  // picture ever be opened as a page (an SVG with a script), it is a sandboxed one without scripts.
   const type = TYPES[extname(path).toLowerCase()] ?? 'text/plain; charset=utf-8'
-  const headers: Record<string, string> = { 'content-type': type, 'accept-ranges': 'bytes', 'x-content-type-options': 'nosniff' }
+  const headers: Record<string, string> = { 'content-type': type, 'accept-ranges': 'bytes', 'x-content-type-options': 'nosniff', 'content-security-policy': SANDBOX }
 
   const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') ?? '')
   if (range && (range[1] || range[2])) {

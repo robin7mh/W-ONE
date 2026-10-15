@@ -16,7 +16,14 @@ describe('mindeck-file:// — local files for previews', () => {
 
     const full = await get(url('local', join(dir, 'clip one.mp4')))
     expect(full.status).toBe(200)
-    expect(Object.fromEntries(full.headers)).toMatchObject({ 'content-type': 'video/mp4', 'content-length': '10', 'accept-ranges': 'bytes', 'x-content-type-options': 'nosniff' })
+    expect(Object.fromEntries(full.headers)).toMatchObject({
+      'content-type': 'video/mp4',
+      'content-length': '10',
+      'accept-ranges': 'bytes',
+      'x-content-type-options': 'nosniff',
+      // An SVG opened as a page would still run nothing.
+      'content-security-policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
+    })
     expect(await full.text()).toBe('0123456789')
 
     const part = await get(url('local', join(dir, 'clip one.mp4')), 'bytes=2-5')
