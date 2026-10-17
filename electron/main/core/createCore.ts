@@ -84,7 +84,7 @@ import { LocalAgentServer } from '../services/agents/LocalAgentServer'
 import { AgentSessionService } from '../services/agents/AgentSessionService'
 import { createMcpHandler, MEMORY_TOOLS } from '../services/agents/mcp'
 import { vaultJournal } from '../services/agents/journal'
-import { spawnAcp } from '../services/agents/acp'
+import { acpSpawner } from '../services/agents/acp'
 import { CloudService } from '../services/cloud/CloudService'
 import { PushService } from '../services/cloud/PushService'
 import { cloudConfig, type CloudConfig } from '../services/cloud/config'
@@ -379,7 +379,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     notify: opts.notify,
     push: (notice) => push.send(notice),
     vaultRoot: async () => (await vault.status()).root,
-    spawnAcp,
+    // npx in a folder of Mindeck's: never the adapter (or registry) a cloned repository brings.
+    spawnAcp: acpSpawner(join(paths.agentsDir, 'npm')),
     claudeBin: process.env.MINDECK_CLAUDE_BIN || undefined,
     openFolder: (path) => openInVsCode(path, platform)
   })
