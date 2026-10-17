@@ -77,6 +77,9 @@ export class Router {
       if (access === 'admin' && ctx.role !== 'admin') {
         return fail('admin-only', `${channel} needs a device with the admin role (or the Mindeck desktop app)`)
       }
+      if (access === 'trusted' && ctx.role !== 'admin' && !this.opts.remoteTerminal()) {
+        return fail('remote-terminal-disabled', `${channel} needs remote shells on this Mindeck core, or a device with the admin role`)
+      }
     }
 
     const parsed = parseRequest(key, payload)

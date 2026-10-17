@@ -170,6 +170,18 @@ describe('RemoteAccess · projects and files', () => {
     await m.access.check('projects:add', { path: join(m.code, 'app') })
     await expect(m.access.check('projects:add', { path: m.home })).rejects.toMatchObject({ code: 'remote-forbidden' })
     await expect(m.access.check('memory:setVault', { path: join(m.home, '.ssh') })).rejects.toMatchObject({ code: 'remote-forbidden' })
+    // The vault is never a project's folder, one holding a project or one inside it — its notes would be project files (BE-SEC-05).
+    await mkdir(join(m.code, 'notes'))
+    await expect(m.access.check('memory:setVault', { path: join(m.code, 'notes') })).rejects.toThrow('name-home cannot be the vault') // inside the project at home
+    const atHome = m.projects.splice(m.projects.findIndex((p) => p.id === 'home'), 1)
+    await m.access.check('memory:setVault', { path: join(m.code, 'notes') })
+    for (const path of [join(m.code, 'app'), m.code, join(m.code, 'app', 'src'), join(m.desk, 'sub')]) {
+      await expect(m.access.check('memory:setVault', { path }), path).rejects.toMatchObject({ code: 'remote-forbidden', message: expect.stringContaining('cannot be the vault') })
+    }
+    m.setShells(true) // a shell could write there anyway
+    await m.access.check('memory:setVault', { path: join(m.code, 'app') })
+    m.setShells(false)
+    m.projects.push(...atHome)
     await m.access.check('files:read', { projectId: 'desk', path: 'src/a.ts' })
     await expect(m.access.check('files:read', { projectId: 'desk', path: '.env' })).rejects.toMatchObject({ code: 'remote-forbidden' })
     await expect(m.access.check('files:stat', { projectId: 'desk', paths: ['a', 'b/id_rsa', 3] })).rejects.toThrow('id_rsa')

@@ -107,7 +107,8 @@ export class RemoteAccess {
   /** Router guard for remote calls: folders, projects and files named in the payload. */
   async check(channel: IpcChannel, payload: unknown): Promise<void> {
     const p = (payload ?? {}) as Record<string, unknown>
-    if (channel === 'projects:add' || channel === 'memory:setVault') await this.folder(String(p.path))
+    if (channel === 'projects:add') await this.folder(String(p.path))
+    if (channel === 'memory:setVault') await this.vault(String(p.path))
     // projects:remove / refresh / pull name their project as `id`.
     if (channel.startsWith('projects:') && typeof p.id === 'string') await this.project(p.id)
     if (typeof p.projectId === 'string') {
@@ -176,6 +177,18 @@ export class RemoteAccess {
       throw refused(`${abs} is not in a folder shared with paired devices — share it in Settings → Remote access on the desktop`)
     }
     return abs
+  }
+
+  /**
+   * A folder a device makes the vault. Without remote shells never a project's
+   * (nor one holding or inside a project): notes there are project files —
+   * `CLAUDE.md`, `AGENTS.md`, the README — that a device could not write otherwise.
+   */
+  private async vault(path: string): Promise<void> {
+    const abs = await this.folder(path)
+    if (this.deps.remoteShell()) return
+    const project = this.deps.projects().find((p) => this.inside(abs, p.path) || this.inside(p.path, abs))
+    if (project) throw refused(`The project ${project.name} cannot be the vault of a paired device while remote shells are off`)
   }
 
   /** The folder browser for a device: the shared folders only (hidden and denied names left out). */

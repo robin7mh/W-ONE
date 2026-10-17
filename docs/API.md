@@ -127,11 +127,15 @@ https-required` = plain HTTP from the network to a core that speaks HTTPS.
 **Remote rules.** Without remote shells a paired device reaches only the *shared folders*: the ones
 set at the desktop (Settings → Remote access → *Shared folders*) or, headless, in
 `MINDECK_REMOTE_ROOTS` (default `/projects`, the Docker mount), plus the projects added at the
-desktop. `fs:dirs`, `projects:add` and `memory:setVault` stay inside them, `projects:list` shows
-only the projects a device may use, and every call naming a `projectId` is checked. Always — with
+desktop. `fs:dirs`, `projects:add` and `memory:setVault` stay inside them (the vault never in or
+around a project's folder: its notes would be project files), `projects:list` shows only the
+projects a device may use, and every call naming a project (`projectId`, or `id` for
+`projects:*`) is checked. Databases (`mongo:*`) are not in any shared folder: reading them needs an
+admin device or remote shells, changing them remote shells. Always — with
 remote shells, too — off-limits: the home folder itself and the folders above it, hidden folders,
 system folders, Mindeck's own data folder, and keys and credentials by name (`.ssh`, `.aws`,
-`.gnupg`, `.env*`, `*.pem`, `*.key`, `id_*`, keychains, browser profiles …), as files or folders.
+`.gnupg`, `.git`, `.env*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `id_*`, Terraform state,
+`credentials*.json`, keystores, keychains, browser profiles …), as files or folders.
 
 Approvals from a device: `deny` always works, read requests may be allowed; changes (`write`) and
 commands (`execute`) can be allowed only while remote shells are on (`remote-terminal-disabled`
@@ -145,7 +149,7 @@ Error codes worth handling in the UI:
 |---|---|
 | `bad-request` | payload failed the channel's schema (message names the field) |
 | `desktop-only` | native dialogs / opening apps on the host — not available remotely |
-| `remote-terminal-disabled` | the core does not allow remote shells (also: approving changes or commands) |
+| `remote-terminal-disabled` | the core does not allow remote shells (also: approving changes or commands; databases for non-admin devices) |
 | `admin-only` | the channel needs an admin device (or the desktop app) |
 | `remote-forbidden` | outside the shared folders, or a key / credential / system path |
 | `no-key` | the assistant has no Anthropic API key yet (Settings → AI) |
@@ -195,11 +199,13 @@ an admin device. Types: see `contract.ts`.
 - **Editor (project files):** `files:list { projectId, dir? }` → `FileEntry[]` · `files:read { projectId, path }` → `FileContent` (`unsupported: "binary" | "too-large"` instead of text) · `files:stat { projectId, paths }` · `files:write { projectId, path, content, expectedMtime? }` (only with remote shells; fails with `conflict` when the file changed since `expectedMtime`)
 - **Agent cockpit:** `agents:detect` · `agents:list` · `agents:get { id }` → session + messages · `agents:changes { id }` · `agents:branch { id }` → own working folder: pushed, pull request (via `gh`), merged, uncommitted files · `agents:diff { id, path }` · *(only with remote shells:)* `agents:create { kind, projectId, isolated?, prompt? }` · `agents:send { id, text }` · `agents:interrupt` · `agents:stop` · `agents:resume` · `agents:remove` · `agents:accept` · `agents:discard` · `agents:rename { id, title }` · `agents:shell { id }` → `{ terminalId }` (a shell in the session's folder, attach with `terminal:*`) · *(desktop only:)* `agents:openInEditor { id }` (VS Code on the session's folder). Push: `agents:changed { session? , removed? }`, `agents:message { sessionId, message }`; approvals come as `permission:request` like the assistant's
 - **Mindeck account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · *(admin:)* `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:adopt` · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
-- **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setVault { path }` · `memory:setGraphStyle` · `memory:pickVault` / `memory:reveal` (*desktop*)
+- **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setGraphStyle` · *(admin:)* `memory:setVault { path }` · `memory:setDailyNotes` · `memory:pickVault` / `memory:reveal` (*desktop*)
 - **System:** `system:snapshot` · `system:user`
-- **Assistant:** `ai:status` · *(admin:)* `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs`
+- **Assistant:** `ai:status` · *(admin:)* `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs` · *(only with remote shells:)* `ai:inlineComplete` · `ai:inlineEdit`
 - **Permissions:** `permission:pending` · `permission:respond { id, decision: "once" | "always" | "deny" }` (see the remote rules in §2) · `permission:grants` → `PermissionGrant[]` (`{ agentId, toolName, projectId?, createdAt }`: an "Always allow" holds for one agent, one tool and one project — no `projectId` = outside projects, `"*"` = every project, kept from before grants were per project) · *(admin:)* `permission:revoke { agentId, toolName, projectId? }`
 - **Activity:** `events:recent { limit?, conversationId? }`
+- **Push and settings sync:** `agents:pushSettings` · `cloud:syncStatus` · *(admin:)* `agents:setPushSettings { enabled }` · `cloud:syncPush` · `cloud:syncPull`
+- **Databases** (admin devices, or with remote shells): `mongo:connections` · `mongo:databases` · `mongo:collections` · `mongo:find` · `mongo:indexes` · *(only with remote shells:)* `mongo:add` · `mongo:remove` · `mongo:insert` · `mongo:replace` · `mongo:delete` · `mongo:aggregate` · `mongo:createCollection` · `mongo:dropCollection`
 - **Terminal** (only with remote shells): `terminal:create` · `terminal:list` · `terminal:attach` · `terminal:write` · `terminal:resize` · `terminal:kill`
 
 ## 5. React Native sketch

@@ -42,7 +42,7 @@ vi.mock('electron', () => ({
 
 import { bindIpc } from '../../../electron/ipc/registry'
 import { Router } from '../../../electron/ipc/router'
-import { IPC_CHANNELS } from '../../../src/shared/ipc/contract'
+import { CHANNEL_ACCESS, IPC_CHANNELS } from '../../../src/shared/ipc/contract'
 import { registerContextIpc } from '../../../electron/ipc/context.ipc'
 import { registerProjectIpc } from '../../../electron/ipc/projects.ipc'
 import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
@@ -146,6 +146,25 @@ describe('ipc router', () => {
     expect(await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)).toMatchObject({ ok: true })
     expect(guard).toHaveBeenCalledWith('projects:add', { path: '/srv/x' }, remoteCtx)
     expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
+  })
+
+  it('trusted channels (data beyond the shared folders) need the admin role or remote shells (BE-SEC-08)', async () => {
+    let terminal = false
+    const router = new Router({ remoteTerminal: () => terminal })
+    router.register('mongo:connections', () => [])
+    expect(await router.dispatch('mongo:connections', undefined, ipcCtx)).toEqual({ ok: true, data: [] })
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'member' })).toMatchObject({ ok: false, error: { code: 'remote-terminal-disabled' } })
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'admin' })).toEqual({ ok: true, data: [] })
+    terminal = true
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'member' })).toEqual({ ok: true, data: [] })
+  })
+
+  it('a member device leaves the desktop’s global settings alone (BE-SEC-05, BE-SEC-18)', () => {
+    for (const channel of ['memory:setVault', 'memory:setDailyNotes', 'ai:configure', 'agents:setPushSettings', 'cloud:forgotPassword', 'cloud:syncPush', 'cloud:syncPull'] as const) {
+      expect(CHANNEL_ACCESS[channel], channel).toBe('admin')
+    }
+    for (const channel of ['ai:inlineComplete', 'ai:inlineEdit'] as const) expect(CHANNEL_ACCESS[channel], channel).toBe('terminal')
+    for (const channel of ['mongo:connections', 'mongo:databases', 'mongo:collections', 'mongo:find', 'mongo:indexes'] as const) expect(CHANNEL_ACCESS[channel], channel).toBe('trusted')
   })
 
   it('a remote call’s answer is shaped for the device (lists trimmed); the desktop’s never', async () => {

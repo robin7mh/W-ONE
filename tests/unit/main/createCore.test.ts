@@ -364,7 +364,8 @@ describe('createCore — paired devices without remote shells', () => {
       expect(await remote('projects:add', { path: hidden })).toMatchObject({ ok: false, error: { code: 'remote-forbidden' } })
       expect(await remote('projects:add', { path: join(process.env.MINDECK_HOME!, 'work') })).toMatchObject({ ok: false, error: { code: 'remote-forbidden' } })
       expect(await remote('fs:dirs', {})).toMatchObject({ ok: false, error: { code: 'remote-forbidden' } })
-      expect(await remote('memory:setVault', { path: hidden })).toMatchObject({ ok: false, error: { code: 'remote-forbidden' } })
+      expect(await remote('memory:setVault', { path: hidden })).toMatchObject({ ok: false, error: { code: 'admin-only' } }) // the desktop's vault: an admin's to switch
+      expect(await c.router.dispatch('memory:setVault', { path: hidden }, { ...phone, role: 'admin' })).toMatchObject({ ok: false, error: { code: 'remote-forbidden' } })
 
       // A project added at the desktop is the device's to read — but not its keys.
       const work = join(process.env.MINDECK_HOME!, 'work')
