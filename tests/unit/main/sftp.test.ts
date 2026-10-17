@@ -44,9 +44,9 @@ async function project(config: unknown) {
   return { root, remote }
 }
 
-const make = (root: string | undefined, client: SftpClient, home = '/home/me') => {
+const make = (root: string | undefined, client: SftpClient, home = '/home/me', trusted = true) => {
   const progress: SftpProgress[] = []
-  const service = new SftpService({ resolveRoot: () => root, client: async () => client, publish: (p) => progress.push(p), home })
+  const service = new SftpService({ resolveRoot: () => root, trusted: () => trusted, client: async () => client, publish: (p) => progress.push(p), home })
   return { service, progress }
 }
 
@@ -86,6 +86,36 @@ describe('SFTP (.vscode/sftp.json like the VS Code extension)', () => {
     expect(progress.at(-1)).toEqual({ projectId: 'p', action: 'upload', file: 'site/index.html', done: 2, total: 2 })
     await expect(service.upload('p', 'T', ['other.txt'])).rejects.toMatchObject({ code: 'outside-context' })
     await expect(service.upload('p', 'T', ['../x'])).rejects.toMatchObject({ code: 'outside-project' })
+  })
+
+  it('uploads never follow a link inside a folder: `assets -> ~/.ssh` would send the user’s keys', async () => {
+    const { root, remote } = await project({ name: 'T', host: 'h', remotePath: '/app', context: 'site' })
+    const home = await tempDir('mindeck-home-')
+    await mkdir(join(home, '.ssh'))
+    await writeFile(join(home, '.ssh/id_ed25519'), 'SECRET KEY')
+    await symlink(join(home, '.ssh'), join(root, 'site/assets'), 'dir')
+    await symlink(join(home, '.ssh/id_ed25519'), join(root, 'site/key.txt'))
+    await symlink(join(root, 'site/index.html'), join(root, 'site/inside.html'))
+    await symlink(join(root, 'site/gone'), join(root, 'site/dangling'))
+    const { service } = make(root, fakeServer(remote).client)
+    expect(await service.sync('p', 'T', 'up')).toBe(3) // index.html, css/a.css, debug.log — no link
+    expect((await readdir(join(remote, 'app'))).sort()).toEqual(['css', 'debug.log', 'index.html'])
+    // Named directly, a link must lead inside the project (confine) — and then counts.
+    await expect(service.upload('p', 'T', ['site/assets'])).rejects.toMatchObject({ code: 'outside-project' })
+    expect(await service.upload('p', 'T', ['site/inside.html'])).toBe(1)
+  })
+
+  it('a project that isn’t trusted: its .vscode/sftp.json names no server Mindeck connects to', async () => {
+    const { root, remote } = await project({ name: 'T', host: 'attacker.example', remotePath: '/', uploadOnSave: true })
+    const server = fakeServer(remote)
+    const { service } = make(root, server.client, '/home/me', false)
+    expect(await service.targets('p')).toEqual([])
+    await expect(service.upload('p', 'T', ['other.txt'])).rejects.toMatchObject({ code: 'untrusted' })
+    await expect(service.list('p', 'T')).rejects.toMatchObject({ code: 'untrusted' })
+    await expect(service.download('p', 'T', ['x'])).rejects.toMatchObject({ code: 'untrusted' })
+    await expect(service.sync('p', 'T', 'up')).rejects.toMatchObject({ code: 'not-found' })
+    await expect(new SftpService({ resolveRoot: () => root, client: async () => server.client }).list('p', 'T')).rejects.toMatchObject({ code: 'untrusted' })
+    expect(server.connects).toEqual([])
   })
 
   it('lists the server, downloads files and folders into the context, syncs down', async () => {
@@ -143,7 +173,7 @@ describe('SFTP (.vscode/sftp.json like the VS Code extension)', () => {
 
   it('the real SFTP client loads on demand', async () => {
     const { root } = await project({ name: 'T', host: '127.0.0.1', port: 1, connectTimeout: 500 })
-    const service = new SftpService({ resolveRoot: () => root })
+    const service = new SftpService({ resolveRoot: () => root, trusted: () => true })
     await expect(service.list('p', 'T')).rejects.toBeTruthy() // nothing listens on port 1
     expect(dirname('/a/b')).toBe('/a')
   }, 20_000)
