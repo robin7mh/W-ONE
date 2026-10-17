@@ -521,6 +521,13 @@ describe('built-in tools', () => {
     expect(await run(t, 'project_context', { projectId: 'demo' })).toContain('(scan truncated)')
     await expect(run(t, 'project_context', {})).rejects.toMatchObject({ code: 'no-project' })
     await expect(run(t, 'project_context', { projectId: 'zzz' })).rejects.toThrow('Unknown project: zzz')
+    // An agent (MCP) is pinned to its session's project: another one — by id or name — is unknown to it (BE-SEC-28).
+    const pinned = (input: unknown) => t.find((x) => x.name === 'project_context')!.run(input as never, { projectId: 'p1', onlyProject: true, signal })
+    expect(await pinned({})).toContain('Project demo')
+    expect(await pinned({ projectId: 'demo' })).toContain('Project demo')
+    await expect(pinned({ projectId: 'p2' })).rejects.toThrow('Unknown project: p2')
+    await expect(pinned({ projectId: 'other' })).rejects.toThrow('Unknown project: other')
+    expect(deps.context.get).not.toHaveBeenCalledWith('p2')
 
     expect(await run(t, 'project_list_files', {}, 'p1')).toBe('src/\nbig.txt\nbin.dat\nescape\nREADME.md')
     expect(await run(t, 'project_list_files', { dir: 'src' }, 'p1')).toBe('a.ts')

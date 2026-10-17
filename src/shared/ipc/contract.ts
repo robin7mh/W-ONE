@@ -157,6 +157,8 @@ export interface IpcChannels {
   'projects:githubDesktop': { request: void; response: string | null }
   'projects:openInGitHubDesktop': { request: { id: string }; response: void }
   'projects:openFile': { request: { id: string; file: string; line?: number }; response: void }
+  /** Trust a project (its own tools may run, see Project.trusted) — or restrict it again. */
+  'projects:trust': { request: { id: string; trusted: boolean }; response: Project }
 
   'system:subscribe': { request: void; response: void }
   'system:unsubscribe': { request: void; response: void }
@@ -623,6 +625,8 @@ export const CHANNEL_ACCESS: Record<IpcChannel, ChannelAccess> = {
   'projects:githubDesktop': 'desktop',
   'projects:openInGitHubDesktop': 'desktop',
   'projects:openFile': 'desktop',
+  // Trusting lets the project's own code run (tsserver, ESLint, git config): never a member device.
+  'projects:trust': 'admin',
   'system:subscribe': 'any',
   'system:unsubscribe': 'any',
   'system:snapshot': 'any',

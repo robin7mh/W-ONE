@@ -12,7 +12,7 @@ import {
   type SessionUpdate
 } from '@agentclientprotocol/sdk'
 import { onCleanup, tempDir, tick } from './helpers'
-import { ACP_AGENTS, applyAcpUpdate, findAcpTool, kindRisk, openTurn, pickOption, spawnAcp, type AcpProcess } from '../../../electron/main/services/agents/acp'
+import { ACP_AGENTS, acpSpawner, applyAcpUpdate, findAcpTool, isolatedNpx, kindRisk, openTurn, pickOption, spawnAcp, type AcpProcess } from '../../../electron/main/services/agents/acp'
 import { AgentSessionService, type AgentSessionDeps } from '../../../electron/main/services/agents/AgentSessionService'
 import { GitService } from '../../../electron/main/services/git/GitService'
 import type { SessionState } from '../../../electron/main/services/agents/transcript'
@@ -93,6 +93,19 @@ describe('spawnAcp', () => {
     const exited = new Promise<number>((r) => proc.onExit(r))
     proc.kill()
     expect(typeof (await exited)).toBe('number')
+  })
+
+  it('npx runs the adapter from a folder of Mindeck’s — never a copy (or a registry) a cloned repository brings', async () => {
+    expect(isolatedNpx(ACP_AGENTS.codex, '/data/agents/npm')).toEqual({ ...ACP_AGENTS.codex, args: ['--prefix', '/data/agents/npm', '-y', '@zed-industries/codex-acp@0.16.0'] })
+    expect(isolatedNpx(ACP_AGENTS.codex)).toBe(ACP_AGENTS.codex)
+    expect(isolatedNpx(ACP_AGENTS.gemini, '/data/agents/npm')).toBe(ACP_AGENTS.gemini)
+    // Exactly one version, never a range.
+    expect(ACP_AGENTS.codex.args[1]).toMatch(/@\d+\.\d+\.\d+$/)
+    // The adapter itself still runs in the agent's folder.
+    const cwd = await tempDir()
+    const proc = acpSpawner('/data/agents/npm')({ file: process.execPath, args: [agent] }, cwd, { ...process.env } as Record<string, string>)
+    expect(await handshake(proc, cwd)).toBe(`from ${cwd}`)
+    proc.kill()
   })
 
   it('on Windows starts the agent directly', async () => {

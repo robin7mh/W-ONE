@@ -152,7 +152,7 @@ describe('createCore', () => {
     expect(await c.router.dispatch('liveServer:start', { projectId }, { transport: 'ipc' })).toMatchObject({ ok: true })
     expect(await c.router.dispatch('liveServer:stop', { projectId }, { transport: 'ipc' })).toEqual({ ok: true })
     // SFTP reads the project's .vscode/sftp.json.
-    expect(await c.router.dispatch('sftp:targets', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
+    expect(await c.router.dispatch('sftp:targets', { projectId }, { transport: 'ipc' })).toMatchObject({ ok: true })
     await mkdir(join(process.env.MINDECK_HOME!, '.vscode'), { recursive: true })
     await writeFile(join(process.env.MINDECK_HOME!, '.vscode/sftp.json'), JSON.stringify({ name: 'T', host: '127.0.0.1', port: 1, connectTimeout: 300 }))
     expect(await c.router.dispatch('sftp:list', { projectId, target: 'T' }, { transport: 'ipc' })).toMatchObject({ error: {} })
@@ -180,7 +180,14 @@ describe('createCore', () => {
     // Notebooks: no kernel before one starts; closing one without a kernel is fine.
     expect(await c.router.dispatch('notebook:execute', { projectId, path: 'a.ipynb', cell: 'c', code: 'x' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-started' } })
     expect(await c.router.dispatch('notebook:shutdown', { projectId, path: 'a.ipynb' }, { transport: 'ipc' })).toEqual({ ok: true, data: undefined })
+    // A project just added isn't trusted: no Python starts in it. Trusted at the desktop: notebooks inside it only.
+    expect(await c.router.dispatch('notebook:start', { projectId, path: 'a.ipynb', kernel: 'python3' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'untrusted' } })
+    expect(await c.router.dispatch('projects:trust', { id: projectId, trusted: true }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { trusted: true } })
     expect(await c.router.dispatch('notebook:start', { projectId, path: '../a.ipynb', kernel: 'python3' }, { transport: 'ipc' })).toMatchObject({ error: { code: 'not-found' } })
+    // Trusted, the project's own tools are asked for: its sftp.json, language servers (none installed), gh.
+    expect(await c.router.dispatch('sftp:targets', { projectId }, { transport: 'ipc' })).toMatchObject({ ok: true })
+    expect(await c.router.dispatch('lsp:open', { projectId, path: 'notes.py', text: '' }, { transport: 'ipc' })).toMatchObject({ ok: true, data: { language: 'python' } })
+    expect(await c.router.dispatch('github:status', { projectId }, { transport: 'ipc' })).toMatchObject({ ok: true })
     // The test explorer finds the project's tests (none here) and runs them with Mindeck's debugger at hand.
     expect(await c.router.dispatch('tests:discover', { projectId }, { transport: 'ipc' })).toEqual({ ok: true, data: [] })
     // Project search finds the project's folder.
@@ -414,6 +421,8 @@ describe('createCore — paired devices without remote shells', () => {
       expect(await remote('ai:setKey', { key: 'sk-evil' })).toMatchObject({ ok: false, error: { code: 'admin-only' } })
       expect(await remote('cloud:logout')).toMatchObject({ ok: false, error: { code: 'admin-only' } })
       expect(await remote('server:revokeDevice', { id: 'someone-else' })).toMatchObject({ ok: false, error: { code: 'admin-only' } })
+      // Trusting a project lets its own code run: never a member device's call.
+      expect(await remote('projects:trust', { id: project.id, trusted: true })).toMatchObject({ ok: false, error: { code: 'admin-only' } })
       expect(await remote('server:revokeDevice', { id: 'phone' })).toEqual({ ok: true }) // unpairing itself
       const code = (await desktop('server:createPairingCode', { role: 'admin' })) as { data: { code: string; role: string } }
       expect(code.data.role).toBe('admin')

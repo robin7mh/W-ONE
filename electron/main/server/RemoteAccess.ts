@@ -100,6 +100,8 @@ export class RemoteAccess {
   async check(channel: IpcChannel, payload: unknown): Promise<void> {
     const p = (payload ?? {}) as Record<string, unknown>
     if (channel === 'projects:add' || channel === 'memory:setVault') await this.folder(String(p.path))
+    // Trusting names the project by `id`: an admin device only trusts projects it may use.
+    if (channel === 'projects:trust') await this.project(String(p.id))
     if (typeof p.projectId === 'string') {
       await this.project(p.projectId)
       await this.files(filePaths(p), p.projectId)
