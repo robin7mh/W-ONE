@@ -293,10 +293,10 @@ describe('markdown', () => {
       'See [[A]] [[B|Bee]] [[C#Part]] [[Missing]] ![[Embed]] [[]] #tag #123 C#sharp\n\n<a class="wikilink">raw</a><script>x()</script><img src=x onerror=alert(1)>',
       { A: 'A.md', B: 'B.md', C: 'C.md', Embed: 'E.md' }
     )
-    expect(html).toContain('<a class="wikilink" data-target="A">A</a>')
+    expect(html).toContain('<a class="wikilink" href="#" data-target="A">A</a>')
     expect(html).toContain('data-target="B">Bee</a>')
     expect(html).toContain('data-target="C">C › Part</a>')
-    expect(html).toContain('class="wikilink unresolved" data-target="Missing"')
+    expect(html).toContain('class="wikilink unresolved" href="#" data-target="Missing"')
     expect(html).toContain('<a class="wikilink unresolved">raw</a>')
     expect(html).toContain('[[]]')
     expect(html).toContain('<span class="md-tag">#tag</span>')

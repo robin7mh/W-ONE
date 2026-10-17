@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Ban, BookOpen, BookText, ChevronRight, FileText, Folder, Globe, Image, Loader2, PencilLine, TerminalSquare, User, Wrench, type LucideIcon } from 'lucide-react'
 import type { ApprovalDecision, ChatMessage, MessageAttachment, PermissionRequest, ToolCallPart } from '@shared/types/ai'
-import { renderMarkdown } from '@/features/memory/markdown'
+import { Markdown } from '@/components/ui/Markdown'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
@@ -85,11 +85,6 @@ function ToolCard({ part, request, onRespond }: { part: ToolCallPart; request?: 
   )
 }
 
-function Markdown({ text }: { text: string }) {
-  const html = useMemo(() => renderMarkdown(text, {}), [text])
-  return <div className="md-prose chat-prose" dangerouslySetInnerHTML={{ __html: html }} />
-}
-
 function Message({
   message,
   pending,
@@ -133,7 +128,7 @@ function Message({
     <div className="max-w-full">
       {message.parts.map((part, i) =>
         part.type === 'text' ? (
-          <Markdown key={i} text={part.text} />
+          <Markdown key={i} text={part.text} className="chat-prose" />
         ) : (
           <ToolCard key={part.id} part={part} request={pending.find((p) => p.id === part.requestId)} onRespond={onRespond} />
         )
@@ -164,15 +159,6 @@ function Message({
   )
 }
 
-/** Opens http(s) links outside the app (Electron: the OS browser; web: a new tab). */
-export function interceptLinks(e: MouseEvent<HTMLElement>): void {
-  const a = (e.target as HTMLElement).closest('a')
-  if (!a) return
-  e.preventDefault()
-  const href = a.getAttribute('href') ?? ''
-  if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer')
-}
-
 export function ChatThread({
   messages,
   pending,
@@ -195,7 +181,7 @@ export function ChatThread({
   }, [signature])
 
   return (
-    <div className="space-y-4 px-4 py-4" onClick={interceptLinks}>
+    <div className="space-y-4 px-4 py-4">
       {messages.map((m) => (
         <Message key={m.id} message={m} pending={pending} onRespond={onRespond} />
       ))}

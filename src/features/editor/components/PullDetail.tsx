@@ -1,10 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, ExternalLink, FileDiff, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest, Loader2, X } from 'lucide-react'
 import type { CheckState, MergeMethod, PullDetail as Detail } from '@shared/types/github'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
 import { Select } from '@/components/ui/Select'
-import { renderMarkdown } from '@/features/memory/markdown'
+import { Markdown as Prose } from '@/components/ui/Markdown'
 import { useGitHub } from '../github'
 
 const button = 'flex items-center gap-1 rounded border px-2 py-0.5 font-sans text-[12px] transition-colors disabled:opacity-40'
@@ -18,8 +18,7 @@ const CHECK_ICON: Record<CheckState, { Icon: typeof CircleCheck; tint: string }>
 const METHODS: MergeMethod[] = ['merge', 'squash', 'rebase']
 
 function Markdown({ text }: { text: string }) {
-  const html = useMemo(() => renderMarkdown(text, {}), [text])
-  return <div className="md-prose chat-prose font-sans text-[12.5px]" dangerouslySetInnerHTML={{ __html: html }} />
+  return <Prose text={text} className="chat-prose font-sans text-[12.5px]" />
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
