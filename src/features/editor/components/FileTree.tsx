@@ -68,6 +68,7 @@ function NameInput({ depth, kind, initial }: { depth: number; kind: FileEntry['k
     // Select the name without its extension, like VS Code.
     const dot = initial.lastIndexOf('.')
     input.setSelectionRange(0, kind === 'file' && dot > 0 ? dot : initial.length)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus and select once, when the field appears
   }, [])
 
   const submit = async () => {

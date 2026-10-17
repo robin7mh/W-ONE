@@ -34,6 +34,7 @@ function ErrorPage({ tab }: { tab: BrowserTab }) {
     if (!waiting) return
     const timer = setInterval(retry, RETRY_MS)
     return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- retry only depends on the tab id
   }, [waiting, tab.id])
 
   return (

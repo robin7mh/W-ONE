@@ -69,7 +69,7 @@ export function QuickOpen() {
         }
       }
     })
-  }, [mode, query, files, pick, activeTab])
+  }, [mode, query, files, pick, activeTab, line, t.palette])
 
   useEffect(() => {
     list.current?.children[active]?.scrollIntoView({ block: 'nearest' })

@@ -66,6 +66,7 @@ const SAVED_LINES = 1000
 export const FIT_SETTLE_MS = 120
 
 /** Serialized output as plain text: colors and cursor moves dropped (a restored tab shows it greyed). */
+/* eslint-disable no-control-regex -- ANSI escape sequences are what this strips */
 export function plainText(serialized: string): string {
   return serialized
     .replace(/\x1b\[(\d*)C/g, (_, n: string) => ' '.repeat(Number(n || 1)))
@@ -74,6 +75,7 @@ export function plainText(serialized: string): string {
     .replace(/\x1b[()*+]?./g, '')
     .replace(/\s+$/, '')
 }
+/* eslint-enable no-control-regex */
 
 /** The restored output, greyed, with a line saying from when. */
 function restoredBlock(r: { scrollback: string; savedAt: string }): string {
@@ -326,6 +328,7 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
       fitRef.current = null
       parts.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- api is a stable ref (below); the view lives per session id
   }, [id, hostRef])
 
   // Stable across renders; a call while the view is gone does nothing.

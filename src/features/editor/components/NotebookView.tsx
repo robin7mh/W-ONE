@@ -65,6 +65,7 @@ function CellEditor({ value, language, readOnly, focus, onChange, onRun, onEscap
       model.dispose()
     }
     // The editor lives as long as the cell; text from outside comes in below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   }, [])
 
   // The file changed under the cell (undo in the JSON, a reload from disk): show it.

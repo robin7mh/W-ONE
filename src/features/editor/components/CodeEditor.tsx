@@ -359,6 +359,7 @@ export default function CodeEditor({ tab, readOnly, onCursor, group }: Props) {
     if (view) editor.restoreViewState(view)
     // Only the focused group's editor takes the keyboard (a restored layout switches them all).
     if (switched && useEditor.getState().activeGroup === group) editor.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tab, revision or text arriving; not every keystroke (the buffer has it)
   }, [views, tab?.id, tab?.revision, text === undefined])
 
   // A search result or a symbol asked for a line: scroll there once its tab is on screen (in its group).
@@ -372,6 +373,7 @@ export default function CodeEditor({ tab, readOnly, onCursor, group }: Props) {
     else editor.setSelection(new monaco.Range(reveal.line, match.column + 1, reveal.line, match.column + 1 + match.length))
     editor.focus()
     useEditor.setState({ reveal: undefined })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the asked-for tab is on screen; group is fixed per editor
   }, [reveal, tab?.id, text === undefined])
 
   return (

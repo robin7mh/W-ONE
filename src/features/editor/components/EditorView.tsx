@@ -382,7 +382,8 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
       window.removeEventListener('focus', check)
       window.removeEventListener('keydown', onKey)
     }
-  }, [active, paneFocused])
+    // `t`: command titles (user key bindings) follow a language switch.
+  }, [active, paneFocused, t])
 
   // The debugger follows the core's session events while the editor is mounted.
   useEffect(() => useDebug.getState().connect(), [])

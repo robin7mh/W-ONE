@@ -10,6 +10,7 @@ import { useT } from '@/lib/i18n'
  * controls (but tab and newline), bidi overrides and isolates, zero-width
  * characters, line separators, soft hyphens, Unicode tag characters.
  */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const INVISIBLE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB]|[\u{E0000}-\u{E007F}]/gu
 
 /** How many such characters a text holds. */
