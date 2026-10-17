@@ -559,6 +559,10 @@ describe('language servers and workspace trust', () => {
     expect(t.servers[1].killed).toBe(false)
     expect(await t.backend.open('p1', 'src/a.py', 'x')).toEqual({ available: false })
     await t.backend.dispose()
+    // Without a trust check at all: restricted, nothing starts.
+    const root = await tempDir()
+    const unchecked = new GenericBackend({ resolveRoot: () => root, tools: { dir: '/t', locate: async () => FAKE_LSP } })
+    expect(await unchecked.open('p1', 'src/a.py', 'x')).toEqual({ available: false })
   })
 })
 

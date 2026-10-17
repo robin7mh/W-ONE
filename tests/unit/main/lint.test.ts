@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
 import { bundledPrettier, LintService } from '../../../electron/main/services/lint/LintService'
 
@@ -60,6 +60,17 @@ async function setup(files: Record<string, string>, opts: Partial<ConstructorPar
 }
 
 describe('ESLint and Prettier from the project', () => {
+  // The project's tools also resolve through NODE_PATH, which on some machines names a global
+  // ESLint or Prettier. The tests' projects have none: no global ones either.
+  let savedNodePath: string | undefined
+  beforeEach(() => {
+    savedNodePath = process.env.NODE_PATH
+    delete process.env.NODE_PATH
+  })
+  afterEach(() => {
+    if (savedNodePath !== undefined) process.env.NODE_PATH = savedNodePath
+  })
+
   it('lints with the project’s ESLint: problems, severities, fixes; ignored and other files are not linted', async () => {
     const { svc } = await setup({ 'eslint.config.js': 'export default []', 'node_modules/eslint/index.js': ESLINT })
     const res = await svc.lint('p', 'src/a.js', 'var x = 1\n// TODO\n')
