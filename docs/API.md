@@ -159,7 +159,9 @@ desktop. `fs:dirs`, `projects:add` and `memory:setVault` stay inside them (the v
 around a project's folder: its notes would be project files), `projects:list` shows only the
 projects a device may use, and every call naming a project (`projectId`, or `id` for
 `projects:*`) is checked. Databases (`mongo:*`) are not in any shared folder: reading them needs an
-admin device or remote shells, changing them remote shells. Always — with
+admin device or remote shells, changing them remote shells; a device's filter, sort, projection or
+pipeline never runs JavaScript on the database server (`$where`, `$function`, `$accumulator`,
+`$eval`, BSON `Code` — at any depth: `remote-forbidden`). Always — with
 remote shells, too — off-limits: the home folder itself and the folders above it, hidden folders,
 system folders, Mindeck's own data folder, and keys and credentials by name (`.ssh`, `.aws`,
 `.gnupg`, `.git`, `.env*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `id_*`, Terraform state,
