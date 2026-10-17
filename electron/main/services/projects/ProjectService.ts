@@ -15,6 +15,10 @@ const exec = promisify(execFile)
 /** GitHub Desktop's link scheme (its `github` command line tool uses the same). */
 const GITHUB_DESKTOP = 'x-github-client://'
 
+function coded(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code })
+}
+
 /**
  * Orchestrates the project registry, deterministic detection, and the few
  * Electron-side actions (folder picker, open in editor / GitHub Desktop). Holds no UI
@@ -100,7 +104,7 @@ export class ProjectService {
     const rootReal = await realpath(project.path)
     const targetReal = await realpath(target).catch(() => target)
     if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
-      throw new Error('Refusing to open a file outside the project')
+      throw coded('outside-project', 'Refusing to open a file outside the project')
     }
     const arg = line && line > 0 ? `${target}:${line}` : target
     try {
@@ -145,15 +149,17 @@ export class ProjectService {
 
   private requireProject(id: string): Project {
     const project = this.registry.get(id)
-    if (!project) throw new Error(`Unknown project: ${id}`)
+    if (!project) throw coded('not-found', `Unknown project: ${id}`)
     return project
   }
 
   /** Resolve symlinks and assert the path is an existing directory. */
   private async canonicalDir(path: string): Promise<string> {
-    const canonical = await realpath(path)
+    const canonical = await realpath(path).catch((err: NodeJS.ErrnoException) => {
+      throw err.code === 'ENOENT' ? coded('not-found', `Folder not found: ${path}`) : err
+    })
     const info = await stat(canonical)
-    if (!info.isDirectory()) throw new Error('Selected path is not a directory')
+    if (!info.isDirectory()) throw coded('not-a-dir', 'Selected path is not a directory')
     return canonical
   }
 }
