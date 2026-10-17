@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
+import { remoteBundleDefines } from './electron/main/services/remote/bundle'
 
 // @shared points at src/shared (types + IPC contract shared by main/preload/renderer).
 const shared = { '@shared': resolve(__dirname, 'src/shared') }
@@ -9,10 +10,13 @@ const shared = { '@shared': resolve(__dirname, 'src/shared') }
 // monaco-vim imports Monaco's files as `monaco-editor/esm/vs/…`; Monaco's exports map them to `./esm/vs/*.js`.
 const monacoDeepImports = { find: /^monaco-editor\/esm\/vs\/(.*?)(\.js)?$/, replacement: `${resolve(__dirname, 'node_modules/monaco-editor/esm/vs')}/$1.js` }
 
-// Release builds bake in where Mindeck Cloud lives (see electron/main/services/cloud/config.ts).
+// Release builds bake in where Mindeck Cloud lives (see electron/main/services/cloud/config.ts)
+// and the SHA-256 of the Remote-SSH / Dev Containers server packages built with them
+// (electron/main/services/remote/bundle.ts).
 const cloud = {
   __MINDECK_CLOUD_URL__: JSON.stringify(process.env.MINDECK_CLOUD_URL ?? ''),
-  __MINDECK_CLOUD_KEY__: JSON.stringify(process.env.MINDECK_CLOUD_KEY ?? '')
+  __MINDECK_CLOUD_KEY__: JSON.stringify(process.env.MINDECK_CLOUD_KEY ?? ''),
+  ...remoteBundleDefines()
 }
 
 /**
