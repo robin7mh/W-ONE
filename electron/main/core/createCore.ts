@@ -479,6 +479,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   router.register('cloud:forgotPassword', (req) => cloud.forgotPassword(req))
   router.register('cloud:checkout', () => cloud.checkout())
   router.register('cloud:adopt', ({ token, account }) => cloud.adopt(token, account))
+  router.register('cloud:installId', () => ({ installId: cloud.installId() }))
   // Settings Sync: the account keeps one copy of the editor settings, snippets, look and language.
   const sync = new SyncService({ cloud, settings, snippetsFile: join(paths.dataDir, 'snippets.json') })
   router.register('cloud:syncStatus', () => sync.status())
@@ -492,6 +493,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     bundle: bundleSource({ version: opts.version, dir: join(paths.dataDir, 'remote'), devDir: join(__dirname, '..', 'remote'), sha256: bakedBundleHashes() }),
     secrets,
     entitlement: cloud.entitlement.bind(cloud),
+    followerLease: cloud.followerLease.bind(cloud),
     openWindow: opts.platform.openRemoteWindow,
     publish: (list) => {
       hub.publish('remote:changed', list)

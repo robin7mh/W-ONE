@@ -31,7 +31,7 @@ export const DEFAULT_RATE_LIMITS: RateLimits = {
 /** Messages that start AI work (the assistant, the agents). */
 const AI = new Set(['ai:send', 'agents:create', 'agents:send', 'agents:resume'])
 /** Account channels answered from what the core knows (or, `adopt`, from the desktop): no cloud call. */
-const CLOUD_LOCAL = new Set(['cloud:status', 'cloud:adopt'])
+const CLOUD_LOCAL = new Set(['cloud:status', 'cloud:adopt', 'cloud:installId'])
 
 /** The group a channel's calls count against, or null (free). */
 export function rateGroup(channel: string): RateGroup | null {

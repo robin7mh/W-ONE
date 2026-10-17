@@ -302,7 +302,7 @@ an admin device. Types: see `contract.ts`.
 - **Projects:** `projects:list` (the ones the device may use) · `projects:add { path }` (inside the shared folders) · `projects:remove` · `projects:refresh` · *(only with remote shells:)* `projects:pull` (`git pull --ff-only`) · `context:get` · `context:reindex` · `fs:dirs { path? }` (folder browser on the core's machine; for devices: the shared folders, listed in `roots`, no `path` = the first) · `projects:pickFolder` / `projects:openInEditor` / `projects:githubDesktop` / `projects:openInGitHubDesktop` / `projects:openFile` (*desktop*)
 - **Editor (project files):** `files:list { projectId, dir? }` → `FileEntry[]` · `files:read { projectId, path }` → `FileContent` (`unsupported: "binary" | "too-large"` instead of text) · `files:stat { projectId, paths }` · `files:write { projectId, path, content, expectedMtime? }` (only with remote shells; fails with `conflict` when the file changed since `expectedMtime`)
 - **Agent cockpit:** `agents:detect` · `agents:list` · `agents:get { id }` → session + messages · `agents:changes { id }` · `agents:branch { id }` → own working folder: pushed, pull request (via `gh`), merged, uncommitted files · `agents:diff { id, path }` · *(only with remote shells:)* `agents:create { kind, projectId, isolated?, prompt? }` · `agents:send { id, text }` · `agents:interrupt` · `agents:stop` · `agents:resume` · `agents:remove` · `agents:accept` · `agents:discard` · `agents:rename { id, title }` · `agents:shell { id }` → `{ terminalId }` (a shell in the session's folder, attach with `terminal:*`) · *(desktop only:)* `agents:openInEditor { id }` (VS Code on the session's folder). Push: `agents:changed { session? , removed? }`, `agents:message { sessionId, message }`; approvals come as `permission:request` like the assistant's
-- **Mindeck account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · *(admin:)* `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:adopt` · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
+- **Mindeck account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · *(admin:)* `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:adopt { token, account }` · `cloud:installId` → `{ installId }` (both for follower cores, §6) · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
 - **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setGraphStyle` · *(admin:)* `memory:setVault { path }` · `memory:setDailyNotes` · `memory:pickVault` / `memory:reveal` (*desktop*)
 - **System:** `system:snapshot` · `system:user`
 - **Assistant:** `ai:status` · *(admin:)* `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs` · *(only with remote shells:)* `ai:inlineComplete` · `ai:inlineEdit`
@@ -342,3 +342,64 @@ core.on('permission:request', (req) => showApprovalSheet(req)) // → core.invok
 
 The web UI in `src/` is the reference implementation of every flow (session/pairing in
 `src/features/session`, the assistant in `src/features/agents`).
+
+## 6. Cloud-Vertrag: follower leases (Mindeck Cloud)
+
+A core the desktop app starts on another machine — Remote-SSH, Dev Containers — runs as a
+*follower*: it never signs in itself, the desktop hands it a license. That hand-over must not be a
+copy of the desktop's own entitlement (which any server could replay, BE-SEC-09): Mindeck Cloud
+issues the desktop a short **follower lease** bound to that one core.
+
+**Endpoint (mindeck-cloud):**
+
+```http
+POST /v1/license/follower-lease
+Authorization: Bearer <the desktop's session token — the same as for /v1/license/heartbeat>
+Content-Type: application/json
+
+{ "installId": "<the follower core's install id>", "appVersion": "0.3.0" }
+```
+
+```json
+{ "entitlement": { "token": "mindeck1.<base64url JSON>.<base64url Ed25519>" } }
+```
+
+- **Token:** the format and key of every entitlement (`mindeck1.<claims>.<signature>`, Ed25519 over
+  `mindeck1.<claims>`, `electron/main/services/cloud/entitlement.ts` ↔ `mindeck-cloud/src/lib/entitlement.ts`).
+- **Claims:** those of the heartbeat's entitlement for this account (`sub`, `email`, `plan`, `active`,
+  `reason`, `rem`, `iat`, `exp`) plus `"dev": "<installId from the request>"` and `"lease": "follower"`;
+  never `perpetual`. `exp` short: **1 hour** recommended, 24 hours at most. The desktop asks again
+  once half of it has passed (and hands the lease over every minute while the window is open).
+- **When:** only for a session whose account may use Mindeck now (trial time left, a lifetime
+  license); otherwise `{ "entitlement": null }` (or the same `active: false` lease the heartbeat would
+  give). A lease counts no trial time of its own — the desktop's heartbeat counts it while remote
+  windows are open.
+- **Limits (cloud side, recommended):** a rate limit per account (e.g. 60 an hour) and a cap on
+  distinct `installId`s per account and day (e.g. 10) — a lease bound to a core is still one per core.
+- **Errors:** `401` = the session is gone (the desktop signs out, as for every call). `404` = the
+  cloud offers no leases yet — see the transition. Anything else (`429`, `5xx`, a lease that does not
+  verify, is not `lease: "follower"` or names another `dev`) is ignored for this round: the desktop
+  keeps a lease it still holds, else falls back to the transition.
+
+**Core side (mindeck, implemented):**
+
+- `cloud:installId` (*admin*, license-free) → `{ installId }`: the follower's install id
+  (`cloud.json`), what the desktop puts into the request.
+- `cloud:adopt { token, account }` (*admin*) on a follower accepts, after the signature: an active,
+  unexpired entitlement that is not an offline certificate, and then
+  1. a **lease for this core** (`lease: "follower"`, `dev` = its install id) — as signed. From then on
+     the core remembers that it ran on a lease (`leased` in `cloud.json`) and takes leases only:
+     the desktop's own entitlement answers `lease-required`;
+  2. a lease for another core: `bad-entitlement`;
+  3. **transition** — the desktop's own entitlement, while the cloud issues no leases (`404`): it
+     holds until `exp`, but never longer than **24 hours after the desktop last handed it over**
+     (`adoptedAt` in `cloud.json`; also across restarts).
+- The desktop (`RemoteService.handLicense`, every minute): asks the remote core for its
+  `cloud:installId`, then the cloud for a lease (`CloudService.followerLease`); without one (a `404`
+  is remembered for an hour, an older remote core has no `cloud:installId`) it hands over its own
+  entitlement as before.
+
+**What mindeck-cloud has to do:** offer the endpoint above with these claims and limits. Nothing
+else changes: as soon as it answers `200`, desktops hand over leases and remote cores switch to
+leases only.
+

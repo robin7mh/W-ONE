@@ -26,8 +26,10 @@ export interface RemoteOptions {
   /** The server package for an architecture (a .tar.gz). */
   bundle: (arch: 'x64' | 'arm64') => Promise<string>
   secrets: { get(name: string): Promise<string | undefined>; set(name: string, value: string | null): Promise<void> }
-  /** The desktop's current entitlement, handed to the remote core (it runs on this license). */
+  /** The desktop's current entitlement, handed to the remote core (it runs on this license) while the cloud issues no follower leases. */
   entitlement: () => { token: string; account: CloudAccount } | null
+  /** A follower lease from Mindeck Cloud for the remote core with this install id — null when there is none (BE-SEC-09). */
+  followerLease?: (installId: string) => Promise<{ token: string; account: CloudAccount } | null>
   openWindow?: (opts: { title: string; url: string; token: string; deviceId: string }) => { closed: Promise<void>; close: () => void }
   publish: (connections: RemoteConnection[]) => void
   /** The ssh config with the hosts (default ~/.ssh/config). */
@@ -306,14 +308,27 @@ export class RemoteService {
     return paired
   }
 
-  /** The remote core runs on this desktop's license (it can't sign in itself). */
+  /**
+   * The remote core runs on this desktop's license (it can't sign in itself):
+   * on a lease Mindeck Cloud issues for that core alone — or, while the cloud
+   * issues none (or the remote core can't say its install id), on this
+   * desktop's own entitlement, which the core then takes for a day at most.
+   */
   private async handLicense(url: string, token: string): Promise<void> {
     const entitlement = this.opts.entitlement()
     if (!entitlement) return
-    await this.rpc(url, token, 'cloud:adopt', entitlement).catch((err: Error) => {
+    const lease = await this.leaseFor(url, token)
+    await this.rpc(url, token, 'cloud:adopt', lease ?? entitlement).catch((err: Error) => {
       // Its package verifies with the key built into it — the same as this app's.
       throw coded('remote-license', `The remote Mindeck can't verify this license (${err.message}) — its server package must come from the same release`)
     })
+  }
+
+  private async leaseFor(url: string, token: string): Promise<{ token: string; account: CloudAccount } | null> {
+    if (!this.opts.followerLease) return null
+    const remote = (await this.rpc(url, token, 'cloud:installId').catch(() => null)) as { installId?: unknown } | null
+    if (typeof remote?.installId !== 'string' || !remote.installId) return null
+    return this.opts.followerLease(remote.installId).catch(() => null)
   }
 
   private async rpc(url: string, token: string, channel: string, payload?: unknown): Promise<unknown> {
