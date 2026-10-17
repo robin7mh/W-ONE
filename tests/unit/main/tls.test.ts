@@ -1,5 +1,6 @@
 import { X509Certificate, createPrivateKey, generateKeyPairSync } from 'node:crypto'
 import { readFile, stat, writeFile } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { Socket } from 'node:net'
 import { connect as netConnect } from 'node:net'
@@ -30,7 +31,7 @@ const rsa = () =>
   generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
 
 /** A certificate signed by a (test) authority — like one from Let's Encrypt. */
-function caSigned(): { cert: string; key: string } {
+function caSigned(names = true): { cert: string; key: string } {
   const caKeys = rsa()
   const leafKeys = rsa()
   const make = (publicKey: string, subject: string) => {
@@ -48,7 +49,7 @@ function caSigned(): { cert: string; key: string } {
   ca.sign(pki.privateKeyFromPem(caKeys.privateKey), md.sha256.create())
   const leaf = make(leafKeys.publicKey, 'mindeck.example')
   leaf.setIssuer(ca.subject.attributes)
-  leaf.setExtensions([{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }] }])
+  if (names) leaf.setExtensions([{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }, { type: 2, value: 'mindeck.example' }, { type: 2, value: '*.apps.example' }] }])
   leaf.sign(pki.privateKeyFromPem(caKeys.privateKey), md.sha256.create())
   return { cert: pki.certificateToPem(leaf), key: leafKeys.privateKey }
 }
@@ -310,6 +311,12 @@ describe('HttpServer over TLS', () => {
     ).rejects.toThrow('403')
     // HTTPS from the network: as usual.
     expect((await httpsCall(port, tls.cert, '/api/health')).status).toBe(200)
+
+    // A proxy on this computer passes the network on: no plain HTTP for it either (BE-SEC-21).
+    network(false)
+    const proxied = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'X-Forwarded-For': '192.168.1.77' }, body: '{}' })
+    expect(proxied.status).toBe(403)
+    expect(await proxied.json()).toMatchObject({ error: { code: 'https-required' } })
   })
 
   it('an own certificate from an authority gets HSTS', async () => {
@@ -329,6 +336,23 @@ describe('HttpServer over TLS', () => {
       req.end()
     })
     expect(raw.headers['strict-transport-security']).toBe('max-age=31536000')
+    // It answers to the certificate's names (BE-SEC-19): its domain, any name under a wildcard.
+    const named = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpsRequest({ host: '127.0.0.1', port, path: '/api/health', rejectUnauthorized: false, agent: false, headers: { host } }, (res2) => {
+          res2.resume()
+          resolve(res2.statusCode as number)
+        })
+        req.on('error', reject)
+        req.end()
+      })
+    expect(await named('mindeck.example')).toBe(200)
+    expect(await named('web.apps.example')).toBe(200)
+    expect(await named('evil.example')).toBe(403)
+    // A certificate without any names: just the core's own then.
+    const bare = caSigned(false)
+    const internals = (await startTls({ ...creds, cert: bare.cert, key: bare.key })).http as unknown as { certNames: string[] }
+    expect(internals.certNames).toEqual([])
     // Plain loopback HTTP never gets it.
     expect((await fetch(`http://127.0.0.1:${port}/api/health`)).headers.get('strict-transport-security')).toBeNull()
   })
@@ -337,8 +361,19 @@ describe('HttpServer over TLS', () => {
     const { http, port, dir, tls } = await startTls()
     const next = await new Certificates({ dir: join(dir, 'tls'), hostname: () => 'renamed' }).credentials(['10.1.1.1'])
     expect(next.fingerprint).not.toBe(tls.fingerprint)
+    const plain = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = httpRequest({ host: '127.0.0.1', port, path: '/api/health', agent: false, headers: { host } }, (res) => {
+          res.resume()
+          resolve(res.statusCode as number)
+        })
+        req.on('error', reject)
+        req.end()
+      })
+    expect(await plain('renamed')).toBe(403)
     http.setTls(next)
     expect((await handshake(port)).peer.fingerprint256).toBe(next.fingerprint)
+    expect(await plain('renamed.local')).toBe(200) // the renewed certificate's names
 
     const internals = http as unknown as { sockets: Set<Socket> }
     const silent = netConnect(port, '127.0.0.1')

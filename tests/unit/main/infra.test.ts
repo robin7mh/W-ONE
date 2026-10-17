@@ -42,7 +42,7 @@ vi.mock('electron', () => ({
 
 import { bindIpc } from '../../../electron/ipc/registry'
 import { Router } from '../../../electron/ipc/router'
-import { IPC_CHANNELS } from '../../../src/shared/ipc/contract'
+import { CHANNEL_ACCESS, IPC_CHANNELS } from '../../../src/shared/ipc/contract'
 import { registerContextIpc } from '../../../electron/ipc/context.ipc'
 import { registerProjectIpc } from '../../../electron/ipc/projects.ipc'
 import { registerSystemIpc } from '../../../electron/ipc/system.ipc'
@@ -146,6 +146,51 @@ describe('ipc router', () => {
     expect(await router.dispatch('projects:add', { path: '/srv/x' }, remoteCtx)).toMatchObject({ ok: true })
     expect(guard).toHaveBeenCalledWith('projects:add', { path: '/srv/x' }, remoteCtx)
     expect(guard).toHaveBeenCalledTimes(3) // the admin call too, never the desktop's
+  })
+
+  it('trusted channels (data beyond the shared folders) need the admin role or remote shells (BE-SEC-08)', async () => {
+    let terminal = false
+    const router = new Router({ remoteTerminal: () => terminal })
+    router.register('mongo:connections', () => [])
+    expect(await router.dispatch('mongo:connections', undefined, ipcCtx)).toEqual({ ok: true, data: [] })
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'member' })).toMatchObject({ ok: false, error: { code: 'remote-terminal-disabled' } })
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'admin' })).toEqual({ ok: true, data: [] })
+    terminal = true
+    expect(await router.dispatch('mongo:connections', undefined, { ...remoteCtx, role: 'member' })).toEqual({ ok: true, data: [] })
+  })
+
+  it('a member device leaves the desktop’s global settings alone (BE-SEC-05, BE-SEC-18)', () => {
+    for (const channel of ['memory:setVault', 'memory:setDailyNotes', 'ai:configure', 'agents:setPushSettings', 'cloud:forgotPassword', 'cloud:syncPush', 'cloud:syncPull'] as const) {
+      expect(CHANNEL_ACCESS[channel], channel).toBe('admin')
+    }
+    for (const channel of ['ai:inlineComplete', 'ai:inlineEdit'] as const) expect(CHANNEL_ACCESS[channel], channel).toBe('terminal')
+    for (const channel of ['mongo:connections', 'mongo:databases', 'mongo:collections', 'mongo:find', 'mongo:indexes'] as const) expect(CHANNEL_ACCESS[channel], channel).toBe('trusted')
+  })
+
+  it('the OS’s own errors reach a device as a reference, the details go to the log (BE-SEC-19)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const router = new Router({ remoteTerminal: () => false })
+    const enoent = Object.assign(new Error("ENOENT: no such file or directory, open '/Users/robin/secret/x'"), { code: 'ENOENT', syscall: 'open' })
+    const thrown: unknown[] = [enoent, Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), 'a string', null]
+    router.register('memory:status', () => {
+      throw thrown.shift()
+    })
+    expect(await router.dispatch('memory:status', undefined, ipcCtx)).toEqual({ ok: false, error: { code: 'ENOENT', message: enoent.message } }) // the desktop sees it all
+    const generic = expect.stringMatching(/^Something went wrong on the Mindeck core \(ref [0-9a-f]{8}\)$/)
+    expect(await router.dispatch('memory:status', undefined, remoteCtx)).toEqual({ ok: false, error: { code: 'EACCES', message: generic } })
+    expect(await router.dispatch('memory:status', undefined, remoteCtx)).toEqual({ ok: false, error: { code: 'error', message: generic } })
+    expect(await router.dispatch('memory:status', undefined, remoteCtx)).toEqual({ ok: false, error: { code: 'error', message: generic } })
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/^\[router\] memory:status failed \(ref [0-9a-f]{8}\):$/), 'a string')
+    // Mindeck's own errors are written for people: they reach the device as they are.
+    router.register('memory:list', () => {
+      throw Object.assign(new Error('Note not found: a.md'), { code: 'not-found' })
+    })
+    router.register('memory:graph', () => {
+      throw new Error('The vault is busy')
+    })
+    expect(await router.dispatch('memory:list', undefined, remoteCtx)).toEqual({ ok: false, error: { code: 'not-found', message: 'Note not found: a.md' } })
+    expect(await router.dispatch('memory:graph', undefined, remoteCtx)).toEqual({ ok: false, error: { code: 'error', message: 'The vault is busy' } })
+    error.mockRestore()
   })
 
   it('a remote call’s answer is shaped for the device (lists trimmed); the desktop’s never', async () => {

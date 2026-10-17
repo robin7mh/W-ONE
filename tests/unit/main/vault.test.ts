@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir, tick } from './helpers'
@@ -253,6 +253,19 @@ describe('VaultService — notes', () => {
     await mkdir(outside)
     await symlink(outside, join(root, 'escape'))
     await expect(v.write('escape/x.md', 'no')).rejects.toMatchObject({ code: 'bad-path' })
+  })
+
+  it('a dangling link in the vault is replaced, never written through (BE-SEC-02)', async () => {
+    const { v, root, base, read } = await setup()
+    const outside = join(base, 'outside')
+    await mkdir(outside)
+    await symlink('../outside/pwned.md', join(root, 'Pwned.md'))
+    await v.write('Pwned.md', 'mine')
+    expect(await read('Pwned.md')).toBe('mine')
+    expect((await lstat(join(root, 'Pwned.md'))).isSymbolicLink()).toBe(false)
+    await symlink('../outside/new.md', join(root, 'Taken.md'))
+    expect((await v.create('Taken')).path).toBe('Taken 2.md') // a new note never lands on a link
+    expect(await readdir(outside)).toEqual([])
   })
 })
 

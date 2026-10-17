@@ -315,7 +315,7 @@ describe('ProjectService', () => {
 
     await s.remove(p.id)
     expect(s.getProjectPath(p.id)).toBeUndefined()
-    await expect(s.refresh('nope')).rejects.toThrow('Unknown project: nope')
+    await expect(s.refresh('nope')).rejects.toMatchObject({ code: 'not-found', message: 'Unknown project: nope' })
   })
 
   it('workspace trust: every project added — at the desktop too — starts restricted; trusting is kept and announced', async () => {
@@ -401,8 +401,10 @@ describe('ProjectService', () => {
     const s = await setup()
     const dir = await tempDir()
     await writeFile(join(dir, 'f.txt'), 'x')
-    await expect(s.add(join(dir, 'f.txt'))).rejects.toThrow('not a directory')
-    await expect(s.add(join(dir, 'missing'))).rejects.toThrow()
+    await expect(s.add(join(dir, 'f.txt'))).rejects.toMatchObject({ code: 'not-a-dir', message: expect.stringContaining('not a directory') })
+    await expect(s.add(join(dir, 'missing'))).rejects.toMatchObject({ code: 'not-found' })
+    // Anything else the disk says is passed on as it is.
+    await expect(s.add(join(dir, 'f.txt', 'below'))).rejects.toMatchObject({ code: 'ENOTDIR' })
   })
 
   describe('openInEditor', () => {
@@ -458,7 +460,7 @@ describe('ProjectService', () => {
       electron.openPath.mockResolvedValueOnce('nope')
       await expect(s.openFile(id, 'a.ts')).rejects.toThrow('nope')
 
-      await expect(s.openFile(id, '../../etc/passwd')).rejects.toThrow('outside the project')
+      await expect(s.openFile(id, '../../etc/passwd')).rejects.toMatchObject({ code: 'outside-project', message: expect.stringContaining('outside the project') })
       const outside = await tempDir()
       await mkdir(join(dir, 'sub'))
       await symlink(outside, join(dir, 'sub', 'link'))

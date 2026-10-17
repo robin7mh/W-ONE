@@ -447,6 +447,12 @@ describe('AgentSessionService: hooks, approvals, memory', () => {
     expect(t.asks[1].input).toMatchObject({ risk: 'write', allowAlways: true })
     t.asks[1].settle('deny')
     expect(await deny).toMatchObject({ hookSpecificOutput: { decision: { behavior: 'deny', message: expect.any(String) } } })
+    // Reading outside the project is approved like a change (a device needs remote shells for it, BE-SEC-17).
+    const outside = t.hook(s.id, { hook_event_name: 'PermissionRequest', tool_name: 'Read', tool_use_id: 'r1', tool_input: { file_path: '/home/me/.ssh/id_ed25519' } })
+    await tick()
+    expect(t.asks[2].input).toMatchObject({ toolName: 'Read', risk: 'write' })
+    t.asks.splice(2, 1)[0].settle('deny')
+    await outside
     expect(t.svc.get(s.id).messages[1].parts[1]).toMatchObject({ status: 'denied' })
 
     t.granted.add('Edit') // "Always allow" earlier

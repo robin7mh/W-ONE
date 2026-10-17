@@ -7,7 +7,7 @@ import type { ApprovalDecision, ChatMessage, ToolCallPart, ToolCallStatus, ToolR
 import type { AgentCommand, AgentSession, SessionOption } from '@shared/types/agents'
 import { shellCommand, shellQuote } from '../terminal/TerminalService'
 import { spawnProgram } from '../../lib/executables'
-import type { Applied, SessionState } from './transcript'
+import { reachesOutside, type Applied, type SessionState } from './transcript'
 
 /** How Mindeck starts each ACP agent (the user's own CLI, signed in their way). */
 export type AcpKind = 'codex' | 'gemini'
@@ -66,6 +66,17 @@ export function kindRisk(kind: ToolKind | null | undefined): ToolRisk {
   if (kind === 'read' || kind === 'search' || kind === 'think' || kind === 'fetch') return 'read'
   if (kind === 'edit' || kind === 'delete' || kind === 'move') return 'write'
   return 'execute'
+}
+
+/**
+ * The risk an approval carries: by kind, except that fetching (a way out for
+ * whatever was read) and reading outside the session's folder count as changes —
+ * a device allows them only with remote shells.
+ */
+export function acpApprovalRisk(kind: ToolKind | null | undefined, paths: string[], cwd: string): ToolRisk {
+  if (kind === 'fetch') return 'write'
+  const risk = kindRisk(kind)
+  return risk === 'read' && paths.some((p) => reachesOutside(p, cwd)) ? 'write' : risk
 }
 
 /**

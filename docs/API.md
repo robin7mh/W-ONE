@@ -43,6 +43,19 @@ An own certificate (e.g. from Let's Encrypt for a domain that points at the core
 restart the core). `MINDECK_TLS=0` switches HTTPS off — e.g. behind a reverse proxy (Caddy, nginx,
 Traefik) or `tailscale serve` that terminates TLS itself and reaches the core on `127.0.0.1`.
 
+**Names (DNS rebinding).** The core answers only requests whose `Host` is one of its own names: an
+IP address, `localhost`, the machine name (and `<name>.local`) or a name in its certificate.
+Anything else gets `403 host-not-allowed` — a web page that points its own domain at the core
+cannot talk to it. Other names the core is reached by (a reverse proxy's domain, the Docker host's
+name, `tailscale serve`) go into `MINDECK_ALLOWED_HOSTS` (comma-separated; `.example.com` = every
+subdomain, `*` = any name).
+
+**Behind a proxy on the same computer.** Requests from `127.0.0.1` count as this computer's —
+plain HTTP is allowed for them while the core speaks HTTPS. A request carrying `X-Forwarded-For`,
+`X-Real-IP` or `Forwarded` is a proxy passing someone else on: it is not trusted like this computer
+(no plain HTTP while TLS is on), and failed pairings are counted per address it passes on, not for
+`127.0.0.1` as a whole. Only ever let a proxy you run reach the core's port.
+
 **Trust without a certificate authority (TOFU).** Nobody vouches for a self-signed certificate, so a
 browser shows a warning once. The pairing QR code therefore carries the certificate's SHA-256
 fingerprint: `https://192.168.1.20:7420/#pair=K7QM-2XPA&fp=<64 hex digits>`. The web UI shows it
@@ -99,10 +112,13 @@ Every device has a **role**, set by the code it redeemed:
 
 Store the token in the platform's secure storage (`expo-secure-store` / Keychain / Keystore). It is
 shown exactly once; the core only keeps its SHA-256. Wrong codes answer `401 bad-code`; ten failures
-in ten minutes from one address answer `429`.
+in ten minutes from one address (IPv6: one `/64`) answer `429`. A pairing request may be 16 KB.
 
-`GET /api/health` → `{ ok, name: "Mindeck", version, mode: "desktop" | "server" }` (public) tells
-whether a URL really is a Mindeck core.
+A token that is not used for 90 days expires: the core forgets the device, which then gets
+`401 unauthorized` and has to pair again.
+
+`GET /api/health` → `{ ok, name: "Mindeck", mode: "desktop" | "server" }` (public) tells whether a
+URL really is a Mindeck core; with a device's `Authorization: Bearer …` it adds `version`.
 
 ## 2. Calls
 
@@ -120,22 +136,30 @@ Every call answers HTTP 200 with an `IpcResult`:
 { ok: true, data: T } | { ok: false, error: { code: string, message: string } }
 ```
 
-Only authentication problems use HTTP status codes: `401 unauthorized` means the token is unknown
-or was revoked — drop it and pair again. `413` = body over 8 MB, `400 bad-json`, `403
-https-required` = plain HTTP from the network to a core that speaks HTTPS.
+Only authentication problems use HTTP status codes: `401 unauthorized` means the token is unknown,
+was revoked or expired — drop it and pair again. `413` = body over 8 MB, `400 bad-json` / `bad-url`,
+`403 https-required` = plain HTTP from the network to a core that speaks HTTPS, `403
+host-not-allowed` (see *Names*). Errors of the core's operating system (`ENOENT`, `EACCES` …) and
+unexpected failures reach devices as `Something went wrong on the Mindeck core (ref 1a2b3c4d)` —
+the details, under that reference, are in the core's log.
 
 **Remote rules.** Without remote shells a paired device reaches only the *shared folders*: the ones
 set at the desktop (Settings → Remote access → *Shared folders*) or, headless, in
 `MINDECK_REMOTE_ROOTS` (default `/projects`, the Docker mount), plus the projects added at the
-desktop. `fs:dirs`, `projects:add` and `memory:setVault` stay inside them, `projects:list` shows
-only the projects a device may use, and every call naming a `projectId` is checked. Always — with
+desktop. `fs:dirs`, `projects:add` and `memory:setVault` stay inside them (the vault never in or
+around a project's folder: its notes would be project files), `projects:list` shows only the
+projects a device may use, and every call naming a project (`projectId`, or `id` for
+`projects:*`) is checked. Databases (`mongo:*`) are not in any shared folder: reading them needs an
+admin device or remote shells, changing them remote shells. Always — with
 remote shells, too — off-limits: the home folder itself and the folders above it, hidden folders,
 system folders, Mindeck's own data folder, and keys and credentials by name (`.ssh`, `.aws`,
-`.gnupg`, `.env*`, `*.pem`, `*.key`, `id_*`, keychains, browser profiles …), as files or folders.
+`.gnupg`, `.git`, `.env*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `id_*`, Terraform state,
+`credentials*.json`, keystores, keychains, browser profiles …), as files or folders.
 
 Approvals from a device: `deny` always works, read requests may be allowed; changes (`write`) and
 commands (`execute`) can be allowed only while remote shells are on (`remote-terminal-disabled`
-otherwise). `always` from a device counts as `once`, and requests reach devices with
+otherwise). An agent that wants to read outside its folder (or keys and credentials) or fetch a web
+page asks with `risk: "write"`: what it reads could leave with it. `always` from a device counts as `once`, and requests reach devices with
 `allowAlways: false` — "Always allow" is given at the desktop only. An assistant run started by a
 device uses no write or command tool without remote shells.
 
@@ -145,7 +169,7 @@ Error codes worth handling in the UI:
 |---|---|
 | `bad-request` | payload failed the channel's schema (message names the field) |
 | `desktop-only` | native dialogs / opening apps on the host — not available remotely |
-| `remote-terminal-disabled` | the core does not allow remote shells (also: approving changes or commands) |
+| `remote-terminal-disabled` | the core does not allow remote shells (also: approving changes or commands; databases for non-admin devices) |
 | `admin-only` | the channel needs an admin device (or the desktop app) |
 | `remote-forbidden` | outside the shared folders, or a key / credential / system path |
 | `no-key` | the assistant has no Anthropic API key yet (Settings → AI) |
@@ -161,8 +185,7 @@ GET /api/events   (WebSocket — wss:// on an HTTPS core; subprotocols: "mindeck
 The token travels as the second offered subprotocol — never in the URL, where it would land in
 proxy and access logs. The core answers with the `mindeck` protocol only
 (`new WebSocket(url, eventsProtocols(token))` in `transport.ts`; React Native's `WebSocket` takes
-the same second argument). The old `?token=mindeck_…` query is still accepted for app builds from
-before; it is deprecated and will be removed once those builds are gone.
+the same second argument). The old `?token=mindeck_…` query is no longer accepted.
 
 Messages are JSON `{ "channel": string, "payload": … }`. The first one is
 `{ channel: "hello", payload: { deviceId, role } }`. A revoked device is closed with code `4401`.
@@ -195,11 +218,13 @@ an admin device. Types: see `contract.ts`.
 - **Editor (project files):** `files:list { projectId, dir? }` → `FileEntry[]` · `files:read { projectId, path }` → `FileContent` (`unsupported: "binary" | "too-large"` instead of text) · `files:stat { projectId, paths }` · `files:write { projectId, path, content, expectedMtime? }` (only with remote shells; fails with `conflict` when the file changed since `expectedMtime`)
 - **Agent cockpit:** `agents:detect` · `agents:list` · `agents:get { id }` → session + messages · `agents:changes { id }` · `agents:branch { id }` → own working folder: pushed, pull request (via `gh`), merged, uncommitted files · `agents:diff { id, path }` · *(only with remote shells:)* `agents:create { kind, projectId, isolated?, prompt? }` · `agents:send { id, text }` · `agents:interrupt` · `agents:stop` · `agents:resume` · `agents:remove` · `agents:accept` · `agents:discard` · `agents:rename { id, title }` · `agents:shell { id }` → `{ terminalId }` (a shell in the session's folder, attach with `terminal:*`) · *(desktop only:)* `agents:openInEditor { id }` (VS Code on the session's folder). Push: `agents:changed { session? , removed? }`, `agents:message { sessionId, message }`; approvals come as `permission:request` like the assistant's
 - **Mindeck account (license):** `cloud:status` → `{ enforced, allowed, state, account, license, validUntil, online, webUrl, error }` · *(admin:)* `cloud:login { email, password }` · `cloud:register { email, password, name?, locale }` · `cloud:logout` · `cloud:adopt` · `cloud:refresh` · `cloud:resendVerification` · `cloud:forgotPassword { email }` · `cloud:checkout` → `{ url }` (Stripe Checkout). Push: `cloud:status`. On a licensed core every other channel answers `license-required` until `allowed` — sign in first.
-- **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setVault { path }` · `memory:setGraphStyle` · `memory:pickVault` / `memory:reveal` (*desktop*)
+- **Memory (vault):** `memory:status` · `memory:list` · `memory:read` · `memory:search` · `memory:graph` · `memory:folders` · `memory:create` · `memory:write` · `memory:writeBody` · `memory:rename` · `memory:move` · `memory:moveFolder` · `memory:createFolder` · `memory:link` · `memory:unlink` · `memory:trash` · `memory:createVault` · `memory:setGraphStyle` · *(admin:)* `memory:setVault { path }` · `memory:setDailyNotes` · `memory:pickVault` / `memory:reveal` (*desktop*)
 - **System:** `system:snapshot` · `system:user`
-- **Assistant:** `ai:status` · *(admin:)* `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs`
+- **Assistant:** `ai:status` · *(admin:)* `ai:setKey { key }` · `ai:clearKey` · `ai:configure { model?, effort? }` · `ai:agents` · `ai:tools` · `ai:conversations` · `ai:conversation { id }` · `ai:send { text, conversationId?, agentId?, projectId? }` → `{ conversationId, messageId }` (the answer streams via push events) · `ai:cancel { conversationId }` · `ai:deleteConversation` · `ai:runs` · *(only with remote shells:)* `ai:inlineComplete` · `ai:inlineEdit`
 - **Permissions:** `permission:pending` · `permission:respond { id, decision: "once" | "always" | "deny" }` (see the remote rules in §2) · `permission:grants` → `PermissionGrant[]` (`{ agentId, toolName, projectId?, createdAt }`: an "Always allow" holds for one agent, one tool and one project — no `projectId` = outside projects, `"*"` = every project, kept from before grants were per project) · *(admin:)* `permission:revoke { agentId, toolName, projectId? }`
 - **Activity:** `events:recent { limit?, conversationId? }`
+- **Push and settings sync:** `agents:pushSettings` · `cloud:syncStatus` · *(admin:)* `agents:setPushSettings { enabled }` · `cloud:syncPush` · `cloud:syncPull`
+- **Databases** (admin devices, or with remote shells): `mongo:connections` · `mongo:databases` · `mongo:collections` · `mongo:find` · `mongo:indexes` · *(only with remote shells:)* `mongo:add` · `mongo:remove` · `mongo:insert` · `mongo:replace` · `mongo:delete` · `mongo:aggregate` · `mongo:createCollection` · `mongo:dropCollection`
 - **Terminal** (only with remote shells): `terminal:create` · `terminal:list` · `terminal:attach` · `terminal:write` · `terminal:resize` · `terminal:kill`
 
 ## 5. React Native sketch
