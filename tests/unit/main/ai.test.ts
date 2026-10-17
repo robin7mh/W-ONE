@@ -537,6 +537,11 @@ describe('built-in tools', () => {
     expect(await run(t, 'project_write_file', { path: 'new/dir/b.ts', content: 'hello', reason: 'r' }, 'p1')).toBe(`Wrote ${join('new', 'dir', 'b.ts')} (5 characters)`)
     expect(await readFile(join(root, 'new', 'dir', 'b.ts'), 'utf8')).toBe('hello')
     expect(await run(t, 'project_write_file', { path: '.', content: '', reason: 'r' }, 'p1').catch((e) => e.code)).toBeDefined()
+    // A dangling link in the project never writes outside it (BE-SEC-02).
+    const elsewhere = await tempDir()
+    await symlink(join(elsewhere, 'autostart.desktop'), join(root, 'setup.md'))
+    await expect(run(t, 'project_write_file', { path: 'setup.md', content: 'x', reason: 'r' }, 'p1')).rejects.toMatchObject({ code: 'outside-project' })
+    expect(await readdir(elsewhere)).toEqual([])
     expect(summary(t, 'project_write_file', { path: 'a', content: 'xyz' })).toBe('Write 3 characters to a')
     expect(summary(t, 'project_read_file', { path: 'a' })).toBe('Read the file a')
     expect(summary(t, 'project_list_files', {})).toBe('List the files in the project root')

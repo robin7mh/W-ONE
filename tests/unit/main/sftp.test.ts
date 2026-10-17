@@ -107,6 +107,17 @@ describe('SFTP (.vscode/sftp.json like the VS Code extension)', () => {
     await expect(service.list('p', 'Nope')).rejects.toMatchObject({ code: 'not-found' })
   })
 
+  it('a download never lands outside the project through a dangling link of the same name (BE-SEC-02)', async () => {
+    const { root, remote } = await project({ name: 'T', host: 'h', remotePath: '/app', context: 'site' })
+    const elsewhere = await tempDir()
+    await mkdir(join(remote, 'app'), { recursive: true })
+    await writeFile(join(remote, 'app/setup.sh'), 'evil')
+    await symlink(join(elsewhere, 'autostart.sh'), join(root, 'site/setup.sh'))
+    const { service } = make(root, fakeServer(remote).client)
+    await expect(service.download('p', 'T', ['setup.sh'])).rejects.toMatchObject({ code: 'outside-project' })
+    expect(await readdir(elsewhere)).toEqual([])
+  })
+
   it('signs in with a key (with ~), else the SSH agent; FTP is not supported; a failing close is ignored', async () => {
     const home = await tempDir('mindeck-home-')
     await mkdir(join(home, '.ssh'))
