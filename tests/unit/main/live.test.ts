@@ -1,9 +1,10 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:http'
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createServer, request } from 'node:http'
+import { connect } from 'node:net'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { tempDir } from './helpers'
-import { inject, listen, LiveServerService, matchesGlob, RELOAD_SCRIPT, unchanged } from '../../../electron/main/services/live/LiveServerService'
+import { inject, isPrivatePath, listen, LiveServerService, matchesGlob, RELOAD_SCRIPT, unchanged } from '../../../electron/main/services/live/LiveServerService'
 import { outputPath, SassService, type SassCompiler } from '../../../electron/main/services/live/SassService'
 import { liveServerSettings, sassSettings } from '../../../electron/main/services/migrate/MigrateService'
 import type { LiveServerSettings, SassSettings } from '@shared/types/migrate'
@@ -87,6 +88,57 @@ describe('Live Server', () => {
     await service.stop('p')
     expect(service.status()).toEqual([])
     expect(published.at(-1)).toEqual([])
+  })
+
+  it('answers only to its own name (DNS rebinding), never serves dotfiles or keys, refuses broken URLs (BE-SEC-11, BE-BUG-05)', async () => {
+    const root = await site()
+    await writeFile(join(root, 'public/.env'), 'SECRET=1')
+    await mkdir(join(root, 'public/.git'))
+    await writeFile(join(root, 'public/.git/config'), '[remote] url = https://x:ghp_token@github.com/a/b')
+    await mkdir(join(root, 'public/.well-known'))
+    await writeFile(join(root, 'public/.well-known/security.txt'), 'Contact: me')
+    await writeFile(join(root, 'public/server.pem'), 'KEY')
+    await symlink('.env', join(root, 'public/config.txt'))
+    const { service } = make(root, { root: 'public', port: 0, noBrowser: true })
+    const status = await service.start('p')
+    const get = (path: string, host: string) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port: status.port, path, headers: { host } }, (res) => {
+          let body = ''
+          res.on('data', (c) => (body += c))
+          res.on('end', () => resolve({ status: res.statusCode!, body }))
+        })
+        req.on('error', reject)
+        req.end()
+      })
+    // A page whose name was rebound to 127.0.0.1 still sends its own name.
+    expect(await get('/index.html', `evil.example:${status.port}`)).toEqual({ status: 403, body: 'Forbidden' })
+    expect((await get('/__mindeck_live', 'evil.example')).status).toBe(403)
+    // No name at all (HTTP/1.0 may leave it out).
+    const raw = await new Promise<string>((resolve) => {
+      let text = ''
+      const socket = connect(status.port, '127.0.0.1', () => socket.end('GET /index.html HTTP/1.0\r\n\r\n'))
+      socket.on('data', (c) => (text += c))
+      socket.on('close', () => resolve(text))
+    })
+    expect(raw).toMatch(/^HTTP\/1\.\d 403/)
+    for (const host of [`127.0.0.1:${status.port}`, `localhost:${status.port}`, 'LOCALHOST', `[::1]:${status.port}`]) expect((await get('/index.html', host)).status, host).toBe(200)
+    // Dotfiles, keys and links to them: as if they were not there.
+    for (const path of ['/.env', '/.git/config', '/.git/', '/server.pem', '/config.txt', '/%2Eenv']) {
+      const res = await get(path, '127.0.0.1')
+      expect(res.status, path).toBe(404)
+      expect(res.body).not.toMatch(/SECRET|ghp_|KEY/)
+    }
+    expect(await get('/.well-known/security.txt', '127.0.0.1')).toEqual({ status: 200, body: 'Contact: me' })
+    await writeFile(join(root, 'public/empty/id_rsa'), 'KEY')
+    await writeFile(join(root, 'public/empty/.env.local'), 'SECRET=2')
+    const listing = (await get('/empty/', '127.0.0.1')).body
+    expect(listing).toContain('notes.txt')
+    expect(listing).not.toMatch(/id_rsa|\.env/)
+    // Broken percent-encoding: a 400, not a hanging request.
+    expect(await get('/%E0%A4%A', '127.0.0.1')).toEqual({ status: 400, body: 'Bad request' })
+    expect(isPrivatePath('a/.htaccess')).toBe(true)
+    expect(isPrivatePath('a/b.html')).toBe(false)
   })
 
   it('reloads pages on changes, swaps styles in place, ignores what it should', async () => {

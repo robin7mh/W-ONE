@@ -31,6 +31,11 @@ const DENIED: readonly RegExp[] = [
   /^(cookies|login data|web data|key4\.db|logins\.json|cookies\.sqlite)$/
 ]
 
+/** A file or folder name on the deny list (keys, credentials, browser profiles), ignoring case. */
+export function isDeniedName(name: string): boolean {
+  return DENIED.some((re) => re.test(name.toLowerCase()))
+}
+
 /** The operating system's own folders: never a device's, nor any folder that holds one. */
 function systemDirs(platform: NodeJS.Platform): string[] {
   if (platform === 'win32') {
@@ -161,7 +166,7 @@ export class RemoteAccess {
    */
   denied(path: string): string | undefined {
     const segments = path.split(/[\\/]+/).map((s) => (this.path === win32 ? s.replace(/:.*$/, '').replace(/[. ]+$/, '') : s))
-    return segments.find((segment) => DENIED.some((re) => re.test(segment.toLowerCase())))
+    return segments.find(isDeniedName)
   }
 
   /** An existing folder a device may add (project, vault) or browse: its canonical path. */
@@ -195,7 +200,7 @@ export class RemoteAccess {
   async dirs(path?: string): Promise<DirListing> {
     const visible = (listing: DirListing): DirListing => ({
       ...listing,
-      dirs: listing.dirs.filter((name) => !DENIED.some((re) => re.test(name.toLowerCase())))
+      dirs: listing.dirs.filter((name) => !isDeniedName(name))
     })
     if (this.deps.remoteShell()) return visible(await this.deps.dirs(path))
     const roots = await this.roots()
@@ -241,7 +246,7 @@ export class RemoteAccess {
     if (guarded.some((d) => this.inside(abs, d) || this.inside(d, abs))) return "Mindeck's own data"
     const segments = abs.split(/[\\/]+/)
     if (segments.some((s) => s.startsWith('.'))) return 'a hidden folder'
-    if (segments.some((s) => DENIED.some((re) => re.test(s.toLowerCase())))) return 'keys or credentials'
+    if (segments.some(isDeniedName)) return 'keys or credentials'
     return null
   }
 
