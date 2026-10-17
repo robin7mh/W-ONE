@@ -8,7 +8,9 @@ import { basename, join } from 'node:path'
 import type { RemoteConnection, SshHost } from '@shared/types/remote'
 import type { CloudAccount } from '@shared/types/cloud'
 import type { PairResult } from '@shared/types/server'
+import { spawnNode, type NodeLauncher, type NodeProcess } from '../../lib/nodeProcess'
 import { spawnInShell } from '../debug/adapters'
+import { userEnv } from '../tools/ToolsService'
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code })
@@ -32,8 +34,10 @@ export interface RemoteOptions {
   publish: (connections: RemoteConnection[]) => void
   /** The ssh config with the hosts (default ~/.ssh/config). */
   sshConfig?: string
-  /** The Dev Containers CLI (`devcontainer up`): command, arguments, environment. */
-  devcontainer?: (root: string) => [string, string[], Record<string, string>?]
+  /** How the Dev Containers CLI runs as a Node program (Platform.node). */
+  node?: NodeLauncher
+  /** Start the Dev Containers CLI's `devcontainer up` for a project (default: defaultDevcontainer). */
+  devcontainer?: (root: string) => Promise<NodeProcess>
   start?: Start
   fetch?: typeof fetch
   /** How often the entitlement is handed over again. */
@@ -127,7 +131,7 @@ export class RemoteService {
     this.opts = {
       start: (command, args, env) => spawnInShell(command, args, homedir(), env),
       fetch: globalThis.fetch,
-      devcontainer: defaultDevcontainer,
+      devcontainer: defaultDevcontainer(opts.node ?? spawnNode),
       licenseMs: 60_000,
       timeoutMs: 60_000,
       hostsFile: opts.sshConfig ?? join(homedir(), '.ssh', 'config'),
@@ -172,8 +176,7 @@ export class RemoteService {
     if (!this.hasContainer(root)) throw coded('no-devcontainer', 'This project has no .devcontainer/devcontainer.json')
     const name = basename(root)
     return this.connect(`container:${root}`, 'container', `Container: ${name}`, async (live) => {
-      const [cli, args, env] = this.opts.devcontainer(root)
-      const up = await this.collect(this.start(cli, args, env), 10 * 60_000)
+      const up = await this.collect(await this.opts.devcontainer(root), 10 * 60_000)
       const result = up.stdout
         .split('\n')
         .reverse()
@@ -338,7 +341,7 @@ export class RemoteService {
   }
 
   /** Run to the end: exit code and output. */
-  private collect(proc: ChildProcess, timeoutMs = this.opts.timeoutMs): Promise<{ code: number; stdout: string; stderr: string }> {
+  private collect(proc: NodeProcess, timeoutMs = this.opts.timeoutMs): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
       let stdout = ''
       let stderr = ''
@@ -403,7 +406,8 @@ const lastLine = (text: string): string | undefined =>
     .filter(Boolean)
     .pop()
 
-/** The Dev Containers CLI that ships with Mindeck, run by Mindeck's own Node (Electron as Node). */
-export function defaultDevcontainer(root: string): [string, string[], Record<string, string>] {
-  return [process.execPath, [require.resolve('@devcontainers/cli/devcontainer.js'), 'up', '--workspace-folder', root], { ELECTRON_RUN_AS_NODE: '1' }]
+/** The Dev Containers CLI that ships with Mindeck, run as a Node program; it finds docker on the user's PATH. */
+export function defaultDevcontainer(node: NodeLauncher, env: () => Promise<Record<string, string>> = userEnv): (root: string) => Promise<NodeProcess> {
+  return async (root) =>
+    node([require.resolve('@devcontainers/cli/devcontainer.js'), 'up', '--workspace-folder', root], { cwd: homedir(), env: await env(), name: 'Dev Containers' })
 }

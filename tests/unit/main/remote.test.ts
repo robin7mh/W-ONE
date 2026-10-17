@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -98,7 +99,9 @@ function api(opts: { tokenOk?: boolean; pair?: 'ok' | 'refuse'; adopt?: 'ok' | '
 const services: RemoteService[] = []
 afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 
-async function setup(o: { machine?: ReturnType<typeof machine>; api?: ReturnType<typeof api>; saved?: string; entitlement?: boolean; window?: boolean; licensed?: boolean } = {}) {
+async function setup(
+  o: { machine?: ReturnType<typeof machine>; api?: ReturnType<typeof api>; saved?: string; entitlement?: boolean; window?: boolean; licensed?: boolean; node?: RemoteOptions['node'] } = {}
+) {
   const dir = await tempDir('mindeck-remote-')
   const bundle = join(dir, 'pkg.tar.gz')
   await writeFile(bundle, 'TARBALL')
@@ -126,7 +129,7 @@ async function setup(o: { machine?: ReturnType<typeof machine>; api?: ReturnType
           },
     publish: (list) => published.push(list),
     sshConfig: join(dir, 'ssh_config'),
-    devcontainer: (root) => ['devcontainer', ['up', '--workspace-folder', root], { X: '1' }],
+    ...(o.node ? { node: o.node } : { devcontainer: async (root: string) => m.start('devcontainer', ['up', '--workspace-folder', root], { X: '1' }) }),
     start: m.start,
     fetch: a.fetch as never,
     licenseMs: 20,
@@ -171,7 +174,22 @@ Match host x
       'cd "$HOME/.mindeck-server/1.2.3" && MINDECK_HOME="$HOME/.mindeck" MINDECK_PORT=4000 MINDECK_REMOTE_TERMINAL=1 MINDECK_EXIT_WITH_STDIN=1 MINDECK_LICENSE=follower NODE_ENV=production exec ./node out/server/index.cjs'
     )
     expect(coreCommand('1.2.3', 4000, false)).not.toContain('follower')
-    expect(defaultDevcontainer('/p')).toEqual([process.execPath, [expect.stringMatching(/@devcontainers[/\\]cli[/\\]devcontainer\.js$/), 'up', '--workspace-folder', '/p'], { ELECTRON_RUN_AS_NODE: '1' }])
+  })
+
+  it('runs the Dev Containers CLI as a Node program — no ELECTRON_RUN_AS_NODE — with the user’s PATH (docker)', async () => {
+    const proc = new FakeProc('devcontainer')
+    const node = vi.fn(() => proc as never)
+    expect(await defaultDevcontainer(node, async () => ({ PATH: '/opt/homebrew/bin:/usr/bin' }))('/p')).toBe(proc)
+    expect(node).toHaveBeenCalledWith([expect.stringMatching(/@devcontainers[/\\]cli[/\\]devcontainer\.js$/), 'up', '--workspace-folder', '/p'], {
+      cwd: homedir(),
+      env: { PATH: '/opt/homebrew/bin:/usr/bin' },
+      name: 'Dev Containers'
+    })
+    // By default the login shell's PATH (userEnv).
+    await defaultDevcontainer(node)('/q')
+    const env = (node.mock.calls[1] as unknown as [string[], { env: Record<string, string> }])[1].env
+    expect(env.PATH).toContain(process.env.PATH)
+    expect(env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
   })
 })
 
@@ -351,6 +369,14 @@ describe('Dev Containers', () => {
 
     await t.svc.disconnect(c.id)
     expect(t.svc.list()[0].state).toBe('closed')
+  })
+
+  it('runs the bundled Dev Containers CLI with the platform’s Node (a utility process on the desktop)', async () => {
+    const m = machine()
+    const node = vi.fn((args: string[]) => m.start('node', args) as never)
+    const t = await setup({ machine: m, node })
+    await t.svc.container(await project())
+    expect(node.mock.calls[0][0]).toEqual([expect.stringMatching(/devcontainer\.js$/), 'up', '--workspace-folder', expect.stringMatching(/my-app$/)])
   })
 
   it('a container that won’t come up says why', async () => {

@@ -225,6 +225,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   const lsp = new LspService({
     resolveRoot: (id) => projects.getProjectPath(id),
     trusted: (id) => trust.project(id),
+    node: platform.node,
     servers: { tools: devTools, onDiagnostics: hub.publish.bind(hub, 'lsp:diagnostics') }
   })
   // Trusted (or restricted again): TypeScript switches to the project's own (or Mindeck's), other servers restart.
@@ -233,7 +234,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     resolveRoot: (id) => projects.getProjectPath(id),
     publish: (channel, payload) => hub.publish(channel, payload as never),
     tools: devTools,
-    lsp
+    lsp,
+    node: platform.node
   })
   // A headless core has no desktop to give roles: its first paired device is admin.
   const auth = new AuthService(paths.devicesFile, undefined, opts.mode === 'server')
@@ -497,11 +499,12 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
       hub.publish('remote:changed', list)
       cloud.setRemoteSessions(list.filter((c) => c.state === 'ready').length)
     },
-    sshConfig: process.env.MINDECK_SSH_CONFIG || undefined
+    sshConfig: process.env.MINDECK_SSH_CONFIG || undefined,
+    node: platform.node
   })
   registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
   // ESLint and Prettier: the project's own, in a worker per project.
-  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (id) => trust.project(id), prettier: bundledPrettier() })
+  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (id) => trust.project(id), prettier: bundledPrettier(), node: platform.node })
   registerLintIpc(router, lint)
   // The test explorer: the project's runners, Mindeck's debugger.
   const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (id) => trust.project(id), publish: hub.publish.bind(hub, 'notebook:event') })

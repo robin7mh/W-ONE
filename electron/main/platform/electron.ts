@@ -1,7 +1,8 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, session, shell, utilityProcess } from 'electron'
 import { rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { utilityNode } from '../lib/nodeProcess'
 import type { Cipher } from '../services/ai/SecretStore'
 import { fileClipboard } from './fileClipboard'
 import { guardSession } from './sessionGuard'
@@ -53,6 +54,8 @@ export const electronPlatform: Platform = {
   trashItem: osTrash,
   restorableTrash: desktopTrash({ platform: process.platform, env: process.env, home: homedir(), trashItem: osTrash }),
   fileClipboard: fileClipboard(clipboard, (data) => new ClipboardItem(data), process.platform),
+  // Next to the main bundle: out/main/nodeHost.js (electron.vite.config.ts).
+  node: utilityNode((modulePath, args, options) => utilityProcess.fork(modulePath, args, options), join(__dirname, 'nodeHost.js')),
   openRemoteWindow({ title, url, token, deviceId }) {
     // Another machine's page asks for nothing: no microphone, camera, location, screen — nor this machine's clipboard.
     guardSession(session.fromPartition(REMOTE_PARTITION), () => false)
