@@ -158,7 +158,8 @@ system folders, Mindeck's own data folder, and keys and credentials by name (`.s
 
 Approvals from a device: `deny` always works, read requests may be allowed; changes (`write`) and
 commands (`execute`) can be allowed only while remote shells are on (`remote-terminal-disabled`
-otherwise). `always` from a device counts as `once`, and requests reach devices with
+otherwise). An agent that wants to read outside its folder (or keys and credentials) or fetch a web
+page asks with `risk: "write"`: what it reads could leave with it. `always` from a device counts as `once`, and requests reach devices with
 `allowAlways: false` — "Always allow" is given at the desktop only. An assistant run started by a
 device uses no write or command tool without remote shells.
 

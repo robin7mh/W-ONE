@@ -12,7 +12,7 @@ import {
   type SessionUpdate
 } from '@agentclientprotocol/sdk'
 import { onCleanup, tempDir, tick } from './helpers'
-import { ACP_AGENTS, applyAcpUpdate, findAcpTool, kindRisk, openTurn, pickOption, spawnAcp, type AcpProcess } from '../../../electron/main/services/agents/acp'
+import { ACP_AGENTS, acpApprovalRisk, applyAcpUpdate, findAcpTool, kindRisk, openTurn, pickOption, spawnAcp, type AcpProcess } from '../../../electron/main/services/agents/acp'
 import { AgentSessionService, type AgentSessionDeps } from '../../../electron/main/services/agents/AgentSessionService'
 import { GitService } from '../../../electron/main/services/git/GitService'
 import type { SessionState } from '../../../electron/main/services/agents/transcript'
@@ -61,6 +61,13 @@ describe('ACP updates → chat, tools, plan', () => {
     expect((['read', 'search', 'think', 'fetch', 'edit', 'delete', 'move', 'execute', 'other', undefined, null] as const).map(kindRisk)).toEqual([
       'read', 'read', 'read', 'read', 'write', 'write', 'write', 'execute', 'execute', 'execute', 'execute'
     ])
+    // Approvals: fetching and reading outside the session's folder count as changes (BE-SEC-17).
+    expect(acpApprovalRisk('fetch', [], '/w')).toBe('write')
+    expect(acpApprovalRisk('read', ['/w/src/a.ts', 'src/b.ts'], '/w')).toBe('read')
+    expect(acpApprovalRisk('read', ['/w/a.ts', '/home/me/.ssh/id_ed25519'], '/w')).toBe('write')
+    expect(acpApprovalRisk('search', ['../other'], '/w')).toBe('write')
+    expect(acpApprovalRisk('edit', ['/etc/x'], '/w')).toBe('write')
+    expect(acpApprovalRisk('execute', [], '/w')).toBe('execute')
     const options = [
       { optionId: 'a1', name: 'Allow', kind: 'allow_once' as const },
       { optionId: 'aa', name: 'Always', kind: 'allow_always' as const },
@@ -288,6 +295,8 @@ describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
       await conn.sessionUpdate({ sessionId: req.sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 'e', title: 'Edit a.ts', kind: 'edit' } })
       answers.push(await conn.requestPermission({ sessionId: req.sessionId, toolCall: { toolCallId: 'e', title: 'Edit a.ts', kind: 'edit' }, options: [{ optionId: 'no', name: 'Reject', kind: 'reject_once' }] }))
       answers.push(await conn.requestPermission({ sessionId: req.sessionId, toolCall: { toolCallId: 'unseen' }, options: [{ optionId: 'ok', name: 'Allow', kind: 'allow_once' }] }))
+      // Reading outside the folder counts as a change (BE-SEC-17).
+      answers.push(await conn.requestPermission({ sessionId: req.sessionId, toolCall: { toolCallId: 'r', title: 'Read key', kind: 'read', locations: [{ path: '/etc/ssh/ssh_host_rsa_key' }] }, options: [{ optionId: 'no', name: 'Reject', kind: 'reject_once' }] }))
       return { stopReason: 'cancelled' }
     }
     t.svc.send(s.id, 'edit it')
@@ -297,8 +306,11 @@ describe('AgentSessionService with ACP agents (Codex, Gemini)', () => {
     while (t.asks.length < 2) await tick(5)
     expect(t.asks[1].input).toMatchObject({ toolName: 'other', toolTitle: 'tool', risk: 'execute' })
     t.asks[1].settle('deny') // no reject option offered → cancelled
+    while (t.asks.length < 3) await tick(5)
+    expect(t.asks[2].input).toMatchObject({ toolName: 'read', risk: 'write' })
+    t.asks[2].settle('deny')
     await t.settled(s.id, 'idle')
-    expect(answers).toEqual([{ outcome: { outcome: 'selected', optionId: 'no' } }, { outcome: { outcome: 'cancelled' } }])
+    expect(answers).toEqual([{ outcome: { outcome: 'selected', optionId: 'no' } }, { outcome: { outcome: 'cancelled' } }, { outcome: { outcome: 'selected', optionId: 'no' } }])
     expect(t.svc.get(s.id).messages[1].parts[0]).toMatchObject({ id: 'e', status: 'denied' })
     expect(t.svc.get(s.id).messages[1].status).toBe('cancelled')
 
