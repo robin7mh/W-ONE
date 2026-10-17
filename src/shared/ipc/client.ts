@@ -60,6 +60,15 @@ export async function ipc<K extends IpcChannel>(
 }
 
 /**
+ * Run `cb` whenever the push channel reconnected after an outage (web UI,
+ * phone): events of the gap are gone, so reload what they would have changed.
+ * Never fires on the desktop, whose bridge cannot drop events.
+ */
+export function onResync(cb: () => void): () => void {
+  return currentTransport()?.onResync?.(cb) ?? (() => {})
+}
+
+/**
  * Subscribe to a push event. Returns an unsubscribe function. No-ops (returns
  * a noop unsubscribe) without a transport so callers stay simple.
  */

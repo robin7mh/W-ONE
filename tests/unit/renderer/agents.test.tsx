@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fail, installBridge, settle, choose } from './bridge'
+import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { AgentInfo, AiStatus, ChatMessage, Conversation, ConversationSummary, PermissionRequest } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
 import { applyDelta, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
@@ -171,6 +171,76 @@ describe('assistant store', () => {
     await settle()
     expect(bridge.invoke).not.toHaveBeenCalledWith('ai:status', undefined)
     off()
+  })
+
+  it('after an outage of the push channel: reloads approvals, statuses and the open chat (the gap is lost otherwise)', async () => {
+    let pending = [request()]
+    let conv: Conversation = { ...summary('c1'), messages: [msg('a1', { parts: [{ type: 'text', text: 'Hel' }], status: 'streaming' })] }
+    const remote = installRemote({
+      'ai:status': () => status(),
+      'ai:agents': () => agents,
+      'ai:conversations': () => [summary('c1', { running: true }), summary('c2')],
+      'permission:pending': () => pending,
+      'events:recent': () => [],
+      'ai:conversation': (p: { id: string }) => (p.id === 'c1' ? conv : { ...summary('c2'), messages: [msg('b1', { parts: [{ type: 'text', text: 'c2 fresh' }] })] })
+    })
+    const off = useAssistant.getState().connect()
+    await settle()
+    await useAssistant.getState().open('c2')
+    await useAssistant.getState().open('c1')
+    act(() => remote.emit('ai:message', { conversationId: 'c1', message: msg('live', { role: 'user' }), running: true }))
+    expect(useAssistant.getState().pending.map((p) => p.id)).toEqual(['req1'])
+
+    // The socket was down: req1 was answered elsewhere, req2 came, the answer went on streaming.
+    pending = [request({ id: 'req2' })]
+    conv = { ...conv, running: false, messages: [msg('a1', { parts: [{ type: 'text', text: 'Hello world' }] })] }
+    await act(async () => {
+      remote.resync()
+      await settle()
+    })
+    const s = useAssistant.getState()
+    expect(s.pending.map((p) => p.id)).toEqual(['req2'])
+    expect(s.running.c1).toBe(false)
+    // The core's copy wins over the gappy live one; what only arrived live stays.
+    expect(s.messages.c1.map((m) => [m.id, m.parts[0]?.type === 'text' ? m.parts[0].text : ''])).toEqual([
+      ['a1', 'Hello world'],
+      ['live', '']
+    ])
+    // Other cached chats come fresh when opened again.
+    expect(s.messages.c2).toBeUndefined()
+
+    // No open chat: only the lists reload; a failing reload is reported.
+    act(() => useAssistant.setState({ activeId: undefined }))
+    await act(async () => {
+      remote.resync()
+      await settle()
+    })
+    expect(useAssistant.getState().messages).toEqual({})
+    act(() => useAssistant.setState({ activeId: 'c1' }))
+    remote.routes['ai:conversation'] = () => fail('gone')
+    await act(async () => {
+      remote.resync()
+      await settle()
+    })
+    expect(useAssistant.getState().error).toBe('gone')
+    off()
+    expect(remote.resyncs.size).toBe(0)
+  })
+
+  it('a slow answer for a chat no longer open does not set the project of the next message', async () => {
+    const answers: Record<string, (c: Conversation) => void> = {}
+    core({ 'ai:conversation': (p: { id: string }) => new Promise<Conversation>((r) => (answers[p.id] = r)) })
+    const a = useAssistant.getState().open('A')
+    const b = useAssistant.getState().open('B')
+    answers.B({ ...summary('B'), projectId: 'pB', messages: [msg('b1')] })
+    await b
+    answers.A({ ...summary('A'), projectId: 'pA', messages: [msg('a1')] })
+    await a
+    const s = useAssistant.getState()
+    expect(s.activeId).toBe('B')
+    expect(s.projectId).toBe('pB')
+    // A's messages are still cached for later.
+    expect(s.messages.A.map((m) => m.id)).toEqual(['a1'])
   })
 
   it('connects once (ref-counted), loads everything and follows push events', async () => {
