@@ -283,7 +283,7 @@ export const de: Dict = {
     code: 'Kopplungscode',
     deviceName: 'Gerätename',
     remember: 'In diesem Browser gekoppelt bleiben',
-    rememberHint: 'Auf einem geteilten Rechner ausschalten: Die Kopplung endet dann mit diesem Tab, beim nächsten Mal koppelst du neu.',
+    rememberHint: 'Auf einem geteilten Rechner ausschalten: Die Kopplung endet dann, wenn du den Browser schließt; beim nächsten Mal koppelst du neu.',
     submit: 'Gerät koppeln',
     noLongerPaired: 'Dieses Gerät ist nicht mehr gekoppelt',
     noCore: 'Unter dieser Adresse hat kein Mindeck-Core geantwortet',

@@ -289,7 +289,7 @@ export const en = {
     code: 'Pairing code',
     deviceName: 'Device name',
     remember: 'Stay paired on this browser',
-    rememberHint: 'Turn off on a shared computer: the pairing then ends with this tab, and you pair again next time.',
+    rememberHint: 'Turn off on a shared computer: the pairing then ends when the browser closes, and you pair again next time.',
     submit: 'Pair device',
     noLongerPaired: 'This device is no longer paired',
     noCore: 'No Mindeck core answered at this address',
