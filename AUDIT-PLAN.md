@@ -11,6 +11,42 @@
 
 ---
 
+## 0. Umsetzungsstand (2026-10-17)
+
+Die Findings dieses Plans wurden auf `feature/claude-remote` umgesetzt, jeder Fix mit Regressionstest (Commits `fix(security): … (ID)`, `fix: … (ID)`).
+
+| | Anzahl |
+|---|---|
+| ✅ behoben | 55 |
+| ⚠️ teilweise (Rest braucht anderes Repo oder größeren Umbau) | 9 |
+| ⏭️ bewusst offen | 1 (BE-SEC-14) |
+
+**Prüfung nach dem Zusammenführen:** `npm run typecheck` ✅ · `npm run lint` (neu) ✅ · Vitest 2085/2087 ✅. Die 2 roten Tests hängen an der Container-Umgebung: `tests.test` „unreadable folder“ läuft als root, `notebook` „too slow“ ist nur unter Volllast zu langsam und einzeln grün. `npm audit --omit=dev`: nur noch 2 × niedrig (DOMPurify in Monaco, N7).
+
+**Verhaltensänderungen, die man kennen muss:**
+- **Workspace-Trust:** Neu hinzugefügte Projekte sind *eingeschränkt*, bis man im Editor-Banner „Diesem Projekt vertrauen“ klickt. Bis dahin laufen keine projekteigenen Tools: tsserver, ESLint/Prettier, andere Sprachserver, Notebooks, SFTP-Config. Git läuft gehärtet (keine Repo-Hooks/fsmonitor/Treiber). Bestehende Projekte gelten beim Upgrade als vertraut.
+- **Netzwerk-API:**
+  - Host-Allowlist: Zugriff über Reverse-Proxy- oder Tailscale-Namen braucht `MINDECK_ALLOWED_HOSTS`.
+  - Der `?token=`-Fallback im WebSocket ist entfernt.
+  - Geräte-Tokens laufen nach 90 Tagen ohne Nutzung ab.
+  - `/api/health` zeigt die Version nur noch mit Token.
+- **Gekoppelte `member`-Geräte:** Vault, Daily Notes, AI-Einstellungen, Push, Sync und Trust nur noch `admin`. Mongo und Inline-AI nur mit Remote-Shells.
+- **Electron:** Kamera, Mikrofon, Standort und Clipboard-Lesen werden abgelehnt (außer Clipboard-Lesen für die App selbst). Das Remote-Fenster speichert nichts mehr auf der Platte. Scheitert der Start, kommt ein Fehlerdialog statt eines Zombie-Prozesses.
+- **Release/CI:**
+  - Typecheck und Coverage laufen vor jedem Build und Release, Lint läuft in der CI.
+  - Tag-Builds ohne Signatur-Secrets schlagen fehl.
+  - Actions sind per SHA gepinnt, Dependabot ist aktiv.
+  - Server-Pakete werden mit eingebackenem SHA-256 geprüft.
+- **Docker:** `read_only`, `cap_drop: ALL` und `no-new-privileges` sind gesetzt. Projekte liegen standardmäßig in `./projects` (Lesen und Schreiben per `MINDECK_PROJECTS_MODE=rw`).
+
+**Folgearbeit in anderen Repos:**
+- **mindeck-mobile:** auf SPKI-Pinning (`&pk=`) umstellen, `sync:shared` laufen lassen (neue Zugriffsklasse `trusted`), `401` bei abgelaufenem Token sauber behandeln.
+- **mindeck-cloud:** Follower-Leases ausstellen (BE-SEC-09) und Größe von `/v1/me/sync` begrenzen.
+
+In der Checkliste (Abschnitt 5) heißt `[x]` erledigt und `[~]` teilweise erledigt. Was bei `[~]` noch fehlt, steht in der Zeile darunter.
+
+---
+
 ## 1. Kurzfazit / Gesamtbewertung
 
 **Gesamtbewertung: gut, aber mit 5 hohen Punkten, die vor einem breiten Release behoben werden sollten.** Kritische Lücken gibt es keine.
@@ -642,77 +678,87 @@ Für den Frontend-Teil gibt es kein Problem: Renderer 935/935 grün. Kein `.only
 
 ### Phase 1 – sofort (vor einem breiten Release)
 
-- [ ] **BE-SEC-01** (🟠) – Kein Workspace-Trust: ein bösartiges Repo führt beim Öffnen Code aus
-- [ ] **BE-SEC-02** (🟠) – `confine()` lässt sich mit dangling Symlinks umgehen → Schreiben außerhalb des Projekts
-- [ ] **BE-SEC-03** (🟠) – Windows: `git` ohne absoluten Pfad mit `cwd` = Projekt (Binary-Planting) – *zu verifizieren auf Windows*
-- [ ] **BE-SEC-04** (🟠) – Remote-Fenster und Hauptfenster ohne Permission-Handler (Mikrofon, Kamera, Clipboard-Lesen, Standort)
-- [ ] **FE-SEC-01** (🟠) – Markdown-Sanitizer lässt `<style>`, `style`/`class`-Attribute und Formulare durch: globales CSS-Injection/UI-Redressing und Phishing-Formulare
-- [ ] **BE-SEC-09** (🟡) – Lizenz: Follower-Modus per Umgebungsvariable auch in Release-Builds; `cloud:adopt` prüft weder Gerät noch Ablauf
-- [ ] **BE-SEC-13** (🟡) – `npm audit --omit=dev`: node-forge (hoch) über `selfsigned@2.4.1`
-- [ ] **BE-BUG-01** (🟡) – `mindeck pair` / `docker:pair`: Code wird vom laufenden Core wieder gelöscht (veralteter Cache)
-- [ ] **BE-BUG-02** (🟡) – `SecretStore.set`: Lost Update bei parallelen Aufrufen
-- [ ] **BE-BUG-03** (🟡) – Startfehler des Cores → unsichtbarer Zombie-Prozess, der die Single-Instance-Sperre hält
-- [ ] **FE-SEC-02** (🟡) – Die Freigabekarte kann den eigentlichen Befehl verstecken (Abschneiden, kollabierte Zeilenumbrüche, Unicode-Tricks)
-- [ ] **FE-SEC-04** (🟡) – Reverse Tabnabbing im Web-UI durch `window.open` ohne `noopener`
-- [ ] **FE-BUG-02** (🟡) – Memory: Race zwischen Autosave und Notizwechsel kann den Entwurf von Notiz B in Notiz A schreiben
+- [x] **BE-SEC-01** (🟠) – Kein Workspace-Trust: ein bösartiges Repo führt beim Öffnen Code aus
+- [x] **BE-SEC-02** (🟠) – `confine()` lässt sich mit dangling Symlinks umgehen → Schreiben außerhalb des Projekts
+- [x] **BE-SEC-03** (🟠) – Windows: `git` ohne absoluten Pfad mit `cwd` = Projekt (Binary-Planting) – *zu verifizieren auf Windows*
+- [x] **BE-SEC-04** (🟠) – Remote-Fenster und Hauptfenster ohne Permission-Handler (Mikrofon, Kamera, Clipboard-Lesen, Standort)
+- [x] **FE-SEC-01** (🟠) – Markdown-Sanitizer lässt `<style>`, `style`/`class`-Attribute und Formulare durch: globales CSS-Injection/UI-Redressing und Phishing-Formulare
+- [~] **BE-SEC-09** (🟡) – Lizenz: Follower-Modus per Umgebungsvariable auch in Release-Builds; `cloud:adopt` prüft weder Gerät noch Ablauf
+  - ⚠️ teilweise: Follower nur noch im Server-Paket (`MINDECK_FOLLOWER_BUILD`), `cloud:adopt` lehnt abgelaufene/inaktive/Offline-Entitlements ab. **Offen:** echte Gerätebindung braucht Follower-Leases aus mindeck-cloud.
+- [x] **BE-SEC-13** (🟡) – `npm audit --omit=dev`: node-forge (hoch) über `selfsigned@2.4.1`
+- [x] **BE-BUG-01** (🟡) – `mindeck pair` / `docker:pair`: Code wird vom laufenden Core wieder gelöscht (veralteter Cache)
+- [x] **BE-BUG-02** (🟡) – `SecretStore.set`: Lost Update bei parallelen Aufrufen
+- [x] **BE-BUG-03** (🟡) – Startfehler des Cores → unsichtbarer Zombie-Prozess, der die Single-Instance-Sperre hält
+- [x] **FE-SEC-02** (🟡) – Die Freigabekarte kann den eigentlichen Befehl verstecken (Abschneiden, kollabierte Zeilenumbrüche, Unicode-Tricks)
+- [x] **FE-SEC-04** (🟡) – Reverse Tabnabbing im Web-UI durch `window.open` ohne `noopener`
+- [x] **FE-BUG-02** (🟡) – Memory: Race zwischen Autosave und Notizwechsel kann den Entwurf von Notiz B in Notiz A schreiben
 
 ### Phase 2 – kurzfristig
 
-- [ ] **BE-SEC-05** (🟡) – Gerät ohne Remote-Shells schreibt beliebige `.md`-Dateien in Projekte (Vault auf Projektordner umstellen)
-- [ ] **BE-SEC-06** (🟡) – Deny-Liste lückenhaft: `.git/config` (Tokens in Remote-URLs) & Co. für Geräte lesbar
-- [ ] **BE-SEC-07** (🟡) – Projekt-Kanäle mit `id` statt `projectId` umgehen das Projekt-Scoping; `liveServer:status` verrät fremde Projekt-IDs
-- [ ] **BE-SEC-08** (🟡) – MongoDB-Verbindungen sind für jedes Gerät lesbar – unabhängig von freigegebenen Ordnern
-- [ ] **BE-SEC-10** (🟡) – TLS-Pinning auf das **Zertifikat** bricht bei jeder Erneuerung (Adresswechsel) – Druck zum „Warnung wegklicken“
-- [ ] **BE-SEC-11** (🟡) – Live Server: dotfiles ausgeliefert, kein Host-Check → DNS-Rebinding liest `.env`
-- [ ] **BE-SEC-12** (🟡) – SFTP aus `.vscode/sftp.json` des Repos: Upload folgt Symlinks; Repo-Konfiguration wird ungefragt benutzt
+- [x] **BE-SEC-05** (🟡) – Gerät ohne Remote-Shells schreibt beliebige `.md`-Dateien in Projekte (Vault auf Projektordner umstellen)
+- [x] **BE-SEC-06** (🟡) – Deny-Liste lückenhaft: `.git/config` (Tokens in Remote-URLs) & Co. für Geräte lesbar
+- [x] **BE-SEC-07** (🟡) – Projekt-Kanäle mit `id` statt `projectId` umgehen das Projekt-Scoping; `liveServer:status` verrät fremde Projekt-IDs
+- [~] **BE-SEC-08** (🟡) – MongoDB-Verbindungen sind für jedes Gerät lesbar – unabhängig von freigegebenen Ordnern
+  - ⚠️ teilweise: Mongo-Kanäle brauchen jetzt Zugriffsklasse `trusted`. **Offen:** `$where`/`$function` in Filtern ablehnen.
+- [~] **BE-SEC-10** (🟡) – TLS-Pinning auf das **Zertifikat** bricht bei jeder Erneuerung (Adresswechsel) – Druck zum „Warnung wegklicken“
+  - ⚠️ teilweise: Core gibt zusätzlich `spkiFingerprint` (Pairing-Antwort, `server:status`, QR `&pk=`) aus, Schlüssel bleibt bei Neuausstellung gleich. **Offen:** mindeck-mobile auf SPKI-Pinning umstellen.
+- [x] **BE-SEC-11** (🟡) – Live Server: dotfiles ausgeliefert, kein Host-Check → DNS-Rebinding liest `.env`
+- [x] **BE-SEC-12** (🟡) – SFTP aus `.vscode/sftp.json` des Repos: Upload folgt Symlinks; Repo-Konfiguration wird ungefragt benutzt
 - [ ] **BE-SEC-14** (🟡) – Fuse `RunAsNode` an + `disable-library-validation` + Kamera/Mikrofon-Entitlements (N5, weiterhin offen)
-- [ ] **BE-SEC-15** (🟡) – Geräte-Tokens laufen nie ab; `?token=` im WS-Query weiter akzeptiert (Rest von ANALYSE §3.4)
-- [ ] **BE-QA-01** (🟡) – CD und Release laufen ohne Tests; unsignierte Builds werden nur mit Warnung veröffentlicht
-- [ ] **BE-QA-02** (🟡) – Remote-SSH/Dev-Container-Pakete sind manueller Release-Schritt und werden nicht geprüft
-- [ ] **FE-SEC-03** (🟡) – Web-UI-Gerätetoken liegt dauerhaft in `localStorage` (ANALYSE §3.4, weiter offen)
-- [ ] **FE-BUG-01** (🟡) – Web-UI: keine Resynchronisierung nach einem WebSocket-Reconnect, sodass Freigaben, Status und Terminal-Ausgabe verloren gehen
-- [ ] **FE-QA-01** (🟡) – Kein Linter, besonders keine Prüfung der Hook-Regeln
-- [ ] **FE-TEST-01** (🟡) – Sicherheitstests für den Sanitizer und die Link-Behandlung decken die relevanten Payloads nicht ab
-- [ ] **FE-TEST-02** (🟡) – Keine Tests für Reconnect- und Race-Szenarien
+  - ⏭️ Bewusst offen: `ELECTRON_RUN_AS_NODE` wird von TsServer, Lint-Worker, PHP-Debug-Adapter und Dev-Containers-CLI gebraucht. Fix = Umstellung auf `utilityProcess` (M–L).
+- [x] **BE-SEC-15** (🟡) – Geräte-Tokens laufen nie ab; `?token=` im WS-Query weiter akzeptiert (Rest von ANALYSE §3.4)
+- [x] **BE-QA-01** (🟡) – CD und Release laufen ohne Tests; unsignierte Builds werden nur mit Warnung veröffentlicht
+- [x] **BE-QA-02** (🟡) – Remote-SSH/Dev-Container-Pakete sind manueller Release-Schritt und werden nicht geprüft
+- [~] **FE-SEC-03** (🟡) – Web-UI-Gerätetoken liegt dauerhaft in `localStorage` (ANALYSE §3.4, weiter offen)
+  - ⚠️ teilweise: Option „In diesem Browser gekoppelt bleiben“ (aus → sessionStorage). **Offen:** HttpOnly-Cookie statt Web-Storage (Server-Änderung).
+- [~] **FE-BUG-01** (🟡) – Web-UI: keine Resynchronisierung nach einem WebSocket-Reconnect, sodass Freigaben, Status und Terminal-Ausgabe verloren gehen
+  - ⚠️ teilweise: Client-Resync nach Reconnect (Freigaben, Agents, Sessions, Terminal-Lücken). **Offen:** Sequenznummern/Replay im Server, damit kein Delta-Fenster bleibt.
+- [x] **FE-QA-01** (🟡) – Kein Linter, besonders keine Prüfung der Hook-Regeln
+- [x] **FE-TEST-01** (🟡) – Sicherheitstests für den Sanitizer und die Link-Behandlung decken die relevanten Payloads nicht ab
+- [~] **FE-TEST-02** (🟡) – Keine Tests für Reconnect- und Race-Szenarien
+  - ⚠️ teilweise: Unit-Tests für Resync und Races. **Offen:** Playwright-Test mit `setOffline`.
 
 ### Phase 3 – Verbesserungen / Härtung
 
-- [ ] **BE-SEC-16** (🟢) – Remote-Bundle (inkl. `node`-Binary) ohne Integritätsprüfung heruntergeladen und auf dem Remote-Host ausgeführt
-- [ ] **BE-SEC-17** (🟢) – Freigaben vom Gerät: Claude-Code-`Read`/`WebFetch` gelten als „read“, ohne Pfad-/Ziel-Prüfung
-- [ ] **BE-SEC-18** (🟢) – `member`-Geräte ändern globale Einstellungen und verbrauchen Kontingente
-- [ ] **BE-SEC-19** (🟢) – HTTP-API: kein Host-Check, Version öffentlich, interne Fehlermeldungen an Geräte (ANALYSE §3.9, offen)
-- [ ] **BE-SEC-20** (🟢) – Pairing-Rate-Limit pro IP: IPv6-Rotation, unbegrenzte Map, 8 MB Body unauthentifiziert
-- [ ] **BE-SEC-21** (🟢) – Loopback gilt als vertrauenswürdig (Klartext + geteiltes Rate-Limit) – riskant hinter Proxys/Port-Forwarding
-- [ ] **BE-SEC-22** (🟢) – Log-Redaction erkennt Mindecks eigene Geräte-Tokens und Pairing-Codes nicht
-- [ ] **BE-SEC-23** (🟢) – `mindeck-file://` lehnt UNC-Pfade unter Windows nicht ab (NTLM-Leak)
-- [ ] **BE-SEC-24** (🟢) – Getippte/gebookmarkte Fremd-Schemata gehen ohne Rückfrage an das OS
-- [ ] **BE-SEC-25** (🟢) – Docker/Compose-Härtung
-- [ ] **BE-SEC-26** (🟢) – GitHub Actions nicht per SHA gepinnt (inkl. Drittanbieter mit `contents: write`)
-- [ ] **BE-SEC-27** (🟢) – Remote-Fenster: Geräte-Token des fremden Cores dauerhaft im `localStorage` der persistenten Partition
-- [ ] **BE-SEC-28** (🟢) – MCP-`project_context` für Agenten: beliebiges Projekt per Name/ID
-- [ ] **BE-BUG-04** (🟢) – Headless: Löschen von Projektdateien scheitert mit `EXDEV`; `/projects` ist im Compose-Default read-only
-- [ ] **BE-BUG-05** (🟢) – Kaputtes Percent-Encoding → 500 bzw. hängende Anfrage
-- [ ] **BE-BUG-06** (🟢) – Push-Outbox kann für alle Geräte stehen bleiben und unbegrenzt wachsen
-- [ ] **BE-BUG-07** (🟢) – `AuthService`/`SecretStore`: Lesefehler ≠ beschädigt → Geräte bzw. Secrets können verloren gehen
-- [ ] **BE-BUG-08** (🟢) – `ProjectService.requireProject`/`openFile` werfen Fehler ohne `code` (ANALYSE §4.6, offen)
-- [ ] **BE-QA-03** (🟢) – Veraltete Doku/Reste aus der DB-Zeit (ANALYSE §4.5, teilweise offen)
-- [ ] **BE-QA-04** (🟢) – Dev-/Build-Toolchain mit kritischen/hohen Advisories und veralteten Majors
-- [ ] **BE-QA-05** (🟢) – Fehlende Regressionstests für sicherheitskritische Pfade
-- [ ] **BE-QA-06** (🟢) – Codex-Adapter weiterhin per `npx -y` zur Laufzeit aus der Registry (ANALYSE §3.9)
-- [ ] **FE-SEC-05** (🟢) – Desktop-CSP härten
-- [ ] **FE-SEC-06** (🟢) – Notebook-HTML-Ausgaben unbereinigt im iframe mit `allow-same-origin`
-- [ ] **FE-SEC-07** (🟢) – Abmelden im Web-UI lässt Prompt-Verlauf und Entwürfe im Browser
-- [ ] **FE-BUG-03** (🟢) – Agents: `open()`-Race setzt das Projekt einer veralteten Konversation
-- [ ] **FE-BUG-04** (🟢) – OSC-8-Hyperlinks im Terminal öffnen sich im Desktop nicht (Zu prüfen, Laufzeit)
-- [ ] **FE-BUG-05** (🟢) – `repoLink()` wirft bei ungewöhnlichen Remote-Hosts, sodass das Projects-Modul abstürzt
-- [ ] **FE-BUG-06** (🟢) – Ein kaputter Pairing-Link bringt die ganze Web-UI zum Absturz
-- [ ] **FE-BUG-07** (🟢) – i18n-Lücken: Datumsformate ohne App-Sprache, englische Transportfehler
-- [ ] **FE-BUG-08** (🟢) – Uneinheitliche Link-Behandlung in Markdown (PR, Notebook): im Web-UI verlässt der Tab die App
-- [ ] **FE-QA-02** (🟢) – Duplizierte und inkonsistente Markdown-Pfade
-- [ ] **FE-QA-03** (🟢) – Performance: Markdown pro Delta neu gerendert, lange Listen ohne Virtualisierung
-- [ ] **FE-QA-04** (🟢) – Barrierefreiheit: Kleinigkeiten
-- [ ] **FE-QA-05** (🟢) – Veraltete Kommentare und Konfiguration
-- [ ] **FE-TEST-03** (🟢) – Die vollständige Suite ist nur in einer passenden Umgebung grün
+- [x] **BE-SEC-16** (🟢) – Remote-Bundle (inkl. `node`-Binary) ohne Integritätsprüfung heruntergeladen und auf dem Remote-Host ausgeführt
+- [x] **BE-SEC-17** (🟢) – Freigaben vom Gerät: Claude-Code-`Read`/`WebFetch` gelten als „read“, ohne Pfad-/Ziel-Prüfung
+- [~] **BE-SEC-18** (🟢) – `member`-Geräte ändern globale Einstellungen und verbrauchen Kontingente
+  - ⚠️ teilweise: Globale Einstellungen, AI-Konfiguration, Push, Sync und `cloud:forgotPassword` nur noch `admin`. **Offen:** Token-Bucket pro Gerät für Kontingente.
+- [x] **BE-SEC-19** (🟢) – HTTP-API: kein Host-Check, Version öffentlich, interne Fehlermeldungen an Geräte (ANALYSE §3.9, offen)
+- [x] **BE-SEC-20** (🟢) – Pairing-Rate-Limit pro IP: IPv6-Rotation, unbegrenzte Map, 8 MB Body unauthentifiziert
+- [x] **BE-SEC-21** (🟢) – Loopback gilt als vertrauenswürdig (Klartext + geteiltes Rate-Limit) – riskant hinter Proxys/Port-Forwarding
+- [x] **BE-SEC-22** (🟢) – Log-Redaction erkennt Mindecks eigene Geräte-Tokens und Pairing-Codes nicht
+- [x] **BE-SEC-23** (🟢) – `mindeck-file://` lehnt UNC-Pfade unter Windows nicht ab (NTLM-Leak)
+- [x] **BE-SEC-24** (🟢) – Getippte/gebookmarkte Fremd-Schemata gehen ohne Rückfrage an das OS
+- [x] **BE-SEC-25** (🟢) – Docker/Compose-Härtung
+- [x] **BE-SEC-26** (🟢) – GitHub Actions nicht per SHA gepinnt (inkl. Drittanbieter mit `contents: write`)
+- [x] **BE-SEC-27** (🟢) – Remote-Fenster: Geräte-Token des fremden Cores dauerhaft im `localStorage` der persistenten Partition
+- [x] **BE-SEC-28** (🟢) – MCP-`project_context` für Agenten: beliebiges Projekt per Name/ID
+- [x] **BE-BUG-04** (🟢) – Headless: Löschen von Projektdateien scheitert mit `EXDEV`; `/projects` ist im Compose-Default read-only
+- [x] **BE-BUG-05** (🟢) – Kaputtes Percent-Encoding → 500 bzw. hängende Anfrage
+- [x] **BE-BUG-06** (🟢) – Push-Outbox kann für alle Geräte stehen bleiben und unbegrenzt wachsen
+- [x] **BE-BUG-07** (🟢) – `AuthService`/`SecretStore`: Lesefehler ≠ beschädigt → Geräte bzw. Secrets können verloren gehen
+- [x] **BE-BUG-08** (🟢) – `ProjectService.requireProject`/`openFile` werfen Fehler ohne `code` (ANALYSE §4.6, offen)
+- [x] **BE-QA-03** (🟢) – Veraltete Doku/Reste aus der DB-Zeit (ANALYSE §4.5, teilweise offen)
+- [~] **BE-QA-04** (🟢) – Dev-/Build-Toolchain mit kritischen/hohen Advisories und veralteten Majors
+  - ⚠️ teilweise: Nicht-brechende Dev-Updates (`npm audit` 31 → 24). **Offen:** vitest 4 (tinypool) braucht vorher Migration auf electron-vite 5 / vite 7; ebenso tailwind 4, `@electron/get`.
+- [x] **BE-QA-05** (🟢) – Fehlende Regressionstests für sicherheitskritische Pfade
+- [x] **BE-QA-06** (🟢) – Codex-Adapter weiterhin per `npx -y` zur Laufzeit aus der Registry (ANALYSE §3.9)
+- [x] **FE-SEC-05** (🟢) – Desktop-CSP härten
+- [x] **FE-SEC-06** (🟢) – Notebook-HTML-Ausgaben unbereinigt im iframe mit `allow-same-origin`
+- [x] **FE-SEC-07** (🟢) – Abmelden im Web-UI lässt Prompt-Verlauf und Entwürfe im Browser
+- [x] **FE-BUG-03** (🟢) – Agents: `open()`-Race setzt das Projekt einer veralteten Konversation
+- [x] **FE-BUG-04** (🟢) – OSC-8-Hyperlinks im Terminal öffnen sich im Desktop nicht (Zu prüfen, Laufzeit)
+- [x] **FE-BUG-05** (🟢) – `repoLink()` wirft bei ungewöhnlichen Remote-Hosts, sodass das Projects-Modul abstürzt
+- [x] **FE-BUG-06** (🟢) – Ein kaputter Pairing-Link bringt die ganze Web-UI zum Absturz
+- [x] **FE-BUG-07** (🟢) – i18n-Lücken: Datumsformate ohne App-Sprache, englische Transportfehler
+- [x] **FE-BUG-08** (🟢) – Uneinheitliche Link-Behandlung in Markdown (PR, Notebook): im Web-UI verlässt der Tab die App
+- [x] **FE-QA-02** (🟢) – Duplizierte und inkonsistente Markdown-Pfade
+- [~] **FE-QA-03** (🟢) – Performance: Markdown pro Delta neu gerendert, lange Listen ohne Virtualisierung
+  - ⚠️ teilweise: Markdown beim Streamen gedrosselt, Chat-Cache begrenzt. **Offen:** Virtualisierung des Explorer-Baums, Polling an Fokus/FS-Watch koppeln.
+- [x] **FE-QA-04** (🟢) – Barrierefreiheit: Kleinigkeiten
+- [x] **FE-QA-05** (🟢) – Veraltete Kommentare und Konfiguration
+- [x] **FE-TEST-03** (🟢) – Die vollständige Suite ist nur in einer passenden Umgebung grün
 
 ---
 
