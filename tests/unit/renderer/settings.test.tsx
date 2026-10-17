@@ -28,6 +28,9 @@ beforeEach(() => {
 
 const HEX = 'AB'.repeat(16) + 'CD'.repeat(16)
 const FP = formatFingerprint(HEX)
+/** The public key's fingerprint (stays when the certificate is renewed). */
+const PK_HEX = 'EF'.repeat(32)
+const PK = formatFingerprint(PK_HEX)
 
 const server = (over: Partial<ServerStatus> = {}): ServerStatus => ({
   config: { enabled: true, lan: false, tls: true, port: 7420, remoteTerminal: false, remoteRoots: [] },
@@ -83,6 +86,9 @@ describe('settings store', () => {
     expect(pairingUrl('X', tls, undefined, true, FP)).toBe(`https://192.168.1.9:7420/#pair=X&fp=${HEX.toLowerCase()}`)
     expect(pairingUrl('X', tls, 'https://nas.local:7420', false, FP)).toBe(`https://nas.local:7420/#pair=X&fp=${HEX.toLowerCase()}`)
     expect(pairingUrl('X', lan, undefined, true, FP)).toBe('http://192.168.1.9:7420/#pair=X')
+    // …and its public key, which stays the same when the core renews the certificate.
+    expect(pairingUrl('X', tls, undefined, true, FP, PK)).toBe(`https://192.168.1.9:7420/#pair=X&fp=${HEX.toLowerCase()}&pk=${PK_HEX.toLowerCase()}`)
+    expect(pairingUrl('X', lan, undefined, true, FP, PK)).toBe('http://192.168.1.9:7420/#pair=X')
   })
 
   it('knows when a phone could reach the core at all', () => {
@@ -287,13 +293,13 @@ describe('SettingsView', () => {
   })
 
   it('HTTPS on the network: the switch, the certificate, a warning without it; the pairing names the certificate', async () => {
-    const tls = { fingerprint: FP, expiresAt: '2028-10-14T12:00:00.000Z', selfSigned: true }
+    const tls = { fingerprint: FP, spkiFingerprint: PK, expiresAt: '2028-10-14T12:00:00.000Z', selfSigned: true }
     const status = (config: ServerStatus['config']) =>
       server({ config, urls: ['http://127.0.0.1:7420', `${config.tls ? 'https' : 'http'}://192.168.1.9:7420`], ...(config.tls ? { tls } : {}) })
     installBridge(
       settingsCore({
         'server:status': () => status({ ...server().config, lan: true }),
-        'server:createPairingCode': () => ({ code: 'WXYZ-2345', expiresAt: '', urls: ['http://127.0.0.1:7420', 'https://192.168.1.9:7420'], fingerprint: FP }),
+        'server:createPairingCode': () => ({ code: 'WXYZ-2345', expiresAt: '', urls: ['http://127.0.0.1:7420', 'https://192.168.1.9:7420'], fingerprint: FP, spkiFingerprint: PK }),
         'server:configure': (patch: Record<string, unknown>) => status({ ...server().config, lan: true, ...patch })
       })
     )
@@ -307,7 +313,7 @@ describe('SettingsView', () => {
 
     fireEvent.click(screen.getByText('Pair a device'))
     await act(settle)
-    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}`)).toBeInTheDocument()
+    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}&pk=${PK_HEX.toLowerCase()}`)).toBeInTheDocument()
     expect(screen.getByText(/Continue only if the certificate’s SHA-256 fingerprint is this one/)).toBeInTheDocument()
     expect(screen.getAllByText(FP)).toHaveLength(2)
 
@@ -320,14 +326,14 @@ describe('SettingsView', () => {
     expect(screen.getByText('http://192.168.1.9:7420/#pair=WXYZ-2345')).toBeInTheDocument()
     expect(screen.queryByText(/Continue only if/)).toBeNull()
 
-    // And on again: the link names the certificate once more.
+    // And on again: the link names the certificate (and its key) once more.
     fireEvent.click(screen.getByRole('switch', { name: 'Encrypted (HTTPS)' }))
     await act(settle)
-    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}`)).toBeInTheDocument()
+    expect(screen.getByText(`https://192.168.1.9:7420/#pair=WXYZ-2345&fp=${HEX.toLowerCase()}&pk=${PK_HEX.toLowerCase()}`)).toBeInTheDocument()
   })
 
   it('an own certificate from the environment is named as such', async () => {
-    installRemote(settingsCore({ 'server:status': () => server({ configurable: false, tls: { fingerprint: FP, expiresAt: '2027-01-01T00:00:00.000Z', selfSigned: false } }) }))
+    installRemote(settingsCore({ 'server:status': () => server({ configurable: false, tls: { fingerprint: FP, spkiFingerprint: PK, expiresAt: '2027-01-01T00:00:00.000Z', selfSigned: false } }) }))
     render(<SettingsView />)
     await act(settle)
     expect(screen.getByText(/Own certificate · valid until/)).toBeInTheDocument()
@@ -777,9 +783,15 @@ describe('pairing link from the QR code', () => {
     expect(pairingLink('https://10.0.0.2:7420/', 'ABCD-EFGH', FP)).toBe(`https://10.0.0.2:7420/#pair=ABCD-EFGH&fp=${HEX.toLowerCase()}`)
     expect(pairingLink('http://10.0.0.2:7420', 'ABCD-EFGH')).toBe('http://10.0.0.2:7420/#pair=ABCD-EFGH')
     expect(pairingLink('http://10.0.0.2:7420', 'X', 'not a fingerprint')).toBe('http://10.0.0.2:7420/#pair=X')
+    expect(pairingLink('https://10.0.0.2:7420', 'X', FP, PK)).toBe(`https://10.0.0.2:7420/#pair=X&fp=${HEX.toLowerCase()}&pk=${PK_HEX.toLowerCase()}`)
+    // The key only alongside the certificate (an older client reads `fp` alone), never a broken one.
+    expect(pairingLink('https://10.0.0.2:7420', 'X', undefined, PK)).toBe('https://10.0.0.2:7420/#pair=X')
+    expect(pairingLink('https://10.0.0.2:7420', 'X', FP, 'nope')).toBe(`https://10.0.0.2:7420/#pair=X&fp=${HEX.toLowerCase()}`)
 
     expect(parsePairingLink(` https://10.0.0.2:7420/#pair=ABCD-EFGH&fp=${HEX.toLowerCase()} `)).toEqual({ baseUrl: 'https://10.0.0.2:7420', code: 'ABCD-EFGH', fingerprint: FP })
     expect(parsePairingLink('http://nas.local:7420#pair=AB%20CD')).toEqual({ baseUrl: 'http://nas.local:7420', code: 'AB CD' })
+    expect(parsePairingLink(`https://10.0.0.2:7420/#pair=X&fp=${HEX}&pk=${PK_HEX.toLowerCase()}`)).toEqual({ baseUrl: 'https://10.0.0.2:7420', code: 'X', fingerprint: FP, spkiFingerprint: PK })
+    expect(parsePairingLink(`https://10.0.0.2:7420/#pair=X&pk=${PK_HEX}`)).toEqual({ baseUrl: 'https://10.0.0.2:7420', code: 'X' })
     expect(parsePairingLink('http://nas.local:7420/#pair=X&fp=zz')).toEqual({ baseUrl: 'http://nas.local:7420', code: 'X' })
     expect(parsePairingLink('http://nas.local:7420/')).toBeNull()
     expect(parsePairingLink('http://nas.local:7420/#fp=00')).toBeNull()

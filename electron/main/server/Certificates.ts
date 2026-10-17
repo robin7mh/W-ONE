@@ -1,4 +1,4 @@
-import { X509Certificate, createPrivateKey, createPublicKey, generateKeyPair } from 'node:crypto'
+import { X509Certificate, createHash, createPrivateKey, createPublicKey, generateKeyPair } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isIP } from 'node:net'
 import { hostname as osHostname } from 'node:os'
@@ -44,10 +44,14 @@ function parse(cert: string): X509Certificate | null {
   }
 }
 
-/** Fingerprint, end and origin of a certificate. */
+/** `AB:CD:…`, the way `X509Certificate.fingerprint256` writes it. */
+const colonHex = (digest: Buffer) => digest.toString('hex').toUpperCase().replace(/(..)(?!$)/g, '$1:')
+
+/** Fingerprints (of the certificate and of its public key), end and origin of a certificate. */
 function infoOf(x509: X509Certificate): TlsInfo {
   return {
     fingerprint: x509.fingerprint256,
+    spkiFingerprint: colonHex(createHash('sha256').update(x509.publicKey.export({ type: 'spki', format: 'der' })).digest()),
     expiresAt: new Date(Date.parse(x509.validTo)).toISOString(),
     // Issued by itself (and signed with its own key): nobody vouches for it but the fingerprint.
     selfSigned: x509.issuer === x509.subject && x509.verify(x509.publicKey)

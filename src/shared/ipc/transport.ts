@@ -196,11 +196,13 @@ export function formatFingerprint(fingerprint: string): string {
 
 /**
  * The link a QR code carries: `<base>/#pair=<code>` and, for a core that
- * speaks HTTPS, `&fp=<sha256>` — the certificate a client should find there.
+ * speaks HTTPS, `&fp=<sha256>` — the certificate a client should find there —
+ * and `&pk=<sha256>`, its public key (the same after the core renews the certificate).
  */
-export function pairingLink(baseUrl: string, code: string, fingerprint?: string): string {
+export function pairingLink(baseUrl: string, code: string, fingerprint?: string, spkiFingerprint?: string): string {
   const fp = fingerprint ? normalizeFingerprint(fingerprint) : null
-  return `${trimSlash(baseUrl)}/#pair=${encodeURIComponent(code)}${fp ? `&fp=${fp.toLowerCase()}` : ''}`
+  const pk = fp && spkiFingerprint ? normalizeFingerprint(spkiFingerprint) : null
+  return `${trimSlash(baseUrl)}/#pair=${encodeURIComponent(code)}${fp ? `&fp=${fp.toLowerCase()}` : ''}${pk ? `&pk=${pk.toLowerCase()}` : ''}`
 }
 
 export interface PairingLink {
@@ -208,6 +210,8 @@ export interface PairingLink {
   code: string
   /** `AB:CD:…`, when the link names the core's certificate. */
   fingerprint?: string
+  /** `AB:CD:…`, when the link also names the certificate's public key. */
+  spkiFingerprint?: string
 }
 
 /** A scanned pairing link taken apart (null when it is none). */
@@ -217,7 +221,13 @@ export function parsePairingLink(link: string): PairingLink | null {
   const code = params.get('pair')
   if (!m || !code) return null
   const fingerprint = normalizeFingerprint(params.get('fp') ?? '')
-  return { baseUrl: m[1], code, ...(fingerprint ? { fingerprint: formatFingerprint(fingerprint) } : {}) }
+  const spki = normalizeFingerprint(params.get('pk') ?? '')
+  return {
+    baseUrl: m[1],
+    code,
+    ...(fingerprint ? { fingerprint: formatFingerprint(fingerprint) } : {}),
+    ...(fingerprint && spki ? { spkiFingerprint: formatFingerprint(spki) } : {})
+  }
 }
 
 /** Liveness check — also tells a client whether a URL really is a Mindeck core. */

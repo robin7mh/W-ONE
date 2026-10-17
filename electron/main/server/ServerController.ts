@@ -91,7 +91,9 @@ export class ServerController {
       urls: this.urls(),
       error: this.error,
       configurable: !this.opts.fixedConfig,
-      ...(this.tls ? { tls: { fingerprint: this.tls.fingerprint, expiresAt: this.tls.expiresAt, selfSigned: this.tls.selfSigned } } : {})
+      ...(this.tls
+        ? { tls: { fingerprint: this.tls.fingerprint, spkiFingerprint: this.tls.spkiFingerprint, expiresAt: this.tls.expiresAt, selfSigned: this.tls.selfSigned } }
+        : {})
     }
   }
 
@@ -170,7 +172,7 @@ export class ServerController {
   async createPairingCode(role?: DeviceRole): Promise<PairingCode> {
     await this.renewTls()
     const code = await this.opts.auth.createPairingCode(role)
-    return { ...code, urls: this.urls(), ...(this.tls ? { fingerprint: this.tls.fingerprint } : {}) }
+    return { ...code, urls: this.urls(), ...(this.tls ? { fingerprint: this.tls.fingerprint, spkiFingerprint: this.tls.spkiFingerprint } : {}) }
   }
 
   devices(): Promise<Device[]> {

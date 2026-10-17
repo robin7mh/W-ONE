@@ -318,9 +318,9 @@ export class HttpServer {
     try {
       const result = await this.opts.auth.pair(String(body?.code ?? ''), String(body?.name ?? ''))
       this.pairFailures.delete(ip)
-      // Over HTTPS the device learns the certificate to pin from here on.
-      const fingerprint = encrypted(req) ? this.tls?.fingerprint : undefined
-      send(res, 200, { ok: true, data: fingerprint ? { ...result, fingerprint } : result })
+      // Over HTTPS the device learns the certificate (and its key, which outlives a renewal) to pin from here on.
+      const tls = encrypted(req) ? this.tls : undefined
+      send(res, 200, { ok: true, data: tls ? { ...result, fingerprint: tls.fingerprint, spkiFingerprint: tls.spkiFingerprint } : result })
     } catch (err) {
       this.pairFailures.set(ip, [...recent, now])
       throw new HttpError(401, 'bad-code', (err as Error).message)

@@ -503,7 +503,8 @@ describe('ServerController', () => {
     expect(status.running).toBe(true)
     // The desktop itself keeps plain HTTP on loopback; the network gets HTTPS.
     expect(status.urls).toEqual(['http://127.0.0.1:7420', 'https://192.168.1.5:7420'])
-    expect(status.tls).toEqual({ fingerprint: expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/), expiresAt: expect.any(String), selfSigned: true })
+    const sha256 = expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    expect(status.tls).toEqual({ fingerprint: sha256, spkiFingerprint: sha256, expiresAt: expect.any(String), selfSigned: true })
     expect(created[0].listen).toHaveBeenCalledWith('0.0.0.0', 7420, expect.objectContaining({ fingerprint: status.tls!.fingerprint, cert: expect.stringContaining('BEGIN CERTIFICATE') }))
     expect(settings.get().server).toMatchObject({ enabled: true, lan: true })
     await controller.start() // already running
@@ -516,7 +517,7 @@ describe('ServerController', () => {
     expect(created).toHaveLength(1)
 
     const code = await controller.createPairingCode()
-    expect(code).toMatchObject({ role: 'member', fingerprint: status.tls!.fingerprint })
+    expect(code).toMatchObject({ role: 'member', fingerprint: status.tls!.fingerprint, spkiFingerprint: status.tls!.spkiFingerprint })
     expect(code.urls).toHaveLength(2)
     const paired = await deps.auth.pair(code.code, 'p')
     expect(await controller.devices()).toHaveLength(1)
@@ -531,6 +532,7 @@ describe('ServerController', () => {
     expect(created[1].listen).toHaveBeenCalledWith('127.0.0.1', 7420, undefined) // this computer only: no TLS
     expect(controller.status().tls).toBeUndefined()
     expect((await controller.createPairingCode()).fingerprint).toBeUndefined()
+    expect((await controller.createPairingCode()).spkiFingerprint).toBeUndefined()
     await controller.stop()
     await controller.stop()
     await controller.revoke('nobody') // no server running
