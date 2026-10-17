@@ -43,6 +43,19 @@ An own certificate (e.g. from Let's Encrypt for a domain that points at the core
 restart the core). `MINDECK_TLS=0` switches HTTPS off — e.g. behind a reverse proxy (Caddy, nginx,
 Traefik) or `tailscale serve` that terminates TLS itself and reaches the core on `127.0.0.1`.
 
+**Names (DNS rebinding).** The core answers only requests whose `Host` is one of its own names: an
+IP address, `localhost`, the machine name (and `<name>.local`) or a name in its certificate.
+Anything else gets `403 host-not-allowed` — a web page that points its own domain at the core
+cannot talk to it. Other names the core is reached by (a reverse proxy's domain, the Docker host's
+name, `tailscale serve`) go into `MINDECK_ALLOWED_HOSTS` (comma-separated; `.example.com` = every
+subdomain, `*` = any name).
+
+**Behind a proxy on the same computer.** Requests from `127.0.0.1` count as this computer's —
+plain HTTP is allowed for them while the core speaks HTTPS. A request carrying `X-Forwarded-For`,
+`X-Real-IP` or `Forwarded` is a proxy passing someone else on: it is not trusted like this computer
+(no plain HTTP while TLS is on), and failed pairings are counted per address it passes on, not for
+`127.0.0.1` as a whole. Only ever let a proxy you run reach the core's port.
+
 **Trust without a certificate authority (TOFU).** Nobody vouches for a self-signed certificate, so a
 browser shows a warning once. The pairing QR code therefore carries the certificate's SHA-256
 fingerprint: `https://192.168.1.20:7420/#pair=K7QM-2XPA&fp=<64 hex digits>`. The web UI shows it
@@ -99,10 +112,13 @@ Every device has a **role**, set by the code it redeemed:
 
 Store the token in the platform's secure storage (`expo-secure-store` / Keychain / Keystore). It is
 shown exactly once; the core only keeps its SHA-256. Wrong codes answer `401 bad-code`; ten failures
-in ten minutes from one address answer `429`.
+in ten minutes from one address (IPv6: one `/64`) answer `429`. A pairing request may be 16 KB.
 
-`GET /api/health` → `{ ok, name: "Mindeck", version, mode: "desktop" | "server" }` (public) tells
-whether a URL really is a Mindeck core.
+A token that is not used for 90 days expires: the core forgets the device, which then gets
+`401 unauthorized` and has to pair again.
+
+`GET /api/health` → `{ ok, name: "Mindeck", mode: "desktop" | "server" }` (public) tells whether a
+URL really is a Mindeck core; with a device's `Authorization: Bearer …` it adds `version`.
 
 ## 2. Calls
 
@@ -120,9 +136,12 @@ Every call answers HTTP 200 with an `IpcResult`:
 { ok: true, data: T } | { ok: false, error: { code: string, message: string } }
 ```
 
-Only authentication problems use HTTP status codes: `401 unauthorized` means the token is unknown
-or was revoked — drop it and pair again. `413` = body over 8 MB, `400 bad-json`, `403
-https-required` = plain HTTP from the network to a core that speaks HTTPS.
+Only authentication problems use HTTP status codes: `401 unauthorized` means the token is unknown,
+was revoked or expired — drop it and pair again. `413` = body over 8 MB, `400 bad-json` / `bad-url`,
+`403 https-required` = plain HTTP from the network to a core that speaks HTTPS, `403
+host-not-allowed` (see *Names*). Errors of the core's operating system (`ENOENT`, `EACCES` …) and
+unexpected failures reach devices as `Something went wrong on the Mindeck core (ref 1a2b3c4d)` —
+the details, under that reference, are in the core's log.
 
 **Remote rules.** Without remote shells a paired device reaches only the *shared folders*: the ones
 set at the desktop (Settings → Remote access → *Shared folders*) or, headless, in
@@ -165,8 +184,7 @@ GET /api/events   (WebSocket — wss:// on an HTTPS core; subprotocols: "mindeck
 The token travels as the second offered subprotocol — never in the URL, where it would land in
 proxy and access logs. The core answers with the `mindeck` protocol only
 (`new WebSocket(url, eventsProtocols(token))` in `transport.ts`; React Native's `WebSocket` takes
-the same second argument). The old `?token=mindeck_…` query is still accepted for app builds from
-before; it is deprecated and will be removed once those builds are gone.
+the same second argument). The old `?token=mindeck_…` query is no longer accepted.
 
 Messages are JSON `{ "channel": string, "payload": … }`. The first one is
 `{ channel: "hello", payload: { deviceId, role } }`. A revoked device is closed with code `4401`.

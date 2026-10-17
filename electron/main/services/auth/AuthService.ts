@@ -23,6 +23,8 @@ const CODE_TTL_MS = 10 * 60_000
 const SEEN_PERSIST_MS = 60_000
 /** Open codes at most — older ones give way. */
 const MAX_CODES = 20
+/** A token unused this long expires: a lost phone or an old backup does not stay a key forever. */
+export const TOKEN_IDLE_MS = 90 * 24 * 60 * 60_000
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 const normalizeCode = (code: string) => String(code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -89,7 +91,7 @@ export class AuthService {
     return { token, device: publicDevice(device) }
   }
 
-  /** The device a bearer token belongs to, or null. */
+  /** The device a bearer token belongs to, or null. A device unseen for 90 days is forgotten (it pairs again). */
   async verify(token: string | undefined | null): Promise<Device | null> {
     if (!token) return null
     const store = await this.load()
@@ -97,6 +99,10 @@ export class AuthService {
     const device = store.devices.find((d) => d.tokenHash === hash)
     if (!device) return null
     const now = this.now()
+    if (now - Date.parse(device.lastSeenAt ?? device.createdAt) > TOKEN_IDLE_MS) {
+      await this.revoke(device.id)
+      return null
+    }
     device.lastSeenAt = new Date(now).toISOString()
     if (now - (this.persistedSeen.get(device.id) ?? 0) >= SEEN_PERSIST_MS) {
       this.persistedSeen.set(device.id, now)

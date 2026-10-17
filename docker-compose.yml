@@ -22,6 +22,8 @@ services:
       MINDECK_TLS: ${MINDECK_TLS:-1}
       MINDECK_TLS_CERT: ${MINDECK_TLS_CERT:-}
       MINDECK_TLS_KEY: ${MINDECK_TLS_KEY:-}
+      # Names besides its addresses the core answers to (the host's name, a proxy's domain).
+      MINDECK_ALLOWED_HOSTS: ${MINDECK_ALLOWED_HOSTS:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - '${MINDECK_BIND:-127.0.0.1}:${MINDECK_CORE_PORT:-7420}:7420'

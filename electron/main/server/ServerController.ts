@@ -14,7 +14,7 @@ import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
 import type { SettingsService } from '../services/settings/SettingsService'
 import type { Certificates, TlsCredentials } from './Certificates'
-import { HttpServer } from './HttpServer'
+import { HttpServer, allowedHostsFromEnv } from './HttpServer'
 
 /** How often a running HTTPS server checks that its certificate still fits (end, addresses). */
 const RENEW_CHECK_MS = 12 * 60 * 60_000
@@ -107,7 +107,8 @@ export class ServerController {
       webRoot: this.opts.webRoot,
       remoteTerminal: () => this.config.remoteTerminal,
       onClients: this.opts.onClients,
-      scope: this.opts.scope
+      scope: this.opts.scope,
+      allowedHosts: allowedHostsFromEnv()
     })
     try {
       // No plain fallback: a certificate that cannot be made or read keeps the server off.

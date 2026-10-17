@@ -1,15 +1,15 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:net'
+import { connect, createServer, type Server as NetServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { tempDir, tick } from './helpers'
-import { AuthService } from '../../../electron/main/services/auth/AuthService'
+import { AuthService, TOKEN_IDLE_MS } from '../../../electron/main/services/auth/AuthService'
 import { FsService } from '../../../electron/main/services/fs/FsService'
 import { EventHub } from '../../../electron/main/core/EventHub'
-import { HttpServer } from '../../../electron/main/server/HttpServer'
+import { HttpServer, addressBucket, allowedHostsFromEnv } from '../../../electron/main/server/HttpServer'
 import { ServerController, lanAddresses } from '../../../electron/main/server/ServerController'
 import { Certificates } from '../../../electron/main/server/Certificates'
 import { SettingsService } from '../../../electron/main/services/settings/SettingsService'
@@ -125,6 +125,22 @@ describe('AuthService', () => {
     expect(await auth.verify(token)).toBeNull()
   })
 
+  it('a token unused for 90 days expires: the device is forgotten and pairs again (BE-SEC-15)', async () => {
+    let now = Date.parse('2026-01-01T00:00:00Z')
+    const { auth } = await setup(() => now)
+    const used = await auth.pair((await auth.createPairingCode()).code, 'used')
+    const idle = await auth.pair((await auth.createPairingCode()).code, 'idle')
+    now += TOKEN_IDLE_MS - 1000
+    expect(await auth.verify(used.token)).not.toBeNull() // never seen yet: counted from pairing
+    now += TOKEN_IDLE_MS - 1000
+    expect(await auth.verify(used.token)).not.toBeNull() // seen 90 days ago minus a second: still fine
+    expect(await auth.verify(idle.token)).toBeNull() // paired and never used since
+    expect((await auth.devices()).map((d) => d.name)).toEqual(['used'])
+    now += TOKEN_IDLE_MS + 1
+    expect(await auth.verify(used.token)).toBeNull()
+    expect(await auth.devices()).toEqual([])
+  })
+
   it('rejects expired codes and picks up codes written by another process', async () => {
     let now = 0
     const { auth, file } = await setup(() => now)
@@ -202,7 +218,7 @@ describe('EventHub', () => {
 
 // --- HTTP + WebSocket ------------------------------------------------------
 
-async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown> } = {}) {
+async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown>; allowedHosts?: string[] } = {}) {
   const dir = await tempDir()
   const auth = new AuthService(join(dir, 'devices.json'))
   const hub = new EventHub()
@@ -220,7 +236,9 @@ async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onC
     webRoot: opts.webRoot,
     remoteTerminal: () => terminal,
     onClients: opts.onClients,
-    scope: opts.scope
+    scope: opts.scope,
+    allowedHosts: opts.allowedHosts,
+    hostname: () => 'Studio-Mac'
   })
   await http.listen('127.0.0.1', 0)
   servers.push(http)
@@ -252,7 +270,10 @@ describe('HttpServer — API', () => {
     const { base, token } = await startHttp()
     const health = await fetch(`${base}/api/health`)
     expect(health.headers.get('x-content-type-options')).toBe('nosniff')
-    expect(await health.json()).toEqual({ ok: true, name: 'Mindeck', version: '9.9.9', mode: 'server' })
+    // The version only for a paired device (BE-SEC-19).
+    expect(await health.json()).toEqual({ ok: true, name: 'Mindeck', mode: 'server' })
+    expect(await (await fetch(`${base}/api/health`, { headers: { Authorization: `Bearer ${token}` } })).json()).toEqual({ ok: true, name: 'Mindeck', version: '9.9.9', mode: 'server' })
+    expect(await (await fetch(`${base}/api/health`, { headers: { Authorization: 'Bearer mindeck_wrong' } })).json()).not.toHaveProperty('version')
 
     expect((await rpc(base, 'projects:list')).status).toBe(401)
     const wrongScheme = await fetch(`${base}/api/rpc/projects:list`, { method: 'POST', headers: { Authorization: `Basic ${token}` } })
@@ -265,6 +286,10 @@ describe('HttpServer — API', () => {
     expect(await (await rpc(base, 'memory:read', { path: 1 }, token)).json()).toMatchObject({ ok: false, error: { code: 'bad-request' } })
     expect(await (await rpc(base, 'system:subscribe', undefined, token)).json()).toEqual({ ok: true })
     expect(await (await rpc(base, 'nope%3Achannel', undefined, token)).json()).toMatchObject({ error: { code: 'unknown-channel' } })
+    // Broken percent-encoding is the client's mistake (BE-BUG-05).
+    const broken = await rpc(base, '%E0%A4%A', undefined, token)
+    expect(broken.status).toBe(400)
+    expect(await broken.json()).toMatchObject({ ok: false, error: { code: 'bad-url' } })
 
     const badJson = await rpc(base, 'projects:list', '{oops', token)
     expect(badJson.status).toBe(400)
@@ -295,6 +320,89 @@ describe('HttpServer — API', () => {
   })
 })
 
+/** A raw HTTP/1.1 request with exactly these headers: the status line and body that came back. */
+function raw(port: number, request: string): Promise<string> {
+  return new Promise((resolve) => {
+    let text = ''
+    const socket = connect(port, '127.0.0.1', () => socket.write(request))
+    socket.on('data', (c) => (text += c))
+    socket.on('close', () => resolve(text))
+  })
+}
+const get = (port: number, path: string, headers: Record<string, string>) =>
+  raw(port, `GET ${path} HTTP/1.1\r\n${Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('')}Connection: close\r\n\r\n`)
+
+describe('HttpServer — hardening', () => {
+  it('answers only to its own names: DNS rebinding gets 403 (BE-SEC-19)', async () => {
+    const { http, token } = await startHttp({ allowedHosts: ['mindeck.example.com', '.ts.net'] })
+    const port = http.port
+    for (const host of [`127.0.0.1:${port}`, '192.168.1.20', '[::1]:7420', 'localhost', 'app.localhost', 'studio-mac', 'Studio-Mac.local.', 'mindeck.example.com', 'box.tail1.ts.net']) {
+      expect(await get(port, '/api/health', { Host: host }), host).toMatch(/^HTTP\/1\.1 200/)
+    }
+    for (const host of ['evil.example', `evil.example:${port}`, 'studio-mac.evil.example', 'example.com', 'ts.net.evil', 'not a host']) {
+      const answer = await get(port, '/api/health', { Host: host })
+      expect(answer, host).toMatch(/^HTTP\/1\.1 403/)
+      expect(answer).toContain('host-not-allowed')
+    }
+    // The events socket too, token or not.
+    const ws = await raw(port, `GET /api/events HTTP/1.1\r\nHost: evil.example\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: ${eventsProtocols(token).join(', ')}\r\n\r\n`)
+    expect(ws).toMatch(/^HTTP\/1\.1 403/)
+    // `*` answers to any name (a proxy that rewrites them all).
+    const any = await startHttp({ allowedHosts: ['*'] })
+    expect(await get(any.http.port, '/api/health', { Host: 'whatever.example' })).toMatch(/^HTTP\/1\.1 200/)
+    expect(allowedHostsFromEnv({ MINDECK_ALLOWED_HOSTS: ' a.example , .b.example,, ' })).toEqual(['a.example', '.b.example'])
+    expect(allowedHostsFromEnv({})).toEqual([])
+  })
+
+  it('pairing: IPv6 counted by /64, a bounded memory, a small body; proxies on this computer are not this computer (BE-SEC-20, BE-SEC-21)', async () => {
+    expect(addressBucket('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64')
+    expect(addressBucket('2001:db8:1:2::9')).toBe('2001:db8:1:2::/64')
+    expect(addressBucket('2001:0db8::')).toBe('2001:db8:0:0::/64')
+    expect(addressBucket('::1')).toBe('0:0:0:0::/64')
+    expect(addressBucket('fe80::1%eth0')).toBe('fe80:0:0:0::/64')
+    expect(addressBucket('::ffff:192.168.1.7')).toBe('192.168.1.7')
+    expect(addressBucket('10.0.0.1')).toBe('10.0.0.1')
+    expect(addressBucket('undefined')).toBe('undefined')
+
+    const { http, base } = await startHttp()
+    const internals = http as unknown as { pairFailures: Map<string, number[]>; server: NetServer }
+    expect(internals.server.maxConnections).toBe(512)
+    const big = await fetch(`${base}/api/pair`, { method: 'POST', body: JSON.stringify({ code: 'x'.repeat(20_000) }) })
+    expect(big.status).toBe(413)
+
+    // Behind a proxy on this computer every client comes from 127.0.0.1: each gets its own bucket.
+    const pair = (headers: Record<string, string> = {}) => fetch(`${base}/api/pair`, { method: 'POST', headers, body: '{}' })
+    for (let i = 0; i < 10; i += 1) expect((await pair({ 'X-Forwarded-For': '203.0.113.9, 10.0.0.5' })).status).toBe(401)
+    expect((await pair({ 'X-Forwarded-For': '10.0.0.5' })).status).toBe(429)
+    expect((await pair({ 'X-Real-IP': '10.0.0.6' })).status).toBe(401)
+    expect((await pair({ Forwarded: 'for=10.0.0.7' })).status).toBe(401)
+    expect((await pair()).status).toBe(401) // this computer itself: not locked out by the proxy's clients
+    expect([...internals.pairFailures.keys()]).toEqual(['proxied:10.0.0.5', 'proxied:10.0.0.6', 'proxied:', '127.0.0.1'])
+
+    // At most 1000 addresses are remembered: the oldest give way.
+    internals.pairFailures.clear()
+    for (let i = 0; i < 1000; i += 1) internals.pairFailures.set(`10.1.${i >> 8}.${i & 255}`, [Date.now()])
+    expect((await pair()).status).toBe(401)
+    expect(internals.pairFailures.size).toBe(1000)
+    expect(internals.pairFailures.has('10.1.0.0')).toBe(false)
+    expect([...internals.pairFailures.keys()].at(-1)).toBe('127.0.0.1')
+  })
+
+  it('an unexpected failure tells the client a reference, the log the details (BE-SEC-19)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { base, auth, token } = await startHttp()
+    vi.spyOn(auth, 'verify').mockRejectedValueOnce(new Error("EACCES: permission denied, open '/home/robin/.mindeck/devices.json'"))
+    const res = await rpc(base, 'projects:list', undefined, token)
+    expect(res.status).toBe(500)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('error')
+    expect(body.error.message).toMatch(/^Something went wrong on the Mindeck core \(ref [0-9a-f]{8}\)$/)
+    expect(body.error.message).not.toContain('/home/robin')
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/^\[server\] request failed \(ref [0-9a-f]{8}\):$/), expect.any(Error))
+    error.mockRestore()
+  })
+})
+
 describe('HttpServer — web UI', () => {
   it('serves files, falls back to index.html, never leaves the root', async () => {
     const root = await tempDir()
@@ -316,7 +424,7 @@ describe('HttpServer — web UI', () => {
     expect(await (await fetch(`${base}/%2F..%2F..%2Fetc%2Fpasswd`)).text()).toContain('<title>W</title>')
     expect((await fetch(`${base}/`, { method: 'HEAD' })).status).toBe(200)
     expect((await fetch(`${base}/`, { method: 'PUT' })).status).toBe(405)
-    expect((await fetch(`${base}/%E0%A4%A`)).status).toBe(500)
+    expect((await fetch(`${base}/%E0%A4%A`)).status).toBe(400)
   })
 
   it('reports a missing or unbuilt web UI as 404', async () => {
@@ -338,6 +446,8 @@ describe('HttpServer — events socket', () => {
     await expect(openSocket(`${wsBase}/api/events`)).rejects.toThrow('401')
     await expect(openSocket(`${wsBase}/api/events`, eventsProtocols('wrong'))).rejects.toThrow('401')
     await expect(openSocket(`${wsBase}/api/events?token=wrong`)).rejects.toThrow('401')
+    // The token in the query is no longer read: it ends up in proxy and access logs (BE-SEC-15).
+    await expect(openSocket(`${wsBase}/api/events?token=${token}`)).rejects.toThrow('401')
     await expect(openSocket(`${wsBase}/elsewhere`, eventsProtocols(token))).rejects.toThrow('401')
     // The token alone is no protocol to answer with: the client gives up.
     await expect(openSocket(`${wsBase}/api/events`, [eventsProtocols(token)[1]])).rejects.toThrow('subprotocol')
@@ -367,10 +477,6 @@ describe('HttpServer — events socket', () => {
       { channel: 'permission:request', payload: { id: 'r1', allowAlways: false } },
       { channel: 'search:progress', payload: { id: 'mine', files: [], done: true, device: device.id } }
     ])
-    // App builds from before still pass the token in the query (deprecated).
-    const legacy = await openSocket(`${wsBase}/api/events?token=${token}`)
-    legacy.ws.close()
-
     const closed = new Promise<number>((r) => ws.once('close', (code) => r(code)))
     http.disconnectDevice('someone-else')
     http.disconnectDevice(device.id)
@@ -414,7 +520,7 @@ describe('HttpServer — events socket', () => {
 
   it('heartbeat drops dead clients; closed sockets are skipped; close() is idempotent', async () => {
     const { http, hub, base, token } = await startHttp()
-    const { ws } = await openSocket(`${base.replace('http', 'ws')}/api/events?token=${token}`)
+    const { ws } = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
     await tick(20)
     const internals = http as unknown as { sweep(): void; clients: Set<{ ws: { readyState: number; OPEN: number; send: () => void }; alive: boolean }> }
     const stale = { ws: { readyState: 3, OPEN: 1, send: vi.fn() }, deviceId: 'x', alive: true }
@@ -433,7 +539,7 @@ describe('HttpServer — events socket', () => {
     await gone
 
     // a socket error terminates that connection
-    const second = await openSocket(`${base.replace('http', 'ws')}/api/events?token=${token}`)
+    const second = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
     await tick(20)
     const serverSide = [...internals.clients][0] as unknown as { ws: { emit(e: string, err: Error): void } }
     const ended = new Promise((r) => second.ws.once('close', r))
@@ -441,7 +547,7 @@ describe('HttpServer — events socket', () => {
     await ended
 
     // closing with a live client terminates it (its late close event is ignored)
-    const third = await openSocket(`${base.replace('http', 'ws')}/api/events?token=${token}`)
+    const third = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
     await tick(20)
     const lastClose = new Promise((r) => third.ws.once('close', r))
     await http.close()
