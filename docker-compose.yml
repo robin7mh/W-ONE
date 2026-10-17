@@ -28,8 +28,10 @@ services:
     volumes:
       # Settings, paired devices, project registry, history and the vault live here.
       - mindeck-data:/data
-      # Folders the core may add as projects (inside the container: /projects).
-      - ${MINDECK_PROJECTS_DIR:-./}:/projects:ro
+      # Folders the core may add as projects (inside the container: /projects). Read-only by
+      # default (browse, search, agents that read); MINDECK_PROJECTS_MODE=rw lets the core
+      # save, rename and delete files there (deleted ones go to /data/file-trash).
+      - ${MINDECK_PROJECTS_DIR:-./projects}:/projects:${MINDECK_PROJECTS_MODE:-ro}
 
 volumes:
   mindeck-data:
