@@ -9,6 +9,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { ipc, onEvent } from '@shared/ipc/client'
 import type { TerminalData, TerminalSettings } from '@shared/types/terminal'
 import { getT, intlLocale } from '@/lib/i18n'
+import { openExternal } from '@/lib/links'
 import { APPEARANCE_ATTRIBUTES } from '@/lib/theme'
 import { cssRgb } from '@/lib/tokens'
 import { CommandTracker } from './commands'
@@ -123,12 +124,15 @@ export function useXterm(hostRef: RefObject<HTMLDivElement>, id: string, exited:
       allowTransparency: true,
       // Unicode 11 widths and the command marks (decorations) are "proposed" API.
       allowProposedApi: true,
+      // OSC 8 hyperlinks (`ls --hyperlink`, compilers): the same way out as plain URLs — xterm's
+      // own default opens an empty window first, which the desktop window refuses.
+      linkHandler: { activate: (_event, uri) => void openExternal(uri), allowNonHttpProtocols: false },
       theme: themeFromTokens()
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
     // URLs are clickable; main routes window.open to the OS browser.
-    term.loadAddon(new WebLinksAddon((_event, uri) => void window.open(uri, '_blank')))
+    term.loadAddon(new WebLinksAddon((_event, uri) => void openExternal(uri)))
     const search = new SearchAddon()
     term.loadAddon(search)
     const serialize = new SerializeAddon()

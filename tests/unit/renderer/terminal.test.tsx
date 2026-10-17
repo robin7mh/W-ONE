@@ -233,7 +233,14 @@ describe('XtermPane', () => {
 
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     x.links[0]({}, 'https://example.com')
-    expect(open).toHaveBeenCalledWith('https://example.com', '_blank')
+    expect(open).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+    // OSC 8 hyperlinks take the same way out — web addresses only.
+    const osc = term.options.linkHandler as { activate: (e: unknown, uri: string) => void; allowNonHttpProtocols: boolean }
+    expect(osc.allowNonHttpProtocols).toBe(false)
+    osc.activate({}, 'https://osc.dev/x')
+    osc.activate({}, 'file:///etc/passwd')
+    expect(open).toHaveBeenLastCalledWith('https://osc.dev/x', '_blank', 'noopener,noreferrer')
+    expect(open).toHaveBeenCalledTimes(2)
   })
 
   it('a failed attach still flushes live output; exit marks the tab and Enter restarts', async () => {

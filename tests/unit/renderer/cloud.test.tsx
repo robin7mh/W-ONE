@@ -85,7 +85,7 @@ describe('cloud store', () => {
     await s.refresh()
     expect(useCloud.getState()).toMatchObject({ status: { state: 'active' }, message: null })
     await s.buy()
-    expect(open).toHaveBeenCalledWith('https://checkout.stripe.test/1', '_blank')
+    expect(open).toHaveBeenCalledWith('https://checkout.stripe.test/1', '_blank', 'noopener,noreferrer')
     expect(useCloud.getState()).toMatchObject({ checkoutUrl: 'https://checkout.stripe.test/1', message: { kind: 'info' } })
     await s.logout()
     expect(useCloud.getState().status?.state).toBe('signed_out')
