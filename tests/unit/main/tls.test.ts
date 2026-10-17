@@ -44,12 +44,14 @@ async function caSigned(names = true): Promise<{ cert: string; key: string }> {
     keyPair: caKeys,
     extensions: [{ name: 'basicConstraints', cA: true }, { name: 'keyUsage', keyCertSign: true }]
   })
-  const altNames = [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }, { type: 2, value: 'mindeck.example' }, { type: 2, value: '*.apps.example' }]
   const leaf = await generate([{ name: 'commonName', value: 'mindeck.example' }], {
     ...validity,
     keyPair: leafKeys,
     ca: { key: caKeys.privateKey, cert: ca.cert },
-    extensions: names ? [{ name: 'subjectAltName', altNames }] : []
+    // Without names: some extension all the same, or selfsigned adds the common name as one.
+    extensions: names
+      ? [{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }, { type: 2, value: 'mindeck.example' }, { type: 2, value: '*.apps.example' }] }]
+      : [{ name: 'basicConstraints', cA: false }]
   })
   return { cert: leaf.cert, key: leafKeys.privateKey }
 }
