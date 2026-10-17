@@ -546,6 +546,12 @@ describe('SessionPane', () => {
     expect(screen.getByText('git.example.org')).toBeInTheDocument()
     rerender(<SessionPane session={session()} messages={[]} />)
     expect(screen.queryByText('git.example.org')).toBeNull()
+    // A remote with an odd host (from the repo's own config) or no web scheme: no link, no crash.
+    for (const repoUrl of ['https://exa mple/a/b', 'javascript:alert(1)']) {
+      rerender(<SessionPane session={session({ repoUrl })} messages={[]} />)
+      expect(screen.queryByText('exa mple')).toBeNull() // rendering did not throw: no label either
+      expect(document.querySelector(`a[href="${repoUrl}"]`)).toBeNull()
+    }
   })
 })
 
