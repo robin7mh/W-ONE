@@ -152,6 +152,20 @@ host-not-allowed` (see *Names*). Errors of the core's operating system (`ENOENT`
 unexpected failures reach devices as `Something went wrong on the Mindeck core (ref 1a2b3c4d)` —
 the details, under that reference, are in the core's log.
 
+**Rate limits.** Calls that cost the user money or quota are counted per device (a token bucket per
+group: a burst, then a steady rate). Over the limit a call answers `429` with `Retry-After: <s>` and
+`{ ok: false, error: { code: "rate-limited", message: "Too many ai calls from this device — try again in 12 s" } }`.
+
+| group | channels | default |
+|---|---|---|
+| `ai` | `ai:send`, `agents:create`, `agents:send`, `agents:resume` | 20 at once, 20 / min |
+| `inline` | `ai:inlineComplete`, `ai:inlineEdit` | 40 at once, 60 / min |
+| `github` | `github:*` | 60 at once, 60 / min |
+| `cloud` | `cloud:*` except `cloud:status` and `cloud:adopt` | 10 at once, 10 / min |
+
+`MINDECK_RATE_LIMITS` changes them: `ai=10,github=120:60,cloud=off` (`<group>=<per minute>[:<burst>]`,
+`off` switches a group off). The desktop window is never limited.
+
 **Remote rules.** Without remote shells a paired device reaches only the *shared folders*: the ones
 set at the desktop (Settings → Remote access → *Shared folders*) or, headless, in
 `MINDECK_REMOTE_ROOTS` (default `/projects`, the Docker mount), plus the projects added at the
@@ -185,7 +199,8 @@ Error codes worth handling in the UI:
 | `remote-forbidden` | outside the shared folders, or a key / credential / system path |
 | `no-key` | the assistant has no Anthropic API key yet (Settings → AI) |
 | `busy` | the conversation is still running |
-| `not-found`, `not-pending`, `bad-key`, `rate-limited`, `ai-unavailable` | as named |
+| `rate-limited` | too many calls from this device (see *Rate limits*; `Retry-After` says when), too many failed pairings, or the AI provider's own limit |
+| `not-found`, `not-pending`, `bad-key`, `ai-unavailable` | as named |
 
 ## 3. Push events
 

@@ -263,6 +263,7 @@ async function startHttp(
     scope?: (channel: string, payload: unknown) => Promise<unknown>
     allowedHosts?: string[]
     outbox?: { timeoutMs?: number; max?: number }
+    rateLimits?: ConstructorParameters<typeof HttpServer>[0]['rateLimits']
   } = {}
 ) {
   const dir = await tempDir()
@@ -273,6 +274,7 @@ async function startHttp(
   router.register('projects:list', () => [{ id: 'p' }] as never)
   router.register('memory:read', ({ path }) => ({ path }) as never)
   router.register('app:info', (_req, ctx) => ctx as never)
+  router.register('ai:send', () => ({ conversationId: 'c', messageId: 'm' }))
   const http = new HttpServer({
     router,
     hub,
@@ -285,7 +287,8 @@ async function startHttp(
     scope: opts.scope,
     allowedHosts: opts.allowedHosts,
     hostname: () => 'Studio-Mac',
-    outbox: opts.outbox
+    outbox: opts.outbox,
+    rateLimits: opts.rateLimits
   })
   await http.listen('127.0.0.1', 0)
   servers.push(http)
@@ -378,6 +381,28 @@ function raw(port: number, request: string): Promise<string> {
 }
 const get = (port: number, path: string, headers: Record<string, string>) =>
   raw(port, `GET ${path} HTTP/1.1\r\n${Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('')}Connection: close\r\n\r\n`)
+
+describe('HttpServer — rate limits', () => {
+  it('a device that spends too fast gets 429 rate-limited with Retry-After; a revoked device’s count goes (BE-SEC-18)', async () => {
+    const { base, token, auth, http, device } = await startHttp({ rateLimits: { ai: { burst: 2, perMinute: 1 }, inline: null, github: null, cloud: null } })
+    const send = () => rpc(base, 'ai:send', { text: 'hi' }, token)
+    expect(await (await send()).json()).toMatchObject({ ok: true })
+    expect(await (await send()).json()).toMatchObject({ ok: true })
+    const limited = await send()
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('retry-after')).toBe('60')
+    expect(await limited.json()).toEqual({ ok: false, error: { code: 'rate-limited', message: 'Too many ai calls from this device — try again in 60 s' } })
+    // Free channels and other devices go on.
+    expect((await rpc(base, 'projects:list', undefined, token)).status).toBe(200)
+    const { code } = await auth.createPairingCode()
+    const other = await auth.pair(code, 'other')
+    expect((await rpc(base, 'ai:send', { text: 'hi' }, other.token)).status).toBe(200)
+    // Not even counted without a valid token.
+    expect((await rpc(base, 'ai:send', { text: 'hi' }, 'mindeck_wrong')).status).toBe(401)
+    http.disconnectDevice(device.id)
+    expect((await send()).status).toBe(200)
+  })
+})
 
 describe('HttpServer — hardening', () => {
   it('answers only to its own names: DNS rebinding gets 403 (BE-SEC-19)', async () => {

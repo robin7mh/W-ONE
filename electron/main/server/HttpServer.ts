@@ -16,6 +16,7 @@ import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
 import type { TlsCredentials } from './Certificates'
+import { DeviceRateLimiter, type RateLimits } from './RateLimit'
 
 const MAX_BODY = 8 * 1024 * 1024
 /** A pairing request (before anyone is known) holds a code and a name. */
@@ -85,6 +86,9 @@ export interface HttpServerOptions {
   hostname?: () => string
   /** How long one scope check may take, and how many events may wait for theirs (defaults below; tests shorten them). */
   outbox?: { timeoutMs?: number; max?: number }
+  /** Per-device limits for channels that cost money or quota (`MINDECK_RATE_LIMITS`; default DEFAULT_RATE_LIMITS). */
+  rateLimits?: RateLimits
+  now?: () => number
 }
 
 /** `MINDECK_ALLOWED_HOSTS=mindeck.example.com,.ts.net` → the names, trimmed. */
@@ -249,7 +253,7 @@ async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown
  *
  *   GET  /api/health           liveness (public; the version for paired devices)
  *   POST /api/pair             { code, name } → { token, device } (public, rate limited)
- *   POST /api/rpc/<channel>    payload → IpcResult (Bearer token)
+ *   POST /api/rpc/<channel>    payload → IpcResult (Bearer token; calls that cost money or quota are rate limited per device)
  *   WS   /api/events           push events as { channel, payload } (token as subprotocol)
  *   GET  /*                    the built web UI (single-page app)
  *
@@ -286,8 +290,12 @@ export class HttpServer {
   private queued = 0
   private dropping = false
   private unsubscribe?: () => void
+  /** Calls that cost the user (AI, GitHub, Mindeck Cloud), counted per device. */
+  private readonly limiter: DeviceRateLimiter
 
-  constructor(private readonly opts: HttpServerOptions) {}
+  constructor(private readonly opts: HttpServerOptions) {
+    this.limiter = new DeviceRateLimiter(opts.rateLimits, opts.now)
+  }
 
   get clientCount(): number {
     return this.clients.size
@@ -391,6 +399,7 @@ export class HttpServer {
 
   /** Drop every live connection of a revoked device. */
   disconnectDevice(deviceId: string): void {
+    this.limiter.forget(deviceId)
     for (const client of [...this.clients]) {
       if (client.deviceId === deviceId) client.ws.close(4401, 'revoked')
     }
@@ -463,6 +472,12 @@ export class HttpServer {
     if (!device) throw new HttpError(401, 'unauthorized', 'Missing or invalid device token')
     const payload = await readJson(req)
     if (REMOTE_NOOP.has(channel)) return send(res, 200, { ok: true })
+    const limited = this.limiter.take(device.id, decoded(channel))
+    if (limited) {
+      const seconds = Math.ceil(limited.waitMs / 1000)
+      res.setHeader('Retry-After', String(seconds))
+      throw new HttpError(429, 'rate-limited', `Too many ${limited.group} calls from this device — try again in ${seconds} s`)
+    }
     const result = await this.opts.router.dispatch(decoded(channel), payload, {
       transport: 'remote',
       deviceId: device.id,
@@ -566,6 +581,7 @@ export class HttpServer {
     for (const [ip, times] of this.pairFailures) {
       if (times.every((t) => now - t >= PAIR_WINDOW_MS)) this.pairFailures.delete(ip)
     }
+    this.limiter.sweep()
     for (const client of [...this.clients]) {
       if (!client.alive) {
         client.ws.terminate()

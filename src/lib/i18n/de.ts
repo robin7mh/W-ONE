@@ -18,7 +18,8 @@ export const de: Dict = {
   transport: {
     offline: 'Der Mindeck-Core ist nicht erreichbar.',
     badResponse: (status) => `Unerwartete Antwort vom Mindeck-Core (${status})`,
-    noBridge: 'Nicht mit einem Mindeck-Core verbunden'
+    noBridge: 'Nicht mit einem Mindeck-Core verbunden',
+    rateLimited: (seconds) => `Zu viele Anfragen — bitte versuch es ${seconds ? `in ${seconds} s` : 'gleich'} noch einmal.`
   },
 
   nav: {
@@ -555,7 +556,7 @@ agents: {
       'ai-credit-exhausted': 'Dein KI-Guthaben ist aufgebraucht. Es erneuert sich am Monatsanfang — oder hinterlege in den Einstellungen einen eigenen API-Schlüssel, um gleich weiterzumachen.',
       'ai-credit-exhausted-trial': 'Das KI-Guthaben der Testversion ist aufgebraucht. Mit einer Lizenz bekommst du jeden Monat neues Guthaben — oder hinterlege in den Einstellungen einen eigenen API-Schlüssel.',
       'license-required': 'Die KI braucht eine aktive Testversion oder Lizenz.',
-      'ai-unavailable': 'Die KI ist gerade nicht verfügbar — bitte versuch es später noch einmal.',
+      'ai-unavailable': 'Die KI ist gerade nicht verfügbar — bitte versuch es gleich noch einmal.',
       'rate-limited': 'Die KI ist gerade ausgelastet — bitte versuch es gleich noch einmal.',
       session_expired: 'Bitte melde dich erneut mit deinem Mindeck-Konto an.',
       'transcript-damaged': 'Die früheren Nachrichten dieser Sitzung konnten nicht gelesen werden – die Datei wurde im Agenten-Datenordner beiseitegelegt. Die Sitzung selbst kann weiterlaufen.'
