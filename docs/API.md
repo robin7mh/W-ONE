@@ -76,8 +76,9 @@ certificate (they need to pair again after a renewal).
 
 Headers over HTTPS: the usual `nosniff`, `no-referrer`, `DENY` framing and CSP; `Strict-Transport-
 Security` only with an own certificate from an authority — with a self-signed one HSTS would turn
-the warning (that a person may pass after comparing the fingerprint) into a dead end. The core sets
-no cookies; tokens travel only in headers (`Authorization`, the WebSocket subprotocol).
+the warning (that a person may pass after comparing the fingerprint) into a dead end. Apps send their
+token in headers (`Authorization`, the WebSocket subprotocol); the only cookie is the web UI's own
+(*The web UI's browser session* in §1), `Secure` over HTTPS.
 
 **The mobile app** trusts only the system's certificate authorities (React Native's `fetch` and
 `WebSocket`); pinning a self-signed certificate needs a native module. Until the app pins
@@ -125,6 +126,41 @@ in ten minutes from one address (IPv6: one `/64`) answer `429`. A pairing reques
 
 A token that is not used for 90 days expires: the core forgets the device, which then gets
 `401 unauthorized` and has to pair again.
+
+### The web UI's browser session (cookie)
+
+The web UI the core serves itself (same origin) never holds its token in a script or in web storage.
+It pairs with `"cookie": true` and the core keeps the token in an HttpOnly cookie for `/api`:
+
+```http
+POST /api/pair
+Content-Type: application/json
+Origin: https://192.168.1.20:7420
+
+{ "code": "K7QM-2XPA", "name": "Firefox · macOS", "cookie": true, "remember": true }
+```
+
+→ `{ ok: true, data: { device, fingerprint?, spkiFingerprint? } }` (no `token`) and
+`Set-Cookie: mindeck_<port>=<token>; Path=/api; HttpOnly; SameSite=Strict[; Secure]; Max-Age=34560000`.
+`remember: false` ("Stay paired on this browser" off) makes it a session cookie that ends with the
+browser. The name carries the core's port: browsers share cookies across the ports of one host, and
+two cores on one computer must not overwrite each other's. Calls and the events socket then send no
+token at all — the browser sends the cookie.
+
+- **CSRF.** The cookie counts only for requests the browser marks as the web UI's own:
+  `Sec-Fetch-Site: same-origin`, or — browsers without Fetch Metadata — an `Origin` that names the
+  address asked (`Host`, or behind a proxy on the same computer `X-Forwarded-Host`); calls must also be
+  `POST` with `Content-Type: application/json`. Anything else answers `403 cross-origin` / `415
+  bad-content-type` — so does a WebSocket from another page (`403`). A `Bearer` header always wins
+  over the cookie and needs none of this (apps).
+- **Revoked or expired.** A cookie whose token the core no longer knows answers `401 unauthorized`
+  and is deleted (`Max-Age=0`) — calls and the socket alike.
+- **Signing out:** `POST /api/logout` removes the calling device (cookie or Bearer) on the core,
+  closes its sockets (`4401`) and deletes the cookie; it answers `{ ok: true }` either way.
+- **A token from before.** Web UIs that kept their token in `localStorage`/`sessionStorage` hand it over
+  once: `POST /api/session` with `Authorization: Bearer <token>` and `{ "remember": bool }` sets the
+  cookie for it (`{ ok: true, data: { device } }`), then they delete their copy. The desktop's remote
+  windows sign in the same way.
 
 `GET /api/health` → `{ ok, name: "Mindeck", mode: "desktop" | "server" }` (public) tells whether a
 URL really is a Mindeck core; with a device's `Authorization: Bearer …` it adds `version`.

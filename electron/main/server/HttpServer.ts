@@ -11,7 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { DESKTOP_EVENTS, TERMINAL_EVENTS, type IpcEvent } from '@shared/ipc/contract'
 import { EVENTS_PROTOCOL, TOKEN_PROTOCOL_PREFIX } from '@shared/ipc/transport'
 import type { PermissionRequest } from '@shared/types/ai'
-import type { CoreMode } from '@shared/types/server'
+import type { CoreMode, Device } from '@shared/types/server'
 import type { Router } from '../../ipc/router'
 import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
@@ -29,6 +29,8 @@ const PAIR_MAX_TRACKED = 1000
 /** Open connections at most (a phone, a browser or two — never thousands). */
 const MAX_CONNECTIONS = 512
 const HEARTBEAT_MS = 30_000
+/** "Stay paired in this browser": the cookie lives as long as browsers let one (400 days) — the token's own idle expiry (90 days) still holds. */
+const COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60
 /** The first byte of a TLS handshake: the connection speaks HTTPS. */
 const TLS_HANDSHAKE = 0x16
 /** A connection that sends nothing is dropped after this long. */
@@ -175,6 +177,39 @@ function bearer(req: IncomingMessage): string | undefined {
   return undefined
 }
 
+/** A cookie's value from the request, or undefined. */
+function cookie(req: IncomingMessage, name: string): string | undefined {
+  for (const part of String(req.headers.cookie ?? '').split(';')) {
+    const at = part.indexOf('=')
+    if (at > 0 && part.slice(0, at).trim() === name) return part.slice(at + 1).trim() || undefined
+  }
+  return undefined
+}
+
+/**
+ * A request from the core's own web UI (CSRF). Browsers say where a request
+ * comes from in `Sec-Fetch-Site`, which no page can set: `same-origin` it
+ * must be. Browsers without it (older Safari) send an `Origin`: it must name
+ * the address asked — the Host (one of the core's own names, `hostAllowed`),
+ * or behind a proxy on this computer the `X-Forwarded-Host` it passes on. A
+ * page elsewhere, or a request that says neither, is not the web UI.
+ */
+function sameOrigin(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site']
+  if (site !== undefined) return site === 'same-origin'
+  const origin = req.headers.origin
+  if (origin === undefined) return false
+  const asked = [req.headers.host, isLoopbackAddress(clientIp(req)) ? req.headers['x-forwarded-host'] : undefined]
+  try {
+    const host = new URL(origin).host.toLowerCase()
+    return asked.some((h) => typeof h === 'string' && h.split(',')[0].trim().toLowerCase() === host)
+  } catch {
+    return false
+  }
+}
+
+const isJson = (req: IncomingMessage) => /^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] ?? ''))
+
 /**
  * The events socket's token: offered as a subprotocol (`mindeck.bearer.<token>`),
  * so it never lands in a URL (where proxy and access logs keep it). The old
@@ -265,15 +300,22 @@ async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown
  * rules), authenticated with per-device bearer tokens:
  *
  *   GET  /api/health           liveness (public; the version for paired devices)
- *   POST /api/pair             { code, name } → { token, device } (public, rate limited)
+ *   POST /api/pair             { code, name } → { token, device } (public, rate limited);
+ *                              from the web UI with `cookie: true` → { device } + an HttpOnly cookie
+ *   POST /api/session          Bearer token → the same token as the web UI's cookie (once, for tokens kept before)
+ *   POST /api/logout           removes the calling device and deletes the cookie
  *   POST /api/rpc/<channel>    payload → IpcResult (Bearer token; calls that cost money or quota are rate limited per device)
  *   WS   /api/events           push events as { channel, payload, seq } (token as subprotocol;
  *                              ?stream=&since= replays what a reconnecting client missed)
  *   GET  /*                    the built web UI (single-page app)
  *
- * No cookies and no CORS: credentials are explicit headers, so cross-site
- * requests cannot ride on a session. Only requests for the core's own names
- * are answered (`hostAllowed`): DNS rebinding gets `403 host-not-allowed`.
+ * No CORS. Credentials are explicit headers (the app, the desktop) — or, for
+ * the web UI the core serves itself, an HttpOnly `SameSite=Strict` cookie
+ * on `/api` that scripts in the page never see. A cookie counts only for a
+ * request the browser marks as the core's own page (`sameOrigin`) and, for
+ * calls, a JSON POST: cross-site requests cannot ride on it. Only requests
+ * for the core's own names are answered (`hostAllowed`): DNS rebinding gets
+ * `403 host-not-allowed`.
  *
  * With TLS credentials, one port speaks both: HTTPS (and WSS) for everyone,
  * plain HTTP only for this computer itself (127.0.0.1 — the local web UI,
@@ -454,6 +496,8 @@ export class HttpServer {
         return send(res, 200, { ok: true, name: 'Mindeck', mode: this.opts.mode, ...(paired ? { version: this.opts.version } : {}) })
       }
       if (path === '/api/pair' && req.method === 'POST') return await this.pair(req, res)
+      if (path === '/api/session' && req.method === 'POST') return await this.session(req, res)
+      if (path === '/api/logout' && req.method === 'POST') return await this.logout(req, res)
       if (path.startsWith('/api/rpc/') && req.method === 'POST') return await this.rpc(req, res, path.slice(9))
       if (path.startsWith('/api/')) throw new HttpError(404, 'not-found', 'No such endpoint')
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method', 'Method not allowed')
@@ -481,13 +525,20 @@ export class HttpServer {
     if (recent.length >= PAIR_MAX_FAILURES) {
       throw new HttpError(429, 'rate-limited', 'Too many failed pairing attempts — try again later')
     }
-    const body = (await readJson(req, MAX_PAIR_BODY)) as { code?: unknown; name?: unknown } | undefined
+    const body = (await readJson(req, MAX_PAIR_BODY)) as { code?: unknown; name?: unknown; cookie?: unknown; remember?: unknown } | undefined
+    // The web UI keeps its token in a cookie: only its own page may ask for one (before the code is spent).
+    const asCookie = body?.cookie === true
+    if (asCookie) this.requireWebUi(req)
     try {
       const result = await this.opts.auth.pair(String(body?.code ?? ''), String(body?.name ?? ''))
       this.pairFailures.delete(key)
       // Over HTTPS the device learns the certificate (and its key, which outlives a renewal) to pin from here on.
       const tls = encrypted(req) ? this.tls : undefined
-      send(res, 200, { ok: true, data: tls ? { ...result, fingerprint: tls.fingerprint, spkiFingerprint: tls.spkiFingerprint } : result })
+      const pins = tls ? { fingerprint: tls.fingerprint, spkiFingerprint: tls.spkiFingerprint } : {}
+      if (!asCookie) return send(res, 200, { ok: true, data: { ...result, ...pins } })
+      // The token goes into the cookie only — the page's scripts never see it.
+      this.setCookie(req, res, result.token, body?.remember !== false)
+      send(res, 200, { ok: true, data: { device: result.device, ...pins } })
     } catch (err) {
       // Kept in order of the last failure; past the limit the oldest address is forgotten.
       this.pairFailures.delete(key)
@@ -497,9 +548,79 @@ export class HttpServer {
     }
   }
 
+  /** The core's own web UI (same origin, JSON) — refused otherwise: a cookie must not be set or used from elsewhere. */
+  private requireWebUi(req: IncomingMessage): void {
+    if (!sameOrigin(req)) throw new HttpError(403, 'cross-origin', 'Only the web UI on this Mindeck core’s own address can use a browser session')
+    if (!isJson(req)) throw new HttpError(415, 'bad-content-type', 'A browser session sends application/json')
+  }
+
+  /** The web UI's cookie: one per core (cores on one computer differ in their port, a browser shares cookies across ports). */
+  private cookieName(): string {
+    return `mindeck_${this.port}`
+  }
+
+  /** `remember`: a persistent cookie ("stay paired in this browser"); else it ends with the browser session. */
+  private setCookie(req: IncomingMessage, res: ServerResponse, token: string, remember: boolean): void {
+    const secure = encrypted(req) ? '; Secure' : ''
+    res.setHeader('Set-Cookie', `${this.cookieName()}=${token}; Path=/api; HttpOnly; SameSite=Strict${secure}${remember ? `; Max-Age=${COOKIE_MAX_AGE_S}` : ''}`)
+  }
+
+  /** The Set-Cookie that deletes the web UI's cookie. */
+  private expiredCookie(req: IncomingMessage): string {
+    return `${this.cookieName()}=; Path=/api; HttpOnly; SameSite=Strict${encrypted(req) ? '; Secure' : ''}; Max-Age=0`
+  }
+
+  private clearCookie(req: IncomingMessage, res: ServerResponse): void {
+    res.setHeader('Set-Cookie', this.expiredCookie(req))
+  }
+
+  /**
+   * Who calls: the device of the Bearer token — or, without one, of the web
+   * UI's cookie, which counts only from the web UI itself (CSRF). A cookie
+   * whose token the core no longer knows (revoked, expired) is deleted.
+   */
+  private async caller(req: IncomingMessage, res: ServerResponse, call: boolean): Promise<Device> {
+    const header = bearer(req)
+    const token = header ?? cookie(req, this.cookieName())
+    if (header === undefined && token !== undefined) {
+      if (!sameOrigin(req)) throw new HttpError(403, 'cross-origin', 'The browser session is used from the web UI on this Mindeck core’s own address only')
+      if (call && !isJson(req)) throw new HttpError(415, 'bad-content-type', 'Calls with the browser session send application/json')
+    }
+    const device = await this.opts.auth.verify(token)
+    if (device) return device
+    if (header === undefined && token !== undefined) this.clearCookie(req, res)
+    throw new HttpError(401, 'unauthorized', 'Missing or invalid device token')
+  }
+
+  /**
+   * The web UI from before the cookie kept its token in web storage: it hands
+   * it over once (Bearer) and drops it — from then on the cookie carries it.
+   */
+  private async session(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (bearer(req) === undefined) throw new HttpError(401, 'unauthorized', 'Missing or invalid device token')
+    this.requireWebUi(req)
+    const device = await this.caller(req, res, true)
+    const body = (await readJson(req, MAX_PAIR_BODY)) as { remember?: unknown } | undefined
+    this.setCookie(req, res, bearer(req)!, body?.remember !== false)
+    send(res, 200, { ok: true, data: { device } })
+  }
+
+  /** Signing out of the web UI: this device is removed on the core and the cookie deleted. */
+  private async logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const device = await this.caller(req, res, true).catch((err: HttpError) => {
+      if (err.status !== 401) throw err
+      return null
+    })
+    if (device) {
+      await this.opts.auth.revoke(device.id)
+      this.disconnectDevice(device.id)
+    }
+    this.clearCookie(req, res)
+    send(res, 200, { ok: true })
+  }
+
   private async rpc(req: IncomingMessage, res: ServerResponse, channel: string): Promise<void> {
-    const device = await this.opts.auth.verify(bearer(req))
-    if (!device) throw new HttpError(401, 'unauthorized', 'Missing or invalid device token')
+    const device = await this.caller(req, res, true)
     const payload = await readJson(req)
     if (REMOTE_NOOP.has(channel)) return send(res, 200, { ok: true })
     const limited = this.limiter.take(device.id, decoded(channel))
@@ -548,9 +669,18 @@ export class HttpServer {
       return
     }
     const url = new URL(req.url as string, 'http://local')
-    const device = url.pathname === '/api/events' ? await this.opts.auth.verify(socketToken(req)) : null
+    // The app offers its token as a subprotocol; the web UI's browser sends its cookie — from the web UI only.
+    const offered = socketToken(req)
+    const fromCookie = offered === null ? cookie(req, this.cookieName()) : undefined
+    if (fromCookie !== undefined && !sameOrigin(req)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    const device = url.pathname === '/api/events' ? await this.opts.auth.verify(offered ?? fromCookie) : null
     if (!device) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      const clear = fromCookie !== undefined ? `Set-Cookie: ${this.expiredCookie(req)}\r\n` : ''
+      socket.write(`HTTP/1.1 401 Unauthorized\r\n${clear}Connection: close\r\n\r\n`)
       socket.destroy()
       return
     }

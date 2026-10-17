@@ -69,7 +69,10 @@ test('pairs a browser and shows live data from the core', async ({ paired, core 
   await expect(paired.getByText('LIVE')).toBeVisible() // telemetry over the WebSocket
   await expect(paired.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening|night)/)
 
-  // the token survives a reload; unpairing returns to the pairing screen
+  // The token lives in the core's HttpOnly cookie, never in web storage (FE-SEC-03).
+  expect(await paired.evaluate(() => localStorage.getItem('mindeck.token') ?? sessionStorage.getItem('mindeck.token'))).toBeNull()
+  expect((await paired.context().cookies()).find((c) => c.name.startsWith('mindeck_'))).toMatchObject({ httpOnly: true, sameSite: 'Strict', path: '/api' })
+  // the pairing survives a reload; unpairing returns to the pairing screen
   await paired.reload()
   await expect(paired.getByText(/REMOTE ·/)).toBeVisible()
   await paired.getByLabel('Disconnect this browser').click()

@@ -4,7 +4,7 @@
 // React Native app can import this file as-is.
 
 import type { IpcResult } from './contract'
-import type { PairResult } from '@shared/types/server'
+import type { Device, PairResult } from '@shared/types/server'
 
 export type LinkState = 'connecting' | 'online' | 'offline'
 
@@ -54,7 +54,12 @@ type SocketCtor = new (url: string, protocols?: string[]) => SocketLike
 export interface RemoteTransportOptions {
   /** Core base URL, e.g. `http://192.168.1.20:7420` ('' = same origin). */
   baseUrl: string
-  token: string
+  /**
+   * The device token (Bearer). Absent: the web UI on the core's own address,
+   * where the browser's HttpOnly cookie carries it (`pairBrowser`) — no
+   * script in the page ever holds it.
+   */
+  token?: string
   fetch?: FetchLike
   WebSocket?: SocketCtor
   /** The core rejected the token (revoked / unknown) — clear it and re-pair. */
@@ -88,9 +93,9 @@ export const EVENTS_PROTOCOL = 'mindeck'
 /** The device token travels as a second offered subprotocol: never in the URL (and so never in a log). */
 export const TOKEN_PROTOCOL_PREFIX = 'mindeck.bearer.'
 
-/** What a client offers when it opens the events socket. */
-export function eventsProtocols(token: string): string[] {
-  return [EVENTS_PROTOCOL, `${TOKEN_PROTOCOL_PREFIX}${token}`]
+/** What a client offers when it opens the events socket (without a token: the browser sends its cookie). */
+export function eventsProtocols(token?: string): string[] {
+  return token ? [EVENTS_PROTOCOL, `${TOKEN_PROTOCOL_PREFIX}${token}`] : [EVENTS_PROTOCOL]
 }
 
 /**
@@ -197,7 +202,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
 
   const request = (payload: unknown) => ({
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
+    headers: { 'Content-Type': 'application/json', ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}) },
     body: JSON.stringify(payload ?? null)
   })
 
@@ -300,20 +305,42 @@ export async function probeCore(
   }
 }
 
-/** Redeem a pairing code for this device's token. Throws with the core's message. */
-export async function pairDevice(
-  baseUrl: string,
-  code: string,
-  name: string,
-  fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike
-): Promise<PairResult> {
-  const res = await fetchImpl(`${trimSlash(baseUrl)}/api/pair`, {
+/** A POST to the core's own endpoints: its data, or a throw with the core's message and code. */
+async function post<T>(fetchImpl: FetchLike, url: string, payload: unknown, headers: Record<string, string> = {}): Promise<T> {
+  const res = await fetchImpl(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, name })
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(payload)
   })
-  const body = (await res.json().catch(() => null)) as IpcResult<PairResult> | null
+  const body = (await res.json().catch(() => null)) as IpcResult<T> | null
   if (!body) throw Object.assign(new Error(`Unexpected response (${res.status})`), { code: 'bad-response' })
   if (!body.ok) throw Object.assign(new Error(body.error.message), { code: body.error.code })
   return body.data
+}
+
+/** Redeem a pairing code for this device's token. Throws with the core's message. */
+export function pairDevice(baseUrl: string, code: string, name: string, fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<PairResult> {
+  return post<PairResult>(fetchImpl, `${trimSlash(baseUrl)}/api/pair`, { code, name })
+}
+
+/** What the web UI learns when it pairs: its device — the token stays in the core's HttpOnly cookie. */
+export type BrowserPairResult = Omit<PairResult, 'token'>
+
+/**
+ * The web UI on the core's own address redeems a pairing code: the core
+ * keeps the token in an HttpOnly cookie for `/api` — for good (`remember`)
+ * or until the browser closes. Throws with the core's message.
+ */
+export function pairBrowser(baseUrl: string, code: string, name: string, remember: boolean, fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<BrowserPairResult> {
+  return post<BrowserPairResult>(fetchImpl, `${trimSlash(baseUrl)}/api/pair`, { code, name, cookie: true, remember })
+}
+
+/** A token the web UI kept in web storage (before the cookie): handed to the core once, which puts it into the cookie. */
+export function adoptBrowserSession(baseUrl: string, token: string, remember: boolean, fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<{ device: Device }> {
+  return post<{ device: Device }>(fetchImpl, `${trimSlash(baseUrl)}/api/session`, { remember }, { Authorization: `Bearer ${token}` })
+}
+
+/** Sign the web UI out: the core removes this browser's device (its cookie's, or `token`'s) and deletes the cookie. */
+export async function endBrowserSession(baseUrl: string, token?: string, fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<void> {
+  await post<unknown>(fetchImpl, `${trimSlash(baseUrl)}/api/logout`, {}, token ? { Authorization: `Bearer ${token}` } : {})
 }
