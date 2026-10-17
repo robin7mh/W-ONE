@@ -17,6 +17,7 @@ import type { EventHub } from '../core/EventHub'
 import type { AuthService } from '../services/auth/AuthService'
 import type { TlsCredentials } from './Certificates'
 import { DeviceRateLimiter, type RateLimits } from './RateLimit'
+import { EventStreams, REPLAY_LIMITS, type ReplayLimits } from './EventStreams'
 
 const MAX_BODY = 8 * 1024 * 1024
 /** A pairing request (before anyone is known) holds a code and a name. */
@@ -88,6 +89,8 @@ export interface HttpServerOptions {
   outbox?: { timeoutMs?: number; max?: number }
   /** Per-device limits for channels that cost money or quota (`MINDECK_RATE_LIMITS`; default DEFAULT_RATE_LIMITS). */
   rateLimits?: RateLimits
+  /** How many events are kept per device for a reconnect (default REPLAY_LIMITS; tests shrink them). */
+  replay?: ReplayLimits
   now?: () => number
 }
 
@@ -113,6 +116,16 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 
 /** Events meant for one device only (`device`): search results and inline edits are its own. */
 const TARGETED: readonly IpcEvent[] = ['search:progress', 'ai:inlineDelta']
+/** Snapshots the next one replaces (every 1.5 s): sent without a `seq`, never kept for a reconnect. */
+const VOLATILE: readonly IpcEvent[] = ['system:tick']
+
+/** `?stream=<id>&since=<seq>` of a reconnecting client: the last event it saw (no secret — never a token). */
+function resumeOf(url: URL): { stream: string; since: number } | null {
+  const stream = url.searchParams.get('stream')
+  if (!stream) return null
+  const since = Number(url.searchParams.get('since'))
+  return { stream, since: Number.isSafeInteger(since) && since >= 0 ? since : -1 }
+}
 
 interface Client {
   ws: WebSocket
@@ -254,7 +267,8 @@ async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown
  *   GET  /api/health           liveness (public; the version for paired devices)
  *   POST /api/pair             { code, name } → { token, device } (public, rate limited)
  *   POST /api/rpc/<channel>    payload → IpcResult (Bearer token; calls that cost money or quota are rate limited per device)
- *   WS   /api/events           push events as { channel, payload } (token as subprotocol)
+ *   WS   /api/events           push events as { channel, payload, seq } (token as subprotocol;
+ *                              ?stream=&since= replays what a reconnecting client missed)
  *   GET  /*                    the built web UI (single-page app)
  *
  * No cookies and no CORS: credentials are explicit headers, so cross-site
@@ -292,9 +306,16 @@ export class HttpServer {
   private unsubscribe?: () => void
   /** Calls that cost the user (AI, GitHub, Mindeck Cloud), counted per device. */
   private readonly limiter: DeviceRateLimiter
+  /** Each device's numbered events, kept a while for its reconnect. */
+  private readonly streams: EventStreams
+  /** The outbox overflowed: events were dropped that devices should have had. */
+  private lost = false
+  private readonly now: () => number
 
   constructor(private readonly opts: HttpServerOptions) {
-    this.limiter = new DeviceRateLimiter(opts.rateLimits, opts.now)
+    this.now = opts.now ?? Date.now
+    this.limiter = new DeviceRateLimiter(opts.rateLimits, this.now)
+    this.streams = new EventStreams(opts.replay ?? REPLAY_LIMITS)
   }
 
   get clientCount(): number {
@@ -397,9 +418,18 @@ export class HttpServer {
     return names.some((h) => h === '*' || h === name || (h.startsWith('.') && name.endsWith(h)))
   }
 
+  /**
+   * What devices may see changed (shared folders, remote shells): events kept
+   * from before are no longer replayed — a client that missed any resyncs.
+   */
+  resetReplay(): void {
+    this.streams.clear()
+  }
+
   /** Drop every live connection of a revoked device. */
   disconnectDevice(deviceId: string): void {
     this.limiter.forget(deviceId)
+    this.streams.drop(deviceId)
     for (const client of [...this.clients]) {
       if (client.deviceId === deviceId) client.ws.close(4401, 'revoked')
     }
@@ -524,21 +554,31 @@ export class HttpServer {
       socket.destroy()
       return
     }
+    const resume = resumeOf(url)
     this.wss.handleUpgrade(req, socket, head, (ws) => {
+      const stream = this.streams.open(device.id, this.now())
       const client: Client = { ws, deviceId: device.id, alive: true }
       this.clients.add(client)
       this.opts.onClients?.(this.clients.size)
       ws.on('pong', () => (client.alive = true))
       ws.on('close', () => {
+        stream.seen = this.now()
         if (this.clients.delete(client)) this.opts.onClients?.(this.clients.size)
       })
       ws.on('error', () => ws.terminate())
-      ws.send(JSON.stringify({ channel: 'hello', payload: { deviceId: device.id, role: device.role } }))
+      // `stream` + `seq`: where this device's numbered events stand — a client that reconnects names them.
+      ws.send(JSON.stringify({ channel: 'hello', payload: { deviceId: device.id, role: device.role, stream: stream.id, seq: stream.seq } }))
+      if (!resume) return
+      // A reconnect: what it missed, in order — or, when that is no longer known, a resync.
+      const missed = stream.after(resume.stream, resume.since, this.now())
+      if (!missed) return ws.send(this.resyncMessage(stream))
+      for (const message of missed) ws.send(message)
     })
   }
 
   private push(channel: IpcEvent, payload: unknown): void {
-    if (!this.clients.size || DESKTOP_EVENTS.includes(channel)) return
+    // Devices connected now or a moment ago (their events wait for their reconnect).
+    if (!this.streams.size || DESKTOP_EVENTS.includes(channel)) return
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
     const scope = this.opts.scope
     if (!scope) return this.deliver(channel, payload)
@@ -546,6 +586,7 @@ export class HttpServer {
     if (this.queued >= max) {
       if (!this.dropping) console.warn(`[server] ${max} events wait for their check — dropping new ones until those are through`)
       this.dropping = true
+      this.lost = true
       return
     }
     this.queued += 1
@@ -558,9 +599,26 @@ export class HttpServer {
         console.error(`[server] not sending ${channel}:`, err)
       } finally {
         this.queued -= 1
-        if (!this.queued) this.dropping = false
+        if (!this.queued) this.drained()
       }
     })
+  }
+
+  /** The outbox is empty again. Dropped events leave gaps no `seq` shows: every device resyncs. */
+  private drained(): void {
+    this.dropping = false
+    if (!this.lost) return
+    this.lost = false
+    this.streams.clear()
+    for (const client of this.clients) {
+      const stream = this.streams.get(client.deviceId)
+      if (stream && client.ws.readyState === client.ws.OPEN) client.ws.send(this.resyncMessage(stream))
+    }
+  }
+
+  /** "Reload what you mirror": the stream and seq to go on from. */
+  private resyncMessage(stream: { id: string; seq: number }): string {
+    return JSON.stringify({ channel: 'resync-required', payload: { stream: stream.id, seq: stream.seq } })
   }
 
   private deliver(channel: IpcEvent, payload: unknown): void {
@@ -568,20 +626,26 @@ export class HttpServer {
     const shown = channel === 'permission:request' ? { ...(payload as PermissionRequest), allowAlways: false } : payload
     // Search results (file contents) and inline edits go only to the device that asked (the desktop's to none).
     const only = TARGETED.includes(channel) ? ((payload as { device?: string }).device ?? null) : undefined
-    const message = JSON.stringify({ channel, payload: shown })
-    for (const client of this.clients) {
-      if (only !== undefined && client.deviceId !== only) continue
-      if (client.ws.readyState === client.ws.OPEN) client.ws.send(message)
+    const body = JSON.stringify({ channel, payload: shown })
+    const now = this.now()
+    // Each device numbers (and keeps) its own events — also while it is away, for its reconnect.
+    for (const [deviceId, stream] of this.streams.entries()) {
+      if (only !== undefined && deviceId !== only) continue
+      const message = VOLATILE.includes(channel) ? body : stream.record(body, now)
+      for (const client of this.clients) {
+        if (client.deviceId === deviceId && client.ws.readyState === client.ws.OPEN) client.ws.send(message)
+      }
     }
   }
 
   private sweep(): void {
     // Forget failed pairing attempts that left the rate-limit window.
-    const now = Date.now()
+    const now = this.now()
     for (const [ip, times] of this.pairFailures) {
       if (times.every((t) => now - t >= PAIR_WINDOW_MS)) this.pairFailures.delete(ip)
     }
     this.limiter.sweep()
+    this.streams.prune(now, new Set([...this.clients].map((c) => c.deviceId)))
     for (const client of [...this.clients]) {
       if (!client.alive) {
         client.ws.terminate()

@@ -213,10 +213,33 @@ proxy and access logs. The core answers with the `mindeck` protocol only
 (`new WebSocket(url, eventsProtocols(token))` in `transport.ts`; React Native's `WebSocket` takes
 the same second argument). The old `?token=mindeck_…` query is no longer accepted.
 
-Messages are JSON `{ "channel": string, "payload": … }`. The first one is
-`{ channel: "hello", payload: { deviceId, role } }`. A revoked device is closed with code `4401`.
+Messages are JSON `{ "channel": string, "payload": …, "seq": number }`. The first one is
+`{ channel: "hello", payload: { deviceId, role, stream, seq } }`. A revoked device is closed with code `4401`.
 While at least one client is connected the core samples system telemetry (`system:tick`, ~1.5 s);
 remote clients do not need `system:subscribe`.
+
+**Sequence numbers and replay.** The core numbers each device's events: `seq` counts exactly the
+events this device may see (its shared folders, its own search results and inline edits), `1, 2, 3 …`
+without gaps, within a *stream* — `hello` names the stream (`stream`, an id) and where it stands
+(`seq`, the last number given out). `system:tick` is a snapshot the next one replaces: it carries no
+`seq` and is never replayed. For a reconnect the core keeps a device's events for 5 minutes (at most
+5000 events and 2 MB per device, and the streams of 32 devices that went away); a client that lost the
+socket names where it stopped — never a token, the numbers are no secret:
+
+```
+GET /api/events?stream=<hello.stream>&since=<last seq it saw>
+```
+
+After `hello` the core sends what was missed, in order and with their `seq`, then goes on live. When
+it can't — the gap is no longer kept, the stream is another one (the core restarted), `since` makes
+no sense, or what devices may see changed in between (shared folders, remote shells) — it sends
+`{ channel: "resync-required", payload: { stream, seq } }` instead: reload what you mirror (pending
+approvals, conversations, agent sessions, terminals) and go on from that `seq`. The core sends it to
+connected clients, too, when it had to drop events under load. A client that sees a `seq` skip
+numbers treats it the same way; one with a `seq` it saw already drops it. Clients that don't send
+`stream`/`since` get the same messages as before (the extra `seq` field aside) and no replay —
+`createRemoteTransport` in `transport.ts` does all of this and calls `onResync` only when a reload is
+needed.
 
 | channel | payload | when |
 |---|---|---|
@@ -277,6 +300,7 @@ const core = createRemoteTransport({
 })
 const res = await core.invoke('ai:send', { text: 'What is on my plate today?', agentId: 'assistant' })
 const off = core.on('ai:delta', ({ messageId, text }) => appendText(messageId, text))
+core.onResync?.(() => reloadEverything()) // events were lost (the core could not replay the gap)
 core.on('permission:request', (req) => showApprovalSheet(req)) // → core.invoke('permission:respond', …)
 ```
 

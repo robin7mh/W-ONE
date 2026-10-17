@@ -163,7 +163,10 @@ export class ServerController {
     }
     const next = { ...this.config, ...patch }
     const restart = (['enabled', 'lan', 'tls', 'port'] as const).some((k) => next[k] !== this.config[k])
+    // What devices may see changes: events kept for their reconnect were sorted by the old rules.
+    const rescope = next.remoteTerminal !== this.config.remoteTerminal || next.remoteRoots.join('\n') !== this.config.remoteRoots.join('\n')
     this.config = next
+    if (rescope) this.http?.resetReplay()
     await this.opts.settings.update({ server: next })
     if (restart) {
       await this.stop()

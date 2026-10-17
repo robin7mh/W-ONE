@@ -71,6 +71,7 @@ describe('remote transport', () => {
     expect(eventsUrl('https://core.lan:7420/')).toBe('wss://core.lan:7420/api/events')
     expect(eventsUrl('', 'http://localhost:5173')).toBe('ws://localhost:5173/api/events')
     expect(eventsUrl('')).toBe('/api/events')
+    expect(eventsUrl('http://core', undefined, { stream: 'a b', since: 3 })).toBe('ws://core/api/events?stream=a%20b&since=3')
     expect(eventsProtocols('mindeck_x')).toEqual(['mindeck', 'mindeck.bearer.mindeck_x'])
   })
 
@@ -181,6 +182,84 @@ describe('remote transport', () => {
     FakeSocket.all[5].open()
     expect(resync2).toHaveBeenCalledTimes(1)
     t2.close()
+    vi.useRealTimers()
+  })
+
+  it('resumes where it stopped: the core replays the gap (no resync) or says resync-required (FE-BUG-01)', async () => {
+    vi.useFakeTimers()
+    const fetch = fakeFetch(() => ({ status: 200, body: { ok: true } }))
+    const t = createRemoteTransport({ baseUrl: 'http://core', token: 'tok', fetch, WebSocket: FakeSocket, minDelayMs: 100, maxDelayMs: 100 })
+    const resync = vi.fn()
+    t.onResync!(resync)
+    const events: unknown[] = []
+    t.on('memory:changed', (p) => events.push(p))
+    const hello = vi.fn()
+    t.on('hello', hello)
+    const send = (ws: FakeSocket, msg: object) => ws.message(JSON.stringify(msg))
+    const ws = FakeSocket.all[0]
+    expect(ws.url).toBe('ws://core/api/events') // nothing to resume yet
+    ws.open()
+    send(ws, { channel: 'hello', payload: { deviceId: 'd', role: 'member', stream: 's1', seq: 4 } })
+    expect(hello).toHaveBeenCalledWith({ deviceId: 'd', role: 'member', stream: 's1', seq: 4 })
+    send(ws, { channel: 'memory:changed', payload: { n: 5 }, seq: 5 })
+    send(ws, { channel: 'memory:changed', payload: { n: 6 }, seq: 6 })
+    ws.drop()
+    await vi.advanceTimersByTimeAsync(100)
+
+    // Back: it names the last event it saw; the core replays 7 and 8.
+    const again = FakeSocket.all[1]
+    expect(again.url).toBe('ws://core/api/events?stream=s1&since=6')
+    again.open()
+    send(again, { channel: 'hello', payload: { deviceId: 'd', role: 'member', stream: 's1', seq: 8 } })
+    send(again, { channel: 'memory:changed', payload: { n: 7 }, seq: 7 })
+    send(again, { channel: 'memory:changed', payload: { n: 8 }, seq: 8 })
+    send(again, { channel: 'memory:changed', payload: { n: 8 }, seq: 8 }) // seen: dropped
+    send(again, { channel: 'system:tick', payload: {} }) // volatile: no seq
+    expect(events).toEqual([{ n: 5 }, { n: 6 }, { n: 7 }, { n: 8 }])
+    expect(resync).not.toHaveBeenCalled()
+
+    // A gap the core no longer holds: it says so, the stores reload, numbering goes on from its seq.
+    again.drop()
+    await vi.advanceTimersByTimeAsync(100)
+    const third = FakeSocket.all[2]
+    expect(third.url).toBe('ws://core/api/events?stream=s1&since=8')
+    third.open()
+    send(third, { channel: 'hello', payload: { deviceId: 'd', role: 'member', stream: 's1', seq: 40 } })
+    send(third, { channel: 'resync-required', payload: { stream: 's1', seq: 40 } })
+    expect(resync).toHaveBeenCalledTimes(1)
+    send(third, { channel: 'memory:changed', payload: { n: 41 }, seq: 41 })
+    expect(resync).toHaveBeenCalledTimes(1)
+    // An event that skips numbers (something got lost on the way): resync too.
+    send(third, { channel: 'memory:changed', payload: { n: 43 }, seq: 43 })
+    expect(resync).toHaveBeenCalledTimes(2)
+    expect(events.at(-1)).toEqual({ n: 43 })
+
+    // A restarted core: another stream — its resync-required says where to go on from.
+    third.drop()
+    await vi.advanceTimersByTimeAsync(100)
+    const fourth = FakeSocket.all[3]
+    expect(fourth.url).toBe('ws://core/api/events?stream=s1&since=43')
+    fourth.open()
+    send(fourth, { channel: 'hello', payload: { deviceId: 'd', role: 'member', stream: 's2', seq: 0 } })
+    send(fourth, { channel: 'resync-required', payload: { stream: 's2', seq: 0 } })
+    expect(resync).toHaveBeenCalledTimes(3)
+    send(fourth, { channel: 'memory:changed', payload: { n: 1 }, seq: 1 })
+    expect(events.at(-1)).toEqual({ n: 1 })
+    send(fourth, { channel: 'resync-required', payload: {} }) // without where: just reload
+    expect(resync).toHaveBeenCalledTimes(4)
+
+    // Downgraded to a core without replay: its hello names no stream — reload.
+    fourth.drop()
+    await vi.advanceTimersByTimeAsync(100)
+    const fifth = FakeSocket.all[4]
+    expect(fifth.url).toBe('ws://core/api/events?stream=s2&since=1')
+    fifth.open()
+    expect(resync).toHaveBeenCalledTimes(4) // waits for the hello
+    send(fifth, { channel: 'hello', payload: { deviceId: 'd', role: 'member' } })
+    expect(resync).toHaveBeenCalledTimes(5)
+    send(fifth, { channel: 'hello', payload: { deviceId: 'd', role: 'member' } }) // only once per reconnect
+    expect(resync).toHaveBeenCalledTimes(5)
+    t.close()
     vi.useRealTimers()
   })
 

@@ -14,9 +14,11 @@ export interface Transport {
   /** Subscribe to a push event. Returns an unsubscribe function. */
   on(channel: string, cb: (payload: unknown) => void): () => void
   /**
-   * Called each time the push channel is back after an outage: events from
-   * the gap are lost (the core keeps no replay), so whoever mirrors core state
-   * reloads it. Absent where events cannot drop (the desktop bridge).
+   * Called when events were lost: the push channel is back after an outage
+   * and the core could not replay the gap (`resync-required`, or a core that
+   * keeps no replay), so whoever mirrors core state reloads it. A gap the
+   * core replays needs no resync. Absent where events cannot drop (the
+   * desktop bridge).
    */
   onResync?(cb: () => void): () => void
 }
@@ -70,10 +72,15 @@ export interface RemoteTransport extends Transport {
 
 const trimSlash = (url: string) => url.replace(/\/+$/, '')
 
-/** ws(s)://host/api/events derived from the HTTP base URL. */
-export function eventsUrl(baseUrl: string, origin?: string): string {
+/**
+ * ws(s)://host/api/events derived from the HTTP base URL. A reconnecting
+ * client adds where it stopped (`?stream=<id>&since=<seq>`, from the core's
+ * `hello` and the events' `seq`): the core replays what it missed.
+ */
+export function eventsUrl(baseUrl: string, origin?: string, resume?: { stream: string; since: number }): string {
   const base = trimSlash(baseUrl) || trimSlash(origin ?? '')
-  return `${base.replace(/^http/, 'ws')}/api/events`
+  const query = resume ? `?stream=${encodeURIComponent(resume.stream)}&since=${resume.since}` : ''
+  return `${base.replace(/^http/, 'ws')}/api/events${query}`
 }
 
 /** The events socket's subprotocol — the core answers with it. */
@@ -105,6 +112,15 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
   let unauthorized = false
   /** The socket went down (or never came up) since the last open: events may be missing. */
   let dropped = false
+  /** Where the core's numbered events stand for this client (its `hello`, then each event's `seq`). */
+  let stream: string | null = null
+  let lastSeq = 0
+  /** Back after an outage, resumed: the core replays — unless its hello shows it can't (an older core). */
+  let awaitingHello = false
+
+  const resync = () => {
+    for (const cb of [...resyncs]) cb()
+  }
 
   const setLink = (state: LinkState) => opts.onLinkState?.(state)
   const listenerCount = () => [...listeners.values()].reduce((n, s) => n + s.size, 0)
@@ -119,7 +135,8 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
     if (closed || socket || unauthorized) return
     setLink('connecting')
     const origin = (globalThis as { location?: { origin?: string } }).location?.origin
-    const ws = new Socket(eventsUrl(base, origin), eventsProtocols(opts.token))
+    const resuming = stream !== null
+    const ws = new Socket(eventsUrl(base, origin, resuming ? { stream: stream!, since: lastSeq } : undefined), eventsProtocols(opts.token))
     socket = ws
     let opened = false
     ws.onopen = () => {
@@ -128,16 +145,36 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
       setLink('online')
       if (!dropped) return
       dropped = false
-      for (const cb of [...resyncs]) cb()
+      // Resumed: the core sends what was missed (or says resync-required). Nothing to resume from: reload now.
+      if (resuming) awaitingHello = true
+      else resync()
     }
     ws.onmessage = (ev) => {
-      let msg: { channel?: string; payload?: unknown }
+      let msg: { channel?: string; payload?: unknown; seq?: unknown }
       try {
         msg = JSON.parse(String(ev.data))
       } catch {
         return
       }
+      const p = (msg.payload ?? {}) as { stream?: unknown; seq?: unknown }
+      const numbered = typeof p.stream === 'string' && typeof p.seq === 'number'
+      let gap = false
+      if (msg.channel === 'hello') {
+        // A new numbering (first connection, a restarted core): start from where it stands.
+        if (numbered && p.stream !== stream) [stream, lastSeq] = [p.stream as string, p.seq as number]
+        // A core without replay: whatever happened in the gap is lost.
+        if (!numbered && awaitingHello) gap = true
+        awaitingHello = false
+      } else if (msg.channel === 'resync-required') {
+        if (numbered) [stream, lastSeq] = [p.stream as string, p.seq as number]
+        gap = true
+      } else if (typeof msg.seq === 'number') {
+        if (msg.seq <= lastSeq) return // seen already
+        gap = msg.seq > lastSeq + 1
+        lastSeq = msg.seq
+      }
       for (const cb of [...(listeners.get(String(msg.channel)) ?? [])]) cb(msg.payload)
+      if (gap) resync()
     }
     ws.onerror = () => {}
     ws.onclose = (ev) => {
