@@ -44,6 +44,7 @@ import { useRemote } from '@/features/remote/store'
 import { useLintStatus } from '../lintStatus'
 import type { PickItem } from '../scm'
 import { GitGraph } from './GitGraph'
+import { TrustBanner } from './TrustBanner'
 import type { CursorInfo } from './CodeEditor'
 import { usePaneFocused } from '@/features/workspace/pane'
 import { usePalette } from '@/features/palette/store'
@@ -234,6 +235,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
   const projects = useProjects((s) => s.projects)
   const [projectsLoaded, setProjectsLoaded] = useState(projects.length > 0)
   const projectId = useEditor((s) => s.projectId)
+  const editorProject = projects.find((p) => p.id === projectId)
   const activeGroup = useEditor((s) => s.activeGroup)
   /** The file of the focused group — the status bar and file commands are about it. */
   const focused = useEditor((s) => s.tabs.find((x) => x.id === s.activeId))
@@ -502,6 +504,7 @@ export function EditorView({ active, onNavigate }: { active: boolean; onNavigate
 
       {/* Editor groups (one may show a diff, the graph …) · debug console · status */}
       <section className="flex min-w-0 flex-1 flex-col">
+        {editorProject && <TrustBanner project={editorProject} />}
         {live.error && (
           <Banner tone="warn">
             <AlertTriangle size={13} className="shrink-0 text-danger" />

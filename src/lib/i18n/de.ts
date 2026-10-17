@@ -959,6 +959,13 @@ agents: {
     paletteRunAll: 'Test: Alle Tests ausführen',
     paletteRunFile: 'Test: Tests dieser Datei ausführen'
   },
+  trust: {
+    restricted: (name) =>
+      `Eingeschränkter Modus: Mindeck startet keine eigenen Werkzeuge von ${name} – weder TypeScript, ESLint / Prettier, Python, Git-Hooks und -Konfiguration noch die SFTP-Konfiguration. Vertraue diesem Projekt nur, wenn du seinen Autoren vertraust.`,
+    trust: 'Diesem Projekt vertrauen',
+    trusting: 'Wird vertraut …'
+  },
+
   lint: {
     fix: (rule) => `Beheben: ${rule} (ESLint)`,
     disable: (rule) => `${rule} für diese Zeile abschalten`,
