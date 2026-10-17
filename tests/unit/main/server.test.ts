@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -136,6 +136,43 @@ describe('AuthService', () => {
     const cli = new AuthService(file, () => now)
     const fresh = await cli.createPairingCode()
     expect((await auth.pair(fresh.code, 'phone')).device.name).toBe('phone')
+  })
+
+  it('a code from a second process survives the running core’s own writes (lastSeen, roles, revoking)', async () => {
+    let now = 1_000_000
+    const { auth, file } = await setup(() => now)
+    const phone = await auth.pair((await auth.createPairingCode()).code, 'phone')
+    const laptop = await auth.pair((await auth.createPairingCode()).code, 'laptop')
+    expect(await auth.verify(phone.token)).not.toBeNull() // the running core has the file in memory now
+    // `mindeck pair` / `docker:pair`: another process writes a code into the file.
+    const cli = new AuthService(file, () => now)
+    const first = await cli.createPairingCode()
+    const second = await cli.createPairingCode()
+    const third = await cli.createPairingCode()
+    // The paired phone checks in a minute later: lastSeen is written — on top of the file as it is now.
+    now += 61_000
+    await auth.verify(phone.token)
+    expect(JSON.parse(await readFile(file, 'utf8')).codes).toHaveLength(3)
+    expect((await auth.pair(first.code, 'tablet')).device.name).toBe('tablet')
+    await auth.setRole(phone.device.id, 'admin')
+    expect((await auth.pair(second.code, 'tv')).device.name).toBe('tv')
+    await auth.revoke(laptop.device.id)
+    expect((await auth.pair(third.code, 'watch')).device.name).toBe('watch')
+    expect((await auth.devices()).map((d) => d.name)).toEqual(['phone', 'tablet', 'tv', 'watch'])
+  })
+
+  it.skipIf(process.platform === 'win32')('a file that can’t be read right now is an error — never read as empty and written over', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const dir = await tempDir()
+    const file = join(dir, 'devices.json')
+    // A link onto itself: every read fails (ELOOP), like EACCES or EIO would.
+    await symlink(file, file)
+    const auth = new AuthService(file, Date.now, true)
+    await expect(auth.hasDevices()).rejects.toMatchObject({ code: 'ELOOP' })
+    await expect(auth.verify('mindeck_x')).rejects.toMatchObject({ code: 'ELOOP' })
+    await expect(auth.createPairingCode()).rejects.toMatchObject({ code: 'ELOOP' })
+    expect((await lstat(file)).isSymbolicLink()).toBe(true) // nothing was written over it
+    expect(warn.mock.calls.at(-1)![0]).toMatch(/cannot read .*devices\.json/)
   })
 
   it('treats a corrupt file as empty and keeps working after a failed write', async () => {
