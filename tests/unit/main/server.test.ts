@@ -239,7 +239,9 @@ describe('EventHub', () => {
 
 // --- HTTP + WebSocket ------------------------------------------------------
 
-async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown> } = {}) {
+async function startHttp(
+  opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown>; outbox?: { timeoutMs?: number; max?: number } } = {}
+) {
   const dir = await tempDir()
   const auth = new AuthService(join(dir, 'devices.json'))
   const hub = new EventHub()
@@ -257,7 +259,8 @@ async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onC
     webRoot: opts.webRoot,
     remoteTerminal: () => terminal,
     onClients: opts.onClients,
-    scope: opts.scope
+    scope: opts.scope,
+    outbox: opts.outbox
   })
   await http.listen('127.0.0.1', 0)
   servers.push(http)
@@ -447,6 +450,32 @@ describe('HttpServer — events socket', () => {
     expect(scope).not.toHaveBeenCalledWith('browser:reveal', expect.anything())
     expect(error).toHaveBeenCalledWith('[server] not sending tests:changed:', expect.any(Error))
     error.mockRestore()
+  })
+
+  it('a check that hangs (a network share gone) holds nothing up: that event is dropped; a full outbox drops new ones until it drains', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let hang = true
+    const scope = vi.fn((channel: string, payload: unknown) => (channel === 'tests:changed' && hang ? new Promise<unknown>(() => {}) : Promise.resolve(payload)))
+    const { hub, base, token } = await startHttp({ scope, outbox: { timeoutMs: 40, max: 3 } })
+    const { messages } = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
+    await tick(20)
+    hub.publish('tests:changed', { projectId: 'on-a-dead-mount' } as never)
+    hub.publish('memory:changed', { paths: ['a.md'] })
+    hub.publish('memory:changed', { paths: ['b.md'] })
+    hub.publish('memory:changed', { paths: ['dropped.md'] }) // the outbox holds 3
+    hub.publish('memory:changed', { paths: ['dropped-too.md'] })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatch(/3 events wait for their check — dropping new ones/)
+    await vi.waitFor(() => expect(messages.length).toBe(3))
+    expect(messages.slice(1).map((m) => (m as { payload: { paths: string[] } }).payload.paths[0])).toEqual(['a.md', 'b.md'])
+    expect(error).toHaveBeenCalledWith('[server] not sending tests:changed:', expect.objectContaining({ message: 'no answer within 40 ms' }))
+    // Drained: events flow again, and a full outbox would be said again.
+    hang = false
+    hub.publish('memory:changed', { paths: ['c.md'] })
+    await vi.waitFor(() => expect(messages.length).toBe(4))
+    error.mockRestore()
+    warn.mockRestore()
   })
 
   it('heartbeat drops dead clients; closed sockets are skipped; close() is idempotent', async () => {
