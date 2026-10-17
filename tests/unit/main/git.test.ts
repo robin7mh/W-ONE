@@ -171,6 +171,20 @@ describe('GitService', () => {
     expect(remoteWebUrl('file:///srv/demo.git')).toBeUndefined()
   })
 
+  it('restricted unless the folder belongs to a trusted project: the repository’s hooks and filters stay off', async () => {
+    const dir = await repo()
+    await writeFile(join(dir, 'hook.sh'), '#!/bin/sh\ntouch "$(dirname "$0")/PWNED"\n')
+    sh(dir, 'config', 'filter.evil.clean', 'sh hook.sh; cat')
+    await writeFile(join(dir, '.gitattributes'), '* filter=evil\n')
+    await writeFile(join(dir, 'a.txt'), 'changed\n')
+    const restricted = new GitService({ trusted: () => false })
+    expect(await restricted.uncommitted(dir)).toBe(4) // a.txt, .gitattributes, hook.sh, old.txt
+    expect(await git.uncommitted(dir)).toBe(4) // no trust given: restricted
+    expect(existsSync(join(dir, 'PWNED'))).toBe(false)
+    expect(await new GitService({ trusted: (d) => d === dir }).uncommitted(dir)).toBeGreaterThan(0)
+    expect(existsSync(join(dir, 'PWNED'))).toBe(true)
+  })
+
   it('reports a missing git binary as an error', async () => {
     const saved = process.env.PATH
     process.env.PATH = ''

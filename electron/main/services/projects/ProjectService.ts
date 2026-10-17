@@ -9,6 +9,7 @@ import { detectGit } from './gitDetect'
 import { detectStack } from './stackDetect'
 import { desktopOnly, type Platform } from '../../platform/types'
 import { openInVsCode } from '../../lib/openInVsCode'
+import { gitGuard, gitProgram } from '../../lib/git'
 
 const exec = promisify(execFile)
 
@@ -21,6 +22,8 @@ const GITHUB_DESKTOP = 'x-github-client://'
  * state — the renderer talks to it exclusively through the projects:* IPC.
  */
 export class ProjectService {
+  private readonly trustListeners: ((project: Project) => void)[] = []
+
   constructor(
     private readonly registry: ProjectRegistry,
     private readonly platform: Platform
@@ -57,7 +60,8 @@ export class ProjectService {
     }
 
     const now = new Date().toISOString()
-    const [git, stack] = await Promise.all([detectGit(canonical), detectStack(canonical)])
+    // A new project is restricted until the user trusts it — also one the user added (Project.trusted).
+    const [git, stack] = await Promise.all([detectGit(canonical, false), detectStack(canonical)])
     const project: Project = {
       id: randomUUID(),
       name: stack.packageJson?.name?.trim() || basename(canonical),
@@ -66,6 +70,7 @@ export class ProjectService {
       lastSeenAt: now,
       git,
       stack,
+      trusted: false,
       ...(remote ? { addedRemotely: true } : {})
     }
     return this.registry.upsert(project)
@@ -78,7 +83,7 @@ export class ProjectService {
   /** Re-run detection for one project (Git/stack are never cached as truth). */
   async refresh(id: string): Promise<Project> {
     const project = this.requireProject(id)
-    const [git, stack] = await Promise.all([detectGit(project.path), detectStack(project.path)])
+    const [git, stack] = await Promise.all([detectGit(project.path, project.trusted === true), detectStack(project.path)])
     return this.registry.upsert({
       ...project,
       git,
@@ -86,6 +91,18 @@ export class ProjectService {
       name: stack.packageJson?.name?.trim() || project.name,
       lastSeenAt: new Date().toISOString()
     })
+  }
+
+  /** Trust the project (its own tools may run) or restrict it again; listeners restart what runs for it. */
+  async trust(id: string, trusted: boolean): Promise<Project> {
+    const project = await this.registry.upsert({ ...this.requireProject(id), trusted })
+    for (const listener of this.trustListeners) listener(project)
+    return project
+  }
+
+  /** Called after a project's trust changed. */
+  onTrustChange(listener: (project: Project) => void): void {
+    this.trustListeners.push(listener)
   }
 
   async openInEditor(id: string): Promise<void> {
@@ -114,9 +131,10 @@ export class ProjectService {
 
   /** `git pull --ff-only`: new commits from the remote, never a merge commit — then fresh detection. */
   async pull(id: string): Promise<Project> {
-    const { path } = this.requireProject(id)
+    const { path, trusted } = this.requireProject(id)
     try {
-      await exec('git', ['pull', '--ff-only', '--quiet'], { cwd: path, timeout: 60_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+      const guard = await gitGuard(path, trusted === true)
+      await exec(gitProgram(), [...guard, 'pull', '--ff-only', '--quiet'], { cwd: path, timeout: 60_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
     } catch (err) {
       const why = (err as { stderr?: string }).stderr?.trim().split('\n')[0]
       throw Object.assign(new Error(why || (err as Error).message), { code: 'pull-failed' })

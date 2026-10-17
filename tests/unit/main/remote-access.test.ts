@@ -171,6 +171,9 @@ describe('RemoteAccess · projects and files', () => {
     await expect(m.access.check('files:stat', { projectId: 'desk', paths: ['a', 'b/id_rsa', 3] })).rejects.toThrow('id_rsa')
     await expect(m.access.check('files:list', { projectId: 'desk', dir: '.aws' })).rejects.toThrow('.aws')
     await expect(m.access.check('files:read', { projectId: 'home', path: 'notes.txt' })).rejects.toThrow('the home folder')
+    // Trusting (an admin device) only for a project the device may use.
+    await m.access.check('projects:trust', { id: 'desk', trusted: true })
+    await expect(m.access.check('projects:trust', { id: 'home', trusted: true })).rejects.toMatchObject({ code: 'remote-forbidden' })
     await expect(m.access.check('agents:diff', { id: 's', path: 'secrets/prod.pem' })).rejects.toThrow('prod.pem')
     await m.access.check('memory:read', { path: '.env.md' }) // a vault note: no project, no file rule
     await m.access.check('app:info', undefined)

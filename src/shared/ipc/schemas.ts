@@ -117,6 +117,7 @@ export const REQUEST_SCHEMAS: Schemas = {
   'projects:githubDesktop': none,
   'projects:openInGitHubDesktop': z.object({ id }),
   'projects:openFile': z.object({ id, file: path, line: z.number().int().min(0).optional() }),
+  'projects:trust': z.object({ id, trusted: z.boolean() }),
 
   'system:subscribe': none,
   'system:unsubscribe': none,

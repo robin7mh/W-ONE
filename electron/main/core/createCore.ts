@@ -47,6 +47,7 @@ import { BROWSER_TOOLS, browserTools } from '../services/ai/tools/browser'
 import { EventHub } from './EventHub'
 import { ProjectRegistry } from '../services/projects/registry'
 import { ProjectService } from '../services/projects/ProjectService'
+import { WorkspaceTrust } from '../services/projects/trust'
 import { SystemService } from '../services/system/SystemService'
 import { ContextStore } from '../services/context/contextStore'
 import { ContextService } from '../services/context/ContextService'
@@ -159,6 +160,8 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
 
   const projects = new ProjectService(new ProjectRegistry(paths.dataDir), platform)
   await projects.init()
+  // Workspace trust (BE-SEC-01): a project's own tools run only once the user trusts it.
+  const trust = new WorkspaceTrust(() => projects.list())
 
   const system = new SystemService((snapshot) => hub.publish('system:tick', snapshot))
 
@@ -216,13 +219,16 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     (id) => projects.getProjectPath(id),
     (abs) => platform.trashItem(abs, fileTrash)
   )
-  const scm = new ScmService((id) => projects.getProjectPath(id))
+  const scm = new ScmService((id) => projects.getProjectPath(id), undefined, (root) => trust.folder(root))
   // Language servers and debuggers Mindeck installs live in its data folder.
   const devTools = new ToolsService({ dir: join(paths.dataDir, 'tools'), publish: hub.publish.bind(hub, 'tools:progress') })
   const lsp = new LspService({
     resolveRoot: (id) => projects.getProjectPath(id),
+    trusted: (id) => trust.project(id),
     servers: { tools: devTools, onDiagnostics: hub.publish.bind(hub, 'lsp:diagnostics') }
   })
+  // Trusted (or restricted again): TypeScript switches to the project's own (or Mindeck's), other servers restart.
+  projects.onTrustChange((p) => void lsp.retrust(p.id))
   const debug = new DebugService({
     resolveRoot: (id) => projects.getProjectPath(id),
     publish: (channel, payload) => hub.publish(channel, payload as never),
@@ -360,7 +366,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     tempDir: join(paths.agentsDir, 'images'),
     worktreesDir: paths.worktreesDir,
     terminal,
-    git: new GitService(),
+    git: new GitService({ trusted: (dir) => trust.folder(dir) }),
     server: local,
     permissions,
     events,
@@ -403,7 +409,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     publish: hub.publish.bind(hub, 'liveServer:changed')
   })
   registerSftpIpc(router, new SftpService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'sftp:progress') }))
-  registerGitHubIpc(router, new GitHubService({ resolveRoot: (id) => projects.getProjectPath(id), gh: loginShellGh }))
+  registerGitHubIpc(router, new GitHubService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (dir) => trust.folder(dir), gh: loginShellGh }))
   const mongo = new MongoService({ secrets })
   registerMongoIpc(router, mongo)
   registerLiveIpc(router, liveServer, new SassService((id) => projects.getProjectPath(id), () => editorSettings()?.sass))
@@ -494,10 +500,10 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
   })
   registerRemoteIpc(router, remote, (id) => projects.getProjectPath(id))
   // ESLint and Prettier: the project's own, in a worker per project.
-  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), prettier: bundledPrettier() })
+  const lint = new LintService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (id) => trust.project(id), prettier: bundledPrettier() })
   registerLintIpc(router, lint)
   // The test explorer: the project's runners, Mindeck's debugger.
-  const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'notebook:event') })
+  const notebooks = new NotebookService({ resolveRoot: (id) => projects.getProjectPath(id), trusted: (id) => trust.project(id), publish: hub.publish.bind(hub, 'notebook:event') })
   registerNotebookIpc(router, notebooks)
   registerTestsIpc(router, new TestService({ resolveRoot: (id) => projects.getProjectPath(id), publish: hub.publish.bind(hub, 'tests:changed'), debug: debug.start.bind(debug) }))
 

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -54,7 +54,7 @@ afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 async function setup(files: Record<string, string>, opts: Partial<ConstructorParameters<typeof LintService>[0]> = {}) {
   const root = await project(files)
   const bundled = await project({ 'prettier/index.js': PRETTIER('bundled') })
-  const svc = new LintService({ resolveRoot: (id) => (id === 'p' ? root : undefined), prettier: join(bundled, 'prettier/index.js'), ...opts })
+  const svc = new LintService({ resolveRoot: (id) => (id === 'p' ? root : undefined), trusted: () => true, prettier: join(bundled, 'prettier/index.js'), ...opts })
   services.push(svc)
   return { svc, root }
 }
@@ -104,6 +104,64 @@ describe('ESLint and Prettier from the project', () => {
     expect(await none.svc.format('p', 'a.css', 'x', { prettier: true, options: { semi: true } })).toBe('bundled:{"semi":true}:X')
     expect(await none.svc.format('p', 'a.css', 'x', { prettier: true })).toBe('bundled:{}:X')
   }, 20_000)
+
+  it('a project that isn’t trusted: none of its modules or configs load — no ESLint, only Mindeck’s Prettier with the editor’s options', async () => {
+    // The attack: loading the project's ESLint, Prettier or their configs runs its code.
+    const PWN = "require('fs').writeFileSync(require('path').join(process.env.MINDECK_ROOT, 'pwned-' + Math.random()), '');"
+    const { svc, root } = await setup(
+      {
+        'eslint.config.js': PWN,
+        'node_modules/eslint/index.js': PWN + ESLINT,
+        'node_modules/prettier/index.js': PWN + PRETTIER('project'),
+        '.prettierrc': '{}'
+      },
+      { trusted: () => false }
+    )
+    expect(await svc.lint('p', 'a.js', 'var x')).toEqual({ available: false, diagnostics: [] })
+    expect(await svc.fix('p', 'a.js', 'var x')).toBeNull()
+    expect(await svc.format('p', 'a.js', 'x')).toBeNull()
+    // Mindeck's own, with the user's options (not the project's .prettierrc: semi false).
+    expect(await svc.format('p', 'a.js', 'x', { prettier: true, options: { semi: true } })).toBe('bundled:{"semi":true}:X')
+    expect((await readdir(root)).filter((f) => f.startsWith('pwned'))).toEqual([])
+  }, 20_000)
+
+  it('without a trust check, a project counts as not trusted', async () => {
+    const started: boolean[] = []
+    const svc = new LintService({
+      resolveRoot: () => process.cwd(),
+      prettier: 'x',
+      spawn: (_root, trusted) => {
+        started.push(trusted)
+        return new FakeWorker() as never
+      }
+    })
+    services.push(svc)
+    void svc.format('p', 'a.js', 'x').catch(() => {})
+    await tick()
+    expect(started).toEqual([false])
+  })
+
+  it('a worker started under the other trust is replaced', async () => {
+    let trusted = false
+    const procs: { trusted: boolean; proc: FakeWorker }[] = []
+    const { svc } = await setup({}, {
+      trusted: () => trusted,
+      spawn: (_root, t) => {
+        const proc = new FakeWorker()
+        procs.push({ trusted: t, proc })
+        return proc as never
+      }
+    })
+    void svc.format('p', 'a.js', 'x').catch(() => {})
+    void svc.format('p', 'a.js', 'x').catch(() => {})
+    await tick()
+    expect(procs.map((p) => p.trusted)).toEqual([false])
+    trusted = true
+    void svc.format('p', 'a.js', 'x').catch(() => {})
+    await tick()
+    expect(procs.map((p) => p.trusted)).toEqual([false, true])
+    expect(procs[0].proc.killed).toBe(true)
+  })
 
   it('the worker: noise on stdout is skipped, a slow answer times out, a crash fails what waits and it starts again; idle workers stop; restart', async () => {
     let spawned = 0
