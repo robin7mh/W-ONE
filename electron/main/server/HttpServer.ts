@@ -365,8 +365,10 @@ export class HttpServer {
     if (!m) return false
     const name = m[1].replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()
     if (isIP(name) || name === 'localhost' || name.endsWith('.localhost')) return true
+    // macOS names itself `Studio-Mac.local`, a router's DNS `studio-mac.fritz.box`: the bare name counts too.
     const machine = (this.opts.hostname ?? osHostname)().toLowerCase()
-    const names = [machine, `${machine}.local`, ...this.certNames, ...(this.opts.allowedHosts ?? []).map((h) => h.toLowerCase())]
+    const bare = machine.split('.')[0]
+    const names = [machine, bare, `${bare}.local`, ...this.certNames, ...(this.opts.allowedHosts ?? []).map((h) => h.toLowerCase())]
     return names.some((h) => h === '*' || h === name || (h.startsWith('.') && name.endsWith(h)))
   }
 

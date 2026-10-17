@@ -347,6 +347,12 @@ describe('HttpServer — hardening', () => {
     // The events socket too, token or not.
     const ws = await raw(port, `GET /api/events HTTP/1.1\r\nHost: evil.example\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: ${eventsProtocols(token).join(', ')}\r\n\r\n`)
     expect(ws).toMatch(/^HTTP\/1\.1 403/)
+    // A machine whose name already has a domain: that, its bare name and <bare>.local.
+    const named = new HttpServer({ router: new Router(), hub: new EventHub(), auth: new AuthService(join(await tempDir(), 'd.json')), mode: 'server', version: '1', remoteTerminal: () => false, hostname: () => 'Robins-MBP.local' })
+    await named.listen('127.0.0.1', 0)
+    servers.push(named)
+    for (const host of ['robins-mbp.local', 'robins-mbp', 'Robins-MBP']) expect(await get(named.port, '/api/health', { Host: host }), host).toMatch(/^HTTP\/1\.1 200/)
+    expect(await get(named.port, '/api/health', { Host: 'robins-mbp.local.local' })).toMatch(/^HTTP\/1\.1 403/)
     // `*` answers to any name (a proxy that rewrites them all).
     const any = await startHttp({ allowedHosts: ['*'] })
     expect(await get(any.http.port, '/api/health', { Host: 'whatever.example' })).toMatch(/^HTTP\/1\.1 200/)
