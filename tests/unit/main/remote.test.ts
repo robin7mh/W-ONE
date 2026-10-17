@@ -79,7 +79,7 @@ declare module 'node:events' {
 }
 
 /** The remote core's HTTP API through the tunnel. */
-function api(opts: { tokenOk?: boolean; pair?: 'ok' | 'refuse'; adopt?: 'ok' | 'fail' | 'garbage' } = {}) {
+function api(opts: { tokenOk?: boolean; pair?: 'ok' | 'refuse'; adopt?: 'ok' | 'fail' | 'garbage'; installId?: string | 'old-core' } = {}) {
   const calls: { url: string; body: unknown; auth?: string }[] = []
   const fetch = vi.fn(async (url: string, init: { body: string; headers: Record<string, string> }) => {
     const body = JSON.parse(init.body)
@@ -87,6 +87,9 @@ function api(opts: { tokenOk?: boolean; pair?: 'ok' | 'refuse'; adopt?: 'ok' | '
     const reply = (data: unknown) => ({ status: 200, json: async () => data })
     if (url.endsWith('/api/pair')) return opts.pair === 'refuse' ? reply({ ok: false, error: { message: 'Code expired' } }) : reply({ ok: true, data: { token: 'tok-new', device: { id: 'dev-new' } } })
     if (url.endsWith('/api/rpc/app:info')) return reply(opts.tokenOk ? { ok: true, data: {} } : { ok: false, error: { message: 'unauthorized' } })
+    if (url.endsWith('/api/rpc/cloud:installId')) {
+      return reply(opts.installId === 'old-core' ? { ok: false, error: { code: 'unknown-channel', message: 'Unknown channel: cloud:installId' } } : { ok: true, data: opts.installId ? { installId: opts.installId } : {} })
+    }
     if (url.endsWith('/api/rpc/cloud:adopt')) {
       if (opts.adopt === 'garbage') return { status: 502, json: async () => Promise.reject(new Error('not json')) }
       return reply(opts.adopt === 'fail' ? { ok: false, error: { message: 'bad-entitlement' } } : { ok: true, data: {} })
@@ -100,7 +103,16 @@ const services: RemoteService[] = []
 afterEach(() => services.splice(0).forEach((s) => s.dispose()))
 
 async function setup(
-  o: { machine?: ReturnType<typeof machine>; api?: ReturnType<typeof api>; saved?: string; entitlement?: boolean; window?: boolean; licensed?: boolean; node?: RemoteOptions['node'] } = {}
+  o: {
+    machine?: ReturnType<typeof machine>
+    api?: ReturnType<typeof api>
+    saved?: string
+    entitlement?: boolean
+    window?: boolean
+    licensed?: boolean
+    followerLease?: RemoteOptions['followerLease']
+    node?: RemoteOptions['node']
+  } = {}
 ) {
   const dir = await tempDir('mindeck-remote-')
   const bundle = join(dir, 'pkg.tar.gz')
@@ -117,6 +129,7 @@ async function setup(
     bundle: vi.fn(async () => bundle),
     secrets: { get: async (k) => secrets.get(k), set: async (k, v) => void (v === null ? secrets.delete(k) : secrets.set(k, v)) },
     entitlement: () => (o.entitlement === false ? null : { token: 'ent', account: { email: 'r@mindeck.test', name: null } }),
+    followerLease: o.followerLease,
     openWindow:
       o.window === false
         ? undefined
@@ -224,6 +237,30 @@ describe('Remote-SSH', () => {
     await tick()
     expect(t.svc.list()[0].state).toBe('closed')
     expect(core.killed).toBe(true)
+  })
+
+  it('hands over a follower lease for that core when Mindeck Cloud issues one, else the desktop’s entitlement (BE-SEC-09)', async () => {
+    const account = { email: 'r@mindeck.test', name: null }
+    const followerLease = vi.fn(async (installId: string) => (installId === 'remote-install' ? { token: 'lease-for-remote', account } : null))
+    const leased = await setup({ api: api({ installId: 'remote-install' }), followerLease })
+    await leased.svc.ssh('box')
+    expect(followerLease).toHaveBeenCalledWith('remote-install')
+    expect(leased.a.calls.find((x) => x.url.endsWith('cloud:installId'))).toMatchObject({ auth: 'Bearer tok-new' })
+    expect(leased.a.calls.find((x) => x.url.endsWith('cloud:adopt'))!.body).toEqual({ token: 'lease-for-remote', account })
+    // No lease (the cloud issues none yet): the desktop's own entitlement, for the transition.
+    const plain = await setup({ api: api({ installId: 'other-install' }), followerLease })
+    await plain.svc.ssh('box')
+    expect(plain.a.calls.find((x) => x.url.endsWith('cloud:adopt'))!.body).toMatchObject({ token: 'ent' })
+    // A remote core that can't say its install id, or a lease request that fails: the same.
+    for (const [remote, lease] of [
+      [api({ installId: 'old-core' }), followerLease],
+      [api(), followerLease],
+      [api({ installId: 'remote-install' }), vi.fn(async () => Promise.reject(new Error('cloud down')))]
+    ] as const) {
+      const t = await setup({ api: remote, followerLease: lease })
+      await t.svc.ssh('box')
+      expect(t.a.calls.find((x) => x.url.endsWith('cloud:adopt'))!.body).toMatchObject({ token: 'ent' })
+    }
   })
 
   it('again: nothing to install, the saved pairing works, no license to hand over; a window that won’t open', async () => {
