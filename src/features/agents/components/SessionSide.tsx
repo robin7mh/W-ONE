@@ -94,6 +94,7 @@ export function SessionSide({ session, onOpenNote }: { session: AgentSession; on
       window.removeEventListener('focus', reload)
       window.clearInterval(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload is recreated each render; these say when to load again
   }, [session.id, session.status, isolated])
 
   // The merged work into the project: `git pull` there, no terminal needed.

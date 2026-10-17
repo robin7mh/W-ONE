@@ -2,7 +2,7 @@ import { GitCommitHorizontal, GitGraph as GraphIcon } from 'lucide-react'
 import type { ScmCommit } from '@shared/types/scm'
 import { GRAPH_COLORS } from '@shared/types/memory'
 import { cn } from '@/lib/cn'
-import { useT } from '@/lib/i18n'
+import { intlLocale, useT } from '@/lib/i18n'
 import { relativeTime } from '@/features/agents/format'
 import { useScm } from '../scm'
 
@@ -140,7 +140,7 @@ export function GitGraph() {
           <div className="space-y-1 border-b border-hud/50 p-3">
             <p className="whitespace-pre-wrap break-words font-sans text-[13px] font-medium text-text-primary">{detail.message}</p>
             <p className="font-sans text-[11.5px] text-text-secondary">
-              {detail.author} · {new Date(detail.date).toLocaleString()}
+              {detail.author} · {new Date(detail.date).toLocaleString(intlLocale())}
             </p>
             <p className="flex items-center gap-1 font-mono text-[10.5px] text-text-muted">
               <GitCommitHorizontal size={11} /> {detail.hash}

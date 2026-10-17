@@ -4,6 +4,7 @@ import type { Note, NoteMeta } from '@shared/types/memory'
 import { TechLabel } from '@/components/ui/TechLabel'
 import { cn } from '@/lib/cn'
 import { intlLocale, useT } from '@/lib/i18n'
+import { openExternal } from '@/lib/links'
 import { renderMarkdown } from '../markdown'
 import { usePaneFocused } from '@/features/workspace/pane'
 import { MarkdownEditor, type MarkdownEditorHandle } from './MarkdownEditor'
@@ -123,10 +124,7 @@ export function NoteEditor(p: Props) {
 
   /** A Markdown link: web addresses leave the app (main routes them to a browser), `.md` paths open notes. */
   const followHref = (href: string) => {
-    if (/^(https?:|mailto:)/i.test(href)) {
-      window.open(href, '_blank')
-      return
-    }
+    if (openExternal(href)) return
     const target = safeDecode(href.split('#')[0])
     const path = note.links[target]
     if (path) p.onOpen(path)

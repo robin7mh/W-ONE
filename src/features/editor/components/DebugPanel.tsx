@@ -93,6 +93,7 @@ export function DebugPanel() {
     if (!first || auto.current === key) return
     auto.current = key
     if (!useDebug.getState().expanded[`${frame}:0`]) void useDebug.getState().toggleVariable(`${frame}:0`, first.objectId!)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per selected frame and scope (the key), not per new array
   }, [frames[frame]?.id, first?.objectId])
 
   return (

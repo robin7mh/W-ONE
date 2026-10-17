@@ -40,9 +40,14 @@ import { run, serverConfigFromEnv, tlsFilesFromEnv } from '../../../server/main'
 
 const cores: Core[] = []
 let savedHome: string | undefined
+let savedNodePath: string | undefined
 beforeEach(async () => {
   savedHome = process.env.MINDECK_HOME
   process.env.MINDECK_HOME = await tempDir()
+  // The project's ESLint and Prettier come from its node_modules — and from NODE_PATH, which on
+  // some machines names a global Prettier. The tests' project has none: no global ones either.
+  savedNodePath = process.env.NODE_PATH
+  delete process.env.NODE_PATH
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
@@ -50,6 +55,7 @@ afterEach(async () => {
   await Promise.all(cores.splice(0).map((c) => c.dispose()))
   if (savedHome === undefined) delete process.env.MINDECK_HOME
   else process.env.MINDECK_HOME = savedHome
+  if (savedNodePath !== undefined) process.env.NODE_PATH = savedNodePath
 })
 
 async function core(opts: Partial<Parameters<typeof createCore>[0]> = {}) {

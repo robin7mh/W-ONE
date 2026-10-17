@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { setErrorLocalizer } from '@shared/ipc/client'
 import { en, type Dict } from './en'
 import { de } from './de'
 
@@ -57,6 +58,15 @@ export function useT(): Dict {
 export function getT(): Dict {
   return DICTS[useLocale.getState().locale]
 }
+
+// The transport's own failures in the UI's language (the core's messages stay as they come).
+setErrorLocalizer((code, message) => {
+  const t = getT().transport
+  if (code === 'offline') return t.offline
+  if (code === 'no-bridge') return t.noBridge
+  if (code === 'bad-response') return t.badResponse(/\((\d+)\)/.exec(message)?.[1] ?? '?')
+  return undefined
+})
 
 /** BCP-47 tag for Intl formatting: German, or the system's English variant. */
 export function intlLocale(locale: Locale = useLocale.getState().locale, language: string = navigator.language): string {

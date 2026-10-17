@@ -504,6 +504,48 @@ describe('memory store', () => {
     await m().save() // no note
   })
 
+  it('a save answered after another note was opened never puts that note\'s text into the saved one', async () => {
+    const { files, routes } = vault(['A.md', 'B.md'])
+    await m().open('A.md')
+    // The autosave of A is in flight; its read-back answers late (HTTP in the web UI is unordered).
+    let release: () => void = () => {}
+    const read = routes['memory:read']
+    let slow = true
+    routes['memory:read'] = (p: never) => {
+      if (slow && (p as { path: string }).path === 'A.md') {
+        slow = false
+        return new Promise((r) => (release = () => r(read(p))))
+      }
+      return read(p)
+    }
+    m().setDraft('A edited')
+    const saving = m().save()
+    await m().open('B.md')
+    expect(m()).toMatchObject({ note: { path: 'B.md' }, draft: 'body' })
+    release()
+    await saving
+    // Still B with B's text — and nothing unsaved that the next autosave would write into A.
+    expect(m()).toMatchObject({ note: { path: 'B.md' }, draft: 'body', saving: false })
+    await m().save()
+    expect(files.get('A.md')!.body).toBe('A edited')
+    expect(files.get('B.md')!.body).toBe('body')
+  })
+
+  it('two quick opens: the note clicked last wins, not the one answered last', async () => {
+    const { routes } = vault(['A.md', 'B.md'])
+    const read = routes['memory:read']
+    const answers: (() => void)[] = []
+    routes['memory:read'] = (p: never) => new Promise((r) => answers.push(() => r(read(p))))
+    const a = m().open('A.md')
+    const b = m().open('B.md')
+    await settle()
+    answers[1]() // B first
+    await b
+    answers[0]() // A late
+    await a
+    expect(m().note!.path).toBe('B.md')
+  })
+
   it('reports save failures and opening errors', async () => {
     const v = vault()
     await m().open('Willkommen.md')

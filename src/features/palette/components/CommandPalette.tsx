@@ -37,7 +37,8 @@ export function CommandPalette() {
     return subscribeCommands(() => setTick((n) => n + 1))
   }, [])
 
-  // `tick`: what the sources list has changed.
+  // `tick`: what the sources list has changed — allCommands reads them, so it counts as a dependency here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tick stands for the command sources outside React
   const commands = useMemo(() => allCommands(t), [t, tick])
   const { recent, results } = useMemo(() => searchCommands(commands, query, recentIds), [commands, query, recentIds])
   const items = [...recent, ...results]

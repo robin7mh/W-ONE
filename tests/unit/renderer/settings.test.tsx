@@ -759,6 +759,15 @@ describe('pairing link from the QR code', () => {
     expect(screen.queryByText('Check the certificate')).toBeNull()
   })
 
+  it('a broken link (bad percent-encoding) shows an empty form instead of crashing — and is gone from the URL', () => {
+    history.replaceState(null, '', '/#pair=%E0%A4%A')
+    expect(linkFromHash()).toEqual({ code: '', fingerprint: null })
+    expect(location.hash).toBe('')
+    history.replaceState(null, '', '/#pair=%E0%A4%A')
+    render(<PairScreen />)
+    expect(screen.getByLabelText('Pairing code')).toHaveValue('')
+  })
+
   it('asks to compare the certificate the browser warned about with the fingerprint from the QR code', () => {
     history.replaceState(null, '', `/#pair=wxyz2345&fp=${HEX.toLowerCase()}`)
     render(<PairScreen />)

@@ -50,6 +50,7 @@ export function FolderPicker({
 
   useEffect(() => {
     void open()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the first listing, once; later ones follow clicks
   }, [])
 
   const sep = listing?.path.includes('\\') ? '\\' : '/'

@@ -21,6 +21,7 @@ import { isSassFile, useLive } from '@/features/editor/live'
 import { useGitHub } from '@/features/editor/github'
 import { onSaved } from '@/features/editor/store'
 import { QuickOpen } from '@/features/editor/components/QuickOpen'
+import { useLocale } from '@/lib/i18n'
 import { DebugConsole, DebugPanel } from '@/features/editor/components/DebugPanel'
 import { EditorView } from '@/features/editor/components/EditorView'
 import { useProjects } from '@/features/projects/store'
@@ -232,6 +233,15 @@ describe('quick open modes', () => {
     fireEvent.change(input(), { target: { value: ':42' } })
     fireEvent.keyDown(input(), { key: 'Enter' })
     expect(useEditor.getState().reveal).toEqual({ id: 'p:a.ts', line: 42 })
+  })
+
+  it('the line entry follows a language switch while open', () => {
+    act(() => useEditor.setState({ activeId: 'p:a.ts' }))
+    open(':7')
+    expect(screen.getByRole('option')).toHaveTextContent('Go to line 7')
+    act(() => useLocale.getState().setLocale('de'))
+    expect(screen.getByRole('option')).toHaveTextContent('Gehe zu Zeile 7')
+    act(() => useLocale.getState().setLocale('en'))
   })
 
   it('a pick list: choose an item, or type free text when the pick takes it', () => {

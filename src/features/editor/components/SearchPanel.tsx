@@ -50,6 +50,7 @@ export function SearchPanel({ readOnly = false }: { readOnly?: boolean }) {
     setBudget(ROWS)
     const timer = window.setTimeout(() => void useSearch.getState().run(), DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- new results must not search again; only the query does
   }, [pattern, regex, caseSensitive, wholeWord, include, exclude])
 
   const total = useMemo(() => results.reduce((n, f) => n + f.matches.length, 0), [results])

@@ -71,6 +71,7 @@ export function XtermPane({ tab, label, active, framed, onNavigate }: PaneProps)
       termRef.current?.focus()
     })
     return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs from useXterm: stable
   }, [active])
 
   const focus = () => {

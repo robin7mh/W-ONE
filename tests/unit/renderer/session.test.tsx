@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fail, installBridge, installRemote, settle } from './bridge'
-import { currentTransport, ipc, isDesktop, onEvent, setTransport } from '@shared/ipc/client'
+import { currentTransport, ipc, isDesktop, onEvent, onResync, setTransport } from '@shared/ipc/client'
 import {
   bridgeTransport,
   createRemoteTransport,
@@ -147,6 +147,43 @@ describe('remote transport', () => {
     vi.useRealTimers()
   })
 
+  it('tells subscribers to resync whenever the socket is back after an outage — not on the first open', async () => {
+    vi.useFakeTimers()
+    const fetch = fakeFetch(() => ({ status: 200, body: { ok: true } }))
+    const t = createRemoteTransport({ baseUrl: 'http://core', token: 'tok', fetch, WebSocket: FakeSocket, minDelayMs: 100, maxDelayMs: 100 })
+    const resync = vi.fn()
+    const off = t.onResync!(resync)
+    t.on('system:tick', vi.fn())
+    FakeSocket.all[0].open()
+    expect(resync).not.toHaveBeenCalled()
+    FakeSocket.all[0].drop()
+    await vi.advanceTimersByTimeAsync(100)
+    FakeSocket.all[1].drop(1006) // still down
+    await vi.advanceTimersByTimeAsync(100)
+    FakeSocket.all[2].open()
+    expect(resync).toHaveBeenCalledTimes(1)
+    FakeSocket.all[2].message(JSON.stringify({ channel: 'system:tick', payload: {} })) // no resync on messages
+    expect(resync).toHaveBeenCalledTimes(1)
+    off()
+    FakeSocket.all[2].drop()
+    await vi.advanceTimersByTimeAsync(100)
+    FakeSocket.all[3].open()
+    expect(resync).toHaveBeenCalledTimes(1)
+    t.close()
+
+    // A first attempt that fails: the events between loading and the socket coming up are missing too.
+    const t2 = createRemoteTransport({ baseUrl: 'http://core', token: 'tok', fetch, WebSocket: FakeSocket, minDelayMs: 100 })
+    const resync2 = vi.fn()
+    t2.onResync!(resync2)
+    t2.on('system:tick', vi.fn())
+    FakeSocket.all[4].drop(1006)
+    await vi.advanceTimersByTimeAsync(100)
+    FakeSocket.all[5].open()
+    expect(resync2).toHaveBeenCalledTimes(1)
+    t2.close()
+    vi.useRealTimers()
+  })
+
   it('stops reconnecting without listeners; a revoked token (4401 / 401 probe) ends the session', async () => {
     vi.useFakeTimers()
     const onUnauthorized = vi.fn()
@@ -221,6 +258,8 @@ describe('remote transport', () => {
     expect(await t.invoke('a', 1)).toEqual({ ok: true, data: 1 })
     t.on('e', vi.fn())
     expect(bridge.on).toHaveBeenCalled()
+    // The desktop bridge cannot drop events: nothing to resync, and onResync is a no-op there.
+    expect(t.onResync).toBeUndefined()
   })
 })
 
@@ -230,6 +269,7 @@ describe('client transport selection', () => {
     expect(currentTransport()).toBeNull()
     await expect(ipc('projects:list')).rejects.toMatchObject({ code: 'no-bridge' })
     expect(onEvent('system:tick', vi.fn())).toBeTypeOf('function')
+    expect(onResync(vi.fn())).toBeTypeOf('function')
 
     const remote = installRemote({ 'projects:list': () => ['r'] })
     expect(await ipc('projects:list')).toEqual(['r'])
@@ -331,6 +371,43 @@ describe('session store', () => {
     await useSession.getState().logout() // nothing to revoke
   })
 
+  it('"stay paired" off: the token lives only as long as the tab (sessionStorage)', async () => {
+    sessionStorage.clear()
+    withFetch(sessionFetch())
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me', false)).toBe(true)
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
+    expect(sessionStorage.getItem('mindeck.token')).toBe('tok')
+    expect(sessionStorage.getItem('mindeck.deviceId')).toBe('dev1')
+    // a reload of the tab still finds it
+    useSession.setState(initialSession, true)
+    await useSession.getState().init()
+    expect(useSession.getState().status).toBe('ready')
+    // pairing again with "stay paired" moves it over
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me')).toBe(true)
+    expect(sessionStorage.getItem('mindeck.token')).toBeNull()
+    expect(localStorage.getItem('mindeck.token')).toBe('tok')
+    await useSession.getState().logout()
+    expect(sessionStorage.length + localStorage.length).toBe(0)
+  })
+
+  it('signing out forgets prompts, drafts, recent files and layouts — theme and language stay', async () => {
+    sessionStorage.clear()
+    withFetch(sessionFetch())
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me')).toBe(true)
+    const kept = { 'mindeck.theme': 'light', 'mindeck.appearance': '{}', 'mindeck.locale': 'de', 'other.app': 'x' }
+    for (const [k, v] of Object.entries({ ...kept, 'mindeck.agents.history': '["secret token sk-1"]', 'mindeck.agents.draft.s1': '{}', 'mindeck.recentFiles': '[]', 'mindeck.editor.layouts': '{}' })) localStorage.setItem(k, v)
+    sessionStorage.setItem('mindeck.debug', 'x')
+    await useSession.getState().logout()
+    expect(Object.fromEntries(Object.entries(localStorage))).toEqual(kept)
+    expect(sessionStorage.length).toBe(0)
+    // Storage that refuses: signing out still completes.
+    vi.spyOn(Storage.prototype, 'key').mockImplementation(() => {
+      throw new Error('denied')
+    })
+    await useSession.getState().logout()
+    expect(useSession.getState().status).toBe('unpaired')
+  })
+
   it('a rejected token resets to pairing; an unreachable core is reported', async () => {
     localStorage.setItem('mindeck.token', 'old')
     withFetch(sessionFetch({ info: 401 }))
@@ -396,9 +473,16 @@ describe('SessionGate and pairing screens', () => {
     expect(screen.getByText('Pairing code is invalid or expired')).toBeInTheDocument()
 
     withFetch(sessionFetch())
+    const remember = screen.getByRole('checkbox', { name: /Stay paired on this browser/ })
+    expect(remember).toBeChecked()
+    fireEvent.click(remember)
+    sessionStorage.clear()
     fireEvent.click(pairButton)
     await act(settle)
     expect(screen.getByText('APP')).toBeInTheDocument()
+    expect(sessionStorage.getItem('mindeck.token')).toBe('tok')
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
+    sessionStorage.clear()
   })
 
   it('unreachable core offers a retry', async () => {

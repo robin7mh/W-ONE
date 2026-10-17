@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDown, ArrowUp, Braces, Check, Eraser, Loader2, Play, Plus, RotateCcw, Square, Trash2, Wrench, X } from 'lucide-react'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 import type { NotebookOutput } from '@shared/types/notebook'
 import { cn } from '@/lib/cn'
 import { useT } from '@/lib/i18n'
+import { interceptLinks } from '@/lib/links'
+import { sanitizeFrameHtml } from '@/lib/sanitize'
+import { Markdown } from '@/components/ui/Markdown'
+import { renderMarkdown } from '@/features/memory/markdown'
 import { Select } from '@/components/ui/Select'
 import { monaco, THEME } from '../monaco/setup'
 import { joinSource, notebookLanguage, splitSource, stripAnsi, updateCell, type Cell } from '../notebook/doc'
@@ -63,6 +65,7 @@ function CellEditor({ value, language, readOnly, focus, onChange, onRun, onEscap
       model.dispose()
     }
     // The editor lives as long as the cell; text from outside comes in below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   }, [])
 
   // The file changed under the cell (undo in the JSON, a reload from disk): show it.
@@ -78,14 +81,18 @@ function CellEditor({ value, language, readOnly, focus, onChange, onRun, onEscap
   return <div ref={host} className="min-h-8 w-full" />
 }
 
-/** HTML from a kernel (pandas tables, rich reprs): in a frame of its own, without scripts. */
+/**
+ * HTML from a kernel (pandas tables, rich reprs): sanitized, in a frame of its
+ * own. `allow-same-origin` (to measure the height) must never meet
+ * `allow-scripts`: together they would hand the frame the app itself.
+ */
 function HtmlOutput({ html }: { html: string }) {
   const frame = useRef<HTMLIFrameElement>(null)
   // The app's light or dark: without the same colour scheme the frame paints itself white.
   const root = getComputedStyle(document.documentElement)
   const scheme = root.colorScheme || 'normal'
   const color = getComputedStyle(document.body).color
-  const doc = `<!doctype html><html><head><meta charset="utf-8"><style>:root{color-scheme:${scheme}}body{margin:0;font:12.5px ui-sans-serif,system-ui,sans-serif;color:${color};background:transparent;overflow:auto}table{border-collapse:collapse}th,td{border:1px solid rgba(140,160,190,.3);padding:2px 8px;text-align:right}th{background:rgba(140,160,190,.12)}a{color:#38d6e8}</style></head><body>${html}</body></html>`
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><style>:root{color-scheme:${scheme}}body{margin:0;font:12.5px ui-sans-serif,system-ui,sans-serif;color:${color};background:transparent;overflow:auto}table{border-collapse:collapse}th,td{border:1px solid rgba(140,160,190,.3);padding:2px 8px;text-align:right}th{background:rgba(140,160,190,.12)}a{color:#38d6e8}</style></head><body>${sanitizeFrameHtml(html)}</body></html>`
   const fit = () => {
     const el = frame.current!
     el.style.height = `${Math.min(600, el.contentDocument!.body.scrollHeight + 4)}px`
@@ -113,7 +120,7 @@ function Output({ output }: { output: NotebookOutput }) {
   }
   if (data['image/svg+xml']) return <img alt="" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(text(data['image/svg+xml']))}`} className="max-w-full rounded bg-white/90" />
   if (data['text/html']) return <HtmlOutput html={text(data['text/html'])} />
-  if (data['text/markdown']) return <div className="md-prose" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(text(data['text/markdown']), { async: false })) }} />
+  if (data['text/markdown']) return <Markdown text={text(data['text/markdown'])} />
   if (data['application/json'] !== undefined) return <pre className={cn(pre, 'text-text-secondary')}>{JSON.stringify(data['application/json'], null, 2)}</pre>
   return <pre className={cn(pre, 'text-text-primary')}>{stripAnsi(text(data['text/plain']))}</pre>
 }
@@ -139,7 +146,7 @@ function CellView({ cell, index, count, language, readOnly, running, queued, foc
   const source = joinSource(cell.source)
   const [editing, setEditing] = useState(cell.cell_type !== 'markdown' || !source || focus)
   const markdown = cell.cell_type === 'markdown'
-  const html = useMemo(() => (markdown && !editing ? DOMPurify.sanitize(marked.parse(source, { async: false })) : ''), [markdown, editing, source])
+  const html = useMemo(() => (markdown && !editing ? renderMarkdown(source) : ''), [markdown, editing, source])
   const run = (how: Run) => {
     if (markdown) setEditing(false)
     onRun(cell.key, how)
@@ -161,6 +168,7 @@ function CellView({ cell, index, count, language, readOnly, running, queued, foc
           <div
             role="article"
             onDoubleClick={() => !readOnly && setEditing(true)}
+            onClick={interceptLinks}
             className="md-prose min-h-6 cursor-text px-1"
             dangerouslySetInnerHTML={{ __html: html || `<p class="text-text-muted">${t.emptyMarkdown}</p>` }}
           />

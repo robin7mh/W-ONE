@@ -15,6 +15,12 @@ export const de: Dict = {
     hAgo: (n) => `vor ${n} Std.`
   },
 
+  transport: {
+    offline: 'Der Mindeck-Core ist nicht erreichbar.',
+    badResponse: (status) => `Unerwartete Antwort vom Mindeck-Core (${status})`,
+    noBridge: 'Nicht mit einem Mindeck-Core verbunden'
+  },
+
   nav: {
     modules: 'Module',
     core: 'Core',
@@ -275,6 +281,8 @@ export const de: Dict = {
     introPath: 'Einstellungen → Geräte',
     code: 'Kopplungscode',
     deviceName: 'Gerätename',
+    remember: 'In diesem Browser gekoppelt bleiben',
+    rememberHint: 'Auf einem geteilten Rechner ausschalten: Die Kopplung endet dann mit diesem Tab, beim nächsten Mal koppelst du neu.',
     submit: 'Gerät koppeln',
     noLongerPaired: 'Dieses Gerät ist nicht mehr gekoppelt',
     noCore: 'Unter dieser Adresse hat kein Mindeck-Core geantwortet',
@@ -537,6 +545,9 @@ agents: {
     allowOnce: 'Einmal erlauben',
     allowAlways: 'Immer erlauben',
     deny: 'Ablehnen',
+    showWhole: (execute, hidden) => `${execute ? 'Ganzen Befehl anzeigen' : 'Alles anzeigen'} (+${hidden} Zeichen)`,
+    showLess: 'Weniger anzeigen',
+    invisibleChars: (n) => `Enthält ${n} ${n === 1 ? 'unsichtbares' : 'unsichtbare'} Zeichen oder Steuerzeichen — hier als ⟨U+…⟩ gezeigt`,
     newChatWith: (name) => `Neuer Chat · ${name}`,
     assistantName: 'Assistent',
     addKey: 'Melde dich mit deinem Mindeck-Konto an, um den Assistenten zu nutzen — oder hinterlege in den Einstellungen einen eigenen API-Schlüssel →',

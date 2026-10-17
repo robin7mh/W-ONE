@@ -101,6 +101,7 @@ export function Columns({ handlers }: { handlers: EntryHandlers }) {
     return () => {
       alive = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- key stands for the chain and the hidden-files setting
   }, [key])
 
   return (

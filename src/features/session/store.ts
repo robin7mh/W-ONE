@@ -15,20 +15,42 @@ const DEVICE_KEY = 'mindeck.deviceId'
 
 export type SessionStatus = 'checking' | 'unpaired' | 'unreachable' | 'ready'
 
+// The device token is a bearer key to the whole core. A paired browser keeps
+// it in localStorage (pairing again needs a fresh code from the core, so
+// "stay paired" is the default); on a shared computer the person can choose
+// sessionStorage instead: the pairing then ends with the tab.
+
 function read(key: string): string | null {
   try {
-    return localStorage.getItem(key)
+    return sessionStorage.getItem(key) ?? localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
-function write(key: string, value: string | null): void {
+function write(key: string, value: string | null, remember = true): void {
   try {
-    if (value === null) localStorage.removeItem(key)
-    else localStorage.setItem(key, value)
+    localStorage.removeItem(key)
+    sessionStorage.removeItem(key)
+    if (value !== null) (remember ? localStorage : sessionStorage).setItem(key, value)
   } catch {
     /* storage unavailable — the session just won't survive a reload */
+  }
+}
+
+/** What outlives signing out: how the app looks and which language it speaks — nothing about the work. */
+const KEEP_ON_LOGOUT = new Set(['mindeck.theme', 'mindeck.appearance', 'mindeck.locale'])
+
+/** Signing out forgets this browser's traces: prompt history, drafts, recent files, layouts, paths. */
+function forgetBrowserData(): void {
+  for (const storage of [() => localStorage, () => sessionStorage]) {
+    try {
+      const store = storage()
+      const keys = Array.from({ length: store.length }, (_, i) => store.key(i)!)
+      for (const key of keys) if (key.startsWith('mindeck.') && !KEEP_ON_LOGOUT.has(key)) store.removeItem(key)
+    } catch {
+      /* storage unavailable — nothing was kept there */
+    }
   }
 }
 
@@ -64,8 +86,9 @@ interface SessionState {
   error?: string
   /** Start: desktop is always ready; a browser checks its stored token. */
   init: () => Promise<void>
-  pair: (code: string, name: string) => Promise<boolean>
-  /** Forget this browser's device (also revokes it on the core). */
+  /** `remember: false` keeps the pairing only as long as this tab (sessionStorage). */
+  pair: (code: string, name: string, remember?: boolean) => Promise<boolean>
+  /** Forget this browser's device (also revokes it on the core) and what it kept locally. */
   logout: () => Promise<void>
 }
 
@@ -131,12 +154,12 @@ export const useSession = create<SessionState>((set, get) => {
       set(core ? { status: 'unpaired' } : { status: 'unreachable', error: getT().pair.noCore })
     },
 
-    pair: async (code, name) => {
+    pair: async (code, name, remember = true) => {
       set({ error: undefined })
       try {
         const result = await pairDevice(BASE_URL, code.trim(), name.trim())
-        write(TOKEN_KEY, result.token)
-        write(DEVICE_KEY, result.device.id)
+        write(TOKEN_KEY, result.token, remember)
+        write(DEVICE_KEY, result.device.id, remember)
         connect(result.token)
         await loadInfo()
         return true
@@ -153,6 +176,7 @@ export const useSession = create<SessionState>((set, get) => {
       }
       write(TOKEN_KEY, null)
       write(DEVICE_KEY, null)
+      forgetBrowserData()
       transport?.close()
       transport = null
       setTransport(null)

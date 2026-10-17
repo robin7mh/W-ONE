@@ -107,6 +107,7 @@ export function Composer({
 
   useEffect(() => {
     if (agent) saveDraft(agent.sessionId, { text, refs })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the session id matters, not the agent object
   }, [agent?.sessionId, text, refs])
 
   // Each `@` looks up what can be referenced (files, notes and tabs come and go); the last list shows meanwhile.

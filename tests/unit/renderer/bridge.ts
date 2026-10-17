@@ -109,7 +109,14 @@ export function installRemote(routes: Record<string, Route> = {}) {
       listeners.get(channel)!.add(cb)
       return () => listeners.get(channel)!.delete(cb)
     }),
-    emit: (channel: string, payload: unknown) => [...(listeners.get(channel) ?? [])].forEach((cb) => cb(payload))
+    emit: (channel: string, payload: unknown) => [...(listeners.get(channel) ?? [])].forEach((cb) => cb(payload)),
+    resyncs: new Set<() => void>(),
+    onResync: vi.fn((cb: () => void) => {
+      transport.resyncs.add(cb)
+      return () => transport.resyncs.delete(cb)
+    }),
+    /** The push channel is back after an outage. */
+    resync: () => [...transport.resyncs].forEach((cb) => cb())
   }
   setTransport(transport as unknown as Transport)
   return transport

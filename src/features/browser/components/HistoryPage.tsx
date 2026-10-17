@@ -57,6 +57,7 @@ export function HistoryPage() {
   }
   useEffect(() => {
     void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new search, from the top; load itself reads the query
   }, [query])
 
   const forget = async (what: { urls?: string[]; from?: number; to?: number }) => {

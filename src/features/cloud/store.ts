@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { errorMessage, ipc, onEvent } from '@shared/ipc/client'
 import type { CloudStatus } from '@shared/types/cloud'
 import { getT, useLocale } from '@/lib/i18n'
+import { openExternal } from '@/lib/links'
 
 export interface CloudMessage {
   kind: 'error' | 'info'
@@ -112,7 +113,7 @@ export const useCloud = create<CloudState>((set, get) => {
           const { url } = await ipc('cloud:checkout')
           set({ checkoutUrl: url })
           // Desktop: opens in the OS browser (the window's open handler).
-          window.open(url, '_blank')
+          openExternal(url)
         },
         () => getT().cloud.checkoutOpened
       ),

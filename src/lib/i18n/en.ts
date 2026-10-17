@@ -19,6 +19,13 @@ export const en = {
     hAgo: (n: number) => `${n} h ago`
   },
 
+  /** The client's own errors (the core's come in English, see ANALYSE §5). */
+  transport: {
+    offline: 'The Mindeck core is not reachable.',
+    badResponse: (status: string) => `Unexpected answer from the Mindeck core (${status})`,
+    noBridge: 'Not connected to a Mindeck core'
+  },
+
   nav: {
     modules: 'Modules',
     core: 'Core',
@@ -280,6 +287,8 @@ export const en = {
     introPath: 'Settings → Devices',
     code: 'Pairing code',
     deviceName: 'Device name',
+    remember: 'Stay paired on this browser',
+    rememberHint: 'Turn off on a shared computer: the pairing then ends with this tab, and you pair again next time.',
     submit: 'Pair device',
     noLongerPaired: 'This device is no longer paired',
     noCore: 'No Mindeck core answered at this address',
@@ -543,6 +552,9 @@ agents: {
     allowOnce: 'Allow once',
     allowAlways: 'Always allow',
     deny: 'Deny',
+    showWhole: (execute: boolean, hidden: number) => `${execute ? 'Show the whole command' : 'Show everything'} (+${hidden} characters)`,
+    showLess: 'Show less',
+    invisibleChars: (n: number) => `Contains ${n} invisible or control character${n === 1 ? '' : 's'} — shown as ⟨U+…⟩`,
     // assistant pane
     newChatWith: (name: string) => `New chat · ${name}`,
     assistantName: 'Assistant',

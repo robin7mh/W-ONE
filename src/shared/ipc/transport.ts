@@ -13,6 +13,12 @@ export interface Transport {
   invoke(channel: string, payload?: unknown): Promise<IpcResult<unknown>>
   /** Subscribe to a push event. Returns an unsubscribe function. */
   on(channel: string, cb: (payload: unknown) => void): () => void
+  /**
+   * Called each time the push channel is back after an outage: events from
+   * the gap are lost (the core keeps no replay), so whoever mirrors core state
+   * reloads it. Absent where events cannot drop (the desktop bridge).
+   */
+  onResync?(cb: () => void): () => void
 }
 
 /** The subset of `window.mindeck` a bridge transport needs. */
@@ -89,6 +95,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
   const Socket = opts.WebSocket ?? (globalThis.WebSocket as unknown as SocketCtor)
   const base = trimSlash(opts.baseUrl)
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
+  const resyncs = new Set<() => void>()
   const minDelay = opts.minDelayMs ?? 500
   const maxDelay = opts.maxDelayMs ?? 10_000
   let socket: SocketLike | null = null
@@ -96,6 +103,8 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
   let retry: ReturnType<typeof setTimeout> | null = null
   let closed = false
   let unauthorized = false
+  /** The socket went down (or never came up) since the last open: events may be missing. */
+  let dropped = false
 
   const setLink = (state: LinkState) => opts.onLinkState?.(state)
   const listenerCount = () => [...listeners.values()].reduce((n, s) => n + s.size, 0)
@@ -117,6 +126,9 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
       opened = true
       delay = minDelay
       setLink('online')
+      if (!dropped) return
+      dropped = false
+      for (const cb of [...resyncs]) cb()
     }
     ws.onmessage = (ev) => {
       let msg: { channel?: string; payload?: unknown }
@@ -133,6 +145,7 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
       const code = (ev as { code?: number } | undefined)?.code
       if (code === 4401) return rejectToken()
       if (closed) return
+      dropped = true
       setLink('offline')
       if (!listenerCount()) return
       // A socket that never opened may mean a bad token — ask the API once.
@@ -171,6 +184,12 @@ export function createRemoteTransport(opts: RemoteTransportOptions): RemoteTrans
       connect()
       return () => {
         listeners.get(channel)?.delete(cb)
+      }
+    },
+    onResync(cb) {
+      resyncs.add(cb)
+      return () => {
+        resyncs.delete(cb)
       }
     },
     close() {
