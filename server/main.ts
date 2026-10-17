@@ -15,7 +15,6 @@
 //   MINDECK_REMOTE_ROOTS     folders devices may add as projects or vault, separated by
 //                            `:` (`;` on Windows); default /projects (the Docker mount)
 //   MINDECK_WEB_ROOT         built web UI to serve (default: next to this file)
-//   MINDECK_DB_URL           Postgres (default matches docker-compose.yml)
 //   A build with Mindeck Cloud baked in (MINDECK_CLOUD_URL/KEY at build time, the
 //   Docker image) requires a Mindeck license; otherwise only with
 //   MINDECK_LICENSE=required. Dev: MINDECK_CLOUD_URL at run time.

@@ -2,7 +2,7 @@
 #
 # Mindeck core image — the same core as the desktop app, headless: API
 # (HTTP + WebSocket, device pairing) and the web UI on one port. The mobile
-# app and browsers connect here. The database runs from docker-compose.yml.
+# app and browsers connect here. All state lives as files under /data.
 #
 #   docker build -t mindeck .
 #   docker run -p 127.0.0.1:7420:7420 -v mindeck-data:/data mindeck
