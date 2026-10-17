@@ -15,6 +15,12 @@ export const de: Dict = {
     hAgo: (n) => `vor ${n} Std.`
   },
 
+  transport: {
+    offline: 'Der Mindeck-Core ist nicht erreichbar.',
+    badResponse: (status) => `Unerwartete Antwort vom Mindeck-Core (${status})`,
+    noBridge: 'Nicht mit einem Mindeck-Core verbunden'
+  },
+
   nav: {
     modules: 'Module',
     core: 'Core',

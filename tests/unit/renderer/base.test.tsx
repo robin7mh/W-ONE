@@ -9,7 +9,9 @@ import { useClock } from '@/hooks/useClock'
 import { useBoot } from '@/hooks/useBoot'
 import { NAV_ITEMS } from '@/data/navigation'
 import { BOOT_LINES } from '@/data/bootLines'
-import { errorMessage, ipc, IpcError, onEvent } from '@shared/ipc/client'
+import { errorMessage, ipc, IpcError, onEvent, setTransport } from '@shared/ipc/client'
+import { useLocale } from '@/lib/i18n'
+import { blameHover } from '@/features/editor/blame'
 import { CHANNEL_ACCESS, DESKTOP_EVENTS, IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc/contract'
 import { DEFAULT_GRAPH_STYLE, GRAPH_COLORS } from '@shared/types/memory'
 import { EVENT_CATALOG } from '@shared/types/events'
@@ -284,6 +286,24 @@ describe('ipc client', () => {
     expect(errorMessage(new IpcError('c', 'ipc'))).toBe('ipc')
     expect(errorMessage(new Error('plain'))).toBe('plain')
     expect(errorMessage('str')).toBe('str')
+  })
+
+  it('words the client\'s own failures in the UI language; the core\'s messages stay as they come', async () => {
+    useLocale.getState().setLocale('de')
+    expect(errorMessage(Object.assign(new Error('Mindeck core unreachable: Failed to fetch'), { code: 'offline' }))).toBe('Der Mindeck-Core ist nicht erreichbar.')
+    expect(errorMessage(Object.assign(new Error('Unexpected response (502)'), { code: 'bad-response' }))).toBe('Unerwartete Antwort vom Mindeck-Core (502)')
+    expect(errorMessage(new IpcError('bad-response', 'odd'))).toBe('Unerwartete Antwort vom Mindeck-Core (?)')
+    expect(errorMessage(new IpcError('not-found', 'Note not found'))).toBe('Note not found')
+    expect(errorMessage(Object.assign(new Error('x'), { code: 7 }))).toBe('x')
+    await expect(ipc('projects:list')).rejects.toThrow('Nicht mit einem Mindeck-Core verbunden')
+    setTransport({ kind: 'remote', invoke: async () => ({ ok: false, error: { code: 'offline', message: 'Mindeck core unreachable: x' } }), on: () => () => {} })
+    await expect(ipc('projects:list')).rejects.toMatchObject({ code: 'offline', message: 'Der Mindeck-Core ist nicht erreichbar.' })
+    // Dates follow the app's language, not the system's.
+    const date = '2026-10-17T09:00:00Z'
+    expect(blameHover({ hash: 'abcdef1234567', summary: 's', author: 'a', email: 'e', date } as never)).toContain(new Date(date).toLocaleString('de-DE'))
+    useLocale.getState().setLocale('en')
+    await expect(ipc('projects:list')).rejects.toThrow('The Mindeck core is not reachable.')
+    setTransport(null)
   })
 })
 

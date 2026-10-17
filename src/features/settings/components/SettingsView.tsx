@@ -10,7 +10,7 @@ import { TechLabel } from '@/components/ui/TechLabel'
 import { Select } from '@/components/ui/Select'
 import { Card } from '@/components/ui/Card'
 import { LanguageSwitch } from '@/components/ui/LanguageSwitch'
-import { useT } from '@/lib/i18n'
+import { intlLocale, useT } from '@/lib/i18n'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { FolderPicker } from '@/components/ui/FolderPicker'
 import { cn } from '@/lib/cn'
@@ -176,7 +176,7 @@ function RemoteCard() {
           <TechLabel className="text-text-muted">{t.settings.certificate}</TechLabel>
           <p className="break-all font-mono text-[10.5px] text-text-secondary">{s.server.tls.fingerprint}</p>
           <p className="font-mono text-[10px] text-text-muted">
-            {(s.server.tls.selfSigned ? t.settings.certificateSelfSigned : t.settings.certificateOwn)(new Date(s.server.tls.expiresAt).toLocaleDateString())}
+            {(s.server.tls.selfSigned ? t.settings.certificateSelfSigned : t.settings.certificateOwn)(new Date(s.server.tls.expiresAt).toLocaleDateString(intlLocale()))}
           </p>
         </div>
       )}

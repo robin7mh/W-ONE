@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, ExternalLink, FileDiff, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest, Loader2, X } from 'lucide-react'
 import type { CheckState, MergeMethod, PullDetail as Detail } from '@shared/types/github'
 import { cn } from '@/lib/cn'
-import { useT } from '@/lib/i18n'
+import { intlLocale, useT } from '@/lib/i18n'
 import { Select } from '@/components/ui/Select'
 import { Markdown as Prose } from '@/components/ui/Markdown'
 import { useGitHub } from '../github'
@@ -30,7 +30,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString()
+const when = (iso: string) => new Date(iso).toLocaleString(intlLocale())
 
 /** Comment, approve or ask for changes. */
 function Respond() {

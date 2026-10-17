@@ -19,6 +19,13 @@ export const en = {
     hAgo: (n: number) => `${n} h ago`
   },
 
+  /** The client's own errors (the core's come in English, see ANALYSE §5). */
+  transport: {
+    offline: 'The Mindeck core is not reachable.',
+    badResponse: (status: string) => `Unexpected answer from the Mindeck core (${status})`,
+    noBridge: 'Not connected to a Mindeck core'
+  },
+
   nav: {
     modules: 'Modules',
     core: 'Core',
