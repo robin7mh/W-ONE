@@ -1,0 +1,16 @@
+# Keeps the pinned versions current: GitHub Actions are pinned by commit SHA
+# (with the version as a comment), the Docker base images by digest — Dependabot
+# proposes the new SHA/digest with the version it belongs to.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directories: [/, /remote]
+    schedule:
+      interval: monthly
