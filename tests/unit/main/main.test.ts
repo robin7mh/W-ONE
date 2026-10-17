@@ -60,6 +60,8 @@ const h = vi.hoisted(() => ({
   ipcOn: new Map<string, (...a: unknown[]) => unknown>(),
   ipcHandle: new Map<string, (...a: unknown[]) => unknown>(),
   quit: vi.fn(),
+  exit: vi.fn(),
+  errorBox: vi.fn(),
   openExternal: vi.fn(async () => {}),
   openPath: vi.fn(async (_path: string) => ''),
   messageBox: vi.fn((): number => 1),
@@ -131,6 +133,7 @@ vi.mock('electron', () => ({
     setPath: h.setPath,
     requestSingleInstanceLock: () => h.singleInstance,
     quit: h.quit,
+    exit: h.exit,
     getFileIcon: async (path: string) => {
       if (h.fileIconFails) throw new Error('no icon')
       return `icon:${path}`
@@ -182,6 +185,7 @@ vi.mock('electron', () => ({
   },
   powerMonitor: { getSystemIdleTime: () => h.idleSeconds },
   dialog: {
+    showErrorBox: (...a: unknown[]) => h.errorBox(...a),
     showMessageBoxSync: (...a: unknown[]) => h.messageBox(...(a as [])),
     showMessageBox: async (...a: unknown[]) => {
       const options = (a.length > 1 ? a[1] : a[0]) as { message: string; buttons: string[]; cancelId: number }
@@ -298,6 +302,8 @@ beforeEach(() => {
   h.createHost.mockReset()
   h.openExternal.mockClear()
   h.quit.mockReset()
+  h.exit.mockReset()
+  h.errorBox.mockReset()
   h.answers = []
   h.asked = []
   h.trays = []
@@ -338,6 +344,26 @@ describe('main process boot', () => {
     expect(roles).toContain('"editMenu"')
     expect(roles).toContain('"toggleDevTools"')
     expect(roles).not.toContain('"close"')
+  })
+
+  it('a core that fails to start: the reason (and where the log is), then Mindeck really ends — no window-less process holding the lock', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    for (const failure of [Object.assign(new Error('EACCES: permission denied, mkdir /h/data'), { code: 'EACCES' }), 'disk full']) {
+      h.core.server.start.mockReset().mockRejectedValue(failure)
+      h.errorBox.mockReset()
+      h.exit.mockReset()
+      FakeWindow.all = []
+      await boot()
+      expect(h.errorBox).toHaveBeenCalledTimes(1)
+      const [title, detail] = h.errorBox.mock.calls[0] as [string, string]
+      expect(title).toBe('Mindeck could not start')
+      expect(detail).toContain(typeof failure === 'string' ? failure : 'EACCES: permission denied')
+      expect(detail).toContain(join(tmpdir(), 'mindeck-main-test', 'logs'))
+      expect(h.exit).toHaveBeenCalledWith(1)
+      expect(FakeWindow.all).toHaveLength(0)
+      expect(h.appHandlers.has('second-instance')).toBe(false)
+    }
+    expect(err).toHaveBeenCalledWith('[app] the core failed to start', 'disk full')
   })
 
   it('updates itself only when packaged, through desktop channels on the core router', async () => {

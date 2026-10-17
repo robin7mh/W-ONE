@@ -342,7 +342,16 @@ app.whenReady().then(async () => {
   )
   // Mindeck's own menu: Electron's default one would reload the UI on ⌘R and close the window on ⌘W.
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, !app.isPackaged)))
-  await startCore()
+  try {
+    await startCore()
+  } catch (err) {
+    // No window, no tray: a Mindeck left running would only hold the single-instance lock, and
+    // every later start would end at once. Say why, then really end.
+    console.error('[app] the core failed to start', err)
+    dialog.showErrorBox('Mindeck could not start', `${err instanceof Error ? err.message : String(err)}\n\nDetails are in the log: ${paths.logsDir}`)
+    app.exit(1)
+    return
+  }
   createWindow()
   // The Dock (macOS), or a second start: the window back — a new one if it really closed.
   const bringBack = () => (mainWindow ? lifecycle.reveal(mainWindow) : createWindow())
