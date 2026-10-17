@@ -93,6 +93,8 @@ const h = vi.hoisted(() => ({
   coreOpts: undefined as undefined | Record<string, unknown>,
   hubListener: undefined as undefined | ((channel: string, payload: unknown) => void),
   bound: vi.fn(),
+  guard: vi.fn(),
+  defaultSession: { id: 'default-session' },
   schemes: vi.fn(),
   protocolHandler: undefined as undefined | ((request: unknown) => unknown),
   serveFile: vi.fn(async (_request: unknown, deps: { thumbnail: (path: string, size: number) => Promise<unknown> }) => deps),
@@ -165,6 +167,7 @@ vi.mock('electron', () => ({
     }
   },
   shell: { openExternal: h.openExternal, openPath: h.openPath },
+  session: { defaultSession: h.defaultSession },
   protocol: {
     registerSchemesAsPrivileged: (schemes: unknown) => h.schemes(schemes),
     handle: (_scheme: string, fn: (request: unknown) => unknown) => (h.protocolHandler = fn)
@@ -230,6 +233,7 @@ vi.mock('../../../electron/main/platform/electron', () => ({
   secretsProtected: () => true
 }))
 vi.mock('../../../electron/ipc/registry', () => ({ bindIpc: h.bound }))
+vi.mock('../../../electron/main/platform/sessionGuard', () => ({ guardSession: h.guard }))
 vi.mock('../../../electron/main/platform/browser/host', () => ({ createBrowserHost: (...a: unknown[]) => (h.createHost(...a), h.host) }))
 vi.mock('../../../electron/main/platform/fileProtocol', () => ({ FILE_SCHEME: 'mindeck-file', serveFile: h.serveFile }))
 vi.mock('../../../electron/main/core/createCore', () => ({
@@ -317,6 +321,11 @@ describe('main process boot', () => {
     const trusted = h.bound.mock.calls[0][1] as (url: string) => boolean
     expect(trusted('http://localhost:5173/')).toBe(true)
     expect(trusted('https://evil.example/')).toBe(false)
+    // The window's session answers the web's permission questions: only Mindeck's page reads the clipboard.
+    expect(h.guard).toHaveBeenCalledWith(h.defaultSession, expect.any(Function))
+    const clipboardFor = h.guard.mock.calls.at(-1)![1] as (url: string) => boolean
+    expect(clipboardFor('http://localhost:5173/')).toBe(true)
+    expect(clipboardFor('https://evil.example/')).toBe(false)
     expect(h.core.server.start).toHaveBeenCalled()
     // the browser's web views live in this window
     expect(h.createHost).toHaveBeenCalledWith(win, expect.objectContaining({ events: true }))

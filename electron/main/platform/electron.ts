@@ -1,7 +1,8 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, nativeTheme, safeStorage, session, shell } from 'electron'
 import { homedir } from 'node:os'
 import type { Cipher } from '../services/ai/SecretStore'
 import { fileClipboard } from './fileClipboard'
+import { guardSession } from './sessionGuard'
 import { desktopTrash } from './trash'
 import type { Platform } from './types'
 
@@ -45,6 +46,8 @@ export const electronPlatform: Platform = {
   restorableTrash: desktopTrash({ platform: process.platform, env: process.env, home: homedir(), trashItem: osTrash }),
   fileClipboard: fileClipboard(clipboard, (data) => new ClipboardItem(data), process.platform),
   openRemoteWindow({ title, url, token, deviceId }) {
+    // Another machine's page asks for nothing: no microphone, camera, location, screen — nor this machine's clipboard.
+    guardSession(session.fromPartition(REMOTE_PARTITION), () => false)
     const win = new BrowserWindow({
       width: 1440,
       height: 900,

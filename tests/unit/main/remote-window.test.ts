@@ -5,7 +5,8 @@ const h = vi.hoisted(() => ({
   windows: [] as unknown[],
   openExternal: vi.fn(async () => {}),
   dark: true,
-  failLoad: false
+  failLoad: false,
+  sessions: new Map<string, Record<string, unknown>>()
 }))
 
 vi.mock('electron', async () => {
@@ -49,6 +50,16 @@ vi.mock('electron', async () => {
       }
     },
     safeStorage: { isEncryptionAvailable: () => false },
+    session: {
+      fromPartition: (name: string) => {
+        if (!h.sessions.has(name)) {
+          const ses: Record<string, unknown> = {}
+          for (const k of ['setPermissionRequestHandler', 'setPermissionCheckHandler', 'setDisplayMediaRequestHandler', 'setDevicePermissionHandler']) ses[k] = (fn: unknown) => (ses[k] = fn)
+          h.sessions.set(name, ses)
+        }
+        return h.sessions.get(name)
+      }
+    },
     shell: { openExternal: h.openExternal }
   }
 })
@@ -76,6 +87,12 @@ describe('remote windows', () => {
       webPreferences: { partition: REMOTE_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
     })
     expect(win.opts.webPreferences).not.toHaveProperty('preload')
+    // Its page asks for nothing it gets: no microphone, no camera, not this machine's clipboard.
+    const ses = h.sessions.get(REMOTE_PARTITION)!
+    const check = ses.setPermissionCheckHandler as (c: unknown, p: string, o: string, d: { requestingUrl: string; isMainFrame: boolean }) => boolean
+    expect(check(null, 'clipboard-read', 'http://127.0.0.1:5000', { requestingUrl: 'http://127.0.0.1:5000/', isMainFrame: true })).toBe(false)
+    expect(check(null, 'media', 'http://127.0.0.1:5000', { requestingUrl: 'http://127.0.0.1:5000/', isMainFrame: true })).toBe(false)
+    expect(check(null, 'clipboard-sanitized-write', 'http://127.0.0.1:5000', { requestingUrl: 'http://127.0.0.1:5000/', isMainFrame: true })).toBe(true)
     await new Promise((r) => setTimeout(r, 0))
     expect(win.loaded).toEqual(['http://127.0.0.1:5000/api/health', 'http://127.0.0.1:5000'])
     expect(win.scripts[0]).toBe(`localStorage.setItem('mindeck.token', "tok"); localStorage.setItem('mindeck.deviceId', "dev")`)

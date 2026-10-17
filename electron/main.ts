@@ -1,4 +1,4 @@
-import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, protocol, shell, Tray } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, protocol, session, shell, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { release, type } from 'node:os'
@@ -17,6 +17,7 @@ import { createBrowserHost } from './main/platform/browser/host'
 import { isFullScreenKey } from './main/platform/browser/shortcuts'
 import { FILE_SCHEME, serveFile } from './main/platform/fileProtocol'
 import { appMenuTemplate } from './main/platform/menu'
+import { guardSession } from './main/platform/sessionGuard'
 
 /** A 1×1 picture for drags whose file has no icon. */
 const DRAG_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
@@ -329,6 +330,8 @@ async function startCore(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (!primary) return
+  // Mindeck's page gets full screen and the clipboard (Paste reads it) — no microphone, camera, location or screen.
+  guardSession(session.defaultSession, isAppUrl)
   protocol.handle(FILE_SCHEME, (request) =>
     serveFile(request, {
       thumbnail: async (path, size) => {
