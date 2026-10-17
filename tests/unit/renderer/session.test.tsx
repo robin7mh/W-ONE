@@ -331,6 +331,43 @@ describe('session store', () => {
     await useSession.getState().logout() // nothing to revoke
   })
 
+  it('"stay paired" off: the token lives only as long as the tab (sessionStorage)', async () => {
+    sessionStorage.clear()
+    withFetch(sessionFetch())
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me', false)).toBe(true)
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
+    expect(sessionStorage.getItem('mindeck.token')).toBe('tok')
+    expect(sessionStorage.getItem('mindeck.deviceId')).toBe('dev1')
+    // a reload of the tab still finds it
+    useSession.setState(initialSession, true)
+    await useSession.getState().init()
+    expect(useSession.getState().status).toBe('ready')
+    // pairing again with "stay paired" moves it over
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me')).toBe(true)
+    expect(sessionStorage.getItem('mindeck.token')).toBeNull()
+    expect(localStorage.getItem('mindeck.token')).toBe('tok')
+    await useSession.getState().logout()
+    expect(sessionStorage.length + localStorage.length).toBe(0)
+  })
+
+  it('signing out forgets prompts, drafts, recent files and layouts — theme and language stay', async () => {
+    sessionStorage.clear()
+    withFetch(sessionFetch())
+    expect(await useSession.getState().pair('ABCD-EFGH', 'Me')).toBe(true)
+    const kept = { 'mindeck.theme': 'light', 'mindeck.appearance': '{}', 'mindeck.locale': 'de', 'other.app': 'x' }
+    for (const [k, v] of Object.entries({ ...kept, 'mindeck.agents.history': '["secret token sk-1"]', 'mindeck.agents.draft.s1': '{}', 'mindeck.recentFiles': '[]', 'mindeck.editor.layouts': '{}' })) localStorage.setItem(k, v)
+    sessionStorage.setItem('mindeck.debug', 'x')
+    await useSession.getState().logout()
+    expect(Object.fromEntries(Object.entries(localStorage))).toEqual(kept)
+    expect(sessionStorage.length).toBe(0)
+    // Storage that refuses: signing out still completes.
+    vi.spyOn(Storage.prototype, 'key').mockImplementation(() => {
+      throw new Error('denied')
+    })
+    await useSession.getState().logout()
+    expect(useSession.getState().status).toBe('unpaired')
+  })
+
   it('a rejected token resets to pairing; an unreachable core is reported', async () => {
     localStorage.setItem('mindeck.token', 'old')
     withFetch(sessionFetch({ info: 401 }))
@@ -396,9 +433,16 @@ describe('SessionGate and pairing screens', () => {
     expect(screen.getByText('Pairing code is invalid or expired')).toBeInTheDocument()
 
     withFetch(sessionFetch())
+    const remember = screen.getByRole('checkbox', { name: /Stay paired on this browser/ })
+    expect(remember).toBeChecked()
+    fireEvent.click(remember)
+    sessionStorage.clear()
     fireEvent.click(pairButton)
     await act(settle)
     expect(screen.getByText('APP')).toBeInTheDocument()
+    expect(sessionStorage.getItem('mindeck.token')).toBe('tok')
+    expect(localStorage.getItem('mindeck.token')).toBeNull()
+    sessionStorage.clear()
   })
 
   it('unreachable core offers a retry', async () => {

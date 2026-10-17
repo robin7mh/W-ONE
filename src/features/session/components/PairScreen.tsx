@@ -110,6 +110,7 @@ export function PairScreen() {
   const [link] = useState(linkFromHash)
   const [code, setCode] = useState(link.code)
   const [name, setName] = useState(() => defaultDeviceName())
+  const [remember, setRemember] = useState(true)
   const [busy, setBusy] = useState(false)
   const complete = code.replace('-', '').length === 8
 
@@ -117,7 +118,7 @@ export function PairScreen() {
     e.preventDefault()
     if (!complete || busy) return
     setBusy(true)
-    const ok = await pair(code, name)
+    const ok = await pair(code, name, remember)
     if (!ok) setBusy(false)
   }
 
@@ -152,6 +153,13 @@ export function PairScreen() {
               onChange={(e) => setName(e.target.value)}
               className="rounded-md border border-hud/70 bg-surface/70 px-3 py-1.5 font-sans text-[13px] text-text-primary outline-none focus:border-cyan/60"
             />
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-0.5 accent-cyan" />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-sans text-[12.5px] text-text-primary">{t.pair.remember}</span>
+              <span className="font-sans text-[11.5px] text-text-muted">{t.pair.rememberHint}</span>
+            </span>
           </label>
           {link.fingerprint && <CertificateCheck fingerprint={link.fingerprint} />}
           {error && <p className="font-mono text-[11px] text-danger">{error}</p>}
