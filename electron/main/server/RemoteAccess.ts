@@ -108,6 +108,8 @@ export class RemoteAccess {
   async check(channel: IpcChannel, payload: unknown): Promise<void> {
     const p = (payload ?? {}) as Record<string, unknown>
     if (channel === 'projects:add' || channel === 'memory:setVault') await this.folder(String(p.path))
+    // projects:remove / refresh / pull name their project as `id`.
+    if (channel.startsWith('projects:') && typeof p.id === 'string') await this.project(p.id)
     if (typeof p.projectId === 'string') {
       await this.project(p.projectId)
       await this.files(filePaths(p), p.projectId)

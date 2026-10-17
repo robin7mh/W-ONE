@@ -178,6 +178,13 @@ describe('RemoteAccess · projects and files', () => {
     await expect(m.access.check('files:list', { projectId: 'desk', dir: '.git' })).rejects.toThrow('.git is off-limits')
     await expect(m.access.check('files:read', { projectId: 'home', path: 'notes.txt' })).rejects.toThrow('the home folder')
     await expect(m.access.check('agents:diff', { id: 's', path: 'secrets/prod.pem' })).rejects.toThrow('prod.pem')
+    // Project channels that name their project as `id` (BE-SEC-07).
+    for (const channel of ['projects:remove', 'projects:refresh', 'projects:pull'] as const) {
+      await m.access.check(channel, { id: 'desk' })
+      await expect(m.access.check(channel, { id: 'home' }), channel).rejects.toThrow('the home folder')
+      await expect(m.access.check(channel, { id: 'remote-out' }), channel).rejects.toThrow('not in a folder shared')
+    }
+    await m.access.check('agents:get', { id: 'home' }) // an id that is no project's
     await m.access.check('memory:read', { path: '.env.md' }) // a vault note: no project, no file rule
     await m.access.check('app:info', undefined)
   })
