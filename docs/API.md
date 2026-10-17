@@ -63,8 +63,16 @@ on the pairing page and asks to compare it with the one in the browser's certifi
 Settings → Remote access shows it too (`AB:CD:…`), as does the server's pairing banner. Over HTTPS
 the core answers `POST /api/pair` with the same `fingerprint`. A native client compares the
 certificate of its first connection with `fp` from the QR code (refuses on a mismatch), then pins
-it. `server:status` reports `tls: { fingerprint, expiresAt, selfSigned }` while the core speaks
-HTTPS; `server:createPairingCode` returns `fingerprint`.
+it. `server:status` reports `tls: { fingerprint, spkiFingerprint, expiresAt, selfSigned }` while the
+core speaks HTTPS; `server:createPairingCode` returns `fingerprint` and `spkiFingerprint`.
+
+**Pin the public key, not the certificate.** The core renews its self-signed certificate a month
+before it ends and whenever the computer gets an address it does not cover (another Wi-Fi) — always
+on the same key. `fingerprint` (the certificate's SHA-256) changes then; `spkiFingerprint` (SHA-256
+of the DER SubjectPublicKeyInfo, `AB:CD:…`) does not. The QR code carries it as `&pk=<64 hex
+digits>` next to `&fp=`, `POST /api/pair` answers it next to `fingerprint`. A client that pins
+`spkiFingerprint` keeps working across renewals; `fingerprint` stays for clients that pin the
+certificate (they need to pair again after a renewal).
 
 Headers over HTTPS: the usual `nosniff`, `no-referrer`, `DENY` framing and CSP; `Strict-Transport-
 Security` only with an own certificate from an authority — with a self-signed one HSTS would turn
@@ -80,11 +88,12 @@ a reverse proxy, or switch *Encrypted (HTTPS)* off on a network you trust.
 
 1. On a device that is already trusted: Settings → *Pair a device*. It shows a code like
    `K7QM-2XPA` (valid 10 minutes, one use) and a QR code with `http(s)://<core>/#pair=K7QM-2XPA`
-   (over HTTPS also `&fp=<sha256>`, the certificate's fingerprint — see *Encryption*).
+   (over HTTPS also `&fp=<sha256>`, the certificate's fingerprint, and `&pk=<sha256>`, its public
+   key's — see *Encryption*).
    Headless: `npm run server:pair` or `npm run docker:pair` (append `-- --admin` for an admin
    device). The standalone server also prints a code at startup as long as no device is paired.
 2. The app reads the URL from the QR code (`parsePairingLink` in `transport.ts` → `{ baseUrl, code,
-   fingerprint? }`), or the user types the address and the code. With a `fingerprint`, check the
+   fingerprint?, spkiFingerprint? }`), or the user types the address and the code. With a `fingerprint`, check the
    certificate of the first connection against it before sending the code.
 3. Redeem the code:
 
@@ -96,10 +105,10 @@ Content-Type: application/json
 ```
 
 ```json
-{ "ok": true, "data": { "token": "mindeck_…", "device": { "id": "…", "name": "Pixel 9", "role": "member", "createdAt": "…" }, "fingerprint": "AB:CD:…" } }
+{ "ok": true, "data": { "token": "mindeck_…", "device": { "id": "…", "name": "Pixel 9", "role": "member", "createdAt": "…" }, "fingerprint": "AB:CD:…", "spkiFingerprint": "EF:01:…" } }
 ```
 
-(`fingerprint` only over HTTPS: the certificate to pin.)
+(`fingerprint` and `spkiFingerprint` only over HTTPS: the certificate and its public key to pin.)
 
 Every device has a **role**, set by the code it redeemed:
 

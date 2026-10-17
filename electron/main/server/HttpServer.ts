@@ -83,6 +83,8 @@ export interface HttpServerOptions {
   allowedHosts?: string[]
   /** The machine's name (tests pass their own). */
   hostname?: () => string
+  /** How long one scope check may take, and how many events may wait for theirs (defaults below; tests shorten them). */
+  outbox?: { timeoutMs?: number; max?: number }
 }
 
 /** `MINDECK_ALLOWED_HOSTS=mindeck.example.com,.ts.net` → the names, trimmed. */
@@ -91,6 +93,18 @@ export function allowedHostsFromEnv(env: NodeJS.ProcessEnv = process.env): strin
     .split(',')
     .map((h) => h.trim())
     .filter(Boolean)
+}
+
+/** A scope check slower than this (a hung network share it resolves) is given up: that event is dropped, the next ones go on. */
+const SCOPE_TIMEOUT_MS = 2000
+/** Events waiting for their check at most — beyond that new ones are dropped until the queue drains (a `system:tick` every 1.5 s piles up). */
+const OUTBOX_MAX = 500
+
+/** `work`, or a rejection once `ms` have passed without its answer. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)))
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
 }
 
 /** Events meant for one device only (`device`): search results and inline edits are its own. */
@@ -268,6 +282,9 @@ export class HttpServer {
   private heartbeat?: NodeJS.Timeout
   /** Scoped events leave in the order they came (a slow check never lets a later one overtake). */
   private outbox: Promise<void> = Promise.resolve()
+  /** Events in the outbox now; while it is full, new ones are dropped (said once). */
+  private queued = 0
+  private dropping = false
   private unsubscribe?: () => void
 
   constructor(private readonly opts: HttpServerOptions) {}
@@ -429,9 +446,9 @@ export class HttpServer {
     try {
       const result = await this.opts.auth.pair(String(body?.code ?? ''), String(body?.name ?? ''))
       this.pairFailures.delete(key)
-      // Over HTTPS the device learns the certificate to pin from here on.
-      const fingerprint = encrypted(req) ? this.tls?.fingerprint : undefined
-      send(res, 200, { ok: true, data: fingerprint ? { ...result, fingerprint } : result })
+      // Over HTTPS the device learns the certificate (and its key, which outlives a renewal) to pin from here on.
+      const tls = encrypted(req) ? this.tls : undefined
+      send(res, 200, { ok: true, data: tls ? { ...result, fingerprint: tls.fingerprint, spkiFingerprint: tls.spkiFingerprint } : result })
     } catch (err) {
       // Kept in order of the last failure; past the limit the oldest address is forgotten.
       this.pairFailures.delete(key)
@@ -510,13 +527,23 @@ export class HttpServer {
     if (TERMINAL_EVENTS.includes(channel) && !this.opts.remoteTerminal()) return
     const scope = this.opts.scope
     if (!scope) return this.deliver(channel, payload)
+    const max = this.opts.outbox?.max ?? OUTBOX_MAX
+    if (this.queued >= max) {
+      if (!this.dropping) console.warn(`[server] ${max} events wait for their check — dropping new ones until those are through`)
+      this.dropping = true
+      return
+    }
+    this.queued += 1
     this.outbox = this.outbox.then(async () => {
       try {
-        const shown = await scope(channel, payload)
+        const shown = await withTimeout(scope(channel, payload), this.opts.outbox?.timeoutMs ?? SCOPE_TIMEOUT_MS)
         if (shown !== null) this.deliver(channel, shown)
       } catch (err) {
-        // What can't be checked is not sent.
+        // What can't be checked (in time) is not sent.
         console.error(`[server] not sending ${channel}:`, err)
+      } finally {
+        this.queued -= 1
+        if (!this.queued) this.dropping = false
       }
     })
   }

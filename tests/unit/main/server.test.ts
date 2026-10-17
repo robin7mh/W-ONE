@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { connect, createServer, type Server as NetServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -154,6 +154,43 @@ describe('AuthService', () => {
     expect((await auth.pair(fresh.code, 'phone')).device.name).toBe('phone')
   })
 
+  it('a code from a second process survives the running core’s own writes (lastSeen, roles, revoking)', async () => {
+    let now = 1_000_000
+    const { auth, file } = await setup(() => now)
+    const phone = await auth.pair((await auth.createPairingCode()).code, 'phone')
+    const laptop = await auth.pair((await auth.createPairingCode()).code, 'laptop')
+    expect(await auth.verify(phone.token)).not.toBeNull() // the running core has the file in memory now
+    // `mindeck pair` / `docker:pair`: another process writes a code into the file.
+    const cli = new AuthService(file, () => now)
+    const first = await cli.createPairingCode()
+    const second = await cli.createPairingCode()
+    const third = await cli.createPairingCode()
+    // The paired phone checks in a minute later: lastSeen is written — on top of the file as it is now.
+    now += 61_000
+    await auth.verify(phone.token)
+    expect(JSON.parse(await readFile(file, 'utf8')).codes).toHaveLength(3)
+    expect((await auth.pair(first.code, 'tablet')).device.name).toBe('tablet')
+    await auth.setRole(phone.device.id, 'admin')
+    expect((await auth.pair(second.code, 'tv')).device.name).toBe('tv')
+    await auth.revoke(laptop.device.id)
+    expect((await auth.pair(third.code, 'watch')).device.name).toBe('watch')
+    expect((await auth.devices()).map((d) => d.name)).toEqual(['phone', 'tablet', 'tv', 'watch'])
+  })
+
+  it.skipIf(process.platform === 'win32')('a file that can’t be read right now is an error — never read as empty and written over', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const dir = await tempDir()
+    const file = join(dir, 'devices.json')
+    // A link onto itself: every read fails (ELOOP), like EACCES or EIO would.
+    await symlink(file, file)
+    const auth = new AuthService(file, Date.now, true)
+    await expect(auth.hasDevices()).rejects.toMatchObject({ code: 'ELOOP' })
+    await expect(auth.verify('mindeck_x')).rejects.toMatchObject({ code: 'ELOOP' })
+    await expect(auth.createPairingCode()).rejects.toMatchObject({ code: 'ELOOP' })
+    expect((await lstat(file)).isSymbolicLink()).toBe(true) // nothing was written over it
+    expect(warn.mock.calls.at(-1)![0]).toMatch(/cannot read .*devices\.json/)
+  })
+
   it('treats a corrupt file as empty and keeps working after a failed write', async () => {
     const dir = await tempDir()
     const file = join(dir, 'devices.json')
@@ -218,7 +255,16 @@ describe('EventHub', () => {
 
 // --- HTTP + WebSocket ------------------------------------------------------
 
-async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onClients?: (n: number) => void; scope?: (channel: string, payload: unknown) => Promise<unknown>; allowedHosts?: string[] } = {}) {
+async function startHttp(
+  opts: {
+    webRoot?: string
+    remoteTerminal?: boolean
+    onClients?: (n: number) => void
+    scope?: (channel: string, payload: unknown) => Promise<unknown>
+    allowedHosts?: string[]
+    outbox?: { timeoutMs?: number; max?: number }
+  } = {}
+) {
   const dir = await tempDir()
   const auth = new AuthService(join(dir, 'devices.json'))
   const hub = new EventHub()
@@ -238,7 +284,8 @@ async function startHttp(opts: { webRoot?: string; remoteTerminal?: boolean; onC
     onClients: opts.onClients,
     scope: opts.scope,
     allowedHosts: opts.allowedHosts,
-    hostname: () => 'Studio-Mac'
+    hostname: () => 'Studio-Mac',
+    outbox: opts.outbox
   })
   await http.listen('127.0.0.1', 0)
   servers.push(http)
@@ -524,6 +571,32 @@ describe('HttpServer — events socket', () => {
     error.mockRestore()
   })
 
+  it('a check that hangs (a network share gone) holds nothing up: that event is dropped; a full outbox drops new ones until it drains', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let hang = true
+    const scope = vi.fn((channel: string, payload: unknown) => (channel === 'tests:changed' && hang ? new Promise<unknown>(() => {}) : Promise.resolve(payload)))
+    const { hub, base, token } = await startHttp({ scope, outbox: { timeoutMs: 40, max: 3 } })
+    const { messages } = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
+    await tick(20)
+    hub.publish('tests:changed', { projectId: 'on-a-dead-mount' } as never)
+    hub.publish('memory:changed', { paths: ['a.md'] })
+    hub.publish('memory:changed', { paths: ['b.md'] })
+    hub.publish('memory:changed', { paths: ['dropped.md'] }) // the outbox holds 3
+    hub.publish('memory:changed', { paths: ['dropped-too.md'] })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatch(/3 events wait for their check — dropping new ones/)
+    await vi.waitFor(() => expect(messages.length).toBe(3))
+    expect(messages.slice(1).map((m) => (m as { payload: { paths: string[] } }).payload.paths[0])).toEqual(['a.md', 'b.md'])
+    expect(error).toHaveBeenCalledWith('[server] not sending tests:changed:', expect.objectContaining({ message: 'no answer within 40 ms' }))
+    // Drained: events flow again, and a full outbox would be said again.
+    hang = false
+    hub.publish('memory:changed', { paths: ['c.md'] })
+    await vi.waitFor(() => expect(messages.length).toBe(4))
+    error.mockRestore()
+    warn.mockRestore()
+  })
+
   it('heartbeat drops dead clients; closed sockets are skipped; close() is idempotent', async () => {
     const { http, hub, base, token } = await startHttp()
     const { ws } = await openSocket(`${base.replace('http', 'ws')}/api/events`, eventsProtocols(token))
@@ -615,7 +688,8 @@ describe('ServerController', () => {
     expect(status.running).toBe(true)
     // The desktop itself keeps plain HTTP on loopback; the network gets HTTPS.
     expect(status.urls).toEqual(['http://127.0.0.1:7420', 'https://192.168.1.5:7420'])
-    expect(status.tls).toEqual({ fingerprint: expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/), expiresAt: expect.any(String), selfSigned: true })
+    const sha256 = expect.stringMatching(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
+    expect(status.tls).toEqual({ fingerprint: sha256, spkiFingerprint: sha256, expiresAt: expect.any(String), selfSigned: true })
     expect(created[0].listen).toHaveBeenCalledWith('0.0.0.0', 7420, expect.objectContaining({ fingerprint: status.tls!.fingerprint, cert: expect.stringContaining('BEGIN CERTIFICATE') }))
     expect(settings.get().server).toMatchObject({ enabled: true, lan: true })
     await controller.start() // already running
@@ -628,7 +702,7 @@ describe('ServerController', () => {
     expect(created).toHaveLength(1)
 
     const code = await controller.createPairingCode()
-    expect(code).toMatchObject({ role: 'member', fingerprint: status.tls!.fingerprint })
+    expect(code).toMatchObject({ role: 'member', fingerprint: status.tls!.fingerprint, spkiFingerprint: status.tls!.spkiFingerprint })
     expect(code.urls).toHaveLength(2)
     const paired = await deps.auth.pair(code.code, 'p')
     expect(await controller.devices()).toHaveLength(1)
@@ -643,6 +717,7 @@ describe('ServerController', () => {
     expect(created[1].listen).toHaveBeenCalledWith('127.0.0.1', 7420, undefined) // this computer only: no TLS
     expect(controller.status().tls).toBeUndefined()
     expect((await controller.createPairingCode()).fingerprint).toBeUndefined()
+    expect((await controller.createPairingCode()).spkiFingerprint).toBeUndefined()
     await controller.stop()
     await controller.stop()
     await controller.revoke('nobody') // no server running

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Device, DeviceRole, PairResult } from '@shared/types/server'
-import { readJson } from '../../lib/jsonFile'
+import { readJsonOrThrow } from '../../lib/jsonFile'
 
 interface DeviceRecord extends Device {
   tokenHash: string
@@ -37,8 +37,9 @@ function coded(code: string, message: string): Error {
 /**
  * Who may use the network API. A device pairs once with a short-lived
  * one-time code and receives a random bearer token; only the token's SHA-256
- * is stored (devices.json, mode 0600). Codes are stored hashed too, and the
- * file is re-read when pairing, so `mindeck pair` from a second process works.
+ * is stored (devices.json, mode 0600). Codes are stored hashed too, and every
+ * change re-reads the file first, so a code `mindeck pair` (a second process)
+ * wrote is never written over by the running core.
  *
  * Every device has a role, set by the code it redeemed. A headless core has
  * no desktop to hand out roles: its first device is admin, and so are devices
@@ -60,7 +61,7 @@ export class AuthService {
   async createPairingCode(role: DeviceRole = 'member'): Promise<{ code: string; role: DeviceRole; expiresAt: string }> {
     const raw = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('')
     const expiresAt = new Date(this.now() + CODE_TTL_MS).toISOString()
-    await this.mutate(true, (s) => {
+    await this.mutate((s) => {
       s.codes = [...s.codes, { hash: sha256(raw), expiresAt, role }].slice(-MAX_CODES)
     })
     return { code: `${raw.slice(0, 4)}-${raw.slice(4)}`, role, expiresAt }
@@ -78,7 +79,7 @@ export class AuthService {
       tokenHash: sha256(token)
     }
     let matched = false
-    await this.mutate(true, (s) => {
+    await this.mutate((s) => {
       const now = this.now()
       const i = s.codes.findIndex((c) => c.hash === hash && Date.parse(c.expiresAt) > now)
       if (i < 0) return
@@ -106,7 +107,7 @@ export class AuthService {
     device.lastSeenAt = new Date(now).toISOString()
     if (now - (this.persistedSeen.get(device.id) ?? 0) >= SEEN_PERSIST_MS) {
       this.persistedSeen.set(device.id, now)
-      await this.mutate(false, () => {})
+      await this.mutate(() => {})
     }
     return publicDevice(device)
   }
@@ -118,7 +119,7 @@ export class AuthService {
   /** Give a device another role; answers the updated list. */
   async setRole(id: string, role: DeviceRole): Promise<Device[]> {
     let found = false
-    await this.mutate(false, (s) => {
+    await this.mutate((s) => {
       const device = s.devices.find((d) => d.id === id)
       if (!device) return
       device.role = role
@@ -129,7 +130,7 @@ export class AuthService {
   }
 
   async revoke(id: string): Promise<void> {
-    await this.mutate(false, (s) => {
+    await this.mutate((s) => {
       s.devices = s.devices.filter((d) => d.id !== id)
     })
   }
@@ -142,8 +143,9 @@ export class AuthService {
 
   private async load(fresh = false): Promise<Store> {
     if (this.store && !fresh) return this.store
-    // Missing or damaged → empty (a damaged file is set aside, see readJson).
-    const parsed: Partial<Store> = (await readJson<Partial<Store> | null>(this.file)) ?? {}
+    // Missing or damaged → empty (a damaged file is set aside, see readJson). One that can't be
+    // read right now (EACCES, EIO) throws: starting empty would unpair every device on the next save.
+    const parsed: Partial<Store> = (await readJsonOrThrow<Partial<Store> | null>(this.file)) ?? {}
     const store: Store = {
       devices: Array.isArray(parsed.devices) ? parsed.devices : [],
       codes: Array.isArray(parsed.codes) ? parsed.codes : []
@@ -158,10 +160,13 @@ export class AuthService {
     return store
   }
 
-  /** Serialized read-modify-write; expired codes are pruned on every write. */
-  private mutate(fresh: boolean, fn: (s: Store) => void): Promise<void> {
+  /**
+   * Serialized read-modify-write on what the file holds now (another process may have added a
+   * code since); expired codes are pruned on every write.
+   */
+  private mutate(fn: (s: Store) => void): Promise<void> {
     const run = this.writing.then(async () => {
-      const store = await this.load(fresh)
+      const store = await this.load(true)
       fn(store)
       const now = this.now()
       store.codes = store.codes.filter((c) => Date.parse(c.expiresAt) > now)

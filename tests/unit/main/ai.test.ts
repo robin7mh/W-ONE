@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import { chmod, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
@@ -290,6 +290,68 @@ describe('SecretStore', () => {
     expect(await new SecretStore(join(dir, 'bad.json')).get('k')).toBeUndefined()
     await writeFile(join(dir, 'null.json'), '{"secrets":null}')
     expect(await new SecretStore(join(dir, 'null.json')).get('k')).toBeUndefined()
+  })
+
+  it('changes at the same time all land (none builds on a stale copy); a failed one doesn’t stop the next', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'secrets.json')
+    const store = new SecretStore(file)
+    // e.g. the cloud heartbeat saves its certificate while the user saves a Mongo connection and a key
+    await Promise.all([store.set('offline', 'cert'), store.set('mongo', 'uri'), store.set('ai', 'sk-1')])
+    expect(JSON.parse(await readFile(file, 'utf8')).secrets).toEqual({ offline: 'cert', mongo: 'uri', ai: 'sk-1' })
+    await Promise.all([store.set('mongo', null), store.set('remote', 'tok')])
+    const again = new SecretStore(file)
+    expect(await Promise.all(['offline', 'mongo', 'ai', 'remote'].map((k) => again.get(k)))).toEqual(['cert', undefined, 'sk-1', 'tok'])
+
+    const blocked = new SecretStore(join(dir, 'missing-dir', 'x', 'secrets.json'))
+    await writeFile(join(dir, 'missing-dir'), '') // a file where its folder would be: writing fails
+    await expect(blocked.set('a', '1')).rejects.toThrow()
+    await rm(join(dir, 'missing-dir'))
+    await blocked.set('b', '2')
+    expect(await blocked.get('b')).toBe('2')
+    expect(await blocked.get('a')).toBeUndefined()
+  })
+
+  it('values encrypted by a keychain that is gone stay locked: never handed out, never mixed with plain ones', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'secrets.json')
+    const cipher = { encrypt: (p: string) => `enc:${p}`, decrypt: (s: string) => s.replace(/^enc:/, '') }
+    await new SecretStore(file, cipher).set('ai', 'sk-1')
+    const before = await readFile(file, 'utf8')
+    // e.g. Linux with the keyring locked: no cipher this time
+    const locked = new SecretStore(file)
+    expect(await locked.get('ai')).toBeUndefined() // not the cipher text as if it were the key
+    await expect(locked.set('mongo', 'uri')).rejects.toMatchObject({ code: 'secrets-locked' })
+    expect(await readFile(file, 'utf8')).toBe(before)
+    // The keychain is back: all there.
+    expect(await new SecretStore(file, cipher).get('ai')).toBe('sk-1')
+  })
+
+  it('plain values from a start without keychain are read, and encrypted with the next save', async () => {
+    const dir = await tempDir()
+    const file = join(dir, 'secrets.json')
+    const cipher = { encrypt: (p: string) => `enc:${p}`, decrypt: (s: string) => s.replace(/^enc:/, '') }
+    await new SecretStore(file).set('ai', 'sk-1')
+    const store = new SecretStore(file, cipher)
+    expect(await store.get('ai')).toBe('sk-1')
+    await store.set('mongo', 'uri')
+    expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({ encrypted: true, secrets: { ai: 'enc:sk-1', mongo: 'enc:uri' } })
+    expect(await new SecretStore(file, cipher).get('ai')).toBe('sk-1')
+    // A file from before the flag: encrypted when this machine encrypts.
+    await writeFile(join(dir, 'old.json'), JSON.stringify({ secrets: { ai: 'enc:sk-2' } }))
+    expect(await new SecretStore(join(dir, 'old.json'), cipher).get('ai')).toBe('sk-2')
+    expect(await new SecretStore(join(dir, 'old.json')).get('ai')).toBe('enc:sk-2')
+  })
+
+  it.skipIf(process.platform === 'win32')('a file that can’t be read right now: nothing to give, and it is not written over', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const dir = await tempDir()
+    const file = join(dir, 'secrets.json')
+    await symlink(file, file) // every read fails (ELOOP), like EACCES or EIO would
+    const store = new SecretStore(file)
+    expect(await store.get('ai')).toBeUndefined()
+    await expect(store.set('ai', 'sk-1')).rejects.toMatchObject({ code: 'ELOOP' })
+    expect((await lstat(file)).isSymbolicLink()).toBe(true)
   })
 })
 

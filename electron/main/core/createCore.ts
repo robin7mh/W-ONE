@@ -29,7 +29,7 @@ import { MongoService } from '../services/mongo/MongoService'
 import { SyncService } from '../services/cloud/SyncService'
 import { registerRemoteIpc } from '../../ipc/remote.ipc'
 import { RemoteService } from '../services/remote/RemoteService'
-import { bundleSource } from '../services/remote/bundle'
+import { bakedBundleHashes, bundleSource } from '../services/remote/bundle'
 import { registerLintIpc } from '../../ipc/lint.ipc'
 import { bundledPrettier, LintService } from '../services/lint/LintService'
 import { registerNotebookIpc } from '../../ipc/notebook.ipc'
@@ -489,7 +489,7 @@ export async function createCore(opts: CoreOptions): Promise<Core> {
     version: opts.version,
     licensed: cloudCfg.enforced,
     deviceName: hostname(),
-    bundle: bundleSource({ version: opts.version, dir: join(paths.dataDir, 'remote'), devDir: join(__dirname, '..', 'remote') }),
+    bundle: bundleSource({ version: opts.version, dir: join(paths.dataDir, 'remote'), devDir: join(__dirname, '..', 'remote'), sha256: bakedBundleHashes() }),
     secrets,
     entitlement: cloud.entitlement.bind(cloud),
     openWindow: opts.platform.openRemoteWindow,

@@ -220,6 +220,7 @@ describe('cloud config', () => {
   afterEach(() => {
     delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_URL__
     delete (globalThis as Record<string, unknown>).__MINDECK_CLOUD_KEY__
+    delete (globalThis as Record<string, unknown>).__MINDECK_FOLLOWER__
   })
 
   it('reads the values baked in at build time', () => {
@@ -227,6 +228,10 @@ describe('cloud config', () => {
     Object.assign(globalThis, { __MINDECK_CLOUD_URL__: '', __MINDECK_CLOUD_KEY__: '' })
     expect(bakedCloud()).toEqual({ url: undefined, key: undefined })
     Object.assign(globalThis, { __MINDECK_CLOUD_URL__: 'https://api.mindeck.test', __MINDECK_CLOUD_KEY__: 'KEY' })
+    expect(bakedCloud()).toEqual({ url: 'https://api.mindeck.test', key: 'KEY' })
+    Object.assign(globalThis, { __MINDECK_FOLLOWER__: '1' })
+    expect(bakedCloud()).toEqual({ url: 'https://api.mindeck.test', key: 'KEY', follower: true })
+    Object.assign(globalThis, { __MINDECK_FOLLOWER__: '' })
     expect(bakedCloud()).toEqual({ url: 'https://api.mindeck.test', key: 'KEY' })
   })
 
@@ -244,18 +249,23 @@ describe('cloud config', () => {
   it('a release is a build with the cloud baked in — and a baked cloud needs its key', () => {
     expect(isReleaseBuild()).toBe(false)
     expect(isReleaseBuild({ url: 'https://api.mindeck.test', key: 'K' })).toBe(true)
-    expect(cloudDefines({})).toEqual({ __MINDECK_CLOUD_URL__: '""', __MINDECK_CLOUD_KEY__: '""' })
+    expect(cloudDefines({})).toEqual({ __MINDECK_CLOUD_URL__: '""', __MINDECK_CLOUD_KEY__: '""', __MINDECK_FOLLOWER__: '""' })
     expect(cloudDefines({ MINDECK_CLOUD_URL: 'https://api.mindeck.test', MINDECK_CLOUD_KEY: 'K' })).toEqual({
       __MINDECK_CLOUD_URL__: '"https://api.mindeck.test"',
-      __MINDECK_CLOUD_KEY__: '"K"'
+      __MINDECK_CLOUD_KEY__: '"K"',
+      __MINDECK_FOLLOWER__: '""'
     })
+    // The server package for Remote-SSH / Dev Containers (remote/Dockerfile).
+    expect(cloudDefines({ MINDECK_FOLLOWER_BUILD: '1' }).__MINDECK_FOLLOWER__).toBe('"1"')
     expect(() => cloudDefines({ MINDECK_CLOUD_URL: 'https://api.mindeck.test' })).toThrow('without MINDECK_CLOUD_KEY')
     expect(cloudDefines()).toHaveProperty('__MINDECK_CLOUD_URL__')
   })
 
-  it('a core the desktop runs elsewhere follows its license (also in release builds)', () => {
+  it('a core the desktop runs elsewhere follows its license — in a release only the server package built for that', () => {
     expect(cloudConfig(false, { MINDECK_LICENSE: 'follower' }, {})).toEqual({ url: DEV_CLOUD_URL, enforced: true, follower: true })
-    expect(cloudConfig(true, { MINDECK_LICENSE: 'follower' }, { key: 'K' })).toEqual({ url: DEV_CLOUD_URL, publicKey: 'K', enforced: true, follower: true })
+    expect(cloudConfig(true, { MINDECK_LICENSE: 'follower' }, { key: 'K', follower: true })).toEqual({ url: DEV_CLOUD_URL, publicKey: 'K', enforced: true, follower: true })
+    // The desktop app, the Docker image, any other release server: the variable changes nothing — it signs in itself.
+    expect(cloudConfig(true, { MINDECK_LICENSE: 'follower' }, { url: 'https://api.mindeck.test', key: 'K' })).toEqual({ url: 'https://api.mindeck.test', publicKey: 'K', enforced: true })
   })
 })
 
@@ -730,6 +740,19 @@ describe('CloudService', () => {
     expect(follower.svc.status().state).toBe('active')
     follower.advance(120)
     expect(follower.svc.status()).toMatchObject({ allowed: false, state: 'offline' }) // until the desktop hands a fresh one over
+    // Only the desktop's current lease: not one that ran out (copied from a cloud.json), not one the cloud
+    // refused, never a lifetime license's offline certificate (bound to its device, valid for good).
+    await expect(follower.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement', message: expect.stringContaining('not valid') })
+    const now = Math.floor(follower.clock.now / 1000)
+    const claims = { sub: 'u1', email: 'robin@mindeck.test', plan: 'lifetime', active: true, reason: 'ok', rem: 0, dev: 'desktop-1', iat: now, exp: now + 90 }
+    const signed = (over: Record<string, unknown>) => signToken(JSON.stringify({ ...claims, ...over }), leader.cloud.k.privateKey)
+    await expect(follower.svc.adopt(signed({ active: false, reason: 'trial_expired' }), account)).rejects.toMatchObject({ code: 'bad-entitlement' })
+    await expect(follower.svc.adopt(signed({ perpetual: true, exp: now + 100 * 365 * 86_400 }), account)).rejects.toMatchObject({
+      code: 'bad-entitlement',
+      message: expect.stringContaining('offline certificate')
+    })
+    expect(follower.svc.status()).toMatchObject({ allowed: false, state: 'offline' })
+    expect(await follower.svc.adopt(signed({}), account)).toMatchObject({ state: 'active', allowed: true })
     // Without a built-in key it asks the cloud for it (and can't verify without it).
     const keyless = await setup({ follower: true })
     await expect(keyless.svc.adopt(token, account)).rejects.toMatchObject({ code: 'bad-entitlement' }) // its cloud's key isn't the leader's
