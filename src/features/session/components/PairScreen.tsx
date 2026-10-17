@@ -79,7 +79,13 @@ export function linkFromHash(): { code: string; fingerprint: string | null } {
   if (!m) return { code: '', fingerprint: null }
   const fp = normalizeFingerprint(/[#&]fp=([^&]+)/.exec(location.hash)?.[1] ?? '')
   history.replaceState(null, '', location.pathname + location.search)
-  return { code: formatCode(decodeURIComponent(m[1])), fingerprint: fp && formatFingerprint(fp) }
+  let code = ''
+  try {
+    code = formatCode(decodeURIComponent(m[1]))
+  } catch {
+    /* a broken link (`%E0%A4%A`): the form starts empty instead of the app crashing */
+  }
+  return { code, fingerprint: fp && formatFingerprint(fp) }
 }
 
 /**
