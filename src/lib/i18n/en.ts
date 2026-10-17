@@ -543,6 +543,9 @@ agents: {
     allowOnce: 'Allow once',
     allowAlways: 'Always allow',
     deny: 'Deny',
+    showWhole: (execute: boolean, hidden: number) => `${execute ? 'Show the whole command' : 'Show everything'} (+${hidden} characters)`,
+    showLess: 'Show less',
+    invisibleChars: (n: number) => `Contains ${n} invisible or control character${n === 1 ? '' : 's'} — shown as ⟨U+…⟩`,
     // assistant pane
     newChatWith: (name: string) => `New chat · ${name}`,
     assistantName: 'Assistant',
