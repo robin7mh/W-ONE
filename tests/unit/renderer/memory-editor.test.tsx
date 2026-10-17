@@ -155,7 +155,7 @@ describe('NoteList', () => {
   it('inline create: note at root, folder inside a folder; Enter, Escape and blur', () => {
     const p = listProps({ creating: { kind: 'note', parent: '' } })
     const { rerender } = render(<NoteList {...p} />)
-    const input = screen.getByPlaceholderText('Note title…')
+    const input = screen.getByRole('textbox', { name: 'Note title…' })
     expect(input).toHaveFocus()
     expect(input.parentElement!.className).toContain('pl-2')
     fireEvent.change(input, { target: { value: 'Neu' } })
@@ -168,7 +168,7 @@ describe('NoteList', () => {
     expect(p.onSubmitCreate).toHaveBeenCalledTimes(2)
 
     rerender(<NoteList {...p} creating={{ kind: 'folder', parent: 'Leer' }} />)
-    const folderInput = screen.getByPlaceholderText('Folder name…')
+    const folderInput = screen.getByRole('textbox', { name: 'Folder name…' })
     expect(folderInput.parentElement!.className).toContain('pl-7')
     expect(screen.getAllByText('Empty — drop notes here')).toHaveLength(1) // Leer shows the input instead
     fireEvent.blur(folderInput) // blank → cancel

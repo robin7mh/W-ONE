@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { fail, installBridge, installRemote, settle, choose } from './bridge'
 import type { AgentInfo, AiStatus, ChatMessage, Conversation, ConversationSummary, PermissionRequest } from '@shared/types/ai'
 import type { MindeckEvent } from '@shared/types/events'
-import { applyDelta, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
+import { applyDelta, CACHED_CHATS, upsertMessage, useActiveMessages, useAssistant } from '@/features/agents/store'
 import { clock, describeEvent, relativeTime } from '@/features/agents/format'
 import { ActivityTimeline } from '@/features/agents/components/ActivityTimeline'
 import { ApprovalCard } from '@/features/agents/components/ApprovalCard'
@@ -225,6 +225,17 @@ describe('assistant store', () => {
     expect(useAssistant.getState().error).toBe('gone')
     off()
     expect(remote.resyncs.size).toBe(0)
+  })
+
+  it('keeps the messages of the 20 most recently opened chats; older ones load again when opened', async () => {
+    core({ 'ai:conversation': (p: { id: string }) => ({ ...summary(p.id), messages: [msg(`${p.id}-m`)] }) })
+    for (let i = 0; i <= CACHED_CHATS; i += 1) await useAssistant.getState().open(`k${i}`)
+    const cached = Object.keys(useAssistant.getState().messages)
+    expect(cached).toHaveLength(CACHED_CHATS)
+    expect(cached).not.toContain('k0')
+    expect(cached).toContain(`k${CACHED_CHATS}`)
+    await useAssistant.getState().open('k0')
+    expect(useAssistant.getState().messages.k0.map((m) => m.id)).toEqual(['k0-m'])
   })
 
   it('a slow answer for a chat no longer open does not set the project of the next message', async () => {
@@ -467,6 +478,39 @@ describe('ActivityTimeline, ApprovalCard, ApprovalToasts', () => {
 })
 
 describe('ChatThread', () => {
+  it('a streaming answer re-renders its Markdown at most every 100 ms; the finished one at once; a log for screen readers', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    onTestFinished(() => void vi.useRealTimers())
+    const answer = (text: string, status: ChatMessage['status'] = 'streaming') => [msg('a', { status, parts: [{ type: 'text', text }] })]
+    const { rerender, container } = render(<ChatThread messages={answer('one')} pending={[]} onRespond={vi.fn()} />)
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'polite')
+    const prose = () => container.querySelector('.chat-prose')!.textContent!.trim()
+    expect(prose()).toBe('one')
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+    rerender(<ChatThread messages={answer('one two')} pending={[]} onRespond={vi.fn()} />)
+    rerender(<ChatThread messages={answer('one two three')} pending={[]} onRespond={vi.fn()} />)
+    expect(prose()).toBe('one')
+    act(() => vi.advanceTimersByTime(100))
+    expect(prose()).toBe('one two three')
+    rerender(<ChatThread messages={answer('one two three four')} pending={[]} onRespond={vi.fn()} />)
+    expect(prose()).toBe('one two three')
+    rerender(<ChatThread messages={answer('one two three four.', 'done')} pending={[]} onRespond={vi.fn()} />)
+    expect(prose()).toBe('one two three four.')
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull()
+  })
+
+  it('scrolls along as an answer grows — text and tool output alike', () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const tool = (output?: string): ChatMessage[] => [msg('a', { status: 'streaming', parts: [{ type: 'tool', id: 't', name: 'n', title: 'T', risk: 'read', input: {}, status: 'running', ...(output ? { output } : {}) }] })]
+    const { rerender } = render(<ChatThread messages={tool()} pending={[]} onRespond={vi.fn()} />)
+    const before = scrollIntoView.mock.calls.length
+    rerender(<ChatThread messages={tool('lots of output')} pending={[]} onRespond={vi.fn()} />)
+    expect(scrollIntoView.mock.calls.length).toBe(before + 1)
+    rerender(<ChatThread messages={[]} pending={[]} onRespond={vi.fn()} />)
+    expect(scrollIntoView.mock.calls.length).toBe(before + 2)
+  })
+
   it('the trial’s credit used up: no promise of next month', () => {
     useAssistant.setState({ status: status({ source: 'cloud', cloud: { ...CLOUD!, credit: { ...CLOUD!.credit, period: 'trial', renewsAt: null } } }) })
     render(<ChatThread messages={[msg('e', { status: 'error', error: 'x', errorCode: 'ai-credit-exhausted' })]} pending={[]} onRespond={vi.fn()} />)

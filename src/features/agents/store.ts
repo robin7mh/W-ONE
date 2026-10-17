@@ -12,6 +12,8 @@ import type {
 import type { MindeckEvent } from '@shared/types/events'
 
 const ACTIVITY_CAP = 200
+/** Chats whose messages stay in memory (the most recently opened); others load again when opened. */
+export const CACHED_CHATS = 20
 
 /** Streamed text lands in the message's last text part (a new one after a tool) — same rule as the core. */
 export function applyDelta(list: ChatMessage[], messageId: string, text: string): ChatMessage[] {
@@ -82,6 +84,7 @@ interface AssistantState {
 
 let connections = 0
 let unsubscribe: (() => void) | null = null
+let recentChats: string[] = []
 
 export const useAssistant = create<AssistantState>((set, get) => {
   const fail = (err: unknown) => set({ error: errorMessage(err) })
@@ -97,8 +100,11 @@ export const useAssistant = create<AssistantState>((set, get) => {
   /** One conversation from the core, into the cache. */
   const load = async (id: string, liveWins = true) => {
     const conv = await ipc('ai:conversation', { id })
+    recentChats = [id, ...recentChats.filter((x) => x !== id)].slice(0, CACHED_CHATS)
     set((s) => ({
-      messages: { ...s.messages, [id]: merge(conv.messages, s.messages[id], liveWins) },
+      messages: Object.fromEntries(
+        Object.entries({ ...s.messages, [id]: merge(conv.messages, s.messages[id], liveWins) }).filter(([key]) => key === s.activeId || recentChats.includes(key))
+      ),
       running: { ...s.running, [id]: conv.running },
       // A late answer for a chat that is no longer open must not scope the next message to its project.
       ...(s.activeId === id ? { projectId: conv.projectId } : {})

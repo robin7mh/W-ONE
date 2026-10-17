@@ -306,6 +306,7 @@ function CreateInput({
         }}
         onBlur={() => (value.trim() ? onSubmit(value) : onCancel())}
         placeholder={kind === 'note' ? t.memory.noteTitle : t.memory.folderName}
+        aria-label={kind === 'note' ? t.memory.noteTitle : t.memory.folderName}
         spellCheck={false}
         className="min-w-0 flex-1 bg-transparent font-sans text-[12.5px] text-text-primary outline-none placeholder:text-text-muted/70"
       />

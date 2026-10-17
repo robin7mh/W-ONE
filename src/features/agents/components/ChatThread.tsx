@@ -8,6 +8,34 @@ import { useT } from '@/lib/i18n'
 import { useAssistant } from '../store'
 import { ApprovalCard } from './ApprovalCard'
 
+/** While an answer streams, its Markdown renders at most this often (each render parses all of it). */
+export const STREAM_RENDER_MS = 100
+
+/** `value`, but while `on` at most every STREAM_RENDER_MS — the last value always comes through. */
+function useThrottled(value: string, on: boolean): string {
+  const [shown, setShown] = useState(value)
+  const at = useRef(0)
+  useEffect(() => {
+    if (!on) return
+    const show = () => {
+      at.current = Date.now()
+      setShown(value)
+    }
+    const wait = at.current + STREAM_RENDER_MS - Date.now()
+    if (wait <= 0) return show()
+    const timer = window.setTimeout(show, wait)
+    return () => window.clearTimeout(timer)
+  }, [value, on])
+  return on ? shown : value
+}
+
+function Prose({ text, streaming }: { text: string; streaming: boolean }) {
+  return <Markdown text={useThrottled(text, streaming)} className="chat-prose" />
+}
+
+/** What changes as an answer grows — cheap to compute on every render (no JSON of tool outputs). */
+const partSize = (part: ChatMessage['parts'][number] | undefined) => (!part ? '' : part.type === 'text' ? part.text.length : `${part.status}:${part.output?.length ?? 0}`)
+
 const ATTACHMENT_ICON: Record<MessageAttachment['kind'], LucideIcon> = { file: FileText, folder: Folder, note: BookText, tab: Globe, image: Image }
 
 const STATUS_TONE: Record<ToolCallPart['status'], string> = {
@@ -125,10 +153,11 @@ function Message({
   }
   const empty = message.parts.length === 0
   return (
-    <div className="max-w-full">
+    // aria-busy: a screen reader reads the answer once it is complete, not every streamed piece.
+    <div className="max-w-full" aria-busy={message.status === 'streaming'}>
       {message.parts.map((part, i) =>
         part.type === 'text' ? (
-          <Markdown key={i} text={part.text} className="chat-prose" />
+          <Prose key={i} text={part.text} streaming={message.status === 'streaming' && i === message.parts.length - 1} />
         ) : (
           <ToolCard key={part.id} part={part} request={pending.find((p) => p.id === part.requestId)} onRespond={onRespond} />
         )
@@ -175,13 +204,14 @@ export function ChatThread({
   const attached = new Set(messages.flatMap((m) => m.parts.flatMap((p) => (p.type === 'tool' && p.requestId ? [p.requestId] : []))))
   const loose = conversationId ? pending.filter((p) => p.conversationId === conversationId && !attached.has(p.id)) : []
   const last = messages[messages.length - 1]
-  const signature = `${messages.length}:${last?.parts.length ?? 0}:${last?.status ?? ''}:${JSON.stringify(last?.parts.at(-1) ?? '').length}`
+  const signature = `${messages.length}:${last?.parts.length ?? 0}:${last?.status ?? ''}:${partSize(last?.parts.at(-1))}`
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: 'end' })
   }, [signature])
 
   return (
-    <div className="space-y-4 px-4 py-4">
+    // A log: new answers are announced (politely) to screen readers.
+    <div role="log" aria-live="polite" className="space-y-4 px-4 py-4">
       {messages.map((m) => (
         <Message key={m.id} message={m} pending={pending} onRespond={onRespond} />
       ))}
