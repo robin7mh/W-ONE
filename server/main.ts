@@ -20,7 +20,8 @@
 //   Docker image) requires a Mindeck license; otherwise only with
 //   MINDECK_LICENSE=required. Dev: MINDECK_CLOUD_URL at run time.
 //   MINDECK_LICENSE=follower started by the desktop app (Remote-SSH, Dev Container):
-//                         the desktop hands its entitlement over (cloud:adopt)
+//                         the desktop hands its entitlement over (cloud:adopt). In a
+//                         release only the server package (remote/Dockerfile) honours it.
 //   MINDECK_EXIT_WITH_STDIN=1  stop when stdin closes (the desktop's ssh / docker exec ended)
 
 import { delimiter, join } from 'node:path'

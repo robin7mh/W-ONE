@@ -303,12 +303,20 @@ export class CloudService {
     return entitlement && account && this.claims?.active && this.claims.exp * 1000 > this.now() ? { token: entitlement, account } : null
   }
 
-  /** Follower: take the desktop's entitlement over (it must verify with Mindeck Cloud's key). */
+  /**
+   * Follower: take the desktop's entitlement over. It must verify with Mindeck
+   * Cloud's key and be what the desktop hands over — its current lease: active
+   * and not run out (not an old one copied from a cloud.json), and never a
+   * lifetime license's offline certificate, which is bound to the device it
+   * was issued to (`dev`) and would hold here for good.
+   */
   async adopt(token: string, account: CloudAccount): Promise<CloudStatus> {
     if (!this.opts.follower) throw coded('not-follower', 'This core signs in itself')
     if (!this.key) await this.ensureMeta().catch(() => {})
     const claims = this.key ? verifyEntitlement(token, this.key) : null
     if (!claims) throw coded('bad-entitlement', 'This entitlement cannot be verified')
+    if (claims.perpetual) throw coded('bad-entitlement', 'An offline certificate holds only on the device it was issued to')
+    if (!claims.active || claims.exp * 1000 <= this.now()) throw coded('bad-entitlement', 'This entitlement is not valid (any more)')
     this.claims = claims
     this.data = { ...this.data, account, entitlement: token, license: null }
     this.error = null
