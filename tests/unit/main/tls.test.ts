@@ -5,7 +5,7 @@ import type { Socket } from 'node:net'
 import { connect as netConnect } from 'node:net'
 import { connect as tlsConnect, type TLSSocket } from 'node:tls'
 import { join } from 'node:path'
-import { md, pki } from 'node-forge'
+import { generate } from 'selfsigned'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { tempDir, tick } from './helpers'
@@ -30,27 +30,22 @@ const rsa = () =>
   generateKeyPairSync('rsa', { modulusLength: 2048, publicKeyEncoding: { type: 'spki', format: 'pem' }, privateKeyEncoding: { type: 'pkcs8', format: 'pem' } })
 
 /** A certificate signed by a (test) authority — like one from Let's Encrypt. */
-function caSigned(): { cert: string; key: string } {
+async function caSigned(): Promise<{ cert: string; key: string }> {
   const caKeys = rsa()
   const leafKeys = rsa()
-  const make = (publicKey: string, subject: string) => {
-    const cert = pki.createCertificate()
-    cert.publicKey = pki.publicKeyFromPem(publicKey)
-    cert.serialNumber = '01'
-    cert.validity.notBefore = new Date(Date.now() - DAY)
-    cert.validity.notAfter = new Date(Date.now() + 90 * DAY)
-    cert.setSubject([{ name: 'commonName', value: subject }])
-    return cert
-  }
-  const ca = make(caKeys.publicKey, 'Test CA')
-  ca.setIssuer(ca.subject.attributes)
-  ca.setExtensions([{ name: 'basicConstraints', cA: true }, { name: 'keyUsage', keyCertSign: true }])
-  ca.sign(pki.privateKeyFromPem(caKeys.privateKey), md.sha256.create())
-  const leaf = make(leafKeys.publicKey, 'mindeck.example')
-  leaf.setIssuer(ca.subject.attributes)
-  leaf.setExtensions([{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }] }])
-  leaf.sign(pki.privateKeyFromPem(caKeys.privateKey), md.sha256.create())
-  return { cert: pki.certificateToPem(leaf), key: leafKeys.privateKey }
+  const validity = { algorithm: 'sha256', notBeforeDate: new Date(Date.now() - DAY), notAfterDate: new Date(Date.now() + 90 * DAY) }
+  const ca = await generate([{ name: 'commonName', value: 'Test CA' }], {
+    ...validity,
+    keyPair: caKeys,
+    extensions: [{ name: 'basicConstraints', cA: true }, { name: 'keyUsage', keyCertSign: true }]
+  })
+  const leaf = await generate([{ name: 'commonName', value: 'mindeck.example' }], {
+    ...validity,
+    keyPair: leafKeys,
+    ca: { key: caKeys.privateKey, cert: ca.cert },
+    extensions: [{ name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }] }]
+  })
+  return { cert: leaf.cert, key: leafKeys.privateKey }
 }
 
 describe('Certificates — self-signed', () => {
@@ -145,7 +140,7 @@ describe('Certificates — self-signed', () => {
 describe('Certificates — an own certificate from the environment', () => {
   it('is used as it is, checked against its key', async () => {
     const dir = await tempDir()
-    const own = caSigned()
+    const own = await caSigned()
     const files = { cert: join(dir, 'fullchain.pem'), key: join(dir, 'privkey.pem') }
     await writeFile(files.cert, own.cert)
     await writeFile(files.key, own.key)
@@ -313,7 +308,7 @@ describe('HttpServer over TLS', () => {
   })
 
   it('an own certificate from an authority gets HSTS', async () => {
-    const own = caSigned()
+    const own = await caSigned()
     const dir = await tempDir()
     await writeFile(join(dir, 'c.pem'), own.cert)
     await writeFile(join(dir, 'k.pem'), own.key)
